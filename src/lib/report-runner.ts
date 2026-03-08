@@ -11,28 +11,52 @@ export async function runReport(
   reportId: string,
   org:      string,
   days:     number,
+  resume =  false,
 ): Promise<void> {
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
   const log = (msg: string) => { addLog(reportId, msg); console.log(`[${reportId.slice(0,8)}] ${msg}`); };
 
   try {
     await db.execute(
-      `UPDATE reports SET status = 'running' WHERE id = ?`,
+      `UPDATE reports SET status = 'running', error = NULL WHERE id = ?`,
       [reportId],
     );
-    updateProgress(reportId, { status: 'running', step: 'Listing org members…' });
-    log(`Starting report: org=${org}, days=${days}, since=${since.toISOString().split('T')[0]}`);
+    updateProgress(reportId, { status: 'running', step: resume ? 'Resuming…' : 'Listing org members…' });
+    log(`${resume ? 'Resuming' : 'Starting'} report: org=${org}, days=${days}, since=${since.toISOString().split('T')[0]}`);
+
+    // On resume, load already-analyzed commit SHAs from DB
+    let existingAnalyses = new Map<string, CommitAnalysis>();
+    const existingShas = new Set<string>();
+    if (resume) {
+      const [rows] = await db.execute<any[]>(
+        `SELECT commit_sha, complexity, type, impact_summary, risk_level, maybe_ai
+         FROM commit_analyses WHERE report_id = ? AND complexity IS NOT NULL`,
+        [reportId],
+      );
+      for (const row of rows) {
+        existingShas.add(row.commit_sha);
+        existingAnalyses.set(row.commit_sha, {
+          sha:           row.commit_sha,
+          complexity:    row.complexity,
+          type:          row.type,
+          impactSummary: row.impact_summary || '',
+          riskLevel:     row.risk_level || 'low',
+          maybeAi:       Boolean(row.maybe_ai),
+        });
+      }
+      log(`Resume: found ${existingShas.size} already-analyzed commits in DB`);
+    }
 
     // 1. List org members
     const members = await listOrgMembers(org, log);
     updateProgress(reportId, {
-      totalRepos: members.length,  // reusing as "total members"
+      totalRepos: members.length,
       step: `Fetching activity for ${members.length} members…`,
     });
 
     // 2. For each member: search commits + PRs, fetch diffs
     const allCommits: CommitData[] = [];
-    const prCounts = new Map<string, number>(); // login → PR count
+    const prCounts = new Map<string, number>();
     let processedMembers = 0;
 
     for (const member of members) {
@@ -56,7 +80,7 @@ export async function runReport(
       }
     }
 
-    // Deduplicate commits (same SHA can appear if commit is in multiple search results)
+    // Deduplicate commits
     const seen = new Set<string>();
     const uniqueCommits = allCommits.filter((c) => {
       if (seen.has(c.sha)) return false;
@@ -64,45 +88,59 @@ export async function runReport(
       return true;
     });
 
+    // Split into already-done and needs-analysis
+    const needsAnalysis = uniqueCommits.filter((c) => !existingShas.has(c.sha));
+    const skippedCount  = uniqueCommits.length - needsAnalysis.length;
+
     const activeDevs = new Set(uniqueCommits.map((c) => c.author));
     log(`Total: ${uniqueCommits.length} unique commits from ${activeDevs.size} active developers`);
+    if (skippedCount > 0) {
+      log(`Resume: skipping ${skippedCount} already-analyzed commits, ${needsAnalysis.length} remaining`);
+    }
 
     updateProgress(reportId, {
-      totalCommits: uniqueCommits.length,
-      step: `Analyzing ${uniqueCommits.length} commits with LLM (concurrency: ${CONCURRENCY})…`,
+      totalCommits:   uniqueCommits.length,
+      analyzedCommits: skippedCount,
+      step: needsAnalysis.length > 0
+        ? `Analyzing ${needsAnalysis.length} commits with LLM (concurrency: ${CONCURRENCY})…`
+        : 'All commits already analyzed, aggregating…',
     });
 
-    // 3. LLM analysis with concurrency limit
-    log(`Starting LLM analysis: ${uniqueCommits.length} commits, concurrency=${CONCURRENCY}`);
-    const limit     = pLimit(CONCURRENCY);
-    const analyses  = new Map<string, CommitAnalysis>();
-    let   analyzed  = 0;
-    let   llmErrors = 0;
+    // 3. LLM analysis with concurrency limit (only for new commits)
+    const analyses = new Map(existingAnalyses);
+    let analyzed  = skippedCount;
+    let llmErrors = 0;
 
-    await Promise.all(
-      uniqueCommits.map((commit) =>
-        limit(async () => {
-          try {
-            const result = await analyzeCommit(commit);
-            analyses.set(commit.sha, result);
-            if (analyzed < 3 || analyzed % 25 === 0) {
-              log(`LLM [${analyzed + 1}/${uniqueCommits.length}] ${commit.sha.slice(0, 7)} → complexity=${result.complexity}, type=${result.type}, risk=${result.riskLevel}`);
+    if (needsAnalysis.length > 0) {
+      log(`Starting LLM analysis: ${needsAnalysis.length} commits, concurrency=${CONCURRENCY}`);
+      const limit = pLimit(CONCURRENCY);
+
+      await Promise.all(
+        needsAnalysis.map((commit) =>
+          limit(async () => {
+            try {
+              const result = await analyzeCommit(commit);
+              analyses.set(commit.sha, result);
+              if (analyzed < skippedCount + 3 || analyzed % 25 === 0) {
+                log(`LLM [${analyzed + 1}/${uniqueCommits.length}] ${commit.sha.slice(0, 7)} → complexity=${result.complexity}, type=${result.type}, risk=${result.riskLevel}${result.maybeAi ? ' [maybe_ai]' : ''}`);
+              }
+            } catch (err) {
+              llmErrors++;
+              log(`LLM ERROR ${commit.sha.slice(0, 7)}: ${err instanceof Error ? err.message : String(err)}`);
             }
-          } catch (err) {
-            llmErrors++;
-            log(`LLM ERROR ${commit.sha.slice(0, 7)}: ${err instanceof Error ? err.message : String(err)}`);
-          }
-          analyzed++;
-          updateProgress(reportId, { analyzedCommits: analyzed });
-        }),
-      ),
-    );
+            analyzed++;
+            updateProgress(reportId, { analyzedCommits: analyzed });
+          }),
+        ),
+      );
 
-    log(`LLM analysis complete: ${analyses.size} succeeded, ${llmErrors} failed`);
+      log(`LLM analysis complete: ${analyses.size} total, ${llmErrors} failed`);
+    }
 
-    // 4. Save individual commit analyses
+    // 4. Save individual commit analyses (INSERT IGNORE handles duplicates)
     log('Saving commit analyses to database…');
     for (const commit of uniqueCommits) {
+      if (existingShas.has(commit.sha)) continue; // already in DB
       const analysis = analyses.get(commit.sha);
       await db.execute(
         `INSERT IGNORE INTO commit_analyses

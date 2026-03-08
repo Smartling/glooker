@@ -32,3 +32,22 @@ export async function GET(
     developers: devRows,
   });
 }
+
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id } = await params;
+
+  // ON DELETE CASCADE handles developer_stats and commit_analyses
+  const [result] = await db.execute<any>(
+    `DELETE FROM reports WHERE id = ?`,
+    [id],
+  );
+
+  if (result.affectedRows === 0) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
+
+  return NextResponse.json({ deleted: true });
+}

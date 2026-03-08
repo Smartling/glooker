@@ -55,8 +55,9 @@ export default function Home() {
   const [reportId, setReportId]     = useState<string | null>(null);
   const [progress, setProgress]     = useState<Progress | null>(null);
   const [developers, setDevelopers] = useState<Developer[]>([]);
-  const [pastReports, setPastReports] = useState<Report[]>([]);
+  const [pastReports, setPastReports]   = useState<Report[]>([]);
   const [activeReport, setActiveReport] = useState<Report | null>(null);
+  const [deletingId, setDeletingId]     = useState<string | null>(null);
   const [logs, setLogs]             = useState<string[]>([]);
   const [showLogs, setShowLogs]     = useState(true);
   const pollRef  = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -137,6 +138,38 @@ export default function Home() {
     setProgress(null);
     setRunning(false);
     setReportId(id);
+  }
+
+  async function deleteReport(id: string) {
+    await fetch(`/api/report/${id}`, { method: 'DELETE' });
+    setPastReports((prev) => prev.filter((r) => r.id !== id));
+    setDeletingId(null);
+    if (activeReport?.id === id) {
+      setActiveReport(null);
+      setDevelopers([]);
+    }
+  }
+
+  async function resumeReport(id: string) {
+    setRunning(true);
+    setDevelopers([]);
+    setProgress(null);
+    setLogs([]);
+    setShowLogs(true);
+    setReportId(id);
+
+    // Update local state
+    setPastReports((prev) => prev.map((r) => r.id === id ? { ...r, status: 'running' } : r));
+
+    const res = await fetch(`/api/report/${id}/resume`, { method: 'POST' });
+    if (!res.ok) {
+      const data = await res.json();
+      alert(data.error || 'Failed to resume');
+      setRunning(false);
+      return;
+    }
+
+    startPolling(id);
   }
 
   function exportCsv(devs: Developer[], report: Report) {
@@ -233,29 +266,96 @@ export default function Home() {
 
       <div className="flex gap-8">
         {/* Sidebar: past reports */}
-        <div className="w-56 shrink-0">
+        <div className="w-60 shrink-0">
           <p className="text-xs uppercase tracking-wider text-gray-500 mb-3 font-semibold">Past Reports</p>
-          <div className="space-y-1">
+          <div className="space-y-1.5">
             {pastReports.length === 0 && (
               <p className="text-gray-600 text-sm">No reports yet</p>
             )}
-            {pastReports.map((r) => (
-              <button
-                key={r.id}
-                onClick={() => loadReport(r.id)}
-                className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
-                  activeReport?.id === r.id
-                    ? 'bg-gray-700 text-white'
-                    : 'text-gray-400 hover:bg-gray-800 hover:text-white'
-                }`}
-              >
-                <div className="font-medium truncate">{r.org}</div>
-                <div className="text-xs text-gray-500">{r.period_days}d &middot; {r.status}</div>
-                <div className="text-xs text-gray-600">
-                  {new Date(r.created_at).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+            {pastReports.map((r) => {
+              const isActive   = activeReport?.id === r.id;
+              const isDeleting = deletingId === r.id;
+              const statusColor =
+                r.status === 'completed' ? 'text-green-400' :
+                r.status === 'failed'    ? 'text-red-400' :
+                r.status === 'running'   ? 'text-blue-400' :
+                'text-gray-500';
+              const borderColor =
+                r.status === 'completed' ? 'border-green-800' :
+                r.status === 'failed'    ? 'border-red-900' :
+                'border-gray-800';
+
+              return (
+                <div key={r.id} className="group">
+                  {isDeleting ? (
+                    <div className={`px-3 py-2.5 rounded-lg text-sm bg-red-950 border border-red-800`}>
+                      <p className="text-red-300 text-xs mb-2">Delete this report?</p>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => deleteReport(r.id)}
+                          className="px-2 py-1 text-xs bg-red-700 hover:bg-red-600 text-white rounded transition-colors"
+                        >
+                          Delete
+                        </button>
+                        <button
+                          onClick={() => setDeletingId(null)}
+                          className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => loadReport(r.id)}
+                      className={`w-full text-left px-3 py-2.5 rounded-lg text-sm transition-colors border ${
+                        isActive
+                          ? `bg-gray-800 text-white ${borderColor}`
+                          : `border-transparent hover:bg-gray-800/50 hover:border-gray-800`
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium truncate">{r.org}</span>
+                        <div className="flex items-center gap-1.5">
+                          {(r.status === 'failed' || r.status === 'running') && !running && (
+                            <span
+                              role="button"
+                              onClick={(e) => { e.stopPropagation(); resumeReport(r.id); }}
+                              className="text-xs font-medium text-blue-400 hover:text-blue-300 cursor-pointer"
+                              title="Resume this report"
+                            >
+                              resume
+                            </span>
+                          )}
+                          <span className={`text-xs font-medium ${statusColor}`}>
+                            {r.status === 'completed' ? 'done' : r.status}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between mt-1">
+                        <span className="text-xs text-gray-500">{r.period_days} days</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs text-gray-600">
+                            {new Date(r.created_at).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                          </span>
+                          <span
+                            role="button"
+                            onClick={(e) => { e.stopPropagation(); setDeletingId(r.id); }}
+                            className="p-0.5 rounded text-gray-700 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                            title="Delete report"
+                          >
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </span>
+                        </div>
+                      </div>
+                    </button>
+                  )}
+                  {/* Delete button — visible on hover */}
                 </div>
-              </button>
-            ))}
+              );
+            })}
           </div>
         </div>
 
