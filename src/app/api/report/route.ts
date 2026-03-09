@@ -5,7 +5,7 @@ import { runReport } from '@/lib/report-runner';
 import { initProgress } from '@/lib/progress-store';
 
 export async function POST(req: NextRequest) {
-  const { org, periodDays } = await req.json();
+  const { org, periodDays, testMode } = await req.json();
 
   if (!org || !periodDays) {
     return NextResponse.json({ error: 'org and periodDays are required' }, { status: 400 });
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
   initProgress(id);
 
   // Fire and forget — no await
-  runReport(id, org, Number(periodDays)).catch(console.error);
+  runReport(id, org, Number(periodDays), false, Boolean(testMode)).catch(console.error);
 
   return NextResponse.json({ reportId: id });
 }

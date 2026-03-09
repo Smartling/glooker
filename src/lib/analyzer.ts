@@ -47,7 +47,6 @@ ${commit.diff || '(no diff available)'}`;
     model:       LLM_MODEL,
     temperature: 0,
     max_tokens:  256,
-    stream:      false,
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: aiAlreadyConfirmed ? SYSTEM_PROMPT_AI_CONFIRMED : SYSTEM_PROMPT },

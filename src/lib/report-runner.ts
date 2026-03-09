@@ -25,10 +25,11 @@ function clearStop(reportId: string): void {
 }
 
 export async function runReport(
-  reportId: string,
-  org:      string,
-  days:     number,
-  resume =  false,
+  reportId:  string,
+  org:       string,
+  days:      number,
+  resume   = false,
+  testMode = false,
 ): Promise<void> {
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
   const log = (msg: string) => { addLog(reportId, msg); console.log(`[${reportId.slice(0,8)}] ${msg}`); };
@@ -76,9 +77,14 @@ export async function runReport(
     const allCommits: CommitData[] = [];
     const prCounts = new Map<string, number>();
     let processedMembers = 0;
+    let activeMemberCount = 0;
 
     for (const member of members) {
       if (shouldStop(reportId)) throw new Error('Stopped by user');
+      if (testMode && activeMemberCount >= 3) {
+        log(`TEST MODE: stopping after ${activeMemberCount} active members`);
+        break;
+      }
       processedMembers++;
       updateProgress(reportId, {
         processedRepos: processedMembers,
@@ -90,6 +96,7 @@ export async function runReport(
 
         if (activity.commits.length > 0 || activity.prs.length > 0) {
           log(`@${member.login}: ${activity.commits.length} commits, ${activity.prs.length} merged PRs`);
+          activeMemberCount++;
         }
 
         allCommits.push(...activity.commits);

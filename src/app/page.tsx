@@ -126,7 +126,7 @@ export default function Home() {
     const res  = await fetch('/api/report', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ org: org.trim(), periodDays: period }),
+      body:    JSON.stringify({ org: org.trim(), periodDays: period, testMode: new URLSearchParams(window.location.search).get('test') === '1' }),
     });
     const data = await res.json();
 
