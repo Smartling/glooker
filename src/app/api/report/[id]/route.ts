@@ -27,9 +27,16 @@ export async function GET(
     [id],
   ) as [any[], any];
 
+  // SQLite stores JSON columns as TEXT — parse them back to objects
+  const developers = devRows.map((row: any) => ({
+    ...row,
+    type_breakdown: typeof row.type_breakdown === 'string' ? JSON.parse(row.type_breakdown || '{}') : (row.type_breakdown || {}),
+    active_repos:   typeof row.active_repos   === 'string' ? JSON.parse(row.active_repos   || '[]') : (row.active_repos   || []),
+  }));
+
   return NextResponse.json({
     report:     reportRows[0],
-    developers: devRows,
+    developers,
   });
 }
 

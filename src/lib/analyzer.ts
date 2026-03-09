@@ -47,7 +47,6 @@ ${commit.diff || '(no diff available)'}`;
     model:       LLM_MODEL,
     temperature: 0,
     max_tokens:  256,
-    stream:      false,
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: aiAlreadyConfirmed ? SYSTEM_PROMPT_AI_CONFIRMED : SYSTEM_PROMPT },
@@ -56,8 +55,7 @@ ${commit.diff || '(no diff available)'}`;
     ...extraBodyProps(),
   } as any);
 
-  const content = response.choices[0].message.content;
-  const raw = (Array.isArray(content) ? content.join('') : String(content ?? '{}'));
+  const raw = response.choices[0].message.content || '{}';
   let parsed: Record<string, unknown>;
   try {
     const cleaned = raw.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
