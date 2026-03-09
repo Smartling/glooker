@@ -58,17 +58,26 @@ export default function Home() {
   const [pastReports, setPastReports]   = useState<Report[]>([]);
   const [activeReport, setActiveReport] = useState<Report | null>(null);
   const [deletingId, setDeletingId]     = useState<string | null>(null);
+  const [orgs, setOrgs]             = useState<Array<{ login: string; avatar_url: string }>>([]);
   const [logs, setLogs]             = useState<string[]>([]);
   const [showLogs, setShowLogs]     = useState(true);
   const pollRef  = useRef<ReturnType<typeof setInterval> | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
 
-  // Load past reports on mount
+  // Load orgs and past reports on mount
   useEffect(() => {
+    fetch('/api/orgs')
+      .then((r) => r.json())
+      .then((data: Array<{ login: string; avatar_url: string }>) => {
+        setOrgs(data);
+        if (data.length > 0 && !org) setOrg(data[0].login);
+      })
+      .catch(() => {});
     fetch('/api/report')
       .then((r) => r.json())
       .then(setPastReports)
       .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function stopPolling() {
@@ -400,16 +409,19 @@ export default function Home() {
         <div className="flex-1 min-w-0">
           {/* Run form */}
           <form onSubmit={handleRun} className="bg-gray-900 rounded-xl p-5 mb-6 flex items-end gap-4 flex-wrap">
-            <div className="flex-1 min-w-48">
+            <div className="min-w-48">
               <label className="block text-xs text-gray-400 mb-1 font-medium">GitHub Org</label>
-              <input
-                type="text"
+              <select
                 value={org}
                 onChange={(e) => setOrg(e.target.value)}
-                placeholder="e.g. Smartling"
-                disabled={running}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500"
-              />
+                disabled={running || orgs.length === 0}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 pr-8 text-sm text-white focus:outline-none focus:border-blue-500 appearance-none bg-[url('data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2020%2020%22%20fill%3D%22%236b7280%22%3E%3Cpath%20fill-rule%3D%22evenodd%22%20d%3D%22M5.23%207.21a.75.75%200%20011.06.02L10%2011.168l3.71-3.938a.75.75%200%20111.08%201.04l-4.25%204.5a.75.75%200%2001-1.08%200l-4.25-4.5a.75.75%200%2001.02-1.06z%22%20clip-rule%3D%22evenodd%22%2F%3E%3C%2Fsvg%3E')] bg-no-repeat bg-[right_0.5rem_center] bg-[length:1.25rem]"
+              >
+                {orgs.length === 0 && <option value="">Loading…</option>}
+                {orgs.map((o) => (
+                  <option key={o.login} value={o.login}>{o.login}</option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="block text-xs text-gray-400 mb-1 font-medium">Period</label>
