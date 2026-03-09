@@ -80,6 +80,8 @@ LLM_MODEL=llama3
 LLM_API_KEY=not-needed
 ```
 
+> **Apple Silicon (M1/M2/M3/M4) GPU acceleration:** If you install Ollama via an x86 Homebrew (`/usr/local/bin/brew`), it will run under Rosetta and **cannot access the Metal GPU** — inference will be CPU-only and much slower. Install Ollama using the [official installer](https://ollama.com/install.sh) or an ARM-native Homebrew (`/opt/homebrew/bin/brew`) to get full GPU acceleration. Verify with `ollama ps` — the PROCESSOR column should show `100% GPU`, not `100% CPU`.
+
 #### Smartling AI Proxy
 For Smartling customers with AI Proxy access:
 ```env
