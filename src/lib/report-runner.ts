@@ -1,5 +1,5 @@
 import pLimit from 'p-limit';
-import db from './db';
+import db from './db/index';
 import { listOrgMembers, fetchUserActivity, type CommitData } from './github';
 import { analyzeCommit, type CommitAnalysis } from './analyzer';
 import { aggregate } from './aggregator';
@@ -46,11 +46,11 @@ export async function runReport(
     let existingAnalyses = new Map<string, CommitAnalysis>();
     const existingShas = new Set<string>();
     if (resume) {
-      const [rows] = await db.execute<any[]>(
+      const [rows] = await db.execute(
         `SELECT commit_sha, complexity, type, impact_summary, risk_level, maybe_ai
          FROM commit_analyses WHERE report_id = ? AND complexity IS NOT NULL`,
         [reportId],
-      );
+      ) as [any[], any];
       for (const row of rows) {
         existingShas.add(row.commit_sha);
         existingAnalyses.set(row.commit_sha, {

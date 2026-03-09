@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS reports (
   id           VARCHAR(36)  NOT NULL PRIMARY KEY,
   org          VARCHAR(255) NOT NULL,
   period_days  INT          NOT NULL,
-  status       ENUM('pending','running','completed','failed') NOT NULL DEFAULT 'pending',
+  status       ENUM('pending','running','completed','failed','stopped') NOT NULL DEFAULT 'pending',
   error        TEXT         NULL,
   created_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   completed_at TIMESTAMP    NULL
@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS developer_stats (
   avg_complexity  DECIMAL(4,2)   NULL,
   impact_score    DECIMAL(4,2)   NULL,
   pr_percentage   INT            NOT NULL DEFAULT 0,
+  ai_percentage   INT            NOT NULL DEFAULT 0,
   type_breakdown  JSON           NULL,
   active_repos    JSON           NULL,
   FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
@@ -45,6 +46,9 @@ CREATE TABLE IF NOT EXISTS commit_analyses (
   type            ENUM('feature','bug','refactor','infra','docs','test','other') NULL,
   impact_summary  TEXT         NULL,
   risk_level      ENUM('low','medium','high') NULL,
+  ai_co_authored  TINYINT(1)   NOT NULL DEFAULT 0,
+  ai_tool_name    VARCHAR(50)  NULL,
+  maybe_ai        TINYINT(1)   NOT NULL DEFAULT 0,
   committed_at    TIMESTAMP    NULL,
   FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
   UNIQUE KEY uq_report_commit (report_id, commit_sha)

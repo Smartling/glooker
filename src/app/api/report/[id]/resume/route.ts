@@ -9,10 +9,10 @@ export async function POST(
 ) {
   const { id } = await params;
 
-  const [rows] = await db.execute<any[]>(
+  const [rows] = await db.execute(
     `SELECT id, org, period_days, status FROM reports WHERE id = ?`,
     [id],
-  );
+  ) as [any[], any];
 
   if (!rows.length) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });

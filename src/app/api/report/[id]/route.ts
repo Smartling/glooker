@@ -7,17 +7,17 @@ export async function GET(
 ) {
   const { id } = await params;
 
-  const [reportRows] = await db.execute<any[]>(
+  const [reportRows] = await db.execute(
     `SELECT id, org, period_days, status, error, created_at, completed_at
      FROM reports WHERE id = ?`,
     [id],
-  );
+  ) as [any[], any];
 
   if (!reportRows.length) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
-  const [devRows] = await db.execute<any[]>(
+  const [devRows] = await db.execute(
     `SELECT github_login, github_name, avatar_url,
             total_prs, total_commits, lines_added, lines_removed,
             avg_complexity, impact_score, pr_percentage, ai_percentage, type_breakdown, active_repos
@@ -25,7 +25,7 @@ export async function GET(
      WHERE report_id = ?
      ORDER BY impact_score DESC`,
     [id],
-  );
+  ) as [any[], any];
 
   return NextResponse.json({
     report:     reportRows[0],
@@ -40,10 +40,10 @@ export async function DELETE(
   const { id } = await params;
 
   // ON DELETE CASCADE handles developer_stats and commit_analyses
-  const [result] = await db.execute<any>(
+  const [result] = await db.execute(
     `DELETE FROM reports WHERE id = ?`,
     [id],
-  );
+  ) as [any, any];
 
   if (result.affectedRows === 0) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });

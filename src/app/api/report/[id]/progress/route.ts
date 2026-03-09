@@ -14,25 +14,26 @@ export async function GET(
   }
 
   // Fallback: reconstruct progress from DB
-  const [rows] = await db.execute<any[]>(
+  const [rows] = await db.execute(
     `SELECT status, error FROM reports WHERE id = ?`,
     [id],
-  );
+  ) as [any[], any];
 
   if (!rows.length) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
-  const report = rows[0];
+  const report = rows[0] as { status: string; error: string | null };
 
   // If DB says running, count analyzed commits to show real progress
   if (report.status === 'running') {
-    const [countRows] = await db.execute<any[]>(
+    const [countRows] = await db.execute(
       `SELECT COUNT(*) as total, SUM(CASE WHEN complexity IS NOT NULL THEN 1 ELSE 0 END) as analyzed
        FROM commit_analyses WHERE report_id = ?`,
       [id],
-    );
-    const { total, analyzed } = countRows[0] || { total: 0, analyzed: 0 };
+    ) as [any[], any];
+    const row = countRows[0] as { total: number; analyzed: number } || { total: 0, analyzed: 0 };
+    const { total, analyzed } = row;
 
     return NextResponse.json({
       status:          'running',

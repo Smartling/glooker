@@ -2,36 +2,40 @@
 
 ## Project overview
 
-Glooker is a Next.js 15 web app that generates developer impact reports for a GitHub org. It fetches commits via GitHub API, analyzes them with an LLM via Smartling AI Proxy, and displays ranked developer stats.
+Glooker is a Next.js 15 web app that generates developer impact reports for a GitHub org. It fetches commits via GitHub API, analyzes them with an LLM, and displays ranked developer stats.
 
 ## Commands
 
 - `npm run dev` — start dev server on port 3000
 - `npm run build` — production build (avoid running before `npm run dev`, causes stale cache)
-- `mysql -u root --skip-password -e "..."` — query the local MySQL (no password, database: `glooker`)
 - `rm -rf .next` — fix "Cannot find module './638.js'" errors
+- SQLite (default): data in `./glooker.db`, no setup needed
+- MySQL: `mysql -u root --skip-password -e "..."` (database: `glooker`)
 
 ## Key architectural decisions
 
-- **Per-user GitHub search** (not per-repo) — the org has 600+ repos, iterating each is too slow
+- **Per-user GitHub search** (not per-repo) — orgs can have 600+ repos, iterating each is too slow
 - **Commit search API** is the primary data source (not PR search) — captures direct pushes that never went through PRs
-- **In-memory progress store** (Map) — acceptable for single-user local use, not production-safe
-- **Smartling AI Proxy** uses OpenAI-compatible endpoint — we use the standard `openai` npm SDK with a custom `baseURL`
-- **MySQL SYSTEM timezone** — timestamps are stored in local time (ET), mysql2 connection has no timezone override
+- **LLM provider abstraction** (`llm-provider.ts`) — all providers use the OpenAI SDK since they all support the chat completions format. Smartling AI Proxy is one option alongside direct OpenAI/Anthropic
+- **Dual DB support** — SQLite (default, zero config) and MySQL (opt-in via `DB_TYPE=mysql`). The SQLite wrapper translates MySQL-dialect SQL on the fly
+- **In-memory progress store** (globalThis Map) — survives Next.js HMR, acceptable for single-user local use
 - **AI detection** has two layers: trailer parsing (confirmed) and LLM heuristic (maybe_ai)
 
 ## Environment
 
-- Secrets are in `.env.local` (gitignored) — never commit this file
-- `.env.example` has placeholder values for reference
-- MySQL database `glooker` with 3 tables — see `schema.sql`
+- Secrets in `.env.local` (gitignored) — never commit
+- `.env.example` has placeholder values for all providers
+- `LLM_PROVIDER` selects backend: `openai` (default), `anthropic`, `openai-compatible`, `smartling`
+- `DB_TYPE` selects database: `sqlite` (default), `mysql`
 - GitHub fine-grained token needs: Contents:read, Pull requests:read, Metadata:read, Members:read
 
 ## Gotchas
 
-- `DECIMAL` columns from MySQL come back as strings in JS — always use `Number()` before `.toFixed()`
-- GitHub search API returns max 1000 results per query — per-user search avoids this since individual users rarely hit 1000 commits in 90 days
-- GitHub secondary rate limits trigger on rapid successive search calls — there are 2.5s sleeps between requests and exponential back-off retry on 403/429
-- Smartling AI Proxy model `anthropic/claude-sonnet-4-20250514` sometimes wraps JSON in markdown fences despite `response_format: json_object` — the parser strips ` ```json ``` ` fences
-- The Smartling auth token expires in ~24h — `smartling-auth.ts` caches and auto-refreshes 5 min before expiry
-- `next build` artifacts conflict with `next dev` — always `rm -rf .next` when switching between them
+- `DECIMAL`/`REAL` columns from both MySQL and SQLite may come back as strings — always use `Number()` before `.toFixed()`
+- GitHub search API returns max 1000 results per query — per-user search avoids this
+- GitHub secondary rate limits trigger on rapid successive search calls — 2.5s sleeps between requests + exponential back-off retry on 403/429
+- Some LLM providers wrap JSON in markdown fences despite `response_format: json_object` — the parser strips ` ```json ``` ` fences
+- Smartling auth token expires in ~24h — `smartling-auth.ts` caches and auto-refreshes 5 min before expiry
+- `next build` artifacts conflict with `next dev` — always `rm -rf .next` when switching
+- SQLite SQL translator handles `INSERT IGNORE`, `ON DUPLICATE KEY UPDATE`, and `NOW()` — if adding new MySQL-specific SQL, update `translateSQL()` in `db/sqlite.ts`
+- Progress store and stop-signal store use `globalThis` to survive Next.js HMR module reloads

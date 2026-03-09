@@ -1,4 +1,4 @@
-import { getAIClient, LLM_MODEL } from './aiproxy';
+import { getLLMClient, LLM_MODEL, extraBodyProps } from './llm-provider';
 import type { CommitData } from './github';
 
 export interface CommitAnalysis {
@@ -33,7 +33,7 @@ Be consistent and calibrated. A typo fix is 1, a new API endpoint is 5-6, a cros
 Return ONLY the raw JSON object, no markdown fences.`;
 
 export async function analyzeCommit(commit: CommitData): Promise<CommitAnalysis> {
-  const client = await getAIClient();
+  const client = await getLLMClient();
   const aiAlreadyConfirmed = commit.aiCoAuthored;
 
   const userMessage = `Repository: ${commit.repo}
@@ -52,11 +52,8 @@ ${commit.diff || '(no diff available)'}`;
       { role: 'system', content: aiAlreadyConfirmed ? SYSTEM_PROMPT_AI_CONFIRMED : SYSTEM_PROMPT },
       { role: 'user',   content: userMessage },
     ],
-    // @ts-expect-error Smartling custom field
-    smartling_additional_properties: {
-      operation_name: 'glooker_commit_analysis',
-    },
-  });
+    ...extraBodyProps(),
+  } as any);
 
   const raw = response.choices[0].message.content || '{}';
   let parsed: Record<string, unknown>;

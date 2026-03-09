@@ -1,0 +1,129 @@
+import Database from 'better-sqlite3';
+import path from 'path';
+import fs from 'fs';
+import type { DB } from './index';
+
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS reports (
+  id           TEXT    NOT NULL PRIMARY KEY,
+  org          TEXT    NOT NULL,
+  period_days  INTEGER NOT NULL,
+  status       TEXT    NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','running','completed','failed','stopped')),
+  error        TEXT,
+  created_at   TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+  completed_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS developer_stats (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  report_id       TEXT    NOT NULL,
+  github_login    TEXT    NOT NULL,
+  github_name     TEXT,
+  avatar_url      TEXT,
+  total_prs       INTEGER NOT NULL DEFAULT 0,
+  total_commits   INTEGER NOT NULL DEFAULT 0,
+  lines_added     INTEGER NOT NULL DEFAULT 0,
+  lines_removed   INTEGER NOT NULL DEFAULT 0,
+  avg_complexity  REAL,
+  impact_score    REAL,
+  pr_percentage   INTEGER NOT NULL DEFAULT 0,
+  ai_percentage   INTEGER NOT NULL DEFAULT 0,
+  type_breakdown  TEXT,
+  active_repos    TEXT,
+  FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
+  UNIQUE (report_id, github_login)
+);
+
+CREATE TABLE IF NOT EXISTS commit_analyses (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  report_id       TEXT    NOT NULL,
+  github_login    TEXT    NOT NULL,
+  repo            TEXT    NOT NULL,
+  commit_sha      TEXT    NOT NULL,
+  pr_number       INTEGER,
+  pr_title        TEXT,
+  commit_message  TEXT,
+  lines_added     INTEGER NOT NULL DEFAULT 0,
+  lines_removed   INTEGER NOT NULL DEFAULT 0,
+  complexity      INTEGER,
+  type            TEXT CHECK(type IN ('feature','bug','refactor','infra','docs','test','other')),
+  impact_summary  TEXT,
+  risk_level      TEXT CHECK(risk_level IN ('low','medium','high')),
+  ai_co_authored  INTEGER NOT NULL DEFAULT 0,
+  ai_tool_name    TEXT,
+  maybe_ai        INTEGER NOT NULL DEFAULT 0,
+  committed_at    TEXT,
+  FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
+  UNIQUE (report_id, commit_sha)
+);
+`;
+
+export function createSQLiteDB(): DB {
+  const dbPath = process.env.SQLITE_PATH || path.join(process.cwd(), 'glooker.db');
+  const dir = path.dirname(dbPath);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+  const db = new Database(dbPath);
+  db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
+  db.exec(SCHEMA);
+
+  return {
+    execute: <T = any>(sql: string, params?: any[]): Promise<[T[], any]> => {
+      const translated = translateSQL(sql);
+      const normalizedParams = (params || []).map((p) =>
+        p === undefined ? null : p
+      );
+
+      try {
+        const stmt = db.prepare(translated);
+        if (translated.trimStart().match(/^(SELECT|SHOW)/i)) {
+          const rows = stmt.all(...normalizedParams) as T[];
+          return Promise.resolve([rows, null]);
+        } else {
+          const result = stmt.run(...normalizedParams);
+          return Promise.resolve([
+            [{ affectedRows: result.changes, insertId: result.lastInsertRowid }] as any,
+            null,
+          ]);
+        }
+      } catch (err) {
+        return Promise.reject(err);
+      }
+    },
+  };
+}
+
+function translateSQL(sql: string): string {
+  let s = sql;
+
+  // INSERT IGNORE → INSERT OR IGNORE
+  s = s.replace(/INSERT\s+IGNORE\s+INTO/gi, 'INSERT OR IGNORE INTO');
+
+  // NOW() → datetime('now','localtime')
+  s = s.replace(/NOW\(\)/gi, "datetime('now','localtime')");
+
+  // ON DUPLICATE KEY UPDATE ... VALUES(col) → ON CONFLICT(...) DO UPDATE SET col = excluded.col
+  const odkuMatch = s.match(/ON\s+DUPLICATE\s+KEY\s+UPDATE\s+([\s\S]+)$/i);
+  if (odkuMatch) {
+    // Find the UNIQUE constraint columns from the INSERT column list
+    const insertColsMatch = s.match(/INSERT\s+INTO\s+(\w+)\s*\(([^)]+)\)/i);
+    const table = insertColsMatch?.[1] || '';
+
+    // Map table → conflict columns (from our schema)
+    const conflictCols: Record<string, string> = {
+      developer_stats: 'report_id, github_login',
+      commit_analyses: 'report_id, commit_sha',
+    };
+    const conflict = conflictCols[table] || 'id';
+
+    // Transform VALUES(col) → excluded.col
+    let updateClause = odkuMatch[1]
+      .replace(/VALUES\((\w+)\)/gi, 'excluded.$1');
+
+    s = s.replace(/ON\s+DUPLICATE\s+KEY\s+UPDATE\s+[\s\S]+$/i,
+      `ON CONFLICT(${conflict}) DO UPDATE SET ${updateClause}`);
+  }
+
+  return s;
+}

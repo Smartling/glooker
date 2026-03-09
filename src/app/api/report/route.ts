@@ -31,11 +31,11 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET() {
-  const [rows] = await db.execute<any[]>(
+  const [rows] = await db.execute(
     `SELECT id, org, period_days, status, created_at, completed_at
      FROM reports
      ORDER BY created_at DESC
      LIMIT 20`,
-  );
+  ) as [any[], any];
   return NextResponse.json(rows);
 }

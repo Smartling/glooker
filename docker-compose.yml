@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      # Database — use MySQL from the mysql service
+      DB_TYPE: mysql
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: glooker
+      DB_PASSWORD: glooker
+      DB_NAME: glooker
+
+      # GitHub
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+
+      # LLM Provider: openai, anthropic, smartling, or openai-compatible
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai}
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_CONCURRENCY: ${LLM_CONCURRENCY:-5}
+
+      # Smartling (only needed if LLM_PROVIDER=smartling)
+      SMARTLING_BASE_URL: ${SMARTLING_BASE_URL:-}
+      SMARTLING_ACCOUNT_UID: ${SMARTLING_ACCOUNT_UID:-}
+      SMARTLING_USER_IDENTIFIER: ${SMARTLING_USER_IDENTIFIER:-}
+      SMARTLING_USER_SECRET: ${SMARTLING_USER_SECRET:-}
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: glooker
+      MYSQL_USER: glooker
+      MYSQL_PASSWORD: glooker
+      MYSQL_ROOT_PASSWORD: rootpassword
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  mysql_data:
