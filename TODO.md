@@ -24,21 +24,15 @@
 - [ ] Cron-triggered auto-report generation (e.g. every Monday 9 AM ET)
 - [ ] Auto-send digest after report completes
 - [ ] Configurable cadence: weekly / biweekly
+- [ ] Scheduled/recurring reports (additionally to "Run Report")
+
 
 ### Design Principles
 - Never show full leaderboard in email — only "your position" and gap to next
 - Always positive framing — opportunities, not failures ("2 more PRs to reach top 25%")
 - Show trend direction (↑↓) without dwelling on drops
 - Gap-to-next can be by name or anonymous (configurable)
-
----
-
-## Slack Integration
-- [ ] Weekly summary post to engineering Slack channel
-- [ ] Top 5 by impact, org-level AI% stat, link to full report
-- [ ] Slack webhook configuration in .env
-- [ ] Cron or post-report-completion trigger
-
+  
 ---
 
 ## Report Improvements
@@ -51,7 +45,5 @@
 ---
 
 ## Infrastructure
-- [ ] Checkpoint/resume for long-running reports (survive server restarts)
-- [ ] GitHub App auth option (higher rate limits, no token expiry)
-- [ ] Scheduled/recurring reports (no manual "Run Report")
 - [ ] Auto-detect and mark stale "running" reports on server startup
+- [ ] GitHub App auth option (higher rate limits, no token expiry)
