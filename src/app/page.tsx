@@ -426,7 +426,7 @@ export default function Home() {
             <div>
               <label className="block text-xs text-gray-400 mb-1 font-medium">Period</label>
               <div className="flex gap-1">
-                {[14, 30, 90].map((d) => (
+                {[3, 14, 30, 90].map((d) => (
                   <button
                     key={d}
                     type="button"

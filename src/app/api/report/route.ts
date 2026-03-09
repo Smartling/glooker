@@ -11,8 +11,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'org and periodDays are required' }, { status: 400 });
   }
 
-  if (![14, 30, 90].includes(Number(periodDays))) {
-    return NextResponse.json({ error: 'periodDays must be 14, 30, or 90' }, { status: 400 });
+  if (![3, 14, 30, 90].includes(Number(periodDays))) {
+    return NextResponse.json({ error: 'periodDays must be 3, 14, 30, or 90' }, { status: 400 });
   }
 
   const id = uuidv4();
