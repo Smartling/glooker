@@ -86,7 +86,7 @@ export default function Home() {
         setProgress(prog);
         if (prog.logs) setLogs(prog.logs);
 
-        if (prog.status === 'completed' || prog.status === 'failed') {
+        if (prog.status === 'completed' || prog.status === 'failed' || prog.status === 'stopped') {
           stopPolling();
           setRunning(false);
           if (prog.status === 'completed') {
@@ -128,6 +128,23 @@ export default function Home() {
     }
 
     setReportId(data.reportId);
+    // Add to sidebar immediately
+    setPastReports((prev) => [{
+      id: data.reportId,
+      org: org.trim(),
+      period_days: period,
+      status: 'running',
+      created_at: new Date().toISOString(),
+      completed_at: null,
+    }, ...prev]);
+    setActiveReport({
+      id: data.reportId,
+      org: org.trim(),
+      period_days: period,
+      status: 'running',
+      created_at: new Date().toISOString(),
+      completed_at: null,
+    });
     startPolling(data.reportId);
   }
 
@@ -135,9 +152,19 @@ export default function Home() {
     const data = await fetch(`/api/report/${id}`).then((r) => r.json());
     setDevelopers(data.developers || []);
     setActiveReport(data.report);
-    setProgress(null);
-    setRunning(false);
     setReportId(id);
+
+    // If report is still running, start polling for progress
+    if (data.report.status === 'running') {
+      setRunning(true);
+      setProgress(null);
+      setLogs([]);
+      setShowLogs(true);
+      startPolling(id);
+    } else {
+      setProgress(null);
+      setRunning(false);
+    }
   }
 
   async function deleteReport(id: string) {
@@ -148,6 +175,13 @@ export default function Home() {
       setActiveReport(null);
       setDevelopers([]);
     }
+  }
+
+  async function stopReport(id: string) {
+    await fetch(`/api/report/${id}/stop`, { method: 'POST' });
+    stopPolling();
+    setRunning(false);
+    setPastReports((prev) => prev.map((r) => r.id === id ? { ...r, status: 'stopped' } : r));
   }
 
   async function resumeReport(id: string) {
@@ -278,12 +312,15 @@ export default function Home() {
               const statusColor =
                 r.status === 'completed' ? 'text-green-400' :
                 r.status === 'failed'    ? 'text-red-400' :
+                r.status === 'stopped'   ? 'text-orange-400' :
                 r.status === 'running'   ? 'text-blue-400' :
                 'text-gray-500';
               const borderColor =
                 r.status === 'completed' ? 'border-green-800' :
                 r.status === 'failed'    ? 'border-red-900' :
+                r.status === 'stopped'   ? 'border-orange-900' :
                 'border-gray-800';
+              const canResume = (r.status === 'failed' || r.status === 'stopped') && !running;
 
               return (
                 <div key={r.id} className="group">
@@ -317,7 +354,7 @@ export default function Home() {
                       <div className="flex items-center justify-between">
                         <span className="font-medium truncate">{r.org}</span>
                         <div className="flex items-center gap-1.5">
-                          {(r.status === 'failed' || r.status === 'running') && !running && (
+                          {canResume && (
                             <span
                               role="button"
                               onClick={(e) => { e.stopPropagation(); resumeReport(r.id); }}
@@ -328,7 +365,7 @@ export default function Home() {
                             </span>
                           )}
                           <span className={`text-xs font-medium ${statusColor}`}>
-                            {r.status === 'completed' ? 'done' : r.status}
+                            {r.status === 'completed' ? 'done' : r.status === 'stopped' ? 'stopped' : r.status}
                           </span>
                         </div>
                       </div>
@@ -394,17 +431,27 @@ export default function Home() {
                 ))}
               </div>
             </div>
-            <button
-              type="submit"
-              disabled={running || !org.trim()}
-              className="px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors"
-            >
-              {running ? 'Running…' : 'Run Report'}
-            </button>
+            {running ? (
+              <button
+                type="button"
+                onClick={() => reportId && stopReport(reportId)}
+                className="px-5 py-2 bg-red-700 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors"
+              >
+                Stop
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={!org.trim()}
+                className="px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors"
+              >
+                Run Report
+              </button>
+            )}
           </form>
 
           {/* Progress */}
-          {(running || (progress && progress.status === 'failed')) && progress && (
+          {(running || (progress && (progress.status === 'failed' || progress.status === 'stopped'))) && progress && (
             <div className="bg-gray-900 rounded-xl p-5 mb-6">
               <div className="flex justify-between text-sm mb-2">
                 <span className="text-gray-300">{progress.step}</span>
@@ -417,7 +464,7 @@ export default function Home() {
               <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all duration-500 ${
-                    progress.status === 'failed' ? 'bg-red-500' : 'bg-blue-500'
+                    progress.status === 'failed' ? 'bg-red-500' : progress.status === 'stopped' ? 'bg-orange-500' : 'bg-blue-500'
                   }`}
                   style={{ width: `${Math.max(pct, running ? 2 : 0)}%` }}
                 />

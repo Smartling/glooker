@@ -1,10 +1,10 @@
 /**
- * In-process progress store. Works fine for single-user local use.
- * Frontend polls GET /api/report/:id/progress to read this.
+ * In-process progress store. Uses globalThis to survive Next.js
+ * hot module reloading in dev mode.
  */
 
 export interface ReportProgress {
-  status:          'pending' | 'running' | 'completed' | 'failed';
+  status:          'pending' | 'running' | 'completed' | 'failed' | 'stopped';
   step:            string;
   totalRepos:      number;
   processedRepos:  number;
@@ -14,7 +14,15 @@ export interface ReportProgress {
   logs:            string[];
 }
 
-const store = new Map<string, ReportProgress>();
+const globalStore = globalThis as typeof globalThis & {
+  __glooker_progress?: Map<string, ReportProgress>;
+};
+
+if (!globalStore.__glooker_progress) {
+  globalStore.__glooker_progress = new Map();
+}
+
+const store = globalStore.__glooker_progress;
 
 export function initProgress(id: string): void {
   store.set(id, {
@@ -36,9 +44,8 @@ export function updateProgress(id: string, patch: Partial<ReportProgress>): void
 export function addLog(id: string, message: string): void {
   const current = store.get(id);
   if (current) {
-    const ts = new Date().toLocaleTimeString('en-US', { hour12: false });
+    const ts = new Date().toLocaleTimeString('en-US', { hour12: false, timeZone: 'America/New_York' });
     current.logs.push(`[${ts}] ${message}`);
-    // Keep last 200 lines
     if (current.logs.length > 200) current.logs.splice(0, current.logs.length - 200);
   }
 }

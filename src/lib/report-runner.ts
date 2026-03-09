@@ -7,6 +7,23 @@ import { updateProgress, addLog } from './progress-store';
 
 const CONCURRENCY = Number(process.env.LLM_CONCURRENCY || 5);
 
+// Stop signal store (globalThis to survive Next.js HMR)
+const g = globalThis as typeof globalThis & { __glooker_stops?: Set<string> };
+if (!g.__glooker_stops) g.__glooker_stops = new Set();
+const stopRequests = g.__glooker_stops;
+
+export function requestStop(reportId: string): void {
+  stopRequests.add(reportId);
+}
+
+function shouldStop(reportId: string): boolean {
+  return stopRequests.has(reportId);
+}
+
+function clearStop(reportId: string): void {
+  stopRequests.delete(reportId);
+}
+
 export async function runReport(
   reportId: string,
   org:      string,
@@ -22,6 +39,7 @@ export async function runReport(
       [reportId],
     );
     updateProgress(reportId, { status: 'running', step: resume ? 'Resuming…' : 'Listing org members…' });
+    clearStop(reportId);
     log(`${resume ? 'Resuming' : 'Starting'} report: org=${org}, days=${days}, since=${since.toISOString().split('T')[0]}`);
 
     // On resume, load already-analyzed commit SHAs from DB
@@ -60,6 +78,7 @@ export async function runReport(
     let processedMembers = 0;
 
     for (const member of members) {
+      if (shouldStop(reportId)) throw new Error('Stopped by user');
       processedMembers++;
       updateProgress(reportId, {
         processedRepos: processedMembers,
@@ -118,6 +137,7 @@ export async function runReport(
       await Promise.all(
         needsAnalysis.map((commit) =>
           limit(async () => {
+            if (shouldStop(reportId)) return;
             try {
               const result = await analyzeCommit(commit);
               analyses.set(commit.sha, result);
@@ -225,12 +245,15 @@ export async function runReport(
 
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    log(`FATAL: ${msg}`);
-    console.error(`Report ${reportId} failed:`, err);
+    const isStopped = msg === 'Stopped by user' || shouldStop(reportId);
+    const status = isStopped ? 'stopped' : 'failed';
+    log(isStopped ? 'Stopped by user' : `FATAL: ${msg}`);
+    if (!isStopped) console.error(`Report ${reportId} failed:`, err);
     await db.execute(
-      `UPDATE reports SET status = 'failed', error = ? WHERE id = ?`,
-      [msg, reportId],
+      `UPDATE reports SET status = ?, error = ? WHERE id = ?`,
+      [status, msg, reportId],
     ).catch(console.error);
-    updateProgress(reportId, { status: 'failed', step: 'Failed', error: msg });
+    updateProgress(reportId, { status, step: isStopped ? 'Stopped' : 'Failed', error: msg });
+    clearStop(reportId);
   }
 }

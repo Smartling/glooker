@@ -13,7 +13,7 @@ export async function GET(
     return NextResponse.json(progress);
   }
 
-  // Fallback: reconstruct progress from DB (covers server restart mid-run)
+  // Fallback: reconstruct progress from DB
   const [rows] = await db.execute<any[]>(
     `SELECT status, error FROM reports WHERE id = ?`,
     [id],
@@ -24,13 +24,35 @@ export async function GET(
   }
 
   const report = rows[0];
+
+  // If DB says running, count analyzed commits to show real progress
+  if (report.status === 'running') {
+    const [countRows] = await db.execute<any[]>(
+      `SELECT COUNT(*) as total, SUM(CASE WHEN complexity IS NOT NULL THEN 1 ELSE 0 END) as analyzed
+       FROM commit_analyses WHERE report_id = ?`,
+      [id],
+    );
+    const { total, analyzed } = countRows[0] || { total: 0, analyzed: 0 };
+
+    return NextResponse.json({
+      status:          'running',
+      step:            total > 0 ? `Analyzing commits… (${analyzed}/${total} from DB)` : 'Running…',
+      totalRepos:      0,
+      processedRepos:  0,
+      totalCommits:    Number(total),
+      analyzedCommits: Number(analyzed),
+      logs:            [],
+    });
+  }
+
   return NextResponse.json({
-    status:          report.status === 'running' ? 'failed' : report.status,
-    step:            report.status === 'running' ? 'Lost progress (server restarted)' : report.status,
+    status:          report.status,
+    step:            report.status,
     totalRepos:      0,
     processedRepos:  0,
     totalCommits:    0,
     analyzedCommits: 0,
-    error:           report.error || (report.status === 'running' ? 'Server restarted during run. Please try again.' : undefined),
+    error:           report.error || undefined,
+    logs:            [],
   });
 }
