@@ -29,7 +29,9 @@ export function createMySQLDB(): DB {
   });
 
   // Auto-create schedules table if it doesn't exist
-  pool.execute(SCHEDULES_SCHEMA).catch(console.error);
+  pool.execute(SCHEDULES_SCHEMA).catch((err) => {
+    console.error('[db/mysql] Failed to create schedules table:', err);
+  });
 
   return {
     execute: <T = any>(sql: string, params?: any[]): Promise<[T[], any]> =>

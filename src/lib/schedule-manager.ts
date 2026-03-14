@@ -32,25 +32,29 @@ const jobs = g.__glooker_schedules;
 
 export async function initScheduler(): Promise<void> {
   if (g.__glooker_scheduler_init) return; // guard against double-init in dev
-  g.__glooker_scheduler_init = true;
 
   console.log('[scheduler] Initializing…');
 
-  // Recovery: mark orphaned "running" reports as "failed"
-  await db.execute(
-    `UPDATE reports SET status = 'failed', error = 'Server restarted during execution' WHERE status = 'running'`,
-  );
+  try {
+    // Recovery: mark orphaned "running" reports as "failed"
+    await db.execute(
+      `UPDATE reports SET status = 'failed', error = 'Server restarted during execution' WHERE status = 'running'`,
+    );
 
-  // Load all enabled schedules
-  const [rows] = await db.execute<Schedule>(
-    `SELECT * FROM schedules WHERE enabled = 1`,
-  );
+    // Load all enabled schedules
+    const [rows] = await db.execute<Schedule>(
+      `SELECT * FROM schedules WHERE enabled = 1`,
+    );
 
-  for (const schedule of rows) {
-    registerSchedule(schedule);
+    for (const schedule of rows) {
+      registerSchedule(schedule);
+    }
+
+    g.__glooker_scheduler_init = true;
+    console.log(`[scheduler] ${rows.length} schedule(s) registered`);
+  } catch (err) {
+    console.error('[scheduler] Initialization failed:', err);
   }
-
-  console.log(`[scheduler] ${rows.length} schedule(s) registered`);
 }
 
 export function registerSchedule(schedule: Schedule): void {
@@ -82,7 +86,8 @@ export function getNextRun(cronExpr: string, timezone: string): Date | null {
     const next = job.nextRun();
     job.stop();
     return next;
-  } catch {
+  } catch (err) {
+    console.error(`[scheduler] getNextRun failed for "${cronExpr}" (${timezone}):`, err);
     return null;
   }
 }
@@ -120,8 +125,16 @@ async function triggerSchedule(schedule: Schedule): Promise<void> {
     console.log(`[scheduler] Triggered: schedule=${id}, report=${reportId}, org=${org}`);
 
     // Fire and forget — errors handled inside runReport, but wrap for safety
-    runReport(reportId, org, period_days, false, Boolean(test_mode)).catch((err) => {
+    runReport(reportId, org, period_days, false, Boolean(test_mode)).catch(async (err) => {
       console.error(`[scheduler] Report ${reportId} failed:`, err);
+      try {
+        await db.execute(
+          `UPDATE reports SET status = 'failed', error = ? WHERE id = ?`,
+          [err instanceof Error ? err.message : String(err), reportId],
+        );
+      } catch (dbErr) {
+        console.error(`[scheduler] Failed to mark report ${reportId} as failed:`, dbErr);
+      }
     });
   } catch (err) {
     console.error(`[scheduler] Trigger error for schedule ${id}:`, err);
