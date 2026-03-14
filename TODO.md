@@ -21,10 +21,10 @@
 - [ ] Opt-in/out mechanism
 
 ### Scheduling
-- [ ] Cron-triggered auto-report generation (e.g. every Monday 9 AM ET)
+- [x] Cron-triggered auto-report generation (e.g. every Monday 9 AM ET)
 - [ ] Auto-send digest after report completes
-- [ ] Configurable cadence: weekly / biweekly
-- [ ] Scheduled/recurring reports (additionally to "Run Report")
+- [x] Configurable cadence: weekly / biweekly
+- [x] Scheduled/recurring reports (additionally to "Run Report")
 
 
 ### Design Principles

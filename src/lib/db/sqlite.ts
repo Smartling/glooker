@@ -56,6 +56,20 @@ CREATE TABLE IF NOT EXISTS commit_analyses (
   FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
   UNIQUE (report_id, commit_sha)
 );
+
+CREATE TABLE IF NOT EXISTS schedules (
+  id             TEXT    NOT NULL PRIMARY KEY,
+  org            TEXT    NOT NULL,
+  period_days    INTEGER NOT NULL,
+  cron_expr      TEXT    NOT NULL,
+  timezone       TEXT    NOT NULL DEFAULT 'UTC',
+  enabled        INTEGER NOT NULL DEFAULT 1,
+  test_mode      INTEGER NOT NULL DEFAULT 0,
+  last_run_at    TEXT,
+  last_report_id TEXT,
+  created_at     TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+  FOREIGN KEY (last_report_id) REFERENCES reports(id) ON DELETE SET NULL
+);
 `;
 
 export function createSQLiteDB(): DB {
