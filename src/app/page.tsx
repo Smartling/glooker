@@ -687,16 +687,19 @@ export default function Home() {
         </div>
 
         {/* Main content */}
-        <div className="flex-1 min-w-0">
-          {/* Schedule form */}
-          {showScheduleForm && (
-            <div className="bg-gray-900 rounded-xl p-5 mb-6">
+        {/* Schedule form modal */}
+        {showScheduleForm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center">
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { setShowScheduleForm(false); resetScheduleForm(); }} />
+            <div className="relative bg-gray-900 rounded-xl p-6 w-full max-w-lg border border-gray-800 shadow-2xl">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-semibold text-white">
                   {editingSchedule ? 'Edit Schedule' : 'New Schedule'}
                 </h3>
-                <button onClick={() => { setShowScheduleForm(false); resetScheduleForm(); }} className="text-gray-500 hover:text-gray-300 text-sm">
-                  Cancel
+                <button onClick={() => { setShowScheduleForm(false); resetScheduleForm(); }} className="text-gray-500 hover:text-gray-300">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
                 </button>
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -782,8 +785,10 @@ export default function Home() {
                 )}
               </div>
             </div>
-          )}
+          </div>
+        )}
 
+        <div className="flex-1 min-w-0">
           {/* Run form */}
           <form onSubmit={handleRun} className="bg-gray-900 rounded-xl p-5 mb-6 flex items-end gap-4 flex-wrap">
             <div className="min-w-48">
