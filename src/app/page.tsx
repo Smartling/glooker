@@ -107,15 +107,15 @@ export default function Home() {
         setOrgs(data);
         if (data.length > 0 && !org) setOrg(data[0].login);
       })
-      .catch(() => {});
+      .catch((err) => console.error('[glooker]', err));
     fetch('/api/report')
       .then((r) => r.json())
       .then(setPastReports)
-      .catch(() => {});
+      .catch((err) => console.error('[glooker]', err));
     fetch('/api/schedule')
       .then((r) => r.json())
       .then(setSchedules)
-      .catch(() => {});
+      .catch((err) => console.error('[glooker]', err));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -141,8 +141,8 @@ export default function Home() {
             }
           }
         })
-        .catch(() => {});
-      fetch('/api/schedule').then((r) => r.json()).then(setSchedules).catch(() => {});
+        .catch((err) => console.error('[glooker]', err));
+      fetch('/api/schedule').then((r) => r.json()).then(setSchedules).catch((err) => console.error('[glooker]', err));
     }, 5000);
     return () => clearInterval(interval);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -171,7 +171,7 @@ export default function Home() {
             setDevelopers(data.developers || []);
             setActiveReport(data.report);
             // Refresh past reports list
-            fetch('/api/report').then((r) => r.json()).then(setPastReports).catch(() => {});
+            fetch('/api/report').then((r) => r.json()).then(setPastReports).catch((err) => console.error('[glooker]', err));
           }
         }
       } catch {
@@ -359,7 +359,7 @@ export default function Home() {
         }
       }
 
-      fetch('/api/schedule').then((r) => r.json()).then(setSchedules).catch(() => {});
+      fetch('/api/schedule').then((r) => r.json()).then(setSchedules).catch((err) => console.error('[glooker]', err));
       setShowScheduleForm(false);
       resetScheduleForm();
     } catch {
@@ -370,14 +370,17 @@ export default function Home() {
   async function deleteSchedule(id: string) {
     try {
       const res = await fetch(`/api/schedule/${id}`, { method: 'DELETE' });
-      if (!res.ok) return;
+      if (!res.ok) {
+        alert('Failed to delete schedule');
+        return;
+      }
       setSchedules((prev) => prev.filter((s) => s.id !== id));
       if (editingSchedule?.id === id) {
         setShowScheduleForm(false);
         resetScheduleForm();
       }
     } catch {
-      // ignore
+      alert('Network error — could not delete schedule');
     }
   }
 
@@ -390,12 +393,20 @@ export default function Home() {
       testMode: Boolean(s.test_mode),
       enabled: !s.enabled,
     };
-    await fetch(`/api/schedule/${s.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    fetch('/api/schedule').then((r) => r.json()).then(setSchedules).catch(() => {});
+    try {
+      const res = await fetch(`/api/schedule/${s.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        alert('Failed to toggle schedule');
+        return;
+      }
+      fetch('/api/schedule').then((r) => r.json()).then(setSchedules).catch((err) => console.error('[glooker]', err));
+    } catch {
+      alert('Network error — could not toggle schedule');
+    }
   }
 
   function exportCsv(devs: Developer[], report: Report) {
