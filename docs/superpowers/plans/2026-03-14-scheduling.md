@@ -497,28 +497,38 @@ export async function DELETE(
 }
 ```
 
-- [ ] **Step 3: Test API manually**
+- [ ] **Step 3: Test API with automated curl sequence**
 
-Run (with dev server running):
+Start the dev server in background, wait for it to be ready, then run the full CRUD test sequence automatically:
+
 ```bash
-# Create a schedule
-curl -X POST http://localhost:3000/api/schedule \
+# Start dev server in background
+npm run dev &
+sleep 5  # wait for server to start
+
+# Create a schedule (capture the id)
+CREATE_RESP=$(curl -s -X POST http://localhost:3000/api/schedule \
   -H 'Content-Type: application/json' \
-  -d '{"org":"Smartling","periodDays":3,"cronExpr":"0 9 * * 1-5","timezone":"America/New_York","testMode":false,"enabled":true}'
+  -d '{"org":"Smartling","periodDays":3,"cronExpr":"0 9 * * 1-5","timezone":"America/New_York","testMode":false,"enabled":true}')
+echo "CREATE: $CREATE_RESP"
+SCHEDULE_ID=$(echo "$CREATE_RESP" | grep -o '"id":"[^"]*"' | cut -d'"' -f4)
 
 # List schedules
-curl http://localhost:3000/api/schedule
+echo "LIST:" && curl -s http://localhost:3000/api/schedule | head -c 500
 
-# Update (use the id from create response)
-curl -X PUT http://localhost:3000/api/schedule/<id> \
+# Update the schedule
+echo "UPDATE:" && curl -s -X PUT "http://localhost:3000/api/schedule/$SCHEDULE_ID" \
   -H 'Content-Type: application/json' \
   -d '{"org":"Smartling","periodDays":14,"cronExpr":"0 9 * * 1","timezone":"UTC","testMode":false,"enabled":false}'
 
-# Delete
-curl -X DELETE http://localhost:3000/api/schedule/<id>
+# Delete the schedule
+echo "DELETE:" && curl -s -X DELETE "http://localhost:3000/api/schedule/$SCHEDULE_ID"
+
+# Verify empty list
+echo "VERIFY EMPTY:" && curl -s http://localhost:3000/api/schedule
 ```
 
-Expected: 201 on create, 200 on list/update/delete, proper JSON responses. Server logs should show `[scheduler] Registered` / `Unregistered` messages.
+Expected: CREATE returns `{"id":"..."}` with 201, LIST returns array with the schedule, UPDATE returns `{"ok":true}`, DELETE returns `{"ok":true}`, final list is empty `[]`. Server logs show `[scheduler] Registered` and `Unregistered` messages.
 
 - [ ] **Step 4: Commit**
 
