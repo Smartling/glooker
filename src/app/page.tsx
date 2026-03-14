@@ -97,6 +97,7 @@ export default function Home() {
   const [scheduleEnabled, setScheduleEnabled] = useState(true);
   const [isCustomCron, setIsCustomCron]       = useState(false);
   const [deletingScheduleId, setDeletingScheduleId] = useState<string | null>(null);
+  const [showReportForm, setShowReportForm] = useState(false);
 
   // Load orgs and past reports on mount
   useEffect(() => {
@@ -250,6 +251,8 @@ export default function Home() {
     if (activeReport?.id === id) {
       setActiveReport(null);
       setDevelopers([]);
+      setLogs([]);
+      setProgress(null);
     }
   }
 
@@ -490,7 +493,16 @@ export default function Home() {
       <div className="flex gap-8">
         {/* Sidebar: past reports */}
         <div className="w-60 shrink-0">
-          <p className="text-xs uppercase tracking-wider text-gray-500 mb-3 font-semibold">Past Reports</p>
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs uppercase tracking-wider text-gray-500 font-semibold">Reports</p>
+            <button
+              onClick={() => setShowReportForm(true)}
+              disabled={orgs.length === 0}
+              className="text-xs text-blue-400 hover:text-blue-300 disabled:text-gray-600 disabled:cursor-not-allowed"
+            >
+              + New
+            </button>
+          </div>
           <div className="space-y-1.5">
             {pastReports.length === 0 && (
               <p className="text-gray-600 text-sm">No reports yet</p>
@@ -788,44 +800,75 @@ export default function Home() {
           </div>
         )}
 
-        <div className="flex-1 min-w-0">
-          {/* Run form */}
-          <form onSubmit={handleRun} className="bg-gray-900 rounded-xl p-5 mb-6 flex items-end gap-4 flex-wrap">
-            <div className="min-w-48">
-              <label className="block text-xs text-gray-400 mb-1 font-medium">GitHub Org</label>
-              <select
-                value={org}
-                onChange={(e) => setOrg(e.target.value)}
-                disabled={running || orgs.length === 0}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 pr-8 text-sm text-white focus:outline-none focus:border-blue-500 appearance-none bg-[url('data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2020%2020%22%20fill%3D%22%236b7280%22%3E%3Cpath%20fill-rule%3D%22evenodd%22%20d%3D%22M5.23%207.21a.75.75%200%20011.06.02L10%2011.168l3.71-3.938a.75.75%200%20111.08%201.04l-4.25%204.5a.75.75%200%2001-1.08%200l-4.25-4.5a.75.75%200%2001.02-1.06z%22%20clip-rule%3D%22evenodd%22%2F%3E%3C%2Fsvg%3E')] bg-no-repeat bg-[right_0.5rem_center] bg-[length:1.25rem]"
-              >
-                {orgs.length === 0 && <option value="">Loading…</option>}
-                {orgs.map((o) => (
-                  <option key={o.login} value={o.login}>{o.login}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs text-gray-400 mb-1 font-medium">Period</label>
-              <div className="flex gap-1">
-                {[3, 14, 30, 90].map((d) => (
-                  <button
-                    key={d}
-                    type="button"
-                    onClick={() => setPeriod(d)}
-                    disabled={running}
-                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                      period === d
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-                    }`}
-                  >
-                    {d}d
-                  </button>
-                ))}
+        {/* Run report modal */}
+        {showReportForm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center">
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowReportForm(false)} />
+            <div className="relative bg-gray-900 rounded-xl p-6 w-full max-w-lg border border-gray-800 shadow-2xl">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-white">New Report</h3>
+                <button onClick={() => setShowReportForm(false)} className="text-gray-500 hover:text-gray-300">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
               </div>
+              <form onSubmit={(e) => { handleRun(e); setShowReportForm(false); }}>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1 font-medium">GitHub Org</label>
+                    <select
+                      value={org}
+                      onChange={(e) => setOrg(e.target.value)}
+                      disabled={running || orgs.length === 0}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                    >
+                      {orgs.length === 0 && <option value="">Loading…</option>}
+                      {orgs.map((o) => (
+                        <option key={o.login} value={o.login}>{o.login}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1 font-medium">Period</label>
+                    <div className="flex gap-1">
+                      {[3, 14, 30, 90].map((d) => (
+                        <button
+                          key={d}
+                          type="button"
+                          onClick={() => setPeriod(d)}
+                          disabled={running}
+                          className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                            period === d
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                          }`}
+                        >
+                          {d}d
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-3 mt-4">
+                  <button
+                    type="submit"
+                    disabled={!org.trim() || running}
+                    className="px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors"
+                  >
+                    Run Report
+                  </button>
+                </div>
+              </form>
             </div>
-            {running ? (
+          </div>
+        )}
+
+        <div className="flex-1 min-w-0">
+          {/* Stop button for running report */}
+          {running && (
+            <div className="bg-gray-900 rounded-xl p-5 mb-6 flex items-center justify-between">
+              <span className="text-sm text-gray-300">Report is running…</span>
               <button
                 type="button"
                 onClick={() => reportId && stopReport(reportId)}
@@ -833,16 +876,8 @@ export default function Home() {
               >
                 Stop
               </button>
-            ) : (
-              <button
-                type="submit"
-                disabled={!org.trim()}
-                className="px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors"
-              >
-                Run Report
-              </button>
-            )}
-          </form>
+            </div>
+          )}
 
           {/* Progress */}
           {(running || (progress && (progress.status === 'failed' || progress.status === 'stopped'))) && progress && (
@@ -1018,6 +1053,12 @@ export default function Home() {
           {activeReport && developers.length === 0 && activeReport.status === 'completed' && (
             <div className="text-center text-gray-500 py-16">
               No commits found for this org in the selected period.
+            </div>
+          )}
+
+          {!activeReport && !running && pastReports.length === 0 && (
+            <div className="text-center text-gray-500 py-16">
+              Create or schedule your first report
             </div>
           )}
         </div>
