@@ -4,14 +4,14 @@
  */
 
 export interface ReportProgress {
-  status:          'pending' | 'running' | 'completed' | 'failed' | 'stopped';
-  step:            string;
-  totalRepos:      number;
-  processedRepos:  number;
-  totalCommits:    number;
-  analyzedCommits: number;
-  error?:          string;
-  logs:            string[];
+  status:              'pending' | 'running' | 'completed' | 'failed' | 'stopped';
+  step:                string;
+  totalRepos:          number;
+  processedRepos:      number;
+  totalDevelopers:     number;   // members with commits (known after all fetches complete)
+  completedDevelopers: number;   // members fully analyzed + saved to DB
+  error?:              string;
+  logs:                string[];
 }
 
 const globalStore = globalThis as typeof globalThis & {
@@ -26,13 +26,13 @@ const store = globalStore.__glooker_progress;
 
 export function initProgress(id: string): void {
   store.set(id, {
-    status:          'pending',
-    step:            'Initializing…',
-    totalRepos:      0,
-    processedRepos:  0,
-    totalCommits:    0,
-    analyzedCommits: 0,
-    logs:            [],
+    status:              'pending',
+    step:                'Initializing...',
+    totalRepos:          0,
+    processedRepos:      0,
+    totalDevelopers:     0,
+    completedDevelopers: 0,
+    logs:                [],
   });
 }
 

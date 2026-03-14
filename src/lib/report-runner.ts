@@ -39,12 +39,12 @@ export async function runReport(
       `UPDATE reports SET status = 'running', error = NULL WHERE id = ?`,
       [reportId],
     );
-    updateProgress(reportId, { status: 'running', step: resume ? 'Resuming…' : 'Listing org members…' });
+    updateProgress(reportId, { status: 'running', step: resume ? 'Resuming...' : 'Listing org members...' });
     clearStop(reportId);
     log(`${resume ? 'Resuming' : 'Starting'} report: org=${org}, days=${days}, since=${since.toISOString().split('T')[0]}`);
 
     // On resume, load already-analyzed commit SHAs from DB
-    let existingAnalyses = new Map<string, CommitAnalysis>();
+    const existingAnalyses = new Map<string, CommitAnalysis>();
     const existingShas = new Set<string>();
     if (resume) {
       const [rows] = await db.execute(
@@ -70,15 +70,78 @@ export async function runReport(
     const members = await listOrgMembers(org, log);
     updateProgress(reportId, {
       totalRepos: members.length,
-      step: `Fetching activity for ${members.length} members…`,
+      step: `Fetching activity for ${members.length} members...`,
     });
 
-    // 2. For each member: search commits + PRs, fetch diffs
-    const allCommits: CommitData[] = [];
-    const prCounts = new Map<string, number>();
-    let processedMembers = 0;
-    let activeMemberCount = 0;
+    // Per-member tracking for pipelined processing
+    const memberCommits   = new Map<string, CommitData[]>();   // login → commits from search
+    const memberPending   = new Map<string, number>();          // login → in-flight LLM count
+    const completedMembers = new Set<string>();                 // fully done members
+    const prCounts         = new Map<string, number>();
+    const analyses         = new Map<string, CommitAnalysis>(existingAnalyses);
+    const seen             = new Set<string>();                 // global dedup
+    const pendingLLM: Promise<void>[] = [];
+    const limit            = pLimit(CONCURRENCY);
+    let llmErrors          = 0;
+    let processedMembers   = 0;
+    let activeMemberCount  = 0;
 
+    // Helper: check if a member is fully done, then aggregate + save
+    function checkMemberComplete(login: string) {
+      if (completedMembers.has(login)) return;
+      if ((memberPending.get(login) || 0) > 0) return;
+      completedMembers.add(login);
+
+      // Aggregate just this member's commits + analyses
+      const memCommits = memberCommits.get(login) || [];
+      const memPrCounts = new Map<string, number>();
+      memPrCounts.set(login, prCounts.get(login) || 0);
+      const memStats = aggregate(memCommits, analyses, memPrCounts);
+
+      // Save developer_stats to DB immediately (progressive)
+      for (const s of memStats) {
+        log(`DEV @${s.githubLogin}: ${s.totalCommits} commits, ${s.totalPRs} PRs, PR%=${s.prPercentage}%, AI%=${s.aiPercentage}%, complexity=${s.avgComplexity}, impact=${s.impactScore}`);
+        db.execute(
+          `INSERT INTO developer_stats
+             (report_id, github_login, github_name, avatar_url,
+              total_prs, total_commits, lines_added, lines_removed,
+              avg_complexity, impact_score, pr_percentage, ai_percentage,
+              type_breakdown, active_repos)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE
+             total_prs      = VALUES(total_prs),
+             total_commits  = VALUES(total_commits),
+             lines_added    = VALUES(lines_added),
+             lines_removed  = VALUES(lines_removed),
+             avg_complexity = VALUES(avg_complexity),
+             impact_score   = VALUES(impact_score),
+             pr_percentage  = VALUES(pr_percentage),
+             ai_percentage  = VALUES(ai_percentage),
+             type_breakdown = VALUES(type_breakdown),
+             active_repos   = VALUES(active_repos)`,
+          [
+            reportId,
+            s.githubLogin,
+            s.githubName,
+            s.avatarUrl,
+            s.totalPRs,
+            s.totalCommits,
+            s.linesAdded,
+            s.linesRemoved,
+            s.avgComplexity,
+            s.impactScore,
+            s.prPercentage,
+            s.aiPercentage,
+            JSON.stringify(s.typeBreakdown),
+            JSON.stringify(s.activeRepos),
+          ],
+        ).catch((err) => log(`DB WARN saving stats for @${login}: ${err}`));
+      }
+
+      updateProgress(reportId, { completedDevelopers: completedMembers.size });
+    }
+
+    // 2. Pipelined fetch+LLM loop
     for (const member of members) {
       if (shouldStop(reportId)) throw new Error('Stopped by user');
       if (testMode && activeMemberCount >= 3) {
@@ -99,112 +162,108 @@ export async function runReport(
           activeMemberCount++;
         }
 
-        allCommits.push(...activity.commits);
         prCounts.set(member.login, activity.prs.length);
+
+        // Dedup commits against global seen set
+        const thisMemCommits: CommitData[] = [];
+        for (const c of activity.commits) {
+          if (!seen.has(c.sha)) {
+            seen.add(c.sha);
+            thisMemCommits.push(c);
+          }
+        }
+        memberCommits.set(member.login, thisMemCommits);
+
+        // Queue LLM for commits not already analyzed
+        let pendingCount = 0;
+        for (const commit of thisMemCommits) {
+          if (existingShas.has(commit.sha)) continue; // already analyzed
+          pendingCount++;
+          memberPending.set(member.login, (memberPending.get(member.login) || 0) + 1);
+
+          const p = limit(async () => {
+            if (shouldStop(reportId)) return;
+            try {
+              const result = await analyzeCommit(commit);
+              analyses.set(commit.sha, result);
+              const totalAnalyzed = analyses.size;
+              if (totalAnalyzed <= 3 || totalAnalyzed % 25 === 0) {
+                log(`LLM [${totalAnalyzed}] ${commit.sha.slice(0, 7)} → complexity=${result.complexity}, type=${result.type}, risk=${result.riskLevel}${result.maybeAi ? ' [maybe_ai]' : ''}`);
+              }
+              // Save to DB immediately (fixes resume)
+              await db.execute(
+                `INSERT IGNORE INTO commit_analyses
+                   (report_id, github_login, repo, commit_sha, pr_number, pr_title,
+                    commit_message, lines_added, lines_removed,
+                    complexity, type, impact_summary, risk_level,
+                    ai_co_authored, ai_tool_name, maybe_ai, committed_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                  reportId,
+                  commit.author,
+                  commit.repo,
+                  commit.sha,
+                  commit.prNumber,
+                  commit.prTitle,
+                  commit.message,
+                  commit.additions,
+                  commit.deletions,
+                  result.complexity,
+                  result.type,
+                  result.impactSummary,
+                  result.riskLevel,
+                  commit.aiCoAuthored ? 1 : 0,
+                  commit.aiToolName,
+                  result.maybeAi ? 1 : 0,
+                  commit.committedAt,
+                ],
+              );
+            } catch (err) {
+              llmErrors++;
+              log(`LLM ERROR ${commit.sha.slice(0, 7)}: ${err instanceof Error ? err.message : String(err)}`);
+            }
+            // Decrement pending count and check if member is complete
+            memberPending.set(member.login, (memberPending.get(member.login) || 1) - 1);
+            checkMemberComplete(member.login);
+          });
+          pendingLLM.push(p);
+        }
+
+        // If no new commits needed LLM, member is immediately complete
+        if (pendingCount === 0 && thisMemCommits.length > 0) {
+          checkMemberComplete(member.login);
+        }
       } catch (err) {
         log(`SKIP @${member.login}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
-    // Deduplicate commits
-    const seen = new Set<string>();
-    const uniqueCommits = allCommits.filter((c) => {
-      if (seen.has(c.sha)) return false;
-      seen.add(c.sha);
-      return true;
-    });
-
-    // Split into already-done and needs-analysis
-    const needsAnalysis = uniqueCommits.filter((c) => !existingShas.has(c.sha));
-    const skippedCount  = uniqueCommits.length - needsAnalysis.length;
-
-    const activeDevs = new Set(uniqueCommits.map((c) => c.author));
-    log(`Total: ${uniqueCommits.length} unique commits from ${activeDevs.size} active developers`);
-    if (skippedCount > 0) {
-      log(`Resume: skipping ${skippedCount} already-analyzed commits, ${needsAnalysis.length} remaining`);
-    }
-
+    // After fetch loop: set totalDevelopers (enables progress bar %)
+    const membersWithCommits = [...memberCommits.entries()].filter(([, c]) => c.length > 0).length;
     updateProgress(reportId, {
-      totalCommits:   uniqueCommits.length,
-      analyzedCommits: skippedCount,
-      step: needsAnalysis.length > 0
-        ? `Analyzing ${needsAnalysis.length} commits with LLM (concurrency: ${CONCURRENCY})…`
-        : 'All commits already analyzed, aggregating…',
+      totalDevelopers: membersWithCommits,
+      step: `Analyzing commits (${completedMembers.size}/${membersWithCommits} developers done)...`,
     });
+    log(`Total: ${seen.size} unique commits from ${membersWithCommits} active developers`);
 
-    // 3. LLM analysis with concurrency limit (only for new commits)
-    const analyses = new Map(existingAnalyses);
-    let analyzed  = skippedCount;
-    let llmErrors = 0;
+    // Wait for remaining LLM work
+    await Promise.all(pendingLLM);
 
-    if (needsAnalysis.length > 0) {
-      log(`Starting LLM analysis: ${needsAnalysis.length} commits, concurrency=${CONCURRENCY}`);
-      const limit = pLimit(CONCURRENCY);
+    if (shouldStop(reportId)) throw new Error('Stopped by user');
 
-      await Promise.all(
-        needsAnalysis.map((commit) =>
-          limit(async () => {
-            if (shouldStop(reportId)) return;
-            try {
-              const result = await analyzeCommit(commit);
-              analyses.set(commit.sha, result);
-              if (analyzed < skippedCount + 3 || analyzed % 25 === 0) {
-                log(`LLM [${analyzed + 1}/${uniqueCommits.length}] ${commit.sha.slice(0, 7)} → complexity=${result.complexity}, type=${result.type}, risk=${result.riskLevel}${result.maybeAi ? ' [maybe_ai]' : ''}`);
-              }
-            } catch (err) {
-              llmErrors++;
-              log(`LLM ERROR ${commit.sha.slice(0, 7)}: ${err instanceof Error ? err.message : String(err)}`);
-            }
-            analyzed++;
-            updateProgress(reportId, { analyzedCommits: analyzed });
-          }),
-        ),
-      );
+    log(`LLM analysis complete: ${analyses.size} total, ${llmErrors} failed`);
 
-      log(`LLM analysis complete: ${analyses.size} total, ${llmErrors} failed`);
+    // 3. Final aggregation with full cross-member view (overwrites per-member stats)
+    updateProgress(reportId, { step: 'Final aggregation...', completedDevelopers: membersWithCommits });
+    log('Running final aggregation...');
+
+    const allCommits: CommitData[] = [];
+    for (const commits of memberCommits.values()) {
+      allCommits.push(...commits);
     }
-
-    // 4. Save individual commit analyses (INSERT IGNORE handles duplicates)
-    log('Saving commit analyses to database…');
-    for (const commit of uniqueCommits) {
-      if (existingShas.has(commit.sha)) continue; // already in DB
-      const analysis = analyses.get(commit.sha);
-      await db.execute(
-        `INSERT IGNORE INTO commit_analyses
-           (report_id, github_login, repo, commit_sha, pr_number, pr_title,
-            commit_message, lines_added, lines_removed,
-            complexity, type, impact_summary, risk_level,
-            ai_co_authored, ai_tool_name, maybe_ai, committed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          reportId,
-          commit.author,
-          commit.repo,
-          commit.sha,
-          commit.prNumber,
-          commit.prTitle,
-          commit.message,
-          commit.additions,
-          commit.deletions,
-          analysis?.complexity   ?? null,
-          analysis?.type         ?? null,
-          analysis?.impactSummary ?? null,
-          analysis?.riskLevel    ?? null,
-          commit.aiCoAuthored ? 1 : 0,
-          commit.aiToolName,
-          analysis?.maybeAi ? 1 : 0,
-          commit.committedAt,
-        ],
-      );
-    }
-
-    // 5. Aggregate and save developer stats
-    updateProgress(reportId, { step: 'Aggregating developer stats…' });
-    log('Aggregating developer stats…');
-    const stats = aggregate(uniqueCommits, analyses, prCounts);
+    const stats = aggregate(allCommits, analyses, prCounts);
 
     for (const s of stats) {
-      log(`DEV @${s.githubLogin}: ${s.totalCommits} commits, ${s.totalPRs} PRs, PR%=${s.prPercentage}%, AI%=${s.aiPercentage}%, complexity=${s.avgComplexity}, impact=${s.impactScore}`);
       await db.execute(
         `INSERT INTO developer_stats
            (report_id, github_login, github_name, avatar_url,
@@ -242,13 +301,13 @@ export async function runReport(
       );
     }
 
-    // 6. Mark complete
+    // 4. Mark complete
     await db.execute(
       `UPDATE reports SET status = 'completed', completed_at = NOW() WHERE id = ?`,
       [reportId],
     );
     log(`Report complete: ${stats.length} developers`);
-    updateProgress(reportId, { status: 'completed', step: 'Done' });
+    updateProgress(reportId, { status: 'completed', step: 'Done', totalDevelopers: membersWithCommits, completedDevelopers: membersWithCommits });
 
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
