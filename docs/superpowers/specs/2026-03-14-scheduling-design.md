@@ -2,11 +2,11 @@
 
 ## Overview
 
-Add cron-based scheduled report generation to Glooker. Schedules are stored in the database, managed via the dashboard UI, and executed by node-cron running inside the Next.js process.
+Add cron-based scheduled report generation to Glooker. Schedules are stored in the database, managed via the dashboard UI, and executed by `croner` running inside the Next.js process.
 
 ## Data Model
 
-New `schedules` table:
+New `schedules` table (SQLite syntax shown; MySQL equivalent uses `DATETIME DEFAULT CURRENT_TIMESTAMP` for `created_at` and standard `FOREIGN KEY` syntax, derived the same way as existing tables):
 
 ```sql
 CREATE TABLE IF NOT EXISTS schedules (
@@ -26,33 +26,40 @@ CREATE TABLE IF NOT EXISTS schedules (
 
 - `last_run_at` and `last_report_id` track the most recent execution.
 - Added to both SQLite schema (in `db/sqlite.ts`) and MySQL schema init.
+- If any schedule queries use `ON DUPLICATE KEY UPDATE`, add `schedules` to the `conflictCols` map in `translateSQL()`.
 
 ## Scheduler Module
 
 **File:** `src/lib/schedule-manager.ts`
 
-- `globalThis.__glooker_schedules` — `Map<string, CronJob>` surviving HMR reloads.
-- `initScheduler()` — loads all enabled schedules from DB, registers cron jobs. Called from `instrumentation.ts`.
-- `registerSchedule(schedule)` — creates a node-cron job that calls `runReport()` directly (no HTTP round-trip), then updates `last_run_at` and `last_report_id` in the DB.
+- `globalThis.__glooker_schedules` — `Map<string, Cron>` surviving HMR reloads.
+- `initScheduler()` — called from `instrumentation.ts`:
+  1. Marks any orphaned `running` reports as `failed` (recovery from server restart).
+  2. Loads all enabled schedules from DB, registers cron jobs.
+- `registerSchedule(schedule)` — creates a `croner` Cron job that calls the trigger function directly, then updates `last_run_at` and `last_report_id` in the DB.
 - `unregisterSchedule(id)` — stops and removes a cron job from the map.
-- `getNextRun(cronExpr, timezone)` — computes next fire time for UI display.
+- `getNextRun(cronExpr, timezone)` — uses `croner`'s built-in `.nextRun()` method to compute next fire time for UI display.
 
 ### Initialization
 
-Uses Next.js `instrumentation.ts` (`register()` hook) which runs once on server startup. Includes a `globalThis` guard to prevent double-init in dev mode.
+Uses Next.js `instrumentation.ts` (`register()` hook) which runs once on server startup. Two guards:
+1. **Runtime check:** `if (process.env.NEXT_RUNTIME === 'nodejs')` — prevents running in Edge runtime where node APIs are unavailable.
+2. **`globalThis` guard:** prevents double-init in dev mode (same pattern as progress-store).
 
 ### On Trigger
 
-1. Generate a new report UUID.
-2. Insert a pending report row into `reports` table.
-3. Call `runReport(id, org, periodDays, false, testMode)` — reuses existing logic.
-4. Update `schedules` row: set `last_run_at = NOW()`, `last_report_id = id`.
+1. **Concurrency check:** query `reports` table for any `running` report with the same `org`. If one exists, skip this run and log a warning.
+2. Generate a new report UUID.
+3. Insert a pending report row into `reports` table.
+4. Initialize progress tracker.
+5. Call `runReport(id, org, periodDays, false, testMode)` wrapped in try/catch — errors are logged but never crash the scheduler.
+6. Update `schedules` row: set `last_run_at = NOW()`, `last_report_id = id`.
 
 ## API Endpoints
 
 ### `GET /api/schedule`
 
-Returns all schedules ordered by `created_at DESC`.
+Returns all schedules ordered by `created_at DESC`. Each row includes the linked report's status (via `last_report_id` join) for UI display.
 
 ### `POST /api/schedule`
 
@@ -70,7 +77,8 @@ Create a new schedule.
 }
 ```
 
-- Validates cron expression with `node-cron`'s `validate()`.
+- Validates `periodDays` is one of `[3, 14, 30, 90]`.
+- Validates cron expression with `croner`'s pattern parsing (throws on invalid).
 - Inserts into DB, registers the cron job in the live scheduler.
 
 ### `PUT /api/schedule/[id]`
@@ -89,6 +97,7 @@ Full replacement update of a schedule.
 }
 ```
 
+- Validates `periodDays` and cron expression (same as POST).
 - Updates DB row, stops old cron job, registers new one (or just stops if `enabled: false`).
 
 ### `DELETE /api/schedule/[id]`
@@ -134,8 +143,8 @@ Default selection: **Weekdays at 9 AM**.
 
 ### Status Indicators
 
-- **Last run:** Relative time ("2 hours ago") + link to the generated report.
-- **Next run:** Computed from cron expression + timezone (e.g. "Mon Mar 16 at 9:00 AM ET").
+- **Last run:** Relative time ("2 hours ago") + linked report's status (completed/failed/running) + link to the report.
+- **Next run:** Computed from cron expression + timezone via `croner`'s `.nextRun()` (e.g. "Mon Mar 16 at 9:00 AM ET").
 
 ### Timezone Dropdown Options
 
@@ -151,9 +160,16 @@ Auto-detect browser timezone as default. List includes:
 
 ## Dependencies
 
-- `node-cron` — cron scheduler (new dependency).
+- `croner` — cron scheduler with built-in timezone support and `.nextRun()`. Single dependency, no extras needed.
+
+## Next.js Configuration
+
+- Add `croner` to `serverExternalPackages` in `next.config.ts` if bundling issues arise (same approach as `better-sqlite3` and `mysql2`).
 
 ## Out of Scope
 
 - Auto-send email digest after report completes (no email system yet).
 - Email delivery, opt-in/opt-out, template rendering.
+- "Run now" manual trigger button for schedules.
+- Schedule count limits.
+- `schedule_id` foreign key on `reports` table (linking reports to their source schedule).
