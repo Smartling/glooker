@@ -143,7 +143,7 @@ export default function Home() {
         })
         .catch(() => {});
       fetch('/api/schedule').then((r) => r.json()).then(setSchedules).catch(() => {});
-    }, 8000);
+    }, 5000);
     return () => clearInterval(interval);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeReport?.id, activeReport?.status]);
