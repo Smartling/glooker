@@ -47,7 +47,11 @@ export async function initScheduler(): Promise<void> {
     );
 
     for (const schedule of rows) {
-      registerSchedule(schedule);
+      try {
+        registerSchedule(schedule);
+      } catch (err) {
+        console.error(`[scheduler] Failed to register schedule ${schedule.id}:`, err);
+      }
     }
 
     g.__glooker_scheduler_init = true;

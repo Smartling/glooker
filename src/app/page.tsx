@@ -136,7 +136,7 @@ export default function Home() {
                 fetch(`/api/report/${updated.id}`).then((r) => r.json()).then((data) => {
                   setDevelopers(data.developers || []);
                   setActiveReport(data.report);
-                });
+                }).catch((err) => console.error('[glooker] Failed to load completed report:', err));
               }
             }
           }
@@ -174,8 +174,8 @@ export default function Home() {
             fetch('/api/report').then((r) => r.json()).then(setPastReports).catch((err) => console.error('[glooker]', err));
           }
         }
-      } catch {
-        // ignore transient errors
+      } catch (err) {
+        console.error('[glooker] Polling error:', err);
       }
     }, 1500);
   }
