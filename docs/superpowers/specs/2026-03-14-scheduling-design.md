@@ -146,6 +146,10 @@ Default selection: **Weekdays at 9 AM**.
 - **Last run:** Relative time ("2 hours ago") + linked report's status (completed/failed/running) + link to the report.
 - **Next run:** Computed from cron expression + timezone via `croner`'s `.nextRun()` (e.g. "Mon Mar 16 at 9:00 AM ET").
 
+### Reports List Polling
+
+The frontend polls `GET /api/report` every 5–10 seconds to pick up reports created by scheduled triggers (which call `runReport()` directly, bypassing the UI). This ensures scheduled reports appear in the sidebar without requiring a page refresh.
+
 ### Timezone Dropdown Options
 
 Auto-detect browser timezone as default. List includes:
