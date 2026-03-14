@@ -96,6 +96,7 @@ export default function Home() {
   const [scheduleTestMode, setScheduleTestMode] = useState(false);
   const [scheduleEnabled, setScheduleEnabled] = useState(true);
   const [isCustomCron, setIsCustomCron]       = useState(false);
+  const [deletingScheduleId, setDeletingScheduleId] = useState<string | null>(null);
 
   // Load orgs and past reports on mount
   useEffect(() => {
@@ -601,8 +602,29 @@ export default function Home() {
               )}
               {schedules.map((s) => {
                 const presetLabel = CADENCE_PRESETS.find((p) => p.cron === s.cron_expr)?.label || s.cron_expr;
+                const isDeletingSchedule = deletingScheduleId === s.id;
                 return (
-                  <div key={s.id} className="group px-3 py-2.5 rounded-lg text-sm border border-transparent hover:bg-gray-800/50 hover:border-gray-800">
+                  <div key={s.id} className="group">
+                    {isDeletingSchedule ? (
+                      <div className="px-3 py-2.5 rounded-lg text-sm bg-red-950 border border-red-800">
+                        <p className="text-red-300 text-xs mb-2">Delete this schedule?</p>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => { deleteSchedule(s.id); setDeletingScheduleId(null); }}
+                            className="px-2 py-1 text-xs bg-red-700 hover:bg-red-600 text-white rounded transition-colors"
+                          >
+                            Delete
+                          </button>
+                          <button
+                            onClick={() => setDeletingScheduleId(null)}
+                            className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                    <div className="px-3 py-2.5 rounded-lg text-sm border border-transparent hover:bg-gray-800/50 hover:border-gray-800">
                     <div className="flex items-center justify-between">
                       <button
                         onClick={() => openEditScheduleForm(s)}
@@ -621,7 +643,7 @@ export default function Home() {
                         </button>
                         <span
                           role="button"
-                          onClick={(e) => { e.stopPropagation(); deleteSchedule(s.id); }}
+                          onClick={(e) => { e.stopPropagation(); setDeletingScheduleId(s.id); }}
                           className="p-0.5 rounded text-gray-700 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
                           title="Delete schedule"
                         >
@@ -655,6 +677,8 @@ export default function Home() {
                         </span>
                       )}
                     </div>
+                  </div>
+                    )}
                   </div>
                 );
               })}
