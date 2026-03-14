@@ -83,7 +83,7 @@ export function aggregate(
       Math.min(dev.commits.length / 20, 1) * 3 +
       Math.min(totalPRs / 10, 1)            * 3 +
       (avgComplexity / 10)                   * 2.5 +
-      (prPercentage / 100)                   * 1.5;
+      (prPercentage / 100)                   * 1.1;
     const impactScore = Math.round(rawImpact * 10) / 10;
 
     const typeBreakdown: Record<string, number> = {};

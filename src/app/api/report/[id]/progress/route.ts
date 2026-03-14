@@ -25,35 +25,33 @@ export async function GET(
 
   const report = rows[0] as { status: string; error: string | null };
 
-  // If DB says running, count analyzed commits to show real progress
+  // If DB says running, count completed developers to show real progress
   if (report.status === 'running') {
-    const [countRows] = await db.execute(
-      `SELECT COUNT(*) as total, SUM(CASE WHEN complexity IS NOT NULL THEN 1 ELSE 0 END) as analyzed
-       FROM commit_analyses WHERE report_id = ?`,
+    const [devRows] = await db.execute(
+      `SELECT COUNT(*) as completed FROM developer_stats WHERE report_id = ?`,
       [id],
     ) as [any[], any];
-    const row = countRows[0] as { total: number; analyzed: number } || { total: 0, analyzed: 0 };
-    const { total, analyzed } = row;
+    const completed = Number((devRows[0] as any)?.completed || 0);
 
     return NextResponse.json({
-      status:          'running',
-      step:            total > 0 ? `Analyzing commits… (${analyzed}/${total} from DB)` : 'Running…',
-      totalRepos:      0,
-      processedRepos:  0,
-      totalCommits:    Number(total),
-      analyzedCommits: Number(analyzed),
-      logs:            [],
+      status:              'running',
+      step:                completed > 0 ? `Analyzing... (${completed} developers done from DB)` : 'Running...',
+      totalRepos:          0,
+      processedRepos:      0,
+      totalDevelopers:     0,
+      completedDevelopers: completed,
+      logs:                [],
     });
   }
 
   return NextResponse.json({
-    status:          report.status,
-    step:            report.status,
-    totalRepos:      0,
-    processedRepos:  0,
-    totalCommits:    0,
-    analyzedCommits: 0,
-    error:           report.error || undefined,
-    logs:            [],
+    status:              report.status,
+    step:                report.status,
+    totalRepos:          0,
+    processedRepos:      0,
+    totalDevelopers:     0,
+    completedDevelopers: 0,
+    error:               report.error || undefined,
+    logs:                [],
   });
 }

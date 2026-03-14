@@ -19,14 +19,14 @@ interface Developer {
 }
 
 interface Progress {
-  status:          string;
-  step:            string;
-  totalRepos:      number;
-  processedRepos:  number;
-  totalCommits:    number;
-  analyzedCommits: number;
-  error?:          string;
-  logs?:           string[];
+  status:              string;
+  step:                string;
+  totalRepos:          number;
+  processedRepos:      number;
+  totalDevelopers:     number;
+  completedDevelopers: number;
+  error?:              string;
+  logs?:               string[];
 }
 
 interface Report {
@@ -83,6 +83,8 @@ export default function Home() {
   const [showLogs, setShowLogs]     = useState(true);
   const pollRef  = useRef<ReturnType<typeof setInterval> | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
+  const generationRef = useRef(0);
+  const lastCompletedDevsRef = useRef(0);
 
   // Schedule state
   const [schedules, setSchedules]             = useState<any[]>([]);
@@ -157,20 +159,44 @@ export default function Home() {
 
   function startPolling(id: string) {
     stopPolling();
+    const gen = ++generationRef.current;
+    lastCompletedDevsRef.current = 0;
+
     pollRef.current = setInterval(async () => {
+      if (gen !== generationRef.current) return; // stale generation
       try {
         const prog = await fetch(`/api/report/${id}/progress`).then((r) => r.json());
+        if (gen !== generationRef.current) return; // stale after await
         setProgress(prog);
         if (prog.logs) setLogs(prog.logs);
+
+        // Fetch developers progressively when completedDevelopers increases
+        if (prog.completedDevelopers > lastCompletedDevsRef.current) {
+          lastCompletedDevsRef.current = prog.completedDevelopers;
+          const data = await fetch(`/api/report/${id}`).then((r) => r.json());
+          if (gen !== generationRef.current) return; // stale after await
+          if (data.developers?.length > 0) {
+            setDevelopers(data.developers);
+            if (data.report) setActiveReport(data.report);
+          }
+        }
 
         if (prog.status === 'completed' || prog.status === 'failed' || prog.status === 'stopped') {
           stopPolling();
           setRunning(false);
           if (prog.status === 'completed') {
             const data = await fetch(`/api/report/${id}`).then((r) => r.json());
+            if (gen !== generationRef.current) return;
             setDevelopers(data.developers || []);
             setActiveReport(data.report);
             // Refresh past reports list
+            fetch('/api/report').then((r) => r.json()).then(setPastReports).catch((err) => console.error('[glooker]', err));
+          } else if (prog.status === 'stopped') {
+            // On stop, also refresh the developer list from DB (partial results)
+            const data = await fetch(`/api/report/${id}`).then((r) => r.json());
+            if (gen !== generationRef.current) return;
+            if (data.developers?.length > 0) setDevelopers(data.developers);
+            if (data.report) setActiveReport(data.report);
             fetch('/api/report').then((r) => r.json()).then(setPastReports).catch((err) => console.error('[glooker]', err));
           }
         }
@@ -482,15 +508,8 @@ export default function Home() {
     });
   }
 
-  // Auto-scroll logs
-  useEffect(() => {
-    if (logsEndRef.current) {
-      logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [logs]);
-
-  const pct = progress && progress.totalCommits > 0
-    ? Math.round((progress.analyzedCommits / progress.totalCommits) * 100)
+  const pct = progress && progress.totalDevelopers > 0
+    ? Math.round((progress.completedDevelopers / progress.totalDevelopers) * 100)
     : progress?.status === 'completed' ? 100 : 0;
 
   return (
@@ -895,11 +914,15 @@ export default function Home() {
             <div className="bg-gray-900 rounded-xl p-5 mb-6">
               <div className="flex justify-between text-sm mb-2">
                 <span className="text-gray-300">{progress.step}</span>
-                {progress.totalCommits > 0 && (
+                {progress.totalDevelopers > 0 ? (
                   <span className="text-gray-500">
-                    {progress.analyzedCommits} / {progress.totalCommits} commits
+                    {progress.completedDevelopers} / {progress.totalDevelopers} developers
                   </span>
-                )}
+                ) : progress.completedDevelopers > 0 ? (
+                  <span className="text-gray-500">
+                    {progress.completedDevelopers} developers done
+                  </span>
+                ) : null}
               </div>
               <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
                 <div
@@ -909,9 +932,9 @@ export default function Home() {
                   style={{ width: `${Math.max(pct, running ? 2 : 0)}%` }}
                 />
               </div>
-              {progress.totalRepos > 0 && (
+              {progress.totalRepos > 0 && progress.totalDevelopers === 0 && (
                 <p className="text-xs text-gray-600 mt-2">
-                  Members: {progress.processedRepos}/{progress.totalRepos}
+                  Fetching: {progress.processedRepos}/{progress.totalRepos} members
                 </p>
               )}
               {progress.error && (
