@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 
 interface Developer {
   github_login:   string;
@@ -1202,10 +1203,22 @@ function CommitCountWithTooltip({
   const [commits, setCommits] = useState<any[] | null>(null);
   const [show, setShow] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number; flipDown: boolean }>({ top: 0, left: 0, flipDown: false });
+  const triggerRef = useRef<HTMLSpanElement>(null);
   const hideTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function handleMouseEnter() {
     if (hideTimeout.current) clearTimeout(hideTimeout.current);
+    // Position tooltip above the trigger, right-aligned
+    if (triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      const flipDown = rect.top < 300; // not enough room above
+      setPos({
+        top: flipDown ? rect.bottom + 8 : rect.top - 8,
+        left: rect.right,
+        flipDown,
+      });
+    }
     setShow(true);
     const key = `${reportId}:${login}`;
     if (cacheRef.current!.has(key)) {
@@ -1227,36 +1240,49 @@ function CommitCountWithTooltip({
     hideTimeout.current = setTimeout(() => setShow(false), 200);
   }
 
+  const tooltip = show && typeof document !== 'undefined' ? createPortal(
+    <div
+      className="fixed z-[9999] w-[420px] max-h-72 overflow-y-auto bg-gray-800 border border-gray-700 rounded-lg shadow-2xl text-xs text-left"
+      style={{
+        top: `${pos.top}px`,
+        left: `${pos.left}px`,
+        transform: pos.flipDown ? 'translate(-100%, 0)' : 'translate(-100%, -100%)',
+      }}
+      onMouseEnter={() => { if (hideTimeout.current) clearTimeout(hideTimeout.current); }}
+      onMouseLeave={handleMouseLeave}
+    >
+      <div className="px-3 py-2 border-b border-gray-700 text-gray-400 font-medium">
+        {count} commits by @{login}
+      </div>
+      <div className="p-2">
+        {loading && <p className="text-gray-500 px-1 py-2">Loading...</p>}
+        {!loading && commits && commits.length === 0 && <p className="text-gray-500 px-1 py-2">No commits</p>}
+        {!loading && commits && commits.length > 0 && (
+          <table className="w-full">
+            <tbody>
+              {commits.map((c: any) => (
+                <tr key={c.commit_sha} className="border-b border-gray-700/30 last:border-0">
+                  <td className="py-1.5 px-1 font-mono text-blue-400 whitespace-nowrap align-top">{c.commit_sha.slice(0, 7)}</td>
+                  <td className="py-1.5 px-1 text-gray-400 align-top" style={{ maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.commit_message}>
+                    {c.commit_message?.split('\n')[0]?.slice(0, 60) || '\u2014'}
+                  </td>
+                  <td className="py-1.5 px-1 text-gray-600 whitespace-nowrap align-top">{c.repo?.split('/')[1] || c.repo}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>,
+    document.body,
+  ) : null;
+
   return (
-    <div className="relative" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
-      <span className="text-gray-300 cursor-default underline decoration-dotted decoration-gray-600 underline-offset-4">
+    <span className="inline-block" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
+      <span ref={triggerRef} className="text-gray-300 cursor-default underline decoration-dotted decoration-gray-600 underline-offset-4">
         {count}
       </span>
-      {show && (
-        <div
-          className="absolute z-50 right-0 top-full mt-1 w-96 max-h-64 overflow-y-auto bg-gray-800 border border-gray-700 rounded-lg shadow-xl p-3 text-xs"
-          onMouseEnter={() => { if (hideTimeout.current) clearTimeout(hideTimeout.current); }}
-          onMouseLeave={handleMouseLeave}
-        >
-          {loading && <p className="text-gray-500">Loading...</p>}
-          {!loading && commits && commits.length === 0 && <p className="text-gray-500">No commits</p>}
-          {!loading && commits && commits.length > 0 && (
-            <table className="w-full">
-              <tbody>
-                {commits.map((c: any) => (
-                  <tr key={c.commit_sha} className="border-b border-gray-700/50 last:border-0">
-                    <td className="py-1.5 pr-2 font-mono text-blue-400 whitespace-nowrap">{c.commit_sha.slice(0, 7)}</td>
-                    <td className="py-1.5 pr-2 text-gray-400 truncate max-w-[180px]" title={c.commit_message}>
-                      {c.commit_message?.split('\n')[0]?.slice(0, 60) || '—'}
-                    </td>
-                    <td className="py-1.5 text-gray-600 whitespace-nowrap">{c.repo?.split('/')[1] || c.repo}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
-    </div>
+      {tooltip}
+    </span>
   );
 }
