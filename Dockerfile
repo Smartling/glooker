@@ -12,6 +12,9 @@ RUN npm ci
 # Copy source
 COPY . .
 
+# Ensure public dir exists (may not in all setups)
+RUN mkdir -p public
+
 # Build
 RUN npm run build
 
@@ -25,7 +28,7 @@ COPY --from=base /app/node_modules ./node_modules
 COPY --from=base /app/package.json ./
 COPY --from=base /app/next.config.ts ./
 COPY --from=base /app/schema.sql ./
-COPY --from=base /app/public ./public 2>/dev/null || true
+COPY --from=base /app/public ./public
 
 ENV NODE_ENV=production
 EXPOSE 3000

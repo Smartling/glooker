@@ -83,6 +83,7 @@ export default function Home() {
   const [showLogs, setShowLogs]     = useState(true);
   const pollRef  = useRef<ReturnType<typeof setInterval> | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
+  const commitCache = useRef<Map<string, any[]>>(new Map());
   const generationRef = useRef(0);
   const lastCompletedDevsRef = useRef(0);
 
@@ -1056,7 +1057,14 @@ export default function Home() {
                         </div>
                       </td>
                       <td className="px-4 py-3 text-right text-gray-300">{dev.total_prs}</td>
-                      <td className="px-4 py-3 text-right text-gray-300">{dev.total_commits}</td>
+                      <td className="px-4 py-3 text-right">
+                        <CommitCountWithTooltip
+                          count={dev.total_commits}
+                          reportId={reportId || activeReport?.id || ''}
+                          login={dev.github_login}
+                          cacheRef={commitCache}
+                        />
+                      </td>
                       <td className="px-4 py-3 text-right">
                         <span className="text-green-400">+{dev.lines_added.toLocaleString()}</span>
                         <span className="text-gray-600"> / </span>
@@ -1176,6 +1184,79 @@ function TypeBreakdown({ breakdown }: { breakdown: Record<string, number> }) {
           {type} <span className="opacity-75">{count}</span>
         </span>
       ))}
+    </div>
+  );
+}
+
+function CommitCountWithTooltip({
+  count,
+  reportId,
+  login,
+  cacheRef,
+}: {
+  count: number;
+  reportId: string;
+  login: string;
+  cacheRef: React.RefObject<Map<string, any[]>>;
+}) {
+  const [commits, setCommits] = useState<any[] | null>(null);
+  const [show, setShow] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const hideTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  async function handleMouseEnter() {
+    if (hideTimeout.current) clearTimeout(hideTimeout.current);
+    setShow(true);
+    const key = `${reportId}:${login}`;
+    if (cacheRef.current!.has(key)) {
+      setCommits(cacheRef.current!.get(key)!);
+      return;
+    }
+    setLoading(true);
+    try {
+      const rows = await fetch(`/api/report/${reportId}/commits?login=${login}`).then(r => r.json());
+      cacheRef.current!.set(key, rows);
+      setCommits(rows);
+    } catch {
+      setCommits([]);
+    }
+    setLoading(false);
+  }
+
+  function handleMouseLeave() {
+    hideTimeout.current = setTimeout(() => setShow(false), 200);
+  }
+
+  return (
+    <div className="relative" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
+      <span className="text-gray-300 cursor-default underline decoration-dotted decoration-gray-600 underline-offset-4">
+        {count}
+      </span>
+      {show && (
+        <div
+          className="absolute z-50 right-0 top-full mt-1 w-96 max-h-64 overflow-y-auto bg-gray-800 border border-gray-700 rounded-lg shadow-xl p-3 text-xs"
+          onMouseEnter={() => { if (hideTimeout.current) clearTimeout(hideTimeout.current); }}
+          onMouseLeave={handleMouseLeave}
+        >
+          {loading && <p className="text-gray-500">Loading...</p>}
+          {!loading && commits && commits.length === 0 && <p className="text-gray-500">No commits</p>}
+          {!loading && commits && commits.length > 0 && (
+            <table className="w-full">
+              <tbody>
+                {commits.map((c: any) => (
+                  <tr key={c.commit_sha} className="border-b border-gray-700/50 last:border-0">
+                    <td className="py-1.5 pr-2 font-mono text-blue-400 whitespace-nowrap">{c.commit_sha.slice(0, 7)}</td>
+                    <td className="py-1.5 pr-2 text-gray-400 truncate max-w-[180px]" title={c.commit_message}>
+                      {c.commit_message?.split('\n')[0]?.slice(0, 60) || '—'}
+                    </td>
+                    <td className="py-1.5 text-gray-600 whitespace-nowrap">{c.repo?.split('/')[1] || c.repo}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
     </div>
   );
 }
