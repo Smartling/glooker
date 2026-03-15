@@ -1063,6 +1063,7 @@ export default function Home() {
                           count={dev.total_commits}
                           reportId={reportId || activeReport?.id || ''}
                           login={dev.github_login}
+                          org={activeReport?.org || ''}
                           cacheRef={commitCache}
                         />
                       </td>
@@ -1193,11 +1194,13 @@ function CommitCountWithTooltip({
   count,
   reportId,
   login,
+  org,
   cacheRef,
 }: {
   count: number;
   reportId: string;
   login: string;
+  org: string;
   cacheRef: React.RefObject<Map<string, any[]>>;
 }) {
   const [commits, setCommits] = useState<any[] | null>(null);
@@ -1262,7 +1265,9 @@ function CommitCountWithTooltip({
             <tbody>
               {commits.map((c: any) => (
                 <tr key={c.commit_sha} className="border-b border-gray-700/30 last:border-0">
-                  <td className="py-1.5 px-1 font-mono text-blue-400 whitespace-nowrap align-top">{c.commit_sha.slice(0, 7)}</td>
+                  <td className="py-1.5 px-1 font-mono whitespace-nowrap align-top">
+                    <a href={`https://github.com/${org}/${c.repo}/commit/${c.commit_sha}`} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 hover:underline">{c.commit_sha.slice(0, 7)}</a>
+                  </td>
                   <td className="py-1.5 px-1 text-gray-400 align-top" style={{ maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.commit_message}>
                     {c.commit_message?.split('\n')[0]?.slice(0, 60) || '\u2014'}
                   </td>
