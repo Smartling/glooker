@@ -1041,19 +1041,19 @@ export default function Home() {
                       key={dev.github_login}
                       className="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors"
                     >
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3" style={{ maxWidth: '220px' }}>
                         <div className="flex items-center gap-3">
-                          <span className="text-gray-600 text-xs w-5">{i + 1}</span>
+                          <span className="text-gray-600 text-xs w-5 shrink-0 text-right">{i + 1}</span>
                           {dev.avatar_url && (
                             <img
                               src={dev.avatar_url}
                               alt=""
-                              className="w-7 h-7 rounded-full"
+                              className="w-7 h-7 rounded-full shrink-0"
                             />
                           )}
-                          <div>
-                            <div className="font-medium text-white">{dev.github_name || dev.github_login}</div>
-                            <div className="text-xs text-gray-500">@{dev.github_login}</div>
+                          <div className="min-w-0">
+                            <div className="font-medium text-white truncate">{dev.github_name || dev.github_login}</div>
+                            <div className="text-xs text-gray-500 truncate">@{dev.github_login}</div>
                           </div>
                         </div>
                       </td>
@@ -1080,7 +1080,7 @@ export default function Home() {
                       <td className="px-4 py-3 text-right">
                         <AiPercentBadge value={dev.ai_percentage} />
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3" style={{ minWidth: '180px' }}>
                         <TypeBreakdown breakdown={dev.type_breakdown} />
                       </td>
                       <td className="px-4 py-3 text-right">
