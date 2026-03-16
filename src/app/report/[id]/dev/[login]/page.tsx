@@ -39,6 +39,16 @@ interface ReportMeta {
   created_at: string; completed_at: string | null;
 }
 
+interface WeeklyData {
+  week: string;
+  commits: number;
+  linesAdded: number;
+  linesRemoved: number;
+  avgComplexity: number;
+  aiPercent: number;
+  types: Record<string, number>;
+}
+
 function percentile(values: number[], p: number): number {
   const sorted = [...values].sort((a, b) => a - b);
   if (sorted.length === 0) return 0;
@@ -69,6 +79,7 @@ export default function DevDetailPage() {
   const [commits, setCommits] = useState<Commit[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [expandedSha, setExpandedSha] = useState<string | null>(null);
+  const [timeline, setTimeline] = useState<WeeklyData[]>([]);
 
   useEffect(() => {
     fetch(`/api/report/${params.id}/dev/${params.login}`)
@@ -78,6 +89,7 @@ export default function DevDetailPage() {
         setDev(data.developer);
         setAllDevs(data.allDevelopers);
         setCommits(data.commits);
+        setTimeline(data.timeline || []);
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
@@ -242,6 +254,42 @@ export default function DevDetailPage() {
         </div>
       </div>
 
+      {/* Timeline Charts */}
+      {timeline.length >= 2 && (
+        <div className="mb-6">
+          <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-3">Activity Over Time (weekly)</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <TimelineChart
+              data={timeline}
+              valueKey="commits"
+              label="Commits / Week"
+              color="#3B82F6"
+            />
+            <TimelineChart
+              data={timeline}
+              valueKey="linesChanged"
+              label="Lines Changed / Week"
+              color="#10B981"
+              computeValue={d => d.linesAdded + d.linesRemoved}
+            />
+            <TimelineChart
+              data={timeline}
+              valueKey="avgComplexity"
+              label="Avg Complexity / Week"
+              color="#F59E0B"
+              decimals={1}
+            />
+            <TimelineChart
+              data={timeline}
+              valueKey="aiPercent"
+              label="AI Assisted %"
+              color="#A855F7"
+              suffix="%"
+            />
+          </div>
+        </div>
+      )}
+
       {/* Commits Table */}
       <div className="bg-gray-900 rounded-xl overflow-hidden">
         <div className="px-5 py-3 border-b border-gray-800">
@@ -359,6 +407,160 @@ export default function DevDetailPage() {
           </table>
         </div>
       </div>
+    </div>
+  );
+}
+
+function TimelineChart({
+  data,
+  valueKey,
+  label,
+  color,
+  suffix = '',
+  decimals = 0,
+  computeValue,
+}: {
+  data: WeeklyData[];
+  valueKey: string;
+  label: string;
+  color: string;
+  suffix?: string;
+  decimals?: number;
+  computeValue?: (d: WeeklyData) => number;
+}) {
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
+  // Last 90 days of data
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 90);
+  const cutoffStr = cutoff.toISOString().split('T')[0];
+  const filtered = data.filter(d => d.week >= cutoffStr);
+
+  if (filtered.length < 2) return null;
+
+  const values = filtered.map(d => computeValue ? computeValue(d) : (d as any)[valueKey] as number);
+  const max = Math.max(...values, 1);
+  const min = Math.min(...values, 0);
+  const range = max - min || 1;
+
+  // Y-axis: pick nice round tick values
+  const yTicks: number[] = [];
+  const step = range <= 5 ? 1 : range <= 20 ? 5 : range <= 100 ? 20 : range <= 500 ? 100 : range <= 2000 ? 500 : Math.ceil(range / 5 / 100) * 100;
+  for (let v = Math.ceil(min / step) * step; v <= max; v += step) {
+    yTicks.push(v);
+  }
+  if (yTicks.length === 0) yTicks.push(min, max);
+  if (yTicks.length > 6) {
+    const keep = [yTicks[0], yTicks[Math.floor(yTicks.length / 2)], yTicks[yTicks.length - 1]];
+    yTicks.length = 0;
+    yTicks.push(...keep);
+  }
+
+  const W = 400;
+  const H = 130;
+  const padL = 40; // left padding for Y-axis labels
+  const padR = 12;
+  const padT = 12;
+  const padB = 24; // bottom for X labels
+  const chartW = W - padL - padR;
+  const chartH = H - padT - padB;
+
+  const points = values.map((v, i) => {
+    const x = padL + (i / (values.length - 1)) * chartW;
+    const y = padT + chartH - ((v - min) / range) * chartH;
+    return { x, y, v };
+  });
+
+  const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
+  const areaPath = `${linePath} L${points[points.length - 1].x},${padT + chartH} L${points[0].x},${padT + chartH} Z`;
+
+  // X-axis labels: first, middle, last week
+  const labelIndices = [0, Math.floor(filtered.length / 2), filtered.length - 1];
+  const formatWeek = (w: string) => {
+    const d = new Date(w + 'T00:00:00');
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+  const formatVal = (v: number) => (decimals > 0 ? v.toFixed(decimals) : String(Math.round(v))) + suffix;
+
+  const latest = values[values.length - 1];
+  const prev = values.length >= 2 ? values[values.length - 2] : latest;
+  const trend = latest > prev ? '+' : latest < prev ? '' : '';
+  const diff = latest - prev;
+
+  return (
+    <div className="bg-gray-900 rounded-xl p-4">
+      <div className="flex items-baseline justify-between mb-2">
+        <p className="text-xs text-gray-500 font-medium">{label}</p>
+        <div className="flex items-baseline gap-2">
+          <span className="text-sm font-bold text-white">
+            {formatVal(latest)}
+          </span>
+          {diff !== 0 && (
+            <span className={`text-xs ${diff > 0 ? 'text-green-400' : 'text-red-400'}`}>
+              {trend}{formatVal(Math.abs(diff))}
+            </span>
+          )}
+        </div>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto">
+        {/* Grid lines + Y-axis labels */}
+        {yTicks.map(v => {
+          const y = padT + chartH - ((v - min) / range) * chartH;
+          return (
+            <g key={v}>
+              <line x1={padL} y1={y} x2={W - padR} y2={y} stroke="#1F2937" strokeWidth="1" />
+              <text x={padL - 6} y={y + 3.5} textAnchor="end" className="fill-gray-600" fontSize="9">
+                {decimals > 0 ? v.toFixed(decimals) : v}{suffix}
+              </text>
+            </g>
+          );
+        })}
+        {/* Area fill */}
+        <path d={areaPath} fill={color} opacity="0.1" />
+        {/* Line */}
+        <path d={linePath} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        {/* Data points + hover targets */}
+        {points.map((p, i) => (
+          <g key={i}
+            onMouseEnter={() => setHoverIdx(i)}
+            onMouseLeave={() => setHoverIdx(null)}
+          >
+            {/* Invisible wider hit target */}
+            <circle cx={p.x} cy={p.y} r="10" fill="transparent" />
+            {/* Visible dot */}
+            <circle cx={p.x} cy={p.y} r={hoverIdx === i ? 5 : 3} fill={color} opacity={hoverIdx === i ? 1 : i === points.length - 1 ? 1 : 0.5} />
+          </g>
+        ))}
+        {/* Hover tooltip */}
+        {hoverIdx !== null && (() => {
+          const p = points[hoverIdx];
+          const weekLabel = formatWeek(filtered[hoverIdx].week);
+          const valLabel = formatVal(p.v);
+          const text = `${weekLabel}: ${valLabel}`;
+          const textW = text.length * 6 + 16;
+          const tooltipX = Math.min(Math.max(p.x - textW / 2, 2), W - textW - 2);
+          const above = p.y > padT + 30;
+          const tooltipY = above ? p.y - 28 : p.y + 12;
+          return (
+            <g>
+              {/* Vertical guide line */}
+              <line x1={p.x} y1={padT} x2={p.x} y2={padT + chartH} stroke={color} strokeWidth="1" opacity="0.3" strokeDasharray="3,3" />
+              {/* Tooltip background */}
+              <rect x={tooltipX} y={tooltipY} width={textW} height={20} rx="4" fill="#1F2937" stroke="#374151" strokeWidth="1" />
+              {/* Tooltip text */}
+              <text x={tooltipX + textW / 2} y={tooltipY + 14} textAnchor="middle" className="fill-gray-200" fontSize="10" fontWeight="500">
+                {text}
+              </text>
+            </g>
+          );
+        })()}
+        {/* X-axis labels */}
+        {labelIndices.map(idx => (
+          <text key={idx} x={points[idx].x} y={H - 4} textAnchor="middle" className="fill-gray-600" fontSize="10">
+            {formatWeek(filtered[idx].week)}
+          </text>
+        ))}
+      </svg>
     </div>
   );
 }
