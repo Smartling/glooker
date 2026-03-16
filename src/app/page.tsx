@@ -1030,18 +1030,18 @@ export default function Home() {
           {/* Developer table */}
           {developers.length > 0 && (
             <div className="bg-gray-900 rounded-xl overflow-hidden">
-              <table className="w-full text-sm">
+              <table className="w-full text-sm table-fixed">
                 <thead>
                   <tr className="text-left text-xs text-gray-500 uppercase tracking-wider border-b border-gray-800">
-                    <th className="px-4 py-3">Developer</th>
-                    <th className="px-4 py-3 text-right">PRs</th>
-                    <th className="px-4 py-3 text-right">Commits</th>
-                    <th className="px-4 py-3 text-right">Lines +/-</th>
-                    <th className="px-4 py-3 text-right">Complexity</th>
-                    <th className="px-4 py-3 text-right">PR%</th>
-                    <th className="px-4 py-3 text-right">AI%</th>
-                    <th className="px-4 py-3">Types</th>
-                    <th className="px-4 py-3 text-right">Impact</th>
+                    <th className="px-4 py-3 w-[24%]">Developer</th>
+                    <th className="px-4 py-3 text-right w-[5%]">PRs</th>
+                    <th className="px-4 py-3 text-right w-[7%]">Commits</th>
+                    <th className="px-4 py-3 text-right w-[11%]">Lines +/-</th>
+                    <th className="px-4 py-3 text-right w-[7%]">Cmplx</th>
+                    <th className="px-4 py-3 text-right w-[5%]">PR%</th>
+                    <th className="px-4 py-3 text-right w-[5%]">AI%</th>
+                    <th className="px-4 py-3 w-[24%]">Types</th>
+                    <th className="px-4 py-3 text-right w-[7%]">Impact</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1051,7 +1051,7 @@ export default function Home() {
                       className="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors cursor-pointer"
                       onClick={() => { if (activeReport) window.location.href = `/report/${activeReport.id}/dev/${dev.github_login}`; }}
                     >
-                      <td className="px-4 py-3" style={{ maxWidth: '220px' }}>
+                      <td className="px-4 py-3">
                         <div className="flex items-center gap-3">
                           <span className="text-gray-600 text-xs w-5 shrink-0 text-right">{i + 1}</span>
                           {dev.avatar_url && (
@@ -1091,7 +1091,7 @@ export default function Home() {
                       <td className="px-4 py-3 text-right">
                         <AiPercentBadge value={dev.ai_percentage} />
                       </td>
-                      <td className="px-4 py-3" style={{ minWidth: '180px' }}>
+                      <td className="px-4 py-3">
                         <TypeBreakdown breakdown={dev.type_breakdown} />
                       </td>
                       <td className="px-4 py-3 text-right">
