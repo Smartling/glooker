@@ -133,9 +133,9 @@ export default function OrgDetailPage() {
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 mb-6">
         {summaryCards.map(c => (
-          <div key={c.label} className="bg-gray-900 rounded-xl p-4">
-            <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">{c.label}</p>
-            <p className="text-lg font-bold text-white">{c.value}</p>
+          <div key={c.label} className="bg-gray-900 rounded-xl p-4 flex flex-col">
+            <p className="text-xs text-gray-500 uppercase tracking-wider h-8 flex items-end">{c.label}</p>
+            <p className="text-lg font-bold text-white mt-1">{c.value}</p>
           </div>
         ))}
       </div>
