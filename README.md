@@ -24,10 +24,13 @@ That's it. Glooker uses SQLite by default — no database setup needed.
 
 - **Full commit coverage** — uses GitHub's commit search API to capture all commits, not just PR-linked ones
 - **LLM-powered analysis** — each commit is analyzed for complexity (1-10), type (feature/bug/refactor/etc), risk level, and whether it appears AI-generated
-- **AI detection** — two layers: confirmed via `Co-Authored-By` trailers (Claude, Copilot, Cursor, etc.) and suspected via LLM heuristic analysis
+- **AI detection** — three layers: confirmed via `Co-Authored-By` trailers, PR body patterns (e.g. "Generated with Claude Code"), branch commit trailer scanning for merge commits, and LLM heuristic analysis
 - **PR discipline tracking** — shows what percentage of each developer's commits went through pull requests
-- **Resumable reports** — interrupted reports can be resumed, skipping already-analyzed commits
-- **Export** — CSV download or Google Sheets
+- **Developer detail page** — click any developer to see percentile rankings (vs avg/p50/p95), type breakdown, active repos, and full commit history with links to GitHub
+- **Progressive UI** — developer table populates during report generation as each member completes, not after everything finishes
+- **Resumable reports** — interrupted reports can be resumed, skipping already-analyzed commits (commit analyses save to DB inline)
+- **Scheduled reports** — configure recurring reports on a cron schedule
+- **Export** — CSV download, Google Sheets, or Download PDF (print-optimized layout)
 - **Multiple LLM providers** — OpenAI, Anthropic, any OpenAI-compatible endpoint (Ollama, vLLM, Azure), or Smartling AI Proxy
 
 ## Report Metrics
@@ -117,11 +120,13 @@ Then initialize: `mysql -u root < schema.sql`
 export GITHUB_TOKEN=github_pat_...
 export LLM_API_KEY=sk-...
 
-# Start (MySQL + app)
-docker compose up -d
+# Build and start (MySQL + app)
+docker compose up --build -d
 
 # Open http://localhost:3000
 ```
+
+> **Note:** The MySQL container exposes port 3307 by default (to avoid conflicts with a local MySQL on 3306). Edit `docker-compose.yml` to change this.
 
 ## Architecture
 
@@ -134,28 +139,42 @@ Browser (Next.js)  →  API Routes  →  GitHub API
 ### How a report runs
 
 1. List org members via GitHub API
-2. For each member, search all commits and merged PRs in the date range
-3. Fetch diffs for each commit
-4. Detect AI co-authorship from commit message trailers
-5. LLM analysis (concurrency-limited) for complexity, type, risk, and AI-generation detection
-6. Aggregate per-developer stats and save to database
-7. Display ranked table with export options
+2. For each member (pipelined — LLM starts while more members are still being fetched):
+   - Search all commits and merged PRs in the date range
+   - Fetch diffs for each commit
+   - Detect AI co-authorship from commit trailers, PR body, and branch commits
+   - Queue LLM analysis (concurrency-limited) for complexity, type, risk, and AI-generation detection
+   - Save each commit analysis to DB immediately (enables resume)
+3. When all of a member's commits are analyzed, aggregate and save developer stats to DB (enables progressive UI)
+4. Final cross-member aggregation overwrites with canonical stats
+5. Display ranked table with export options
 
 ### Key files
 
 ```
 src/lib/
-├── llm-provider.ts      # LLM provider factory (OpenAI SDK for all providers)
-├── smartling-auth.ts     # Smartling OAuth (only loaded when provider=smartling)
-├── github.ts             # GitHub API: members, commit/PR search, diffs, AI detection
-├── analyzer.ts           # LLM commit analysis prompt + response parsing
-├── aggregator.ts         # Per-developer metric rollup
-├── report-runner.ts      # Pipeline orchestrator (search → fetch → analyze → save)
-├── progress-store.ts     # In-memory progress tracking
+├── llm-provider.ts          # LLM provider factory (OpenAI SDK for all providers)
+├── smartling-auth.ts         # Smartling OAuth (only loaded when provider=smartling)
+├── github.ts                 # GitHub API: members, commit/PR search, diffs, AI detection
+├── analyzer.ts               # LLM commit analysis prompt + response parsing
+├── aggregator.ts             # Per-developer metric rollup
+├── report-runner.ts          # Pipeline orchestrator (pipelined fetch → analyze → save)
+├── progress-store.ts         # In-memory progress tracking (developer-based)
+├── schedule-manager.ts       # Cron-based scheduled report execution
+├── schedule-validation.ts    # Schedule input validation
 └── db/
-    ├── index.ts          # DB abstraction (selects SQLite or MySQL)
-    ├── sqlite.ts         # SQLite implementation (default)
-    └── mysql.ts          # MySQL implementation
+    ├── index.ts              # DB abstraction (selects SQLite or MySQL)
+    ├── sqlite.ts             # SQLite implementation (default)
+    └── mysql.ts              # MySQL implementation
+
+src/app/
+├── page.tsx                  # Main dashboard (report list, generation, developer table)
+├── report/[id]/dev/[login]/
+│   └── page.tsx              # Developer detail page (percentiles, commits)
+└── api/
+    ├── report/[id]/dev/[login]/route.ts  # Developer detail API
+    ├── report/[id]/commits/route.ts      # Commits per developer API
+    └── ...                               # Other report & schedule endpoints
 ```
 
 ## Development
