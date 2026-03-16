@@ -1039,7 +1039,8 @@ export default function Home() {
                   {developers.map((dev, i) => (
                     <tr
                       key={dev.github_login}
-                      className="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors"
+                      className="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors cursor-pointer"
+                      onClick={() => { if (activeReport) window.location.href = `/report/${activeReport.id}/dev/${dev.github_login}`; }}
                     >
                       <td className="px-4 py-3" style={{ maxWidth: '220px' }}>
                         <div className="flex items-center gap-3">
