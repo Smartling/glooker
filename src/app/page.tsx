@@ -524,7 +524,7 @@ export default function Home() {
 
       <div className="flex gap-8">
         {/* Sidebar: past reports */}
-        <div className="w-60 shrink-0">
+        <div className="w-60 shrink-0 no-print">
           <div className="flex items-center justify-between mb-3">
             <p className="text-xs uppercase tracking-wider text-gray-500 font-semibold">Reports</p>
             <button
@@ -913,7 +913,7 @@ export default function Home() {
 
           {/* Progress */}
           {(running || (progress && (progress.status === 'failed' || progress.status === 'stopped'))) && progress && (
-            <div className="bg-gray-900 rounded-xl p-5 mb-6">
+            <div className="bg-gray-900 rounded-xl p-5 mb-6 no-print">
               <div className="flex justify-between text-sm mb-2">
                 <span className="text-gray-300">{progress.step}</span>
                 {progress.totalDevelopers > 0 ? (
@@ -947,7 +947,7 @@ export default function Home() {
 
           {/* Log panel */}
           {logs.length > 0 && (
-            <div className="bg-gray-900 rounded-xl mb-6 overflow-hidden">
+            <div className="bg-gray-900 rounded-xl mb-6 overflow-hidden no-print">
               <button
                 onClick={() => setShowLogs(!showLogs)}
                 className="w-full flex items-center justify-between px-4 py-2 text-xs text-gray-400 hover:text-gray-300 bg-gray-800/50"
@@ -1006,6 +1006,12 @@ export default function Home() {
                       className="px-3 py-1.5 text-xs font-medium bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors"
                     >
                       Export to Google Sheet
+                    </button>
+                    <button
+                      onClick={() => window.print()}
+                      className="px-3 py-1.5 text-xs font-medium bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors no-print"
+                    >
+                      Download PDF
                     </button>
                   </>
                 )}

@@ -114,7 +114,7 @@ export default function DevDetailPage() {
       {/* Back link */}
       <button
         onClick={() => router.back()}
-        className="text-sm text-gray-500 hover:text-gray-300 mb-6 flex items-center gap-1.5"
+        className="text-sm text-gray-500 hover:text-gray-300 mb-6 flex items-center gap-1.5 no-print"
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -124,6 +124,7 @@ export default function DevDetailPage() {
 
       {/* Header */}
       <div className="bg-gray-900 rounded-xl p-6 mb-6">
+        <div className="flex items-center justify-between">
         <div className="flex items-center gap-5">
           {dev.avatar_url && (
             <img src={dev.avatar_url} alt="" className="w-16 h-16 rounded-full shrink-0" />
@@ -140,6 +141,13 @@ export default function DevDetailPage() {
               {report.org} &middot; {report.period_days} days &middot; {new Date(report.created_at).toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' })}
             </p>
           </div>
+        </div>
+          <button
+            onClick={() => window.print()}
+            className="px-3 py-1.5 text-xs font-medium bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors shrink-0 no-print"
+          >
+            Download PDF
+          </button>
         </div>
       </div>
 

@@ -1,3 +1,80 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@media print {
+  /* Reset background for paper */
+  body {
+    background: white !important;
+    color: black !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Hide non-printable elements */
+  .no-print,
+  [data-no-print] {
+    display: none !important;
+  }
+
+  /* Force dark cards to print with background */
+  .bg-gray-900 {
+    background-color: #f9fafb !important;
+    border: 1px solid #e5e7eb !important;
+  }
+  .bg-gray-950 {
+    background: white !important;
+  }
+
+  /* Text colors for paper */
+  .text-white { color: #111827 !important; }
+  .text-gray-300 { color: #374151 !important; }
+  .text-gray-400 { color: #6b7280 !important; }
+  .text-gray-500 { color: #6b7280 !important; }
+  .text-gray-600 { color: #9ca3af !important; }
+
+  /* Keep colored text readable */
+  .text-green-400 { color: #16a34a !important; }
+  .text-red-400 { color: #dc2626 !important; }
+  .text-blue-400 { color: #2563eb !important; }
+  .text-yellow-400 { color: #ca8a04 !important; }
+  .text-purple-400 { color: #9333ea !important; }
+
+  /* Table borders for print */
+  table { border-collapse: collapse !important; }
+  td, th { border-bottom: 1px solid #e5e7eb !important; }
+  .border-gray-800, .border-gray-800\/50 { border-color: #e5e7eb !important; }
+
+  /* Keep badges colored */
+  .bg-blue-500, .bg-blue-600, .bg-blue-700,
+  .bg-red-500, .bg-green-500, .bg-purple-500,
+  .bg-yellow-500, .bg-gray-500, .bg-gray-600, .bg-gray-700 {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Progress bars */
+  .bg-gray-800 {
+    background-color: #e5e7eb !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Page breaks */
+  .bg-gray-900.rounded-xl { break-inside: avoid; }
+  tr { break-inside: avoid; }
+
+  /* Remove max-height/overflow on tables for full print */
+  .overflow-y-auto, .overflow-x-auto {
+    overflow: visible !important;
+    max-height: none !important;
+  }
+
+  /* Sizing */
+  .max-w-6xl, .max-w-7xl { max-width: 100% !important; }
+
+  @page {
+    margin: 1cm;
+    size: landscape;
+  }
+}
