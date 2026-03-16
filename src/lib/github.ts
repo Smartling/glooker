@@ -261,9 +261,12 @@ export async function fetchUserActivity(
   // 3. Enrich each commit with diff and PR association
   const commits: CommitData[] = [];
 
+  // Cache PR bodies fetched for AI detection on merge commits
+  const prBodyCache = new Map<string, string>();
+
   for (const raw of rawCommits) {
-    // Try to match commit to a PR via message pattern "(#NNN)"
-    const prMatch = raw.message.match(/\(#(\d+)\)/);
+    // Try to match commit to a PR via message pattern "(#NNN)" or "Merge pull request #NNN"
+    const prMatch = raw.message.match(/\(#(\d+)\)/) || raw.message.match(/^Merge pull request #(\d+)/);
     let prNumber: number | null = null;
     let prTitle:  string | null = null;
 
@@ -280,7 +283,48 @@ export async function fetchUserActivity(
     }
 
     // Detect AI co-author from full commit message
-    const ai = detectAiCoAuthor(raw.fullMessage);
+    let ai = detectAiCoAuthor(raw.fullMessage);
+
+    // For merge commits with a PR: also check PR body and branch commit trailers
+    if (!ai.detected && prNumber && raw.message.startsWith('Merge pull request #')) {
+      const cacheKey = `${raw.repo}#${prNumber}`;
+      let prBody = prBodyCache.get(cacheKey);
+      if (prBody === undefined) {
+        try {
+          const { data: prData } = await withRetry(
+            () => octokit.pulls.get({ owner: org, repo: raw.repo, pull_number: prNumber! }),
+            log,
+          );
+          prBody = prData.body || '';
+          prBodyCache.set(cacheKey, prBody);
+        } catch {
+          prBody = '';
+          prBodyCache.set(cacheKey, prBody);
+        }
+      }
+      if (prBody) {
+        ai = detectAiCoAuthor(prBody);
+      }
+
+      // If still not detected, check the branch commits' trailers
+      if (!ai.detected) {
+        try {
+          const { data: prCommits } = await withRetry(
+            () => octokit.pulls.listCommits({ owner: org, repo: raw.repo, pull_number: prNumber!, per_page: 50 }),
+            log,
+          );
+          for (const pc of prCommits) {
+            const branchAi = detectAiCoAuthor(pc.commit.message);
+            if (branchAi.detected) {
+              ai = branchAi;
+              break;
+            }
+          }
+        } catch {
+          // proceed without branch commit check
+        }
+      }
+    }
 
     // Fetch diff
     let diff = '', additions = 0, deletions = 0;
