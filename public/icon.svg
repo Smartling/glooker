@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- GitHub-style: white circle, dark dog - rounder/friendlier, ears more like 10-dog-b -->
+  <circle cx="64" cy="64" r="60" fill="white"/>
+  <!-- Dog head shape -->
+  <circle cx="64" cy="66" r="30" fill="#111827"/>
+  <!-- Pointy ears poking out of head circle -->
+  <polygon points="38,48 28,18 54,42" fill="#111827"/>
+  <polygon points="90,48 100,18 74,42" fill="#111827"/>
+  <!-- Snout bump -->
+  <ellipse cx="64" cy="78" rx="14" ry="10" fill="#111827"/>
+  <!-- Eyes - big friendly -->
+  <circle cx="52" cy="62" r="6.5" fill="white"/>
+  <circle cx="76" cy="62" r="6.5" fill="white"/>
+  <!-- Pupils -->
+  <circle cx="54" cy="61" r="3.5" fill="#111827"/>
+  <circle cx="78" cy="61" r="3.5" fill="#111827"/>
+  <!-- Eye highlights -->
+  <circle cx="56" cy="59" r="1.5" fill="white"/>
+  <circle cx="80" cy="59" r="1.5" fill="white"/>
+  <!-- Nose -->
+  <ellipse cx="64" cy="74" rx="5.5" ry="4" fill="white"/>
+  <!-- Nose highlight -->
+  <ellipse cx="62.5" cy="73" rx="2" ry="1.2" fill="#111827" opacity="0.1"/>
+  <!-- Mouth -->
+  <path d="M59 78 Q64 83 69 78" fill="none" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
+</svg>
