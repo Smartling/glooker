@@ -987,7 +987,10 @@ export default function Home() {
           {activeReport && (
             <div className="flex items-center justify-between mb-4">
               <div>
-                <span className="text-gray-300 font-medium">{activeReport.org}</span>
+                <span
+                  className="text-gray-300 font-medium hover:text-blue-400 cursor-pointer transition-colors"
+                  onClick={() => window.location.href = `/report/${activeReport.id}/org`}
+                >{activeReport.org}</span>
                 <span className="text-gray-500 text-sm ml-2">
                   last {activeReport.period_days} days &middot; {developers.length} developers
                 </span>
