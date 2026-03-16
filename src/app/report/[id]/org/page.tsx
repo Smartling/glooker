@@ -143,7 +143,7 @@ export default function OrgDetailPage() {
       {/* Type Breakdown + Active Repos */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
         {/* Type Breakdown — Pie Chart */}
-        <div className="bg-gray-900 rounded-xl p-5 flex flex-col">
+        <div className="bg-gray-900 rounded-xl p-5 flex flex-col" style={{ containerType: 'inline-size' }}>
           <p className="text-xs text-gray-500 uppercase tracking-wider mb-4 font-semibold">Commit Types (org-wide)</p>
           {totalTyped > 0 && <div className="flex-1 flex items-center"><PieChart entries={typeEntries} total={totalTyped} /></div>}
         </div>
@@ -303,8 +303,8 @@ function PieChart({ entries, total }: { entries: [string, number][]; total: numb
     <div className="flex items-center justify-center gap-6 h-full">
         <svg
           viewBox={`0 0 ${vb} ${vb}`}
-          className="shrink-0"
-          style={{ width: 320, height: 320, maxWidth: '55vw' }}
+          className="shrink-0 aspect-square"
+          style={{ width: 'min(320px, 50cqw)', height: 'auto' }}
         >
           {slices.map(s => (
             <path
