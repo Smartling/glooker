@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import LlmFindings from './llm-findings';
 
 interface Developer {
   github_login:   string;
@@ -1115,6 +1116,11 @@ export default function Home() {
               Create or schedule your first report
             </div>
           )}
+
+          {!activeReport && !running && (
+            <LlmFindings />
+          )}
+
         </div>
       </div>
     </div>

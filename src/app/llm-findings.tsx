@@ -1,0 +1,165 @@
+'use client';
+
+export default function LlmFindings() {
+  return (
+    <div className="space-y-6">
+      {/* Tip of the Day */}
+      <div className="bg-gradient-to-br from-indigo-500/10 to-emerald-500/5 border border-indigo-500/25 rounded-2xl p-5">
+        <div className="flex items-center gap-2 mb-3">
+          <span className="text-lg">💡</span>
+          <span className="text-xs font-bold tracking-widest uppercase text-white/40">Tip of the Day</span>
+        </div>
+        <p className="text-sm leading-relaxed text-white/70">
+          The bottleneck has shifted from <em>writing code</em> to{' '}
+          <span className="text-emerald-400 font-semibold">reviewing, governing, and directing code</span>.
+          For every dollar invested in velocity, invest <strong className="text-white">at least fifty cents in reducing governance debt</strong>.
+        </p>
+        <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-4 mt-4 text-center">
+          <div className="flex items-center justify-center flex-wrap gap-2 text-base font-bold">
+            <span className="px-3 py-1 rounded-md bg-amber-500/15 text-amber-300 font-extrabold">Output</span>
+            <span className="text-white/25 text-sm">=</span>
+            <div className="flex flex-col items-center">
+              <div className="flex gap-2 items-center pb-1.5 border-b-2 border-white/15">
+                <span className="px-3 py-1 rounded-md bg-indigo-500/20 text-indigo-300 font-extrabold">LLM Velocity</span>
+                <span className="text-white/35 font-normal">×</span>
+                <span className="px-3 py-1 rounded-md bg-emerald-500/20 text-emerald-400 font-extrabold">Human Judgment</span>
+              </div>
+              <span className="px-3 py-1 rounded-md bg-red-500/20 text-red-400 font-extrabold mt-1.5">Governance Debt</span>
+            </div>
+          </div>
+          <div className="flex justify-center gap-5 mt-3 flex-wrap">
+            <span className="flex items-center gap-1.5 text-[11px] text-white/35"><span className="w-2 h-2 rounded bg-indigo-400" /> Scales fast</span>
+            <span className="flex items-center gap-1.5 text-[11px] text-white/35"><span className="w-2 h-2 rounded bg-emerald-400" /> Scarce resource</span>
+            <span className="flex items-center gap-1.5 text-[11px] text-white/35"><span className="w-2 h-2 rounded bg-red-400" /> Accumulates silently</span>
+          </div>
+        </div>
+      </div>
+
+      {/* How Impact Score Works */}
+      <div className="bg-white/[0.03] border border-white/[0.07] rounded-2xl p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <span className="text-lg">📊</span>
+          <span className="text-xs font-bold tracking-widest uppercase text-white/40">How Impact Score Works</span>
+        </div>
+        <p className="text-sm text-white/50 mb-4 leading-relaxed">
+          Each developer&apos;s impact score (0–9.6) is a weighted blend of four signals, designed to reward
+          consistent, high-quality contributions over raw volume alone.
+        </p>
+
+        {/* Formula */}
+        <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 mb-5 font-mono text-sm text-center">
+          <span className="text-amber-300 font-bold">Impact</span>
+          <span className="text-white/25 mx-2">=</span>
+          <span className="text-blue-400">Volume</span>
+          <span className="text-white/25 mx-1">+</span>
+          <span className="text-emerald-400">PRs</span>
+          <span className="text-white/25 mx-1">+</span>
+          <span className="text-purple-400">Complexity</span>
+          <span className="text-white/25 mx-1">+</span>
+          <span className="text-cyan-400">Discipline</span>
+        </div>
+
+        {/* Components */}
+        <div className="space-y-3">
+          <ScoreComponent
+            color="blue"
+            label="Commit Volume"
+            weight="3.0"
+            maxWeight="9.6"
+            formula="min(commits / 20, 1) × 3"
+            description="Scales linearly up to 20 commits, then caps. Rewards consistent output without over-rewarding commit spam."
+          />
+          <ScoreComponent
+            color="emerald"
+            label="PR Volume"
+            weight="3.0"
+            maxWeight="9.6"
+            formula="min(PRs / 10, 1) × 3"
+            description="Scales linearly up to 10 merged PRs, then caps. Values shipping complete work units."
+          />
+          <ScoreComponent
+            color="purple"
+            label="Avg Complexity"
+            weight="2.5"
+            maxWeight="9.6"
+            formula="(avgComplexity / 10) × 2.5"
+            description="LLM-assessed complexity (1-10) of each commit. Rewards tackling harder problems over trivial changes."
+          />
+          <ScoreComponent
+            color="cyan"
+            label="PR Discipline"
+            weight="1.1"
+            maxWeight="9.6"
+            formula="(prPercentage / 100) × 1.1"
+            description="What percentage of commits went through a PR. Encourages code review culture over direct pushes."
+          />
+        </div>
+
+        {/* Examples */}
+        <div className="mt-5 pt-4 border-t border-white/[0.06]">
+          <p className="text-xs font-bold text-white/40 uppercase tracking-wider mb-3">Score Examples</p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <ScoreExample
+              label="Senior IC"
+              score="8.5"
+              detail="25 commits, 12 PRs, complexity 6.2, 95% PR rate"
+              color="green"
+            />
+            <ScoreExample
+              label="Steady contributor"
+              score="5.8"
+              detail="10 commits, 5 PRs, complexity 4.0, 80% PR rate"
+              color="yellow"
+            />
+            <ScoreExample
+              label="Light period"
+              score="2.3"
+              detail="3 commits, 1 PR, complexity 3.0, 60% PR rate"
+              color="gray"
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ScoreComponent({ color, label, weight, maxWeight, formula, description }: {
+  color: string; label: string; weight: string; maxWeight: string; formula: string; description: string;
+}) {
+  const colors: Record<string, { bar: string; text: string; bg: string }> = {
+    blue:    { bar: 'bg-blue-500',    text: 'text-blue-400',    bg: 'bg-blue-500/10' },
+    emerald: { bar: 'bg-emerald-500', text: 'text-emerald-400', bg: 'bg-emerald-500/10' },
+    purple:  { bar: 'bg-purple-500',  text: 'text-purple-400',  bg: 'bg-purple-500/10' },
+    cyan:    { bar: 'bg-cyan-500',    text: 'text-cyan-400',    bg: 'bg-cyan-500/10' },
+  };
+  const c = colors[color];
+  const pct = (parseFloat(weight) / parseFloat(maxWeight)) * 100;
+
+  return (
+    <div className={`${c.bg} rounded-lg p-3`}>
+      <div className="flex items-center justify-between mb-1.5">
+        <span className={`text-sm font-semibold ${c.text}`}>{label}</span>
+        <span className="text-xs text-white/40 font-mono">{weight} / {maxWeight}</span>
+      </div>
+      <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden mb-2">
+        <div className={`h-full ${c.bar} rounded-full`} style={{ width: `${pct}%` }} />
+      </div>
+      <p className="text-xs text-white/30 font-mono mb-1">{formula}</p>
+      <p className="text-xs text-white/45 leading-relaxed">{description}</p>
+    </div>
+  );
+}
+
+function ScoreExample({ label, score, detail, color }: { label: string; score: string; detail: string; color: string }) {
+  const scoreColor = color === 'green' ? 'text-green-400' : color === 'yellow' ? 'text-yellow-400' : 'text-gray-400';
+  return (
+    <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-3">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-xs font-semibold text-white/70">{label}</span>
+        <span className={`text-lg font-bold ${scoreColor}`}>{score}</span>
+      </div>
+      <p className="text-[11px] text-white/35 leading-relaxed">{detail}</p>
+    </div>
+  );
+}
