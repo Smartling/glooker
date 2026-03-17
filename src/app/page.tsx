@@ -89,6 +89,7 @@ export default function Home() {
   const [filterLogins, setFilterLogins] = useState<Set<string>>(new Set());
   const [filterQuery, setFilterQuery] = useState('');
   const [filterOpen, setFilterOpen] = useState(false);
+  const [filterHighlight, setFilterHighlight] = useState(0);
   const generationRef = useRef(0);
   const lastCompletedDevsRef = useRef(0);
 
@@ -1046,43 +1047,62 @@ export default function Home() {
                   );
                 })}
                 <div className="relative">
-                  <input
-                    type="text"
-                    value={filterQuery}
-                    onChange={e => { setFilterQuery(e.target.value); setFilterOpen(true); }}
-                    onFocus={() => setFilterOpen(true)}
-                    placeholder={filterLogins.size > 0 ? 'Add more...' : 'Filter by developer...'}
-                    className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 w-48"
-                  />
-                  {filterOpen && filterQuery.length > 0 && (() => {
+                  {(() => {
                     const q = filterQuery.toLowerCase();
-                    const matches = developers.filter(d =>
-                      !filterLogins.has(d.github_login) && (
-                        d.github_login.toLowerCase().includes(q) ||
-                        (d.github_name || '').toLowerCase().includes(q)
-                      )
-                    ).slice(0, 8);
-                    if (matches.length === 0) return null;
+                    const matches = filterOpen && q.length > 0
+                      ? developers.filter(d =>
+                          !filterLogins.has(d.github_login) && (
+                            d.github_login.toLowerCase().includes(q) ||
+                            (d.github_name || '').toLowerCase().includes(q)
+                          )
+                        ).slice(0, 8)
+                      : [];
+                    const selectMatch = (login: string) => {
+                      setFilterLogins(prev => new Set(prev).add(login));
+                      setFilterQuery('');
+                      setFilterOpen(false);
+                      setFilterHighlight(0);
+                    };
                     return (
-                      <div className="absolute z-40 top-full mt-1 left-0 w-64 bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden">
-                        {matches.map(d => (
-                          <button
-                            key={d.github_login}
-                            className="w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm hover:bg-gray-700 transition-colors"
-                            onClick={() => {
-                              setFilterLogins(prev => new Set(prev).add(d.github_login));
-                              setFilterQuery('');
-                              setFilterOpen(false);
-                            }}
-                          >
-                            {d.avatar_url && <img src={d.avatar_url} alt="" className="w-5 h-5 rounded-full" />}
-                            <div>
-                              <span className="text-white">{d.github_name || d.github_login}</span>
-                              {d.github_name && <span className="text-gray-500 ml-1.5">@{d.github_login}</span>}
-                            </div>
-                          </button>
-                        ))}
-                      </div>
+                      <>
+                        <input
+                          type="text"
+                          value={filterQuery}
+                          onChange={e => { setFilterQuery(e.target.value); setFilterOpen(true); setFilterHighlight(0); }}
+                          onFocus={() => { setFilterOpen(true); setFilterHighlight(0); }}
+                          onBlur={() => setTimeout(() => setFilterOpen(false), 150)}
+                          onKeyDown={e => {
+                            if (e.key === 'ArrowDown') { e.preventDefault(); setFilterHighlight(h => Math.min(h + 1, matches.length - 1)); }
+                            else if (e.key === 'ArrowUp') { e.preventDefault(); setFilterHighlight(h => Math.max(h - 1, 0)); }
+                            else if (e.key === 'Enter' && matches.length > 0) { e.preventDefault(); selectMatch(matches[filterHighlight]?.github_login); }
+                            else if (e.key === 'Escape') { setFilterOpen(false); }
+                            else if (e.key === 'Backspace' && filterQuery === '' && filterLogins.size > 0) {
+                              const last = [...filterLogins].pop()!;
+                              setFilterLogins(prev => { const n = new Set(prev); n.delete(last); return n; });
+                            }
+                          }}
+                          placeholder={filterLogins.size > 0 ? 'Add more...' : 'Filter by developer...'}
+                          className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 w-48"
+                        />
+                        {matches.length > 0 && (
+                          <div className="absolute z-40 top-full mt-1 left-0 w-64 bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden">
+                            {matches.map((d, idx) => (
+                              <button
+                                key={d.github_login}
+                                className={`w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors ${idx === filterHighlight ? 'bg-gray-700' : 'hover:bg-gray-700'}`}
+                                onMouseEnter={() => setFilterHighlight(idx)}
+                                onClick={() => selectMatch(d.github_login)}
+                              >
+                                {d.avatar_url && <img src={d.avatar_url} alt="" className="w-5 h-5 rounded-full" />}
+                                <div>
+                                  <span className="text-white">{d.github_name || d.github_login}</span>
+                                  {d.github_name && <span className="text-gray-500 ml-1.5">@{d.github_login}</span>}
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </>
                     );
                   })()}
                 </div>
