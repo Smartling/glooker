@@ -179,6 +179,9 @@ export default function OrgDetailPage() {
         </div>
       )}
 
+      {/* Stacked Commit Types Over Time */}
+      {timeline.length >= 2 && <StackedTypesChart data={timeline} />}
+
       {/* Top Developers Table */}
       <div className="bg-gray-900 rounded-xl overflow-hidden">
         <div className="px-5 py-3 border-b border-gray-800">
@@ -256,6 +259,148 @@ export default function OrgDetailPage() {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+function StackedTypesChart({ data }: { data: WeeklyData[] }) {
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 90);
+  const cutoffStr = cutoff.toISOString().split('T')[0];
+  const filtered = data.filter(d => d.week >= cutoffStr);
+  if (filtered.length < 2) return null;
+
+  // Collect all type keys across all weeks
+  const allTypes = new Set<string>();
+  for (const w of filtered) { for (const t of Object.keys(w.types)) allTypes.add(t); }
+  const typeOrder = ['feature', 'bug', 'refactor', 'infra', 'docs', 'test', 'other'].filter(t => allTypes.has(t));
+
+  // Stack values per week
+  const stacked = filtered.map(w => {
+    const total = typeOrder.reduce((s, t) => s + (w.types[t] || 0), 0);
+    let cumulative = 0;
+    const layers = typeOrder.map(t => {
+      const val = w.types[t] || 0;
+      const y0 = cumulative;
+      cumulative += val;
+      return { type: t, val, y0, y1: cumulative };
+    });
+    return { week: w.week, total, layers };
+  });
+
+  const maxTotal = Math.max(...stacked.map(s => s.total), 1);
+
+  const W = 800;
+  const H = 180;
+  const padL = 40;
+  const padR = 12;
+  const padT = 12;
+  const padB = 24;
+  const chartW = W - padL - padR;
+  const chartH = H - padT - padB;
+
+  const xFor = (i: number) => padL + (i / (filtered.length - 1)) * chartW;
+  const yFor = (val: number) => padT + chartH - (val / maxTotal) * chartH;
+
+  // Y-axis ticks
+  const yTicks: number[] = [];
+  const step = maxTotal <= 10 ? 2 : maxTotal <= 50 ? 10 : maxTotal <= 200 ? 50 : 100;
+  for (let v = 0; v <= maxTotal; v += step) yTicks.push(v);
+
+  // Build area paths per type (bottom to top)
+  const areaPaths = typeOrder.map(type => {
+    const topPoints = stacked.map((s, i) => {
+      const layer = s.layers.find(l => l.type === type)!;
+      return { x: xFor(i), y: yFor(layer.y1) };
+    });
+    const bottomPoints = stacked.map((s, i) => {
+      const layer = s.layers.find(l => l.type === type)!;
+      return { x: xFor(i), y: yFor(layer.y0) };
+    }).reverse();
+
+    const d = [
+      ...topPoints.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`),
+      ...bottomPoints.map((p, i) => `${i === 0 ? 'L' : 'L'}${p.x},${p.y}`),
+      'Z',
+    ].join(' ');
+    return { type, d };
+  });
+
+  const formatWeek = (w: string) => {
+    const d = new Date(w + 'T00:00:00');
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+  const labelIndices = [0, Math.floor(filtered.length / 2), filtered.length - 1];
+
+  return (
+    <div className="bg-gray-900 rounded-xl p-4 mb-6">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs text-gray-500 font-medium">Commit Types Over Time (weekly)</p>
+        <div className="flex flex-wrap gap-3">
+          {typeOrder.map(t => (
+            <span key={t} className="flex items-center gap-1.5 text-[11px] text-white/40">
+              <span className="w-2.5 h-2.5 rounded-sm" style={{ background: TYPE_HEX[t] || '#4B5563' }} />
+              {t}
+            </span>
+          ))}
+        </div>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto">
+        {/* Y grid + labels */}
+        {yTicks.map(v => {
+          const y = yFor(v);
+          return (
+            <g key={v}>
+              <line x1={padL} y1={y} x2={W - padR} y2={y} stroke="#1F2937" strokeWidth="1" />
+              <text x={padL - 6} y={y + 3.5} textAnchor="end" className="fill-gray-600" fontSize="9">{v}</text>
+            </g>
+          );
+        })}
+        {/* Stacked areas */}
+        {areaPaths.map(({ type, d }) => (
+          <path key={type} d={d} fill={TYPE_HEX[type] || '#4B5563'} opacity="0.7" />
+        ))}
+        {/* Hover columns */}
+        {stacked.map((s, i) => (
+          <rect
+            key={i}
+            x={xFor(i) - chartW / filtered.length / 2}
+            y={padT}
+            width={chartW / filtered.length}
+            height={chartH}
+            fill="transparent"
+            onMouseEnter={() => setHoverIdx(i)}
+            onMouseLeave={() => setHoverIdx(null)}
+          />
+        ))}
+        {/* Hover tooltip */}
+        {hoverIdx !== null && (() => {
+          const s = stacked[hoverIdx];
+          const x = xFor(hoverIdx);
+          const lines = [formatWeek(s.week), ...s.layers.filter(l => l.val > 0).map(l => `${l.type}: ${l.val}`)];
+          const textW = Math.max(...lines.map(l => l.length)) * 6 + 20;
+          const tooltipX = Math.min(Math.max(x - textW / 2, 2), W - textW - 2);
+          return (
+            <g>
+              <line x1={x} y1={padT} x2={x} y2={padT + chartH} stroke="white" strokeWidth="1" opacity="0.15" />
+              <rect x={tooltipX} y={2} width={textW} height={lines.length * 14 + 8} rx="4" fill="#1F2937" stroke="#374151" strokeWidth="1" />
+              {lines.map((line, li) => (
+                <text key={li} x={tooltipX + 10} y={16 + li * 14} className={li === 0 ? 'fill-gray-200' : 'fill-gray-400'} fontSize="10" fontWeight={li === 0 ? '600' : '400'}>
+                  {line}
+                </text>
+              ))}
+            </g>
+          );
+        })()}
+        {/* X labels */}
+        {labelIndices.map(idx => (
+          <text key={idx} x={xFor(idx)} y={H - 4} textAnchor="middle" className="fill-gray-600" fontSize="10">
+            {formatWeek(filtered[idx].week)}
+          </text>
+        ))}
+      </svg>
     </div>
   );
 }
