@@ -180,9 +180,14 @@ src/app/
 ## Development
 
 ```bash
-npm run dev       # Start dev server
-npm run build     # Production build
+npm run dev            # Start dev server
+npm run build          # Production build
+npm test               # Run all tests
+npm run test:watch     # Run tests in watch mode
+npm run test:coverage  # Run tests with coverage report
 ```
+
+Tests live in `src/lib/__tests__/` (unit and integration). CI runs tests automatically on every pull request via GitHub Actions.
 
 If you see `Cannot find module './638.js'`, run `rm -rf .next` and restart.
 

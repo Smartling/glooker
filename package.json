@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "db:init": "mysql -u $DB_USER -p$DB_PASSWORD $DB_NAME < schema.sql"
+    "db:init": "mysql -u $DB_USER -p$DB_PASSWORD $DB_NAME < schema.sql",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage"
   },
   "dependencies": {
     "@octokit/rest": "^21.0.2",
@@ -22,13 +25,17 @@
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
+    "@types/jest": "^30.0.0",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/uuid": "^10",
     "autoprefixer": "^10.4.20",
+    "jest": "^30.3.0",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
+    "ts-jest": "^29.4.6",
+    "ts-node": "^10.9.2",
     "typescript": "^5"
   }
 }
