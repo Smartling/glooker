@@ -8,6 +8,9 @@ Glooker is a Next.js 15 web app that generates developer impact reports for a Gi
 
 - `npm run dev` — start dev server on port 3000
 - `npm run build` — production build (avoid running before `npm run dev`, causes stale cache)
+- `npm test` — run all tests (Jest + ts-jest)
+- `npm run test:watch` — run tests in watch mode
+- `npm run test:coverage` — run tests with coverage report
 - `rm -rf .next` — fix "Cannot find module './638.js'" errors
 - SQLite (default): data in `./glooker.db`, no setup needed
 - MySQL: `mysql -u root --skip-password -e "..."` (database: `glooker`)
@@ -39,3 +42,6 @@ Glooker is a Next.js 15 web app that generates developer impact reports for a Gi
 - `next build` artifacts conflict with `next dev` — always `rm -rf .next` when switching
 - SQLite SQL translator handles `INSERT IGNORE`, `ON DUPLICATE KEY UPDATE`, and `NOW()` — if adding new MySQL-specific SQL, update `translateSQL()` in `db/sqlite.ts`
 - Progress store and stop-signal store use `globalThis` to survive Next.js HMR module reloads
+- `@octokit/rest` is ESM-only — any test file that imports from `github.ts` (directly or transitively) must `jest.mock('@octokit/rest')` before the import
+- Tests use Jest + ts-jest with `@/` path alias — config in `jest.config.ts`
+- CI runs on all pull requests and pushes to main (`.github/workflows/test.yml`)
