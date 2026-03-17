@@ -86,6 +86,9 @@ export default function Home() {
   const pollRef  = useRef<ReturnType<typeof setInterval> | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const commitCache = useRef<Map<string, any[]>>(new Map());
+  const [filterLogins, setFilterLogins] = useState<Set<string>>(new Set());
+  const [filterQuery, setFilterQuery] = useState('');
+  const [filterOpen, setFilterOpen] = useState(false);
   const generationRef = useRef(0);
   const lastCompletedDevsRef = useRef(0);
 
@@ -519,7 +522,7 @@ export default function Home() {
     <div className="max-w-7xl mx-auto px-4 py-8">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight text-white">Glooker</h1>
+        <h1 className="text-3xl font-bold tracking-tight text-white cursor-pointer hover:text-blue-400 transition-colors" onClick={() => { setActiveReport(null); setDevelopers([]); setProgress(null); setRunning(false); stopPolling(); }}>Glooker</h1>
         <p className="text-gray-400 mt-1">GitHub org developer impact analytics</p>
       </div>
 
@@ -1028,8 +1031,72 @@ export default function Home() {
             </div>
           )}
 
-          {/* Developer table */}
+          {/* User filter */}
           {developers.length > 0 && (
+            <div className="mb-3 relative">
+              <div className="flex items-center gap-2 flex-wrap">
+                {[...filterLogins].map(login => {
+                  const dev = developers.find(d => d.github_login === login);
+                  return (
+                    <span key={login} className="inline-flex items-center gap-1.5 bg-blue-600/20 text-blue-300 text-xs font-medium px-2.5 py-1 rounded-lg border border-blue-500/30">
+                      {dev?.avatar_url && <img src={dev.avatar_url} alt="" className="w-4 h-4 rounded-full" />}
+                      {dev?.github_name || login}
+                      <button onClick={() => setFilterLogins(prev => { const n = new Set(prev); n.delete(login); return n; })} className="text-blue-400 hover:text-white ml-0.5">&times;</button>
+                    </span>
+                  );
+                })}
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={filterQuery}
+                    onChange={e => { setFilterQuery(e.target.value); setFilterOpen(true); }}
+                    onFocus={() => setFilterOpen(true)}
+                    placeholder={filterLogins.size > 0 ? 'Add more...' : 'Filter by developer...'}
+                    className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 w-48"
+                  />
+                  {filterOpen && filterQuery.length > 0 && (() => {
+                    const q = filterQuery.toLowerCase();
+                    const matches = developers.filter(d =>
+                      !filterLogins.has(d.github_login) && (
+                        d.github_login.toLowerCase().includes(q) ||
+                        (d.github_name || '').toLowerCase().includes(q)
+                      )
+                    ).slice(0, 8);
+                    if (matches.length === 0) return null;
+                    return (
+                      <div className="absolute z-40 top-full mt-1 left-0 w-64 bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden">
+                        {matches.map(d => (
+                          <button
+                            key={d.github_login}
+                            className="w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm hover:bg-gray-700 transition-colors"
+                            onClick={() => {
+                              setFilterLogins(prev => new Set(prev).add(d.github_login));
+                              setFilterQuery('');
+                              setFilterOpen(false);
+                            }}
+                          >
+                            {d.avatar_url && <img src={d.avatar_url} alt="" className="w-5 h-5 rounded-full" />}
+                            <div>
+                              <span className="text-white">{d.github_name || d.github_login}</span>
+                              {d.github_name && <span className="text-gray-500 ml-1.5">@{d.github_login}</span>}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
+                {filterLogins.size > 0 && (
+                  <button onClick={() => setFilterLogins(new Set())} className="text-xs text-gray-600 hover:text-gray-400">Clear all</button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Developer table */}
+          {(() => {
+            const filteredDevs = filterLogins.size > 0 ? developers.filter(d => filterLogins.has(d.github_login)) : developers;
+            return filteredDevs.length > 0 && (
             <div className="bg-gray-900 rounded-xl overflow-hidden">
               <table className="w-full text-sm table-fixed">
                 <thead>
@@ -1046,7 +1113,7 @@ export default function Home() {
                   </tr>
                 </thead>
                 <tbody>
-                  {developers.map((dev, i) => (
+                  {filteredDevs.map((dev, i) => (
                     <tr
                       key={dev.github_login}
                       className="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors cursor-pointer"
@@ -1103,7 +1170,8 @@ export default function Home() {
                 </tbody>
               </table>
             </div>
-          )}
+          );
+          })()}
 
           {activeReport && developers.length === 0 && activeReport.status === 'completed' && (
             <div className="text-center text-gray-500 py-16">
