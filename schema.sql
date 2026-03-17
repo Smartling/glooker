@@ -53,3 +53,14 @@ CREATE TABLE IF NOT EXISTS commit_analyses (
   FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
   UNIQUE KEY uq_report_commit (report_id, commit_sha)
 );
+
+CREATE TABLE IF NOT EXISTS developer_summaries (
+  id              INT AUTO_INCREMENT PRIMARY KEY,
+  report_id       VARCHAR(36)  NOT NULL,
+  github_login    VARCHAR(255) NOT NULL,
+  summary_text    TEXT         NOT NULL,
+  badges_json     JSON         NULL,
+  generated_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_report_dev_summary (report_id, github_login)
+);

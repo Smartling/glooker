@@ -80,6 +80,10 @@ export default function DevDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [expandedSha, setExpandedSha] = useState<string | null>(null);
   const [timeline, setTimeline] = useState<WeeklyData[]>([]);
+  const [summary, setSummary] = useState<string | null>(null);
+  const [badges, setBadges] = useState<Array<{ icon: string; title: string; description: string }>>([]);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(`/api/report/${params.id}/dev/${params.login}`)
@@ -90,6 +94,20 @@ export default function DevDetailPage() {
         setAllDevs(data.allDevelopers);
         setCommits(data.commits);
         setTimeline(data.timeline || []);
+        // Fetch summary (generates via LLM if not cached)
+        setSummaryLoading(true);
+        setSummaryError(null);
+        fetch(`/api/report/${params.id}/dev/${params.login}/summary`)
+          .then(async r => {
+            const text = await r.text();
+            let json: any;
+            try { json = JSON.parse(text); } catch { throw new Error('Invalid response from server'); }
+            if (!r.ok) throw new Error(json.error || 'Failed to generate summary');
+            return json;
+          })
+          .then(s => { setSummary(s.summary); setBadges(s.badges || []); })
+          .catch(e => setSummaryError(e.message))
+          .finally(() => setSummaryLoading(false));
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
@@ -289,6 +307,57 @@ export default function DevDetailPage() {
           </div>
         </div>
       )}
+
+      {/* AI Summary + Badges */}
+      <div className="bg-gray-900 rounded-xl p-6 mb-6">
+        <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-4">Performance Summary</p>
+        {summaryLoading && (
+          <div>
+            <div className="flex items-center gap-3 text-gray-500 mb-3">
+              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              <span className="text-sm">Generating performance summary...</span>
+            </div>
+            <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+              <div className="h-full bg-blue-500 rounded-full animate-pulse" style={{ width: '60%' }} />
+            </div>
+          </div>
+        )}
+        {summaryError && (
+          <div className="flex items-center gap-2 text-red-400 text-sm">
+            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            {summaryError}
+          </div>
+        )}
+        {!summaryLoading && !summaryError && badges.length > 0 && (
+          <div className="flex flex-wrap gap-3 mb-5">
+            {badges.map((b, i) => (
+              <div
+                key={i}
+                className="flex items-center gap-2 bg-gray-800 rounded-lg px-3 py-2 border border-gray-700/50"
+                title={b.description}
+              >
+                <span className="text-xl">{b.icon}</span>
+                <div>
+                  <p className="text-xs font-semibold text-white leading-tight">{b.title}</p>
+                  <p className="text-[10px] text-gray-500 leading-tight">{b.description}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {!summaryLoading && !summaryError && summary && (
+          <div className="prose prose-invert prose-sm max-w-none text-gray-300 [&>p]:mb-3 [&>p:last-child]:mb-0">
+            {summary.split('\n\n').map((para, i) => (
+              <p key={i} dangerouslySetInnerHTML={{ __html: para.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br/>') }} />
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Commits Table */}
       <div className="bg-gray-900 rounded-xl overflow-hidden">
