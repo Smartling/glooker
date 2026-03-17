@@ -80,9 +80,9 @@ export function aggregate(
 
     // Impact score: weighted blend of volume + complexity + PR discipline
     const rawImpact =
-      Math.min(dev.commits.length / 20, 1) * 3 +
+      Math.min(dev.commits.length / 20, 1) * 2 +
       Math.min(totalPRs / 10, 1)            * 3 +
-      (avgComplexity / 10)                   * 2.5 +
+      (avgComplexity / 10)                   * 3.5 +
       (prPercentage / 100)                   * 1.1;
     const impactScore = Math.round(rawImpact * 10) / 10;
 

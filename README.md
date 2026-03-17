@@ -43,7 +43,7 @@ That's it. Glooker uses SQLite by default — no database setup needed.
 | Complexity | Mean LLM-assessed complexity (1-10) |
 | PR% | Percentage of commits that went through a PR |
 | AI% | Percentage of commits with AI assistance (confirmed + suspected) |
-| Impact | Weighted score combining volume, PRs, complexity, and PR discipline |
+| Impact | Weighted score: complexity (3.5) + PRs (3.0) + volume (2.0) + PR discipline (1.1) |
 | Types | Commit categorization: feature, bug, refactor, infra, docs, test |
 
 ## Configuration

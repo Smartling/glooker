@@ -43,18 +43,18 @@ export default function LlmFindings() {
         </div>
         <p className="text-sm text-white/50 mb-4 leading-relaxed">
           Each developer&apos;s impact score (0–9.6) is a weighted blend of four signals, designed to reward
-          consistent, high-quality contributions over raw volume alone.
+          complex, high-quality contributions over raw volume alone.
         </p>
 
         {/* Formula */}
         <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 mb-5 font-mono text-sm text-center">
           <span className="text-amber-300 font-bold">Impact</span>
           <span className="text-white/25 mx-2">=</span>
-          <span className="text-blue-400">Volume</span>
+          <span className="text-purple-400">Complexity</span>
           <span className="text-white/25 mx-1">+</span>
           <span className="text-emerald-400">PRs</span>
           <span className="text-white/25 mx-1">+</span>
-          <span className="text-purple-400">Complexity</span>
+          <span className="text-blue-400">Volume</span>
           <span className="text-white/25 mx-1">+</span>
           <span className="text-cyan-400">Discipline</span>
         </div>
@@ -62,12 +62,12 @@ export default function LlmFindings() {
         {/* Components */}
         <div className="space-y-3">
           <ScoreComponent
-            color="blue"
-            label="Commit Volume"
-            weight="3.0"
+            color="purple"
+            label="Avg Complexity"
+            weight="3.5"
             maxWeight="9.6"
-            formula="min(commits / 20, 1) × 3"
-            description="Scales linearly up to 20 commits, then caps. Rewards consistent output without over-rewarding commit spam."
+            formula="(avgComplexity / 10) × 3.5"
+            description="LLM-assessed complexity (1-10) of each commit. The heaviest weight — rewards tackling harder problems over trivial changes."
           />
           <ScoreComponent
             color="emerald"
@@ -78,12 +78,12 @@ export default function LlmFindings() {
             description="Scales linearly up to 10 merged PRs, then caps. Values shipping complete work units."
           />
           <ScoreComponent
-            color="purple"
-            label="Avg Complexity"
-            weight="2.5"
+            color="blue"
+            label="Commit Volume"
+            weight="2.0"
             maxWeight="9.6"
-            formula="(avgComplexity / 10) × 2.5"
-            description="LLM-assessed complexity (1-10) of each commit. Rewards tackling harder problems over trivial changes."
+            formula="min(commits / 20, 1) × 2"
+            description="Scales linearly up to 20 commits, then caps. Intentionally lower weight — quantity matters less than quality."
           />
           <ScoreComponent
             color="cyan"
@@ -101,19 +101,19 @@ export default function LlmFindings() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <ScoreExample
               label="Senior IC"
-              score="8.5"
+              score="8.4"
               detail="25 commits, 12 PRs, complexity 6.2, 95% PR rate"
               color="green"
             />
             <ScoreExample
               label="Steady contributor"
-              score="5.8"
+              score="5.4"
               detail="10 commits, 5 PRs, complexity 4.0, 80% PR rate"
               color="yellow"
             />
             <ScoreExample
               label="Light period"
-              score="2.3"
+              score="2.4"
               detail="3 commits, 1 PR, complexity 3.0, 60% PR rate"
               color="gray"
             />
