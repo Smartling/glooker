@@ -50,25 +50,6 @@ const TYPE_COLORS: Record<string, string> = {
   other:    'bg-gray-600',
 };
 
-const CADENCE_PRESETS = [
-  { label: 'Every hour',           cron: '0 * * * *' },
-  { label: 'Daily at midnight',    cron: '0 0 * * *' },
-  { label: 'Daily at 9 AM',        cron: '0 9 * * *' },
-  { label: 'Weekdays at 9 AM',     cron: '0 9 * * 1-5' },
-  { label: 'Weekly (Monday 9 AM)', cron: '0 9 * * 1' },
-  { label: 'Monthly (1st at 9 AM)', cron: '0 9 1 * *' },
-];
-
-const TIMEZONES = [
-  'UTC',
-  'America/New_York',
-  'America/Chicago',
-  'America/Denver',
-  'America/Los_Angeles',
-  'Europe/London',
-  'Europe/Berlin',
-  'Asia/Tokyo',
-];
 
 export default function Home() {
   const [org, setOrg]               = useState('');
@@ -93,19 +74,6 @@ export default function Home() {
   const generationRef = useRef(0);
   const lastCompletedDevsRef = useRef(0);
 
-  // Schedule state
-  const [schedules, setSchedules]             = useState<any[]>([]);
-  const [showScheduleForm, setShowScheduleForm] = useState(false);
-  const [editingSchedule, setEditingSchedule] = useState<any | null>(null);
-  const [scheduleOrg, setScheduleOrg]         = useState('');
-  const [schedulePeriod, setSchedulePeriod]   = useState(3);
-  const [scheduleCadence, setScheduleCadence] = useState('0 9 * * 1-5');
-  const [scheduleCustomCron, setScheduleCustomCron] = useState('');
-  const [scheduleTz, setScheduleTz]           = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
-  const [scheduleTestMode, setScheduleTestMode] = useState(false);
-  const [scheduleEnabled, setScheduleEnabled] = useState(true);
-  const [isCustomCron, setIsCustomCron]       = useState(false);
-  const [deletingScheduleId, setDeletingScheduleId] = useState<string | null>(null);
   const [showReportForm, setShowReportForm] = useState(false);
 
   // Load orgs and past reports on mount
@@ -120,10 +88,6 @@ export default function Home() {
     fetch('/api/report')
       .then((r) => r.json())
       .then(setPastReports)
-      .catch((err) => console.error('[glooker]', err));
-    fetch('/api/schedule')
-      .then((r) => r.json())
-      .then(setSchedules)
       .catch((err) => console.error('[glooker]', err));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -151,7 +115,6 @@ export default function Home() {
           }
         })
         .catch((err) => console.error('[glooker]', err));
-      fetch('/api/schedule').then((r) => r.json()).then(setSchedules).catch((err) => console.error('[glooker]', err));
     }, 5000);
     return () => clearInterval(interval);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -318,130 +281,6 @@ export default function Home() {
     startPolling(id);
   }
 
-  function resetScheduleForm() {
-    setScheduleOrg(orgs[0]?.login || '');
-    setSchedulePeriod(3);
-    setScheduleCadence('0 9 * * 1-5');
-    setScheduleCustomCron('');
-    setScheduleTz(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
-    setScheduleTestMode(false);
-    setScheduleEnabled(true);
-    setIsCustomCron(false);
-    setEditingSchedule(null);
-  }
-
-  function openNewScheduleForm() {
-    resetScheduleForm();
-    setShowScheduleForm(true);
-  }
-
-  function openEditScheduleForm(s: any) {
-    setEditingSchedule(s);
-    setScheduleOrg(s.org);
-    setSchedulePeriod(s.period_days);
-    setScheduleTz(s.timezone);
-    setScheduleTestMode(Boolean(s.test_mode));
-    setScheduleEnabled(Boolean(s.enabled));
-
-    const preset = CADENCE_PRESETS.find((p) => p.cron === s.cron_expr);
-    if (preset) {
-      setScheduleCadence(preset.cron);
-      setIsCustomCron(false);
-      setScheduleCustomCron('');
-    } else {
-      setScheduleCadence('');
-      setIsCustomCron(true);
-      setScheduleCustomCron(s.cron_expr);
-    }
-    setShowScheduleForm(true);
-  }
-
-  async function saveSchedule() {
-    const cronExpr = isCustomCron ? scheduleCustomCron : scheduleCadence;
-    const payload = {
-      org: scheduleOrg,
-      periodDays: schedulePeriod,
-      cronExpr,
-      timezone: scheduleTz,
-      testMode: scheduleTestMode,
-      enabled: scheduleEnabled,
-    };
-
-    try {
-      if (editingSchedule) {
-        const res = await fetch(`/api/schedule/${editingSchedule.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        if (!res.ok) {
-          const data = await res.json();
-          alert(data.error || 'Failed to update schedule');
-          return;
-        }
-      } else {
-        const res = await fetch('/api/schedule', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        if (!res.ok) {
-          const data = await res.json();
-          alert(data.error || 'Failed to create schedule');
-          return;
-        }
-      }
-
-      fetch('/api/schedule').then((r) => r.json()).then(setSchedules).catch((err) => console.error('[glooker]', err));
-      setShowScheduleForm(false);
-      resetScheduleForm();
-    } catch {
-      alert('Network error — could not save schedule');
-    }
-  }
-
-  async function deleteSchedule(id: string) {
-    try {
-      const res = await fetch(`/api/schedule/${id}`, { method: 'DELETE' });
-      if (!res.ok) {
-        alert('Failed to delete schedule');
-        return;
-      }
-      setSchedules((prev) => prev.filter((s) => s.id !== id));
-      if (editingSchedule?.id === id) {
-        setShowScheduleForm(false);
-        resetScheduleForm();
-      }
-    } catch {
-      alert('Network error — could not delete schedule');
-    }
-  }
-
-  async function toggleScheduleEnabled(s: any) {
-    const payload = {
-      org: s.org,
-      periodDays: s.period_days,
-      cronExpr: s.cron_expr,
-      timezone: s.timezone,
-      testMode: Boolean(s.test_mode),
-      enabled: !s.enabled,
-    };
-    try {
-      const res = await fetch(`/api/schedule/${s.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        alert('Failed to toggle schedule');
-        return;
-      }
-      fetch('/api/schedule').then((r) => r.json()).then(setSchedules).catch((err) => console.error('[glooker]', err));
-    } catch {
-      alert('Network error — could not toggle schedule');
-    }
-  }
-
   function exportCsv(devs: Developer[], report: Report) {
     const headers = ['Rank','Developer','Login','PRs','Commits','Lines Added','Lines Removed','Avg Complexity','PR%','AI%','Impact Score','Types','Active Repos'];
     const rows = devs.map((d, i) => [
@@ -522,9 +361,21 @@ export default function Home() {
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
       {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight text-white cursor-pointer hover:text-blue-400 transition-colors" onClick={() => { setActiveReport(null); setDevelopers([]); setProgress(null); setRunning(false); stopPolling(); }}>Glooker</h1>
-        <p className="text-gray-400 mt-1">GitHub org developer impact analytics</p>
+      <div className="mb-8 flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-white cursor-pointer hover:text-blue-400 transition-colors" onClick={() => { setActiveReport(null); setDevelopers([]); setProgress(null); setRunning(false); stopPolling(); }}>Glooker</h1>
+          <p className="text-gray-400 mt-1">GitHub org developer impact analytics</p>
+        </div>
+        <button
+          onClick={() => window.location.href = '/settings'}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-300 bg-gray-900 hover:bg-gray-800 rounded-lg border border-gray-800 transition-colors"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+          Settings
+        </button>
       </div>
 
       <div className="flex gap-8">
@@ -633,210 +484,9 @@ export default function Home() {
             })}
           </div>
 
-          {/* Schedules */}
-          <div className="mt-6">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-xs uppercase tracking-wider text-gray-500 font-semibold">Schedules</p>
-              <button
-                onClick={openNewScheduleForm}
-                disabled={orgs.length === 0}
-                className="text-xs text-blue-400 hover:text-blue-300 disabled:text-gray-600 disabled:cursor-not-allowed"
-              >
-                + New
-              </button>
-            </div>
-            <div className="space-y-1.5">
-              {schedules.length === 0 && !showScheduleForm && (
-                <p className="text-gray-600 text-sm">No schedules</p>
-              )}
-              {schedules.map((s) => {
-                const presetLabel = CADENCE_PRESETS.find((p) => p.cron === s.cron_expr)?.label || s.cron_expr;
-                const isDeletingSchedule = deletingScheduleId === s.id;
-                return (
-                  <div key={s.id} className="group">
-                    {isDeletingSchedule ? (
-                      <div className="px-3 py-2.5 rounded-lg text-sm bg-red-950 border border-red-800">
-                        <p className="text-red-300 text-xs mb-2">Delete this schedule?</p>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => { deleteSchedule(s.id); setDeletingScheduleId(null); }}
-                            className="px-2 py-1 text-xs bg-red-700 hover:bg-red-600 text-white rounded transition-colors"
-                          >
-                            Delete
-                          </button>
-                          <button
-                            onClick={() => setDeletingScheduleId(null)}
-                            className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                    <div className="px-3 py-2.5 rounded-lg text-sm border border-transparent hover:bg-gray-800/50 hover:border-gray-800">
-                    <div className="flex items-center justify-between">
-                      <button
-                        onClick={() => openEditScheduleForm(s)}
-                        className="text-left flex-1 min-w-0"
-                      >
-                        <span className="font-medium text-white truncate block">{s.org}</span>
-                        <span className="text-xs text-gray-500">{presetLabel} &middot; {s.period_days}d</span>
-                      </button>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); toggleScheduleEnabled(s); }}
-                          className={`w-8 h-4 rounded-full transition-colors relative ${s.enabled ? 'bg-green-600' : 'bg-gray-700'}`}
-                          title={s.enabled ? 'Disable' : 'Enable'}
-                        >
-                          <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${s.enabled ? 'left-4' : 'left-0.5'}`} />
-                        </button>
-                        <span
-                          role="button"
-                          onClick={(e) => { e.stopPropagation(); setDeletingScheduleId(s.id); }}
-                          className="p-0.5 rounded text-gray-700 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                          title="Delete schedule"
-                        >
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                        </span>
-                      </div>
-                    </div>
-                    {/* Status indicators */}
-                    <div className="flex items-center gap-2 mt-1 text-xs">
-                      {s.last_run_at && (
-                        <span className="text-gray-600">
-                          Last: {timeAgo(s.last_run_at)}
-                          {s.last_report_status && (
-                            <span className={
-                              s.last_report_status === 'completed' ? ' text-green-500' :
-                              s.last_report_status === 'failed' ? ' text-red-400' :
-                              s.last_report_status === 'running' ? ' text-blue-400' : ''
-                            }> ({s.last_report_status})</span>
-                          )}
-                        </span>
-                      )}
-                      {s.next_run_at && s.enabled && (
-                        <span className="text-gray-600">
-                          Next: {new Date(s.next_run_at).toLocaleString('en-US', {
-                            timeZone: s.timezone,
-                            month: 'short', day: 'numeric',
-                            hour: 'numeric', minute: '2-digit',
-                          })}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
         </div>
 
         {/* Main content */}
-        {/* Schedule form modal */}
-        {showScheduleForm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center">
-            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { setShowScheduleForm(false); resetScheduleForm(); }} />
-            <div className="relative bg-gray-900 rounded-xl p-6 w-full max-w-lg border border-gray-800 shadow-2xl">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold text-white">
-                  {editingSchedule ? 'Edit Schedule' : 'New Schedule'}
-                </h3>
-                <button onClick={() => { setShowScheduleForm(false); resetScheduleForm(); }} className="text-gray-500 hover:text-gray-300">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                {/* Org */}
-                <div>
-                  <label className="block text-xs text-gray-400 mb-1 font-medium">Org</label>
-                  <select value={scheduleOrg} onChange={(e) => setScheduleOrg(e.target.value)}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500">
-                    {orgs.map((o) => <option key={o.login} value={o.login}>{o.login}</option>)}
-                  </select>
-                </div>
-                {/* Period */}
-                <div>
-                  <label className="block text-xs text-gray-400 mb-1 font-medium">Period</label>
-                  <select value={schedulePeriod} onChange={(e) => setSchedulePeriod(Number(e.target.value))}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500">
-                    {[3, 14, 30, 90].map((d) => <option key={d} value={d}>{d} days</option>)}
-                  </select>
-                </div>
-                {/* Cadence */}
-                <div>
-                  <label className="block text-xs text-gray-400 mb-1 font-medium">Cadence</label>
-                  <select
-                    value={isCustomCron ? '__custom__' : scheduleCadence}
-                    onChange={(e) => {
-                      if (e.target.value === '__custom__') {
-                        setIsCustomCron(true);
-                        setScheduleCadence('');
-                      } else {
-                        setIsCustomCron(false);
-                        setScheduleCadence(e.target.value);
-                        setScheduleCustomCron('');
-                      }
-                    }}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-                  >
-                    {CADENCE_PRESETS.map((p) => <option key={p.cron} value={p.cron}>{p.label}</option>)}
-                    <option value="__custom__">Custom cron expression</option>
-                  </select>
-                  {isCustomCron && (
-                    <input
-                      type="text"
-                      value={scheduleCustomCron}
-                      onChange={(e) => setScheduleCustomCron(e.target.value)}
-                      placeholder="e.g. 0 9 * * 1-5"
-                      className="w-full mt-2 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-blue-500"
-                    />
-                  )}
-                </div>
-                {/* Timezone */}
-                <div>
-                  <label className="block text-xs text-gray-400 mb-1 font-medium">Timezone</label>
-                  <select value={scheduleTz} onChange={(e) => setScheduleTz(e.target.value)}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500">
-                    {TIMEZONES.map((tz) => <option key={tz} value={tz}>{tz}</option>)}
-                  </select>
-                </div>
-              </div>
-              {/* Options row */}
-              <div className="flex items-center gap-6 mt-4">
-                <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
-                  <input type="checkbox" checked={scheduleTestMode} onChange={(e) => setScheduleTestMode(e.target.checked)}
-                    className="rounded bg-gray-800 border-gray-700" />
-                  Test mode
-                </label>
-                <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
-                  <input type="checkbox" checked={scheduleEnabled} onChange={(e) => setScheduleEnabled(e.target.checked)}
-                    className="rounded bg-gray-800 border-gray-700" />
-                  Enabled
-                </label>
-              </div>
-              {/* Actions */}
-              <div className="flex gap-3 mt-4">
-                <button onClick={saveSchedule}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors">
-                  {editingSchedule ? 'Update' : 'Create'} Schedule
-                </button>
-                {editingSchedule && (
-                  <button onClick={() => deleteSchedule(editingSchedule.id)}
-                    className="px-4 py-2 bg-red-700 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors">
-                    Delete
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Run report modal */}
         {showReportForm && (
           <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -1265,18 +915,6 @@ function PrPercentBadge({ value }: { value: number }) {
   );
 }
 
-function timeAgo(dateStr: string): string {
-  const now = Date.now();
-  const then = new Date(dateStr).getTime();
-  const diffMs = now - then;
-  const mins = Math.floor(diffMs / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
 
 function TypeBreakdown({ breakdown }: { breakdown: Record<string, number> }) {
   const entries = Object.entries(breakdown || {}).sort((a, b) => b[1] - a[1]);
