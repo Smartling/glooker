@@ -71,6 +71,7 @@ export default function Home() {
   const [filterQuery, setFilterQuery] = useState('');
   const [filterOpen, setFilterOpen] = useState(false);
   const [filterHighlight, setFilterHighlight] = useState(0);
+  const [teams, setTeams] = useState<Array<{ id: string; name: string; color: string; members: string[] }>>([]);
   const generationRef = useRef(0);
   const lastCompletedDevsRef = useRef(0);
 
@@ -226,6 +227,10 @@ export default function Home() {
     setDevelopers(data.developers || []);
     setActiveReport(data.report);
     setReportId(id);
+    // Load teams for this org
+    if (data.report?.org) {
+      fetch(`/api/teams?org=${data.report.org}`).then(r => r.json()).then(setTeams).catch(() => {});
+    }
 
     // If report is still running, start polling for progress
     if (data.report.status === 'running') {
@@ -686,6 +691,23 @@ export default function Home() {
           {developers.length > 0 && (
             <div className="mb-3 relative">
               <div className="flex items-center gap-2 flex-wrap">
+                {/* Team filter */}
+                {teams.length > 0 && (
+                  <select
+                    value=""
+                    onChange={e => {
+                      const team = teams.find(t => t.id === e.target.value);
+                      if (team) setFilterLogins(new Set(team.members));
+                      e.target.value = '';
+                    }}
+                    className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-gray-400 focus:outline-none focus:border-blue-500 cursor-pointer"
+                  >
+                    <option value="">Filter by team...</option>
+                    {teams.map(t => (
+                      <option key={t.id} value={t.id}>{t.name} ({t.members.length})</option>
+                    ))}
+                  </select>
+                )}
                 {[...filterLogins].map(login => {
                   const dev = developers.find(d => d.github_login === login);
                   return (
