@@ -92,6 +92,27 @@ CREATE TABLE IF NOT EXISTS schedules (
   created_at     TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
   FOREIGN KEY (last_report_id) REFERENCES reports(id) ON DELETE SET NULL
 );
+
+CREATE TABLE IF NOT EXISTS teams (
+  id          TEXT    NOT NULL PRIMARY KEY,
+  org         TEXT    NOT NULL,
+  name        TEXT    NOT NULL,
+  color       TEXT    NOT NULL DEFAULT '#3B82F6',
+  created_at  TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+  UNIQUE (org, name)
+);
+
+CREATE TABLE IF NOT EXISTS team_members (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  team_id      TEXT    NOT NULL,
+  github_login TEXT    NOT NULL,
+  added_at     TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+  FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
+  UNIQUE (team_id, github_login)
+);
+
+CREATE INDEX IF NOT EXISTS idx_devstats_login ON developer_stats(github_login);
+CREATE INDEX IF NOT EXISTS idx_reports_org_status_created ON reports(org, status, created_at);
 `;
 
 export function createSQLiteDB(): DB {
@@ -152,6 +173,8 @@ function translateSQL(sql: string): string {
       commit_analyses: 'report_id, commit_sha',
       developer_summaries: 'report_id, github_login',
       report_comparisons: 'report_id_a, report_id_b',
+      teams: 'org, name',
+      team_members: 'team_id, github_login',
     };
     const conflict = conflictCols[table] || 'id';
 

@@ -75,3 +75,24 @@ CREATE TABLE IF NOT EXISTS developer_summaries (
   FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
   UNIQUE KEY uq_report_dev_summary (report_id, github_login)
 );
+
+CREATE TABLE IF NOT EXISTS teams (
+  id          VARCHAR(36)  NOT NULL PRIMARY KEY,
+  org         VARCHAR(255) NOT NULL,
+  name        VARCHAR(255) NOT NULL,
+  color       VARCHAR(7)   NOT NULL DEFAULT '#3B82F6',
+  created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_org_team (org, name)
+);
+
+CREATE TABLE IF NOT EXISTS team_members (
+  id          INT AUTO_INCREMENT PRIMARY KEY,
+  team_id     VARCHAR(36)  NOT NULL,
+  github_login VARCHAR(255) NOT NULL,
+  added_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_team_member (team_id, github_login)
+);
+
+CREATE INDEX idx_devstats_login ON developer_stats(github_login);
+CREATE INDEX idx_reports_org_status_created ON reports(org, status, created_at);

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 
 type Tab = 'schedules' | 'teams';
@@ -32,6 +32,16 @@ function timeAgo(dateStr: string): string {
 export default function SettingsPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>('schedules');
+  const [orgs, setOrgs] = useState<Array<{ login: string }>>([]);
+  const [selectedOrg, setSelectedOrg] = useState('');
+
+  useEffect(() => {
+    fetch('/api/orgs').then(r => r.json()).then((data: Array<{ login: string }>) => {
+      setOrgs(data);
+      if (data.length > 0 && !selectedOrg) setSelectedOrg(data[0].login);
+    }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
@@ -72,7 +82,7 @@ export default function SettingsPage() {
 
       {/* Tab Content */}
       {activeTab === 'schedules' && <SchedulesTab />}
-      {activeTab === 'teams' && <TeamsTab />}
+      {activeTab === 'teams' && selectedOrg && <TeamsTab org={selectedOrg} />}
     </div>
   );
 }
@@ -336,82 +346,373 @@ function SchedulesTab() {
 }
 
 /* ── Teams Tab (mock) ── */
-function TeamsTab() {
-  const teams = [
-    {
-      id: '1', name: 'Platform', color: '#3B82F6',
-      members: [
-        { login: 'alice', name: 'Alice Chen', avatar: 'https://i.pravatar.cc/32?u=alice' },
-        { login: 'bob', name: 'Bob Smith', avatar: 'https://i.pravatar.cc/32?u=bob' },
-        { login: 'carol', name: 'Carol Wang', avatar: 'https://i.pravatar.cc/32?u=carol' },
-        { login: 'dave', name: 'Dave Park', avatar: 'https://i.pravatar.cc/32?u=dave' },
-      ],
-    },
-    {
-      id: '2', name: 'Frontend', color: '#10B981',
-      members: [
-        { login: 'eve', name: 'Eve Johnson', avatar: 'https://i.pravatar.cc/32?u=eve' },
-        { login: 'frank', name: 'Frank Lee', avatar: 'https://i.pravatar.cc/32?u=frank' },
-      ],
-    },
-    {
-      id: '3', name: 'Data & ML', color: '#F59E0B',
-      members: [
-        { login: 'grace', name: 'Grace Kim', avatar: 'https://i.pravatar.cc/32?u=grace' },
-        { login: 'hank', name: 'Hank Patel', avatar: 'https://i.pravatar.cc/32?u=hank' },
-        { login: 'ivy', name: 'Ivy Torres', avatar: 'https://i.pravatar.cc/32?u=ivy' },
-      ],
-    },
-  ];
+const TEAM_COLORS = ['#3B82F6','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#06B6D4','#84CC16'];
+
+function TeamsTab({ org }: { org: string }) {
+  const [teams, setTeams] = useState<any[]>([]);
+  const [devs, setDevs] = useState<any[]>([]);
+  const [showForm, setShowForm] = useState(false);
+  const [editingTeam, setEditingTeam] = useState<any | null>(null);
+  const [formName, setFormName] = useState('');
+  const [formColor, setFormColor] = useState(TEAM_COLORS[0]);
+  const [formMembers, setFormMembers] = useState<string[]>([]);
+  const [memberQuery, setMemberQuery] = useState('');
+  const [memberResults, setMemberResults] = useState<any[]>([]);
+  const [memberHighlight, setMemberHighlight] = useState(0);
+  const [searchingGithub, setSearchingGithub] = useState(false);
+  const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [dragLogin, setDragLogin] = useState<string | null>(null);
+  const [dragOverTeamId, setDragOverTeamId] = useState<string | null>(null);
+
+  useEffect(() => { loadTeams(); loadDevs(); }, [org]);
+
+  function loadTeams() {
+    fetch(`/api/teams?org=${org}`).then(r => r.json()).then(setTeams).catch(() => {});
+  }
+  function loadDevs() {
+    fetch(`/api/developers?org=${org}`).then(r => r.json()).then(setDevs).catch(() => {});
+  }
+
+  function resetForm() {
+    setFormName('');
+    setFormColor(TEAM_COLORS[teams.length % TEAM_COLORS.length]);
+    setFormMembers([]);
+    setEditingTeam(null);
+    setMemberQuery('');
+    setMemberResults([]);
+  }
+
+  function openNew() { resetForm(); setShowForm(true); }
+  function openEdit(team: any) {
+    setEditingTeam(team);
+    setFormName(team.name);
+    setFormColor(team.color);
+    setFormMembers([...team.members]);
+    setMemberQuery('');
+    setMemberResults([]);
+    setShowForm(true);
+  }
+
+  async function save() {
+    const body = { org, name: formName, color: formColor, members: formMembers };
+    try {
+      if (editingTeam) {
+        const res = await fetch(`/api/teams/${editingTeam.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        if (!res.ok) { const d = await res.json(); alert(d.error || 'Failed'); return; }
+      } else {
+        const res = await fetch('/api/teams', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        if (!res.ok) { const d = await res.json(); alert(d.error || 'Failed'); return; }
+      }
+      loadTeams();
+      setShowForm(false);
+      resetForm();
+    } catch { alert('Network error'); }
+  }
+
+  async function del(id: string) {
+    if (!confirm('Delete this team?')) return;
+    await fetch(`/api/teams/${id}`, { method: 'DELETE' });
+    loadTeams();
+    if (editingTeam?.id === id) { setShowForm(false); resetForm(); }
+  }
+
+  async function removeMemberFromTeam(teamId: string, login: string) {
+    const team = teams.find(t => t.id === teamId);
+    if (!team) return;
+    const newMembers = team.members.filter((m: string) => m !== login);
+    await fetch(`/api/teams/${teamId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ members: newMembers }) });
+    loadTeams();
+  }
+
+  async function dropMemberOnTeam(targetTeamId: string, login: string) {
+    // Remove from source team (if any)
+    const sourceTeam = teams.find(t => t.members.includes(login));
+    if (sourceTeam && sourceTeam.id !== targetTeamId) {
+      const newSourceMembers = sourceTeam.members.filter((m: string) => m !== login);
+      await fetch(`/api/teams/${sourceTeam.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ members: newSourceMembers }) });
+    }
+    // Add to target team (if not already there)
+    const targetTeam = teams.find(t => t.id === targetTeamId);
+    if (targetTeam && !targetTeam.members.includes(login)) {
+      const newTargetMembers = [...targetTeam.members, login];
+      await fetch(`/api/teams/${targetTeamId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ members: newTargetMembers }) });
+    }
+    loadTeams();
+  }
+
+  // Member search with debounce
+  function searchMembers(q: string) {
+    setMemberQuery(q);
+    setMemberHighlight(0);
+    if (searchTimeout.current) clearTimeout(searchTimeout.current);
+    if (!q) { setMemberResults([]); return; }
+
+    const lower = q.toLowerCase();
+    const local = devs.filter(d =>
+      !formMembers.includes(d.github_login) &&
+      (d.github_login.toLowerCase().includes(lower) || (d.github_name || '').toLowerCase().includes(lower))
+    ).slice(0, 8);
+    setMemberResults(local);
+    setSearchingGithub(false);
+
+    // If no local results, debounce a GitHub search
+    if (local.length === 0) {
+      searchTimeout.current = setTimeout(async () => {
+        setSearchingGithub(true);
+        try {
+          const res = await fetch(`/api/developers?org=${org}&q=${encodeURIComponent(q)}&source=github`);
+          const data = await res.json();
+          if (Array.isArray(data)) {
+            setMemberResults(data.filter((d: any) => !formMembers.includes(d.github_login)).slice(0, 8));
+          }
+        } catch {}
+        setSearchingGithub(false);
+      }, 500);
+    }
+  }
+
+  function addMember(login: string) {
+    if (!formMembers.includes(login)) setFormMembers([...formMembers, login]);
+    setMemberQuery('');
+    setMemberResults([]);
+  }
+
+  const devMap = new Map(devs.map(d => [d.github_login, d]));
 
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-gray-400">Group developers into teams for aggregated analytics and filtering.</p>
-        <button className="px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors">
+        <button onClick={openNew} className="px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors">
           + New Team
         </button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {teams.map(team => (
-          <div key={team.id} className="bg-gray-900 rounded-xl p-5 border-t-2" style={{ borderTopColor: team.color }}>
+          <div
+            key={team.id}
+            className={`bg-gray-900 rounded-xl p-5 border-t-2 transition-all ${dragOverTeamId === team.id ? 'ring-2 ring-blue-500/50 bg-gray-800' : ''}`}
+            style={{ borderTopColor: team.color }}
+            onDragOver={e => { e.preventDefault(); setDragOverTeamId(team.id); }}
+            onDragLeave={() => setDragOverTeamId(null)}
+            onDrop={e => { e.preventDefault(); setDragOverTeamId(null); if (dragLogin) dropMemberOnTeam(team.id, dragLogin); setDragLogin(null); }}
+          >
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <div className="w-3 h-3 rounded-full" style={{ background: team.color }} />
                 <h3 className="text-sm font-bold text-white">{team.name}</h3>
+                <span className="text-xs text-gray-600">{team.members.length}</span>
               </div>
               <div className="flex items-center gap-2">
-                <button className="text-xs text-gray-600 hover:text-gray-300">Edit</button>
-                <button className="text-xs text-gray-600 hover:text-red-400">Delete</button>
+                <button onClick={() => openEdit(team)} className="text-xs text-gray-600 hover:text-gray-300">Edit</button>
+                <button onClick={() => del(team.id)} className="text-xs text-gray-600 hover:text-red-400">Delete</button>
               </div>
             </div>
-            <p className="text-xs text-gray-500 mb-3">{team.members.length} members</p>
-            <div className="space-y-2">
-              {team.members.map(m => (
-                <div key={m.login} className="flex items-center gap-2.5 group">
-                  <img src={m.avatar} alt="" className="w-6 h-6 rounded-full" />
-                  <div className="flex-1 min-w-0">
-                    <span className="text-sm text-gray-300">{m.name}</span>
-                    <span className="text-xs text-gray-600 ml-1.5">@{m.login}</span>
+            <div className="flex flex-wrap gap-2">
+              {team.members.map((login: string) => {
+                const d = devMap.get(login);
+                return (
+                  <div
+                    key={login}
+                    draggable
+                    onDragStart={() => setDragLogin(login)}
+                    onDragEnd={() => { setDragLogin(null); setDragOverTeamId(null); }}
+                    className={`flex items-center gap-1.5 bg-gray-800 rounded-lg px-2.5 py-1.5 border border-gray-700/50 cursor-grab active:cursor-grabbing group ${dragLogin === login ? 'opacity-40' : ''}`}
+                  >
+                    {d?.avatar_url && <img src={d.avatar_url} alt="" className="w-5 h-5 rounded-full" />}
+                    {!d?.avatar_url && <div className="w-5 h-5 rounded-full bg-gray-700 flex items-center justify-center text-[10px] text-gray-400">{login[0]}</div>}
+                    <span className="text-xs text-gray-300">{d?.github_name || login}</span>
+                    <button
+                      onClick={e => { e.stopPropagation(); removeMemberFromTeam(team.id, login); }}
+                      className="text-gray-700 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity text-xs ml-0.5"
+                    >&times;</button>
                   </div>
-                  <button className="text-xs text-gray-700 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
-                    Remove
-                  </button>
-                </div>
-              ))}
+                );
+              })}
+              {team.members.length === 0 && !dragLogin && (
+                <p className="text-xs text-gray-600 py-2">Drop members here</p>
+              )}
             </div>
-            <button className="mt-3 text-xs text-blue-400 hover:text-blue-300 transition-colors">
-              + Add member
-            </button>
           </div>
         ))}
 
-        <button className="bg-gray-900/50 rounded-xl p-5 border-2 border-dashed border-gray-800 hover:border-gray-700 transition-colors flex flex-col items-center justify-center gap-2 min-h-[200px]">
-          <span className="text-2xl text-gray-700">+</span>
-          <span className="text-sm text-gray-600">Create team</span>
-        </button>
+        {teams.length === 0 && (
+          <div className="col-span-full text-center text-gray-600 py-8">No teams yet.</div>
+        )}
       </div>
+
+      {/* Not in a team */}
+      {(() => {
+        const assigned = new Set(teams.flatMap((t: any) => t.members));
+        const unassigned = devs.filter(d => !assigned.has(d.github_login));
+        if (unassigned.length === 0) return null;
+        return (
+          <div className="mt-6 bg-gray-900 rounded-xl p-5 border-t-2 border-t-gray-700">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-3 h-3 rounded-full bg-gray-700" />
+              <h3 className="text-sm font-bold text-gray-400">Not in a team</h3>
+              <span className="text-xs text-gray-600">{unassigned.length}</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {unassigned.map(d => (
+                <div
+                  key={d.github_login}
+                  draggable
+                  onDragStart={() => setDragLogin(d.github_login)}
+                  onDragEnd={() => { setDragLogin(null); setDragOverTeamId(null); }}
+                  className={`flex items-center gap-1.5 bg-gray-800 rounded-lg px-2.5 py-1.5 border border-gray-700/50 cursor-grab active:cursor-grabbing ${dragLogin === d.github_login ? 'opacity-40' : ''}`}
+                >
+                  {d.avatar_url && <img src={d.avatar_url} alt="" className="w-5 h-5 rounded-full" />}
+                  {!d.avatar_url && <div className="w-5 h-5 rounded-full bg-gray-700 flex items-center justify-center text-[10px] text-gray-400">{d.github_login[0]}</div>}
+                  <span className="text-xs text-gray-400">{d.github_name || d.github_login}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Team form modal */}
+      {showForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { setShowForm(false); resetForm(); }} />
+          <div className="relative bg-gray-900 rounded-xl p-6 w-full max-w-lg border border-gray-800 shadow-2xl">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-white">{editingTeam ? 'Edit Team' : 'New Team'}</h3>
+              <button onClick={() => { setShowForm(false); resetForm(); }} className="text-gray-500 hover:text-gray-300">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Name */}
+            <div className="mb-4">
+              <label className="block text-xs text-gray-400 mb-1 font-medium">Team Name</label>
+              <input type="text" value={formName} onChange={e => setFormName(e.target.value)}
+                placeholder="e.g. Platform, Frontend, Data"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
+            </div>
+
+            {/* Color */}
+            <div className="mb-4">
+              <label className="block text-xs text-gray-400 mb-1 font-medium">Color</label>
+              <div className="flex gap-2">
+                {TEAM_COLORS.map(c => (
+                  <button key={c} onClick={() => setFormColor(c)}
+                    className={`w-7 h-7 rounded-lg transition-all ${formColor === c ? 'ring-2 ring-white ring-offset-2 ring-offset-gray-900 scale-110' : 'hover:scale-105'}`}
+                    style={{ background: c }} />
+                ))}
+              </div>
+            </div>
+
+            {/* Members */}
+            <div className="mb-4">
+              <label className="block text-xs text-gray-400 mb-1 font-medium">Members</label>
+              <div className="flex items-center gap-2 flex-wrap bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 focus-within:border-blue-500 transition-colors">
+                {formMembers.map(login => {
+                  const d = devMap.get(login);
+                  return (
+                    <span key={login} className="inline-flex items-center gap-1.5 bg-blue-600/20 text-blue-300 text-xs font-medium px-2 py-1 rounded-lg border border-blue-500/30">
+                      {d?.avatar_url && <img src={d.avatar_url} alt="" className="w-4 h-4 rounded-full" />}
+                      {d?.github_name || login}
+                      <button onClick={() => setFormMembers(formMembers.filter(m => m !== login))} className="text-blue-400 hover:text-white ml-0.5">&times;</button>
+                    </span>
+                  );
+                })}
+                <div className="relative flex-1 min-w-[120px]">
+                  {(() => {
+                    const q = memberQuery.toLowerCase();
+                    // Local matches from devs
+                    let matches = q.length > 0
+                      ? devs.filter(d =>
+                          !formMembers.includes(d.github_login) &&
+                          (d.github_login.toLowerCase().includes(q) || (d.github_name || '').toLowerCase().includes(q))
+                        ).slice(0, 8)
+                      : [];
+
+                    const selectMatch = (login: string) => {
+                      if (!formMembers.includes(login)) setFormMembers([...formMembers, login]);
+                      setMemberQuery('');
+                      setMemberHighlight(0);
+                      setMemberResults([]);
+                    };
+
+                    // If no local matches and we have GitHub results, use those
+                    if (matches.length === 0 && memberResults.length > 0) {
+                      matches = memberResults.filter((d: any) => !formMembers.includes(d.github_login));
+                    }
+
+                    return (
+                      <>
+                        <input type="text" value={memberQuery}
+                          onChange={e => { searchMembers(e.target.value); setMemberHighlight(0); }}
+                          onFocus={() => setMemberHighlight(0)}
+                          onBlur={() => setTimeout(() => { setMemberResults([]); }, 150)}
+                          onKeyDown={e => {
+                            if (e.key === 'ArrowDown') { e.preventDefault(); setMemberHighlight(h => Math.min(h + 1, matches.length - 1)); }
+                            else if (e.key === 'ArrowUp') { e.preventDefault(); setMemberHighlight(h => Math.max(h - 1, 0)); }
+                            else if (e.key === 'Enter' && matches.length > 0) { e.preventDefault(); selectMatch(matches[memberHighlight]?.github_login); }
+                            else if (e.key === 'Escape') { setMemberResults([]); setMemberQuery(''); }
+                            else if (e.key === 'Backspace' && memberQuery === '' && formMembers.length > 0) {
+                              setFormMembers(formMembers.slice(0, -1));
+                            }
+                          }}
+                          placeholder={formMembers.length > 0 ? 'Add more...' : 'Search by name or login...'}
+                          className="w-full bg-transparent text-sm text-white placeholder-gray-600 focus:outline-none py-0.5" />
+                        {matches.length > 0 && (
+                          <div className="absolute z-40 top-full mt-1 left-0 w-64 bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden">
+                            {searchingGithub && <div className="px-3 py-1.5 text-[10px] text-gray-600 uppercase tracking-wider border-b border-gray-700">GitHub org results</div>}
+                            {matches.map((d: any, idx: number) => (
+                              <button key={d.github_login}
+                                className={`w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors ${idx === memberHighlight ? 'bg-gray-700' : 'hover:bg-gray-700'}`}
+                                onMouseEnter={() => setMemberHighlight(idx)}
+                                onMouseDown={e => { e.preventDefault(); selectMatch(d.github_login); }}>
+                                {d.avatar_url && <img src={d.avatar_url} alt="" className="w-5 h-5 rounded-full" />}
+                                <div>
+                                  <span className="text-white">{d.github_name || d.github_login}</span>
+                                  {d.github_name && <span className="text-gray-500 ml-1.5">@{d.github_login}</span>}
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {searchingGithub && matches.length === 0 && (
+                          <div className="absolute z-40 top-full mt-1 left-0 w-64 bg-gray-800 border border-gray-700 rounded-lg p-3 text-xs text-gray-500 flex items-center gap-2">
+                            <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                            </svg>
+                            Searching GitHub org...
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+              {formMembers.length > 0 && (
+                <button onClick={() => setFormMembers([])} className="text-xs text-gray-600 hover:text-gray-400 mt-1">Clear all</button>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-3">
+              <button onClick={save} disabled={!formName.trim()}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors">
+                {editingTeam ? 'Update' : 'Create'} Team
+              </button>
+              {editingTeam && (
+                <button onClick={() => del(editingTeam.id)}
+                  className="px-4 py-2 bg-red-700 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors">
+                  Delete
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
