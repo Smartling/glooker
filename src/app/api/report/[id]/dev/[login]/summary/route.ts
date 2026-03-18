@@ -102,8 +102,10 @@ export async function GET(
   const priorStats = weekStats(prior7d);
 
   // Build prompt
-  const formatDev = (d: any) =>
-    `@${d.github_login}: commits=${d.total_commits}, PRs=${d.total_prs}, lines=${d.lines_added}+/${d.lines_removed}-, complexity=${Number(d.avg_complexity).toFixed(1)}, impact=${Number(d.impact_score).toFixed(1)}, PR%=${d.pr_percentage}, AI%=${d.ai_percentage}`;
+  const formatDev = (d: any, anonymous = false) => {
+    const prefix = anonymous ? `rank #${d.rank || '?'}` : `@${d.github_login}`;
+    return `${prefix}: commits=${d.total_commits}, PRs=${d.total_prs}, lines=${d.lines_added}+/${d.lines_removed}-, complexity=${Number(d.avg_complexity).toFixed(1)}, impact=${Number(d.impact_score).toFixed(1)}, PR%=${d.pr_percentage}, AI%=${d.ai_percentage}`;
+  };
 
   const isTop3 = rank <= 3;
   const rankLabel = rank === 1 ? '1st (top of leaderboard)' : rank === 2 ? '2nd' : rank === 3 ? '3rd' : `#${rank} of ${totalDevs}`;
@@ -119,6 +121,7 @@ SUMMARY rules:
 - Sentence 2: Strongest metric + one tip to climb leaderboard (or legend praise if top 3)
 - Sentence 3: AI usage note (only if >0%)
 - #1 = "Apex Legend", #2 = "Elite Force", #3 = "Rising Titan" — one sentence of praise, not a paragraph
+- NEVER mention other developers by name or login. Use relative references like "the developer above you" or "top 5 average".
 - No greetings, no sign-offs, no "keep it up" fluff
 
 BADGES: 2-4 badges max. Be creative but short descriptions (under 8 words).
@@ -135,8 +138,8 @@ Types breakdown: ${JSON.stringify(typeof dev.type_breakdown === 'string' ? JSON.
 Last 7 days: commits=${recentStats.count}, lines=${recentStats.lines}, avgComplexity=${recentStats.avgComplexity}, AI%=${recentStats.aiPct}, types=${JSON.stringify(recentStats.types)}
 Prior 7 days: commits=${priorStats.count}, lines=${priorStats.lines}, avgComplexity=${priorStats.avgComplexity}, AI%=${priorStats.aiPct}, types=${JSON.stringify(priorStats.types)}
 
-${devsAbove.length > 0 ? `Developers ranked above (targets to catch):
-${devsAbove.map(d => `  ${rankLabel === '#1 (top of leaderboard)' ? '' : formatDev(d)}`).filter(Boolean).join('\n')}` : 'This developer is #1 — no one above them.'}
+${devsAbove.length > 0 ? `Developers ranked above (anonymous, for comparison only):
+${devsAbove.map((d, i) => `  ${formatDev({ ...d, rank: rank - devsAbove.length + i }, true)}`).join('\n')}` : 'This developer is #1 — no one above them.'}
 
 Total developers in org: ${totalDevs}`;
 
