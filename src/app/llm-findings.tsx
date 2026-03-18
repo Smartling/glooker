@@ -1,6 +1,43 @@
 'use client';
 
+import { useState, useEffect } from 'react';
+
+interface Highlight {
+  icon: string;
+  text: string;
+  sentiment: 'positive' | 'neutral' | 'warning';
+}
+
 export default function LlmFindings() {
+  const [highlights, setHighlights] = useState<Highlight[] | null>(null);
+  const [highlightsLoading, setHighlightsLoading] = useState(true);
+  const [highlightsMeta, setHighlightsMeta] = useState<{ org: string; periodDays: number; dateA: string; dateB: string } | null>(null);
+
+  useEffect(() => {
+    fetch('/api/report-highlights')
+      .then(async r => {
+        const text = await r.text();
+        try { return JSON.parse(text); } catch { return { available: false }; }
+      })
+      .then(data => {
+        if (data.available && data.highlights?.length > 0) {
+          setHighlights(data.highlights);
+          setHighlightsMeta({
+            org: data.org,
+            periodDays: data.periodDays,
+            dateA: data.reportDateA,
+            dateB: data.reportDateB,
+          });
+        }
+      })
+      .catch(() => {})
+      .finally(() => setHighlightsLoading(false));
+  }, []);
+
+  const formatDate = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const sentimentColor = { positive: 'text-green-400', neutral: 'text-gray-400', warning: 'text-amber-400' };
+  const sentimentDot = { positive: 'bg-green-400', neutral: 'bg-gray-500', warning: 'bg-amber-400' };
+
   return (
     <div className="space-y-6">
       {/* Tip of the Day */}
@@ -34,6 +71,45 @@ export default function LlmFindings() {
           </div>
         </div>
       </div>
+
+      {/* Highlights */}
+      {highlightsLoading && (
+        <div className="bg-white/[0.03] border border-white/[0.07] rounded-2xl p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-lg">📊</span>
+            <span className="text-xs font-bold tracking-widest uppercase text-white/40">Highlights</span>
+          </div>
+          <div className="flex items-center gap-2 text-gray-500 text-sm">
+            <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            Comparing latest reports...
+          </div>
+        </div>
+      )}
+      {!highlightsLoading && highlights && highlightsMeta && (
+        <div className="bg-white/[0.03] border border-white/[0.07] rounded-2xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">📊</span>
+              <span className="text-xs font-bold tracking-widest uppercase text-white/40">Highlights</span>
+            </div>
+            <span className="text-[11px] text-white/25">
+              {highlightsMeta.org} · {highlightsMeta.periodDays}d · {formatDate(highlightsMeta.dateA)} vs {formatDate(highlightsMeta.dateB)}
+            </span>
+          </div>
+          <div className="space-y-2.5">
+            {highlights.map((h, i) => (
+              <div key={i} className="flex items-start gap-3">
+                <div className={`w-1.5 h-1.5 rounded-full mt-2 shrink-0 ${sentimentDot[h.sentiment] || 'bg-gray-500'}`} />
+                <span className="text-lg shrink-0">{h.icon}</span>
+                <p className={`text-sm leading-relaxed ${sentimentColor[h.sentiment] || 'text-gray-400'}`}>{h.text}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* How Impact Score Works */}
       <div className="bg-white/[0.03] border border-white/[0.07] rounded-2xl p-5">

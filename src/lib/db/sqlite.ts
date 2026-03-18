@@ -68,6 +68,17 @@ CREATE TABLE IF NOT EXISTS developer_summaries (
   UNIQUE (report_id, github_login)
 );
 
+CREATE TABLE IF NOT EXISTS report_comparisons (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  report_id_a     TEXT    NOT NULL,
+  report_id_b     TEXT    NOT NULL,
+  highlights_json TEXT    NOT NULL,
+  generated_at    TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+  FOREIGN KEY (report_id_a) REFERENCES reports(id) ON DELETE CASCADE,
+  FOREIGN KEY (report_id_b) REFERENCES reports(id) ON DELETE CASCADE,
+  UNIQUE (report_id_a, report_id_b)
+);
+
 CREATE TABLE IF NOT EXISTS schedules (
   id             TEXT    NOT NULL PRIMARY KEY,
   org            TEXT    NOT NULL,
@@ -140,6 +151,7 @@ function translateSQL(sql: string): string {
       developer_stats: 'report_id, github_login',
       commit_analyses: 'report_id, commit_sha',
       developer_summaries: 'report_id, github_login',
+      report_comparisons: 'report_id_a, report_id_b',
     };
     const conflict = conflictCols[table] || 'id';
 

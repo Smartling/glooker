@@ -54,6 +54,17 @@ CREATE TABLE IF NOT EXISTS commit_analyses (
   UNIQUE KEY uq_report_commit (report_id, commit_sha)
 );
 
+CREATE TABLE IF NOT EXISTS report_comparisons (
+  id              INT AUTO_INCREMENT PRIMARY KEY,
+  report_id_a     VARCHAR(36)  NOT NULL,
+  report_id_b     VARCHAR(36)  NOT NULL,
+  highlights_json JSON         NOT NULL,
+  generated_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (report_id_a) REFERENCES reports(id) ON DELETE CASCADE,
+  FOREIGN KEY (report_id_b) REFERENCES reports(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_report_pair (report_id_a, report_id_b)
+);
+
 CREATE TABLE IF NOT EXISTS developer_summaries (
   id              INT AUTO_INCREMENT PRIMARY KEY,
   report_id       VARCHAR(36)  NOT NULL,

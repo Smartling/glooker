@@ -69,12 +69,12 @@ describe('aggregate', () => {
     expect(result[0].impactScore).toBeGreaterThan(result[1].impactScore);
   });
 
-  it('verifies impact score formula with known inputs', () => {
-    // 20 commits → min(20/20,1)=1 → *3 = 3
+  it('verifies impact score formula with known inputs (max score)', () => {
+    // 20 commits → min(20/20,1)=1 → *2 = 2
     // 10 PRs    → min(10/10,1)=1 → *3 = 3
-    // complexity=10 → (10/10)*2.5 = 2.5
+    // complexity=10 → (10/10)*3.5 = 3.5
     // prPercentage=100 → (100/100)*1.1 = 1.1
-    // rawImpact = 3+3+2.5+1.1 = 9.6
+    // rawImpact = 2+3+3.5+1.1 = 9.6
     const commits = Array.from({ length: 20 }, (_, i) =>
       makeCommit({ sha: `s${i}`, author: 'dev', prNumber: i + 1, repo: 'r' }),
     );
@@ -84,6 +84,55 @@ describe('aggregate', () => {
     const prCounts = new Map([['dev', 10]]);
     const result = aggregate(commits, analyses, prCounts);
     expect(result[0].impactScore).toBe(9.6);
+  });
+
+  it('weights complexity higher than volume in impact score', () => {
+    // Both devs have same PRs (10) and PR% (100%) to isolate volume vs complexity
+    // Dev A: high volume (20 commits), low complexity (2) → volume=2.0, complexity=0.7
+    // Dev B: low volume (5 commits), high complexity (9) → volume=0.5, complexity=3.15
+    // The complexity delta (2.45) outweighs the volume delta (1.5)
+    const commitsA = Array.from({ length: 20 }, (_, i) =>
+      makeCommit({ sha: `a${i}`, author: 'volume-dev', prNumber: i + 1, repo: 'r' }),
+    );
+    const analysesA = new Map<string, CommitAnalysis>(
+      commitsA.map((c) => [c.sha, makeAnalysis({ sha: c.sha, complexity: 2 })]),
+    );
+    const commitsB = Array.from({ length: 5 }, (_, i) =>
+      makeCommit({ sha: `b${i}`, author: 'quality-dev', prNumber: i + 1, repo: 'r' }),
+    );
+    const analysesB = new Map<string, CommitAnalysis>(
+      commitsB.map((c) => [c.sha, makeAnalysis({ sha: c.sha, complexity: 9 })]),
+    );
+    const allCommits = [...commitsA, ...commitsB];
+    const allAnalyses = new Map([...analysesA, ...analysesB]);
+    // Same PR count for both to isolate volume vs complexity
+    const prCounts = new Map([['volume-dev', 10], ['quality-dev', 10]]);
+    const result = aggregate(allCommits, allAnalyses, prCounts);
+    const volumeDev = result.find(d => d.githubLogin === 'volume-dev')!;
+    const qualityDev = result.find(d => d.githubLogin === 'quality-dev')!;
+    // Quality dev should score higher: complexity advantage (2.45) > volume advantage (1.5)
+    expect(qualityDev.impactScore).toBeGreaterThan(volumeDev.impactScore);
+  });
+
+  it('volume component caps at 20 commits', () => {
+    // 40 commits should score same as 20 commits (volume caps at min(n/20,1))
+    const make = (n: number, prefix: string) => {
+      const commits = Array.from({ length: n }, (_, i) =>
+        makeCommit({ sha: `${prefix}${i}`, author: `dev-${prefix}`, prNumber: null, repo: 'r' }),
+      );
+      const analyses = new Map<string, CommitAnalysis>(
+        commits.map((c) => [c.sha, makeAnalysis({ sha: c.sha, complexity: 5 })]),
+      );
+      return { commits, analyses };
+    };
+    const a = make(20, 'a');
+    const b = make(40, 'b');
+    const allCommits = [...a.commits, ...b.commits];
+    const allAnalyses = new Map([...a.analyses, ...b.analyses]);
+    const result = aggregate(allCommits, allAnalyses, new Map());
+    // Both should have same impact (volume capped, same complexity, same PR%)
+    expect(result.find(d => d.githubLogin === 'dev-a')!.impactScore)
+      .toBe(result.find(d => d.githubLogin === 'dev-b')!.impactScore);
   });
 
   it('groups type breakdown correctly', () => {
