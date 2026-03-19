@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 
-type Tab = 'schedules' | 'teams';
+type Tab = 'schedules' | 'teams' | 'llm';
 
 const CADENCE_PRESETS = [
   { label: 'Every hour',           cron: '0 * * * *' },
@@ -64,6 +64,7 @@ export default function SettingsPage() {
         {([
           { id: 'schedules' as Tab, label: 'Schedules', icon: '🕐' },
           { id: 'teams' as Tab, label: 'Teams', icon: '👥' },
+          { id: 'llm' as Tab, label: 'LLM Settings', icon: '🤖' },
         ]).map(tab => (
           <button
             key={tab.id}
@@ -83,6 +84,7 @@ export default function SettingsPage() {
       {/* Tab Content */}
       {activeTab === 'schedules' && <SchedulesTab />}
       {activeTab === 'teams' && selectedOrg && <TeamsTab org={selectedOrg} />}
+      {activeTab === 'llm' && <LlmSettingsTab />}
     </div>
   );
 }
@@ -713,6 +715,164 @@ function TeamsTab({ org }: { org: string }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ── LLM Settings Tab ── */
+const PROVIDER_INFO: Record<string, { name: string; docs: string; envVars: string[] }> = {
+  openai: {
+    name: 'OpenAI',
+    docs: 'https://platform.openai.com/api-keys',
+    envVars: ['LLM_PROVIDER=openai', 'LLM_API_KEY=sk-...', 'LLM_MODEL=gpt-4o'],
+  },
+  anthropic: {
+    name: 'Anthropic',
+    docs: 'https://console.anthropic.com/settings/keys',
+    envVars: ['LLM_PROVIDER=anthropic', 'LLM_API_KEY=sk-ant-...', 'LLM_MODEL=claude-sonnet-4-20250514'],
+  },
+  'openai-compatible': {
+    name: 'OpenAI-Compatible (Ollama, vLLM, Azure)',
+    docs: '',
+    envVars: ['LLM_PROVIDER=openai-compatible', 'LLM_BASE_URL=http://localhost:11434/v1', 'LLM_MODEL=llama3', 'LLM_API_KEY=not-needed'],
+  },
+  smartling: {
+    name: 'Smartling AI Proxy',
+    docs: '',
+    envVars: ['LLM_PROVIDER=smartling', 'SMARTLING_BASE_URL=https://api.smartling.com', 'SMARTLING_ACCOUNT_UID=...', 'SMARTLING_USER_IDENTIFIER=...', 'SMARTLING_USER_SECRET=...', 'LLM_MODEL=anthropic/claude-sonnet-4-20250514'],
+  },
+};
+
+function LlmSettingsTab() {
+  const [config, setConfig] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<any>(null);
+
+  useEffect(() => {
+    fetch('/api/llm-config').then(r => r.json()).then(setConfig).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  async function testConnection() {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch('/api/llm-config', { method: 'POST' });
+      const data = await res.json();
+      setTestResult(data);
+    } catch {
+      setTestResult({ success: false, error: 'Network error' });
+    }
+    setTesting(false);
+  }
+
+  if (loading) return <div className="text-gray-500 text-sm py-8">Loading configuration...</div>;
+  if (!config) return <div className="text-red-400 text-sm py-8">Failed to load configuration.</div>;
+
+  const info = PROVIDER_INFO[config.provider] || PROVIDER_INFO['openai'];
+
+  return (
+    <div>
+      <p className="text-sm text-gray-400 mb-6">Current LLM configuration (read-only). Edit <code className="text-xs bg-gray-800 px-1.5 py-0.5 rounded">.env.local</code> to change settings.</p>
+
+      {/* Status */}
+      <div className={`rounded-xl p-4 mb-6 flex items-center gap-3 ${config.ready ? 'bg-green-500/10 border border-green-500/20' : 'bg-amber-500/10 border border-amber-500/20'}`}>
+        <span className="text-xl">{config.ready ? '✅' : '⚠️'}</span>
+        <div>
+          <p className={`text-sm font-semibold ${config.ready ? 'text-green-400' : 'text-amber-400'}`}>
+            {config.ready ? 'LLM is configured and ready' : 'Configuration incomplete'}
+          </p>
+          {!config.ready && (
+            <p className="text-xs text-gray-500 mt-0.5">
+              Missing: {config.missing.map((v: string) => <code key={v} className="bg-gray-800 px-1 py-0.5 rounded text-amber-300 mx-0.5">{v}</code>)}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Config details */}
+      <div className="bg-gray-900 rounded-xl p-5 mb-6">
+        <div className="grid grid-cols-3 gap-4">
+          <ConfigRow label="Provider" value={info.name} />
+          <ConfigRow label="Model" value={config.model} />
+          <ConfigRow label="Concurrency" value={String(config.concurrency)} />
+        </div>
+      </div>
+
+      {/* Test connection */}
+      <div className="bg-gray-900 rounded-xl p-5 mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">Connection Test</p>
+          <button
+            onClick={testConnection}
+            disabled={testing || !config.ready}
+            className="px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg transition-colors flex items-center gap-2"
+          >
+            {testing && (
+              <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+            )}
+            {testing ? 'Testing...' : 'Test Connection'}
+          </button>
+        </div>
+        {testResult && (
+          <div className={`rounded-lg p-3 text-sm ${testResult.success ? 'bg-green-500/10 border border-green-500/20' : 'bg-red-500/10 border border-red-500/20'}`}>
+            {testResult.success ? (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-green-400 font-semibold">Success</span>
+                <span className="text-gray-500">·</span>
+                <span className="text-gray-400">Model: {testResult.model}</span>
+                <span className="text-gray-500">·</span>
+                <span className="text-gray-400">{testResult.latencyMs}ms</span>
+                <span className="text-gray-500">·</span>
+                <span className="text-gray-500 font-mono text-xs">&quot;{testResult.response}&quot;</span>
+              </div>
+            ) : (
+              <div>
+                <span className="text-red-400 font-semibold">Failed</span>
+                <span className="text-gray-500 ml-2">({testResult.latencyMs}ms)</span>
+                <p className="text-xs text-red-300/70 mt-1 font-mono">{testResult.error}</p>
+              </div>
+            )}
+          </div>
+        )}
+        {!testResult && !testing && (
+          <p className="text-xs text-gray-600">Sends a simple test message to verify the LLM connection is working.</p>
+        )}
+      </div>
+
+      {/* Setup instructions */}
+      {!config.ready && (
+        <div className="bg-gray-900 rounded-xl p-5">
+          <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-3">Setup Instructions</p>
+          <p className="text-sm text-gray-400 mb-3">
+            Add the following to your <code className="text-xs bg-gray-800 px-1.5 py-0.5 rounded">.env.local</code> file:
+          </p>
+          <pre className="bg-gray-950 rounded-lg p-4 text-xs text-gray-300 font-mono leading-relaxed overflow-x-auto">
+            {info.envVars.join('\n')}
+          </pre>
+          {info.docs && (
+            <p className="text-xs text-gray-500 mt-3">
+              Get your API key: <a href={info.docs} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">{info.docs}</a>
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ConfigRow({ label, value, status }: { label: string; value: string; status?: 'ok' | 'missing' }) {
+  return (
+    <div>
+      <p className="text-xs text-gray-500 mb-0.5">{label}</p>
+      <div className="flex items-center gap-2">
+        <p className="text-sm text-white font-mono">{value}</p>
+        {status === 'ok' && <span className="w-1.5 h-1.5 rounded-full bg-green-400" />}
+        {status === 'missing' && <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />}
+      </div>
     </div>
   );
 }
