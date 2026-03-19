@@ -18,6 +18,7 @@ const SUGGESTIONS = [
 
 export default function ChatPanel({ org }: { org: string }) {
   const [open, setOpen] = useState(false);
+  const [maximized, setMaximized] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -81,7 +82,11 @@ export default function ChatPanel({ org }: { org: string }) {
 
       {/* Panel */}
       {open && (
-        <div className="fixed bottom-6 right-6 z-50 w-[420px] h-[600px] bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden no-print">
+        <div className={`fixed z-50 bg-gray-900 border border-gray-800 shadow-2xl flex flex-col overflow-hidden no-print transition-all duration-200 ${
+          maximized
+            ? 'inset-4 rounded-2xl'
+            : 'bottom-6 right-6 w-[420px] h-[600px] rounded-2xl'
+        }`}>
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
             <div className="flex items-center gap-2">
@@ -89,17 +94,32 @@ export default function ChatPanel({ org }: { org: string }) {
               <span className="text-sm font-semibold text-white">Glooker Assistant</span>
               <span className="text-[10px] text-gray-600 bg-gray-800 px-1.5 py-0.5 rounded">{org}</span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               {messages.length > 0 && (
                 <button
                   onClick={() => setMessages([])}
-                  className="text-xs text-gray-600 hover:text-gray-400"
+                  className="text-xs text-gray-600 hover:text-gray-400 px-1"
                   title="Clear chat"
                 >
                   Clear
                 </button>
               )}
-              <button onClick={() => setOpen(false)} className="text-gray-500 hover:text-gray-300">
+              <button
+                onClick={() => setMaximized(!maximized)}
+                className="text-gray-500 hover:text-gray-300 p-1"
+                title={maximized ? 'Minimize' : 'Maximize'}
+              >
+                {maximized ? (
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25" />
+                  </svg>
+                ) : (
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
+                  </svg>
+                )}
+              </button>
+              <button onClick={() => { setOpen(false); setMaximized(false); }} className="text-gray-500 hover:text-gray-300 p-1">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -134,31 +154,7 @@ export default function ChatPanel({ org }: { org: string }) {
                     : 'bg-gray-800 text-gray-300'
                 }`}>
                   {msg.role === 'assistant' ? (
-                    <div className="prose prose-invert prose-sm max-w-none [&>p]:mb-2 [&>p:last-child]:mb-0 [&>table]:text-xs [&>table]:w-full [&_th]:text-left [&_th]:pb-1 [&_th]:border-b [&_th]:border-gray-700 [&_td]:py-0.5 [&_td]:pr-3">
-                      {msg.content.split('\n').map((line, li) => {
-                        if (line.startsWith('|')) {
-                          // Render table rows
-                          const cells = line.split('|').filter(Boolean).map(c => c.trim());
-                          if (cells.every(c => /^[-:]+$/.test(c))) return null; // separator row
-                          const isHeader = li > 0 && messages[i]?.content.split('\n')[li + 1]?.match(/^\|[-| :]+\|$/);
-                          return (
-                            <div key={li} className="flex text-xs font-mono">
-                              {cells.map((c, ci) => (
-                                <span key={ci} className={`flex-1 py-0.5 ${isHeader ? 'font-bold text-gray-200' : 'text-gray-400'}`}>{c}</span>
-                              ))}
-                            </div>
-                          );
-                        }
-                        if (line.trim() === '') return <br key={li} />;
-                        return (
-                          <p key={li} dangerouslySetInnerHTML={{
-                            __html: line
-                              .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                              .replace(/`(.*?)`/g, '<code class="bg-gray-700 px-1 rounded text-xs">$1</code>')
-                          }} />
-                        );
-                      })}
-                    </div>
+                    <ChatMarkdown content={msg.content} />
                   ) : (
                     msg.content
                   )}
@@ -207,4 +203,87 @@ export default function ChatPanel({ org }: { org: string }) {
       )}
     </>
   );
+}
+
+function ChatMarkdown({ content }: { content: string }) {
+  // Split content into blocks: tables vs text
+  const lines = content.split('\n');
+  const blocks: Array<{ type: 'text' | 'table'; lines: string[] }> = [];
+  let current: { type: 'text' | 'table'; lines: string[] } = { type: 'text', lines: [] };
+
+  for (const line of lines) {
+    const isTableLine = line.trimStart().startsWith('|');
+    if (isTableLine && current.type !== 'table') {
+      if (current.lines.length > 0) blocks.push(current);
+      current = { type: 'table', lines: [line] };
+    } else if (!isTableLine && current.type === 'table') {
+      if (current.lines.length > 0) blocks.push(current);
+      current = { type: 'text', lines: [line] };
+    } else {
+      current.lines.push(line);
+    }
+  }
+  if (current.lines.length > 0) blocks.push(current);
+
+  return (
+    <div className="space-y-2">
+      {blocks.map((block, bi) => {
+        if (block.type === 'table') {
+          const rows = block.lines
+            .map(l => l.split('|').filter(Boolean).map(c => c.trim()))
+            .filter(cells => !cells.every(c => /^[-:]+$/.test(c))); // skip separator
+          if (rows.length === 0) return null;
+          const header = rows[0];
+          const body = rows.slice(1);
+          return (
+            <div key={bi} className="overflow-x-auto -mx-1">
+              <table className="text-xs w-full">
+                <thead>
+                  <tr className="border-b border-gray-700">
+                    {header.map((h, hi) => (
+                      <th key={hi} className="text-left py-1 px-1.5 text-gray-300 font-semibold whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {body.map((row, ri) => (
+                    <tr key={ri} className="border-b border-gray-700/30">
+                      {row.map((cell, ci) => (
+                        <td key={ci} className="py-0.5 px-1.5 text-gray-400 whitespace-nowrap">{cell}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        }
+
+        // Text block
+        return (
+          <div key={bi}>
+            {block.lines.map((line, li) => {
+              if (line.trim() === '') return <br key={li} />;
+              if (line.startsWith('## ')) return <p key={li} className="font-bold text-white text-sm mt-1">{line.slice(3)}</p>;
+              if (line.startsWith('- ')) {
+                return (
+                  <div key={li} className="flex gap-1.5 items-start">
+                    <span className="text-gray-600 mt-0.5">•</span>
+                    <span dangerouslySetInnerHTML={{ __html: formatInline(line.slice(2)) }} />
+                  </div>
+                );
+              }
+              return <p key={li} dangerouslySetInnerHTML={{ __html: formatInline(line) }} />;
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function formatInline(text: string): string {
+  return text
+    .replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>')
+    .replace(/`(.*?)`/g, '<code class="bg-gray-700 px-1 rounded text-[11px]">$1</code>');
 }
