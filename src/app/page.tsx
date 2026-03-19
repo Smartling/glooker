@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import LlmFindings from './llm-findings';
+import ChatPanel from './chat-panel';
 
 interface Developer {
   github_login:   string;
@@ -883,6 +884,7 @@ export default function Home() {
 
         </div>
       </div>
+      {org && <ChatPanel org={org} />}
     </div>
   );
 }
