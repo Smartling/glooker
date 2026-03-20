@@ -1,0 +1,1 @@
+export { listOrgs } from './service';
