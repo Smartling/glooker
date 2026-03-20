@@ -1,26 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
-  <!-- GitHub-style: white circle, dark dog - rounder/friendlier, ears more like 10-dog-b -->
-  <circle cx="64" cy="64" r="60" fill="white"/>
-  <!-- Dog head shape -->
-  <circle cx="64" cy="66" r="30" fill="#111827"/>
-  <!-- Pointy ears poking out of head circle -->
-  <polygon points="38,48 28,18 54,42" fill="#111827"/>
-  <polygon points="90,48 100,18 74,42" fill="#111827"/>
-  <!-- Snout bump -->
-  <ellipse cx="64" cy="78" rx="14" ry="10" fill="#111827"/>
-  <!-- Eyes - big friendly -->
-  <circle cx="52" cy="62" r="6.5" fill="white"/>
-  <circle cx="76" cy="62" r="6.5" fill="white"/>
-  <!-- Pupils -->
-  <circle cx="54" cy="61" r="3.5" fill="#111827"/>
-  <circle cx="78" cy="61" r="3.5" fill="#111827"/>
-  <!-- Eye highlights -->
-  <circle cx="56" cy="59" r="1.5" fill="white"/>
-  <circle cx="80" cy="59" r="1.5" fill="white"/>
-  <!-- Nose -->
-  <ellipse cx="64" cy="74" rx="5.5" ry="4" fill="white"/>
-  <!-- Nose highlight -->
-  <ellipse cx="62.5" cy="73" rx="2" ry="1.2" fill="#111827" opacity="0.1"/>
-  <!-- Mouth -->
-  <path d="M59 78 Q64 83 69 78" fill="none" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
+  <!-- Hexagonal gem / crystal -->
+  <rect rx="28" ry="28" width="128" height="128" fill="#111827"/>
+  <!-- Outer hex -->
+  <polygon points="64,16 108,38 108,90 64,112 20,90 20,38" fill="none" stroke="#818cf8" stroke-width="4"/>
+  <!-- Inner facet lines -->
+  <line x1="64" y1="16" x2="64" y2="64" stroke="#6366f1" stroke-width="2.5"/>
+  <line x1="108" y1="38" x2="64" y2="64" stroke="#6366f1" stroke-width="2.5"/>
+  <line x1="20" y1="38" x2="64" y2="64" stroke="#6366f1" stroke-width="2.5"/>
+  <!-- Bottom fill for depth -->
+  <polygon points="64,64 108,90 64,112 20,90" fill="#4338ca" opacity="0.3"/>
+  <!-- Center dot -->
+  <circle cx="64" cy="64" r="5" fill="#c7d2fe"/>
 </svg>
