@@ -103,6 +103,7 @@ function SchedulesTab() {
   const [formTz, setFormTz] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
   const [formTestMode, setFormTestMode] = useState(false);
   const [formEnabled, setFormEnabled] = useState(true);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch('/api/orgs').then(r => r.json()).then(data => {
@@ -172,10 +173,10 @@ function SchedulesTab() {
   }
 
   async function del(id: string) {
-    if (!confirm('Delete this schedule?')) return;
     try {
       await fetch(`/api/schedule/${id}`, { method: 'DELETE' });
       loadSchedules();
+      setDeletingId(null);
       if (editing?.id === id) { setShowForm(false); resetForm(); }
     } catch { alert('Network error'); }
   }
@@ -219,7 +220,19 @@ function SchedulesTab() {
             <tbody>
               {schedules.map(s => {
                 const presetLabel = CADENCE_PRESETS.find(p => p.cron === s.cron_expr)?.label || s.cron_expr;
-                return (
+                return deletingId === s.id ? (
+                  <tr key={s.id} className="border-b border-gray-800/50">
+                    <td colSpan={8} className="px-4 py-2.5">
+                      <div className="rounded-lg bg-red-950 border border-red-800 px-3 py-2.5">
+                        <p className="text-red-300 text-xs mb-2">Delete this schedule?</p>
+                        <div className="flex gap-2">
+                          <button onClick={() => del(s.id)} className="px-2 py-1 text-xs bg-red-700 hover:bg-red-600 text-white rounded transition-colors">Delete</button>
+                          <button onClick={() => setDeletingId(null)} className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors">Cancel</button>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
                   <tr key={s.id} className="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors">
                     <td className="px-4 py-3 text-white font-medium">{s.org}</td>
                     <td className="px-4 py-3 text-gray-300">{s.period_days}d</td>
@@ -256,7 +269,7 @@ function SchedulesTab() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       <button onClick={() => openEdit(s)} className="text-xs text-gray-600 hover:text-gray-300 mr-3">Edit</button>
-                      <button onClick={() => del(s.id)} className="text-xs text-gray-600 hover:text-red-400">Delete</button>
+                      <button onClick={() => setDeletingId(s.id)} className="text-xs text-gray-600 hover:text-red-400">Delete</button>
                     </td>
                   </tr>
                 );
@@ -334,12 +347,21 @@ function SchedulesTab() {
               <button onClick={save} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors">
                 {editing ? 'Update' : 'Create'} Schedule
               </button>
-              {editing && (
-                <button onClick={() => del(editing.id)} className="px-4 py-2 bg-red-700 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors">
+              {editing && deletingId !== editing.id && (
+                <button onClick={() => setDeletingId(editing.id)} className="px-4 py-2 bg-red-700 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors">
                   Delete
                 </button>
               )}
             </div>
+            {editing && deletingId === editing.id && (
+              <div className="mt-3 px-3 py-2.5 rounded-lg bg-red-950 border border-red-800">
+                <p className="text-red-300 text-xs mb-2">Delete this schedule?</p>
+                <div className="flex gap-2">
+                  <button onClick={() => del(editing.id)} className="px-2 py-1 text-xs bg-red-700 hover:bg-red-600 text-white rounded transition-colors">Delete</button>
+                  <button onClick={() => setDeletingId(null)} className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors">Cancel</button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -365,6 +387,7 @@ function TeamsTab({ org }: { org: string }) {
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [dragLogin, setDragLogin] = useState<string | null>(null);
   const [dragOverTeamId, setDragOverTeamId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => { loadTeams(); loadDevs(); }, [org]);
 
@@ -412,9 +435,9 @@ function TeamsTab({ org }: { org: string }) {
   }
 
   async function del(id: string) {
-    if (!confirm('Delete this team?')) return;
     await fetch(`/api/teams/${id}`, { method: 'DELETE' });
     loadTeams();
+    setDeletingId(null);
     if (editingTeam?.id === id) { setShowForm(false); resetForm(); }
   }
 
@@ -491,7 +514,17 @@ function TeamsTab({ org }: { org: string }) {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {teams.map(team => (
+        {teams.map(team => deletingId === team.id ? (
+          <div key={team.id} className="bg-gray-900 rounded-xl p-5 border-t-2" style={{ borderTopColor: team.color }}>
+            <div className="rounded-lg bg-red-950 border border-red-800 px-3 py-2.5">
+              <p className="text-red-300 text-xs mb-2">Delete this team?</p>
+              <div className="flex gap-2">
+                <button onClick={() => del(team.id)} className="px-2 py-1 text-xs bg-red-700 hover:bg-red-600 text-white rounded transition-colors">Delete</button>
+                <button onClick={() => setDeletingId(null)} className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors">Cancel</button>
+              </div>
+            </div>
+          </div>
+        ) : (
           <div
             key={team.id}
             className={`bg-gray-900 rounded-xl p-5 border-t-2 transition-all ${dragOverTeamId === team.id ? 'ring-2 ring-blue-500/50 bg-gray-800' : ''}`}
@@ -508,7 +541,7 @@ function TeamsTab({ org }: { org: string }) {
               </div>
               <div className="flex items-center gap-2">
                 <button onClick={() => openEdit(team)} className="text-xs text-gray-600 hover:text-gray-300">Edit</button>
-                <button onClick={() => del(team.id)} className="text-xs text-gray-600 hover:text-red-400">Delete</button>
+                <button onClick={() => setDeletingId(team.id)} className="text-xs text-gray-600 hover:text-red-400">Delete</button>
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -705,13 +738,22 @@ function TeamsTab({ org }: { org: string }) {
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors">
                 {editingTeam ? 'Update' : 'Create'} Team
               </button>
-              {editingTeam && (
-                <button onClick={() => del(editingTeam.id)}
+              {editingTeam && deletingId !== editingTeam.id && (
+                <button onClick={() => setDeletingId(editingTeam.id)}
                   className="px-4 py-2 bg-red-700 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors">
                   Delete
                 </button>
               )}
             </div>
+            {editingTeam && deletingId === editingTeam.id && (
+              <div className="mt-3 px-3 py-2.5 rounded-lg bg-red-950 border border-red-800">
+                <p className="text-red-300 text-xs mb-2">Delete this team?</p>
+                <div className="flex gap-2">
+                  <button onClick={() => del(editingTeam.id)} className="px-2 py-1 text-xs bg-red-700 hover:bg-red-600 text-white rounded transition-colors">Delete</button>
+                  <button onClick={() => setDeletingId(null)} className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors">Cancel</button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

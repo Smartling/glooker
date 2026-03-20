@@ -25,7 +25,7 @@ import {
   unregisterSchedule,
   getNextRun,
   type Schedule,
-} from '@/lib/schedule-manager';
+} from '@/lib/schedule/manager';
 import db from '@/lib/db/index';
 import { runReport } from '@/lib/report-runner';
 import { initProgress } from '@/lib/progress-store';

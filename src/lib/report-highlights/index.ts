@@ -1,0 +1,1 @@
+export { getReportHighlights } from './service';

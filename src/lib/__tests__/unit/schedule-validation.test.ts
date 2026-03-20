@@ -1,4 +1,4 @@
-import { validateScheduleBody } from '@/lib/schedule-validation';
+import { validateScheduleBody } from '@/lib/schedule/validation';
 
 describe('validateScheduleBody', () => {
   const valid = {

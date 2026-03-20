@@ -1,0 +1,275 @@
+// Mock @/lib/llm-provider before importing the service
+jest.mock('@/lib/llm-provider', () => ({
+  getLLMClient: jest.fn(),
+  LLM_MODEL: 'gpt-4o',
+  extraBodyProps: jest.fn().mockReturnValue({}),
+}));
+
+import { getLLMConfig, testLLMConnection } from '@/lib/llm-config/service';
+import { getLLMClient, extraBodyProps } from '@/lib/llm-provider';
+
+const mockGetLLMClient = getLLMClient as jest.Mock;
+const mockExtraBodyProps = extraBodyProps as jest.Mock;
+
+describe('getLLMConfig', () => {
+  const savedEnv: Record<string, string | undefined> = {};
+
+  const envKeys = [
+    'LLM_PROVIDER',
+    'LLM_API_KEY',
+    'LLM_BASE_URL',
+    'LLM_CONCURRENCY',
+    'SMARTLING_BASE_URL',
+    'SMARTLING_ACCOUNT_UID',
+    'SMARTLING_USER_IDENTIFIER',
+    'SMARTLING_USER_SECRET',
+  ];
+
+  beforeEach(() => {
+    envKeys.forEach(k => { savedEnv[k] = process.env[k]; });
+    // clear all relevant env vars
+    envKeys.forEach(k => { delete process.env[k]; });
+  });
+
+  afterEach(() => {
+    envKeys.forEach(k => {
+      if (savedEnv[k] === undefined) {
+        delete process.env[k];
+      } else {
+        process.env[k] = savedEnv[k];
+      }
+    });
+  });
+
+  describe('provider=openai', () => {
+    beforeEach(() => {
+      process.env.LLM_PROVIDER = 'openai';
+      process.env.LLM_API_KEY = 'sk-test-key';
+    });
+
+    it('returns correct endpoint', () => {
+      const config = getLLMConfig();
+      expect(config.endpoint).toBe('https://api.openai.com/v1');
+    });
+
+    it('returns hasApiKey=true when LLM_API_KEY is set', () => {
+      const config = getLLMConfig();
+      expect(config.hasApiKey).toBe(true);
+    });
+
+    it('returns provider and model', () => {
+      const config = getLLMConfig();
+      expect(config.provider).toBe('openai');
+      expect(config.model).toBe('gpt-4o');
+    });
+
+    it('returns ready=true with no missing when key is present', () => {
+      const config = getLLMConfig();
+      expect(config.missing).toEqual([]);
+      expect(config.ready).toBe(true);
+    });
+
+    it('returns default concurrency=5 when LLM_CONCURRENCY not set', () => {
+      const config = getLLMConfig();
+      expect(config.concurrency).toBe(5);
+    });
+
+    it('uses LLM_CONCURRENCY when set', () => {
+      process.env.LLM_CONCURRENCY = '10';
+      const config = getLLMConfig();
+      expect(config.concurrency).toBe(10);
+    });
+  });
+
+  describe('provider=anthropic', () => {
+    beforeEach(() => {
+      process.env.LLM_PROVIDER = 'anthropic';
+      process.env.LLM_API_KEY = 'anthropic-key';
+    });
+
+    it('returns correct endpoint', () => {
+      const config = getLLMConfig();
+      expect(config.endpoint).toBe('https://api.anthropic.com/v1');
+    });
+
+    it('returns provider=anthropic', () => {
+      const config = getLLMConfig();
+      expect(config.provider).toBe('anthropic');
+    });
+
+    it('returns ready=true when key is present', () => {
+      const config = getLLMConfig();
+      expect(config.ready).toBe(true);
+      expect(config.missing).toEqual([]);
+    });
+  });
+
+  describe('provider=openai-compatible', () => {
+    beforeEach(() => {
+      process.env.LLM_PROVIDER = 'openai-compatible';
+      process.env.LLM_API_KEY = 'compat-key';
+      process.env.LLM_BASE_URL = 'http://localhost:11434/v1';
+    });
+
+    it('uses LLM_BASE_URL as endpoint', () => {
+      const config = getLLMConfig();
+      expect(config.endpoint).toBe('http://localhost:11434/v1');
+    });
+
+    it('returns ready=true when key and base URL are set', () => {
+      const config = getLLMConfig();
+      expect(config.ready).toBe(true);
+      expect(config.missing).toEqual([]);
+    });
+
+    it('returns "(not set)" and missing LLM_BASE_URL when not provided', () => {
+      delete process.env.LLM_BASE_URL;
+      const config = getLLMConfig();
+      expect(config.endpoint).toBe('(not set)');
+      expect(config.missing).toContain('LLM_BASE_URL');
+      expect(config.ready).toBe(false);
+    });
+  });
+
+  describe('provider=smartling', () => {
+    beforeEach(() => {
+      process.env.LLM_PROVIDER = 'smartling';
+      process.env.SMARTLING_BASE_URL = 'https://api.smartling.test';
+      process.env.SMARTLING_ACCOUNT_UID = 'acc-123';
+      process.env.SMARTLING_USER_IDENTIFIER = 'user-id';
+      process.env.SMARTLING_USER_SECRET = 'secret';
+    });
+
+    it('uses SMARTLING_BASE_URL as endpoint', () => {
+      const config = getLLMConfig();
+      expect(config.endpoint).toBe('https://api.smartling.test');
+    });
+
+    it('returns hasAccountUid, hasUserIdentifier, hasUserSecret flags', () => {
+      const config = getLLMConfig();
+      expect(config.hasAccountUid).toBe(true);
+      expect(config.hasUserIdentifier).toBe(true);
+      expect(config.hasUserSecret).toBe(true);
+    });
+
+    it('returns ready=true when all smartling vars are set', () => {
+      const config = getLLMConfig();
+      expect(config.ready).toBe(true);
+      expect(config.missing).toEqual([]);
+    });
+
+    it('does not require LLM_API_KEY', () => {
+      const config = getLLMConfig();
+      expect(config.missing).not.toContain('LLM_API_KEY');
+    });
+
+    it('returns "(not set)" and missing vars when smartling vars absent', () => {
+      delete process.env.SMARTLING_BASE_URL;
+      delete process.env.SMARTLING_ACCOUNT_UID;
+      delete process.env.SMARTLING_USER_IDENTIFIER;
+      delete process.env.SMARTLING_USER_SECRET;
+      const config = getLLMConfig();
+      expect(config.endpoint).toBe('(not set)');
+      expect(config.missing).toContain('SMARTLING_BASE_URL');
+      expect(config.missing).toContain('SMARTLING_ACCOUNT_UID');
+      expect(config.missing).toContain('SMARTLING_USER_IDENTIFIER');
+      expect(config.missing).toContain('SMARTLING_USER_SECRET');
+      expect(config.ready).toBe(false);
+    });
+  });
+
+  describe('missing env var detection', () => {
+    it('reports missing LLM_API_KEY for openai when not set', () => {
+      process.env.LLM_PROVIDER = 'openai';
+      // no LLM_API_KEY
+      const config = getLLMConfig();
+      expect(config.missing).toContain('LLM_API_KEY');
+      expect(config.ready).toBe(false);
+    });
+
+    it('reports missing LLM_API_KEY for anthropic when not set', () => {
+      process.env.LLM_PROVIDER = 'anthropic';
+      const config = getLLMConfig();
+      expect(config.missing).toContain('LLM_API_KEY');
+      expect(config.ready).toBe(false);
+    });
+
+    it('defaults to openai provider when LLM_PROVIDER is unset', () => {
+      process.env.LLM_API_KEY = 'key';
+      const config = getLLMConfig();
+      expect(config.provider).toBe('openai');
+    });
+  });
+});
+
+describe('testLLMConnection', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockExtraBodyProps.mockReturnValue({});
+  });
+
+  it('returns success with response content, model, and latency on good connection', async () => {
+    const mockCreate = jest.fn().mockResolvedValue({
+      choices: [{ message: { content: 'OK' } }],
+      model: 'gpt-4o',
+    });
+    mockGetLLMClient.mockResolvedValue({
+      chat: { completions: { create: mockCreate } },
+    });
+
+    const result = await testLLMConnection();
+
+    expect(result.success).toBe(true);
+    expect(result.response).toBe('OK');
+    expect(result.model).toBe('gpt-4o');
+    expect(typeof result.latencyMs).toBe('number');
+    expect(result.latencyMs).toBeGreaterThanOrEqual(0);
+    expect(result.error).toBeUndefined();
+  });
+
+  it('trims whitespace from response content', async () => {
+    const mockCreate = jest.fn().mockResolvedValue({
+      choices: [{ message: { content: '  OK  \n' } }],
+      model: 'gpt-4o',
+    });
+    mockGetLLMClient.mockResolvedValue({
+      chat: { completions: { create: mockCreate } },
+    });
+
+    const result = await testLLMConnection();
+    expect(result.response).toBe('OK');
+  });
+
+  it('falls back to LLM_MODEL when response.model is missing', async () => {
+    const mockCreate = jest.fn().mockResolvedValue({
+      choices: [{ message: { content: 'OK' } }],
+      model: null,
+    });
+    mockGetLLMClient.mockResolvedValue({
+      chat: { completions: { create: mockCreate } },
+    });
+
+    const result = await testLLMConnection();
+    expect(result.model).toBe('gpt-4o');
+  });
+
+  it('returns error message and success=false on failure', async () => {
+    mockGetLLMClient.mockRejectedValue(new Error('Connection refused'));
+
+    const result = await testLLMConnection();
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('Connection refused');
+    expect(typeof result.latencyMs).toBe('number');
+    expect(result.response).toBeUndefined();
+  });
+
+  it('handles non-Error thrown values as strings', async () => {
+    mockGetLLMClient.mockRejectedValue('timeout');
+
+    const result = await testLLMConnection();
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('timeout');
+  });
+});
