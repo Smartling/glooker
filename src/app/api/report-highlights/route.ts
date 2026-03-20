@@ -77,7 +77,7 @@ export async function GET(_req: NextRequest) {
 
   const allLogins = new Set([...mapA.keys(), ...mapB.keys()]);
   const newDevs = [...allLogins].filter(l => !mapA.has(l) && mapB.has(l));
-  const departedDevs = [...allLogins].filter(l => mapA.has(l) && !mapB.has(l));
+  const inactiveDevs = [...allLogins].filter(l => mapA.has(l) && !mapB.has(l));
 
   const formatDev = (d: any) =>
     `@${d.github_login} (rank #${d.rank}): commits=${d.total_commits}, PRs=${d.total_prs}, complexity=${Number(d.avg_complexity).toFixed(1)}, impact=${Number(d.impact_score).toFixed(1)}, AI%=${d.ai_percentage}`;
@@ -114,7 +114,8 @@ Compare two reports for the same org and period. Return JSON:
 
 Rules:
 - 3-5 bullet highlights max. Be specific — name developers, cite numbers.
-- Focus on: biggest movers (rank changes, impact delta), org-wide trends (commits, AI%, complexity), notable new/departed developers.
+- Focus on: biggest movers (rank changes, impact delta), org-wide trends (commits, AI%, complexity), newly active or recently inactive developers.
+- IMPORTANT: developers missing from the latest report are NOT "departed" — they are simply inactive in this period (vacation, different projects, etc). Never use words like "departed" or "left".
 - If nothing significant changed, return 1 bullet: "Steady state — no major shifts in the leaderboard or metrics."
 - Keep each bullet under 20 words. No fluff.
 - sentiment: "positive" for improvements, "warning" for regressions, "neutral" for informational.
@@ -132,7 +133,7 @@ LATEST REPORT (${latest.created_at}):
 
 Top movers: ${movers.map(m => `@${m.login}: rank ${m.rankA}→${m.rankB}, impact ${m.impactDelta > 0 ? '+' : ''}${m.impactDelta.toFixed(1)}`).join(', ')}
 ${newDevs.length > 0 ? `New developers: ${newDevs.map(l => '@' + l).join(', ')}` : ''}
-${departedDevs.length > 0 ? `Departed developers: ${departedDevs.map(l => '@' + l).join(', ')}` : ''}`;
+${inactiveDevs.length > 0 ? `Recently inactive (no commits in latest report): ${inactiveDevs.map(l => '@' + l).join(', ')}` : ''}`;
 
   try {
     const client = await getLLMClient();
