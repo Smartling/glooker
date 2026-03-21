@@ -1,2 +1,2 @@
-export { getLLMConfig, testLLMConnection } from './service';
-export type { LLMConfig, LLMConnectionResult } from './service';
+export { getAppConfig, testLLMConnection } from './service';
+export type { AppConfig, LLMConnectionResult } from './service';

@@ -1,7 +1,7 @@
 import { getLLMClient, LLM_MODEL, extraBodyProps } from '@/lib/llm-provider';
 import { loadPrompt } from '@/lib/prompt-loader';
 
-export interface LLMConfig {
+export interface AppConfig {
   provider: string;
   model: string;
   hasApiKey: boolean;
@@ -39,14 +39,14 @@ function maskSecret(value?: string): string | null {
   return 'xxxxx' + value.slice(-5);
 }
 
-export function getLLMConfig(): LLMConfig {
+export function getAppConfig(): AppConfig {
   const provider = process.env.LLM_PROVIDER || 'openai';
   const model = LLM_MODEL;
   const hasApiKey = Boolean(process.env.LLM_API_KEY);
   const baseUrl = process.env.LLM_BASE_URL || null;
   const concurrency = Number(process.env.LLM_CONCURRENCY || 5);
 
-  const config = { provider, model, hasApiKey, concurrency, missing: [] as string[], ready: false } as LLMConfig;
+  const config = { provider, model, hasApiKey, concurrency, missing: [] as string[], ready: false } as AppConfig;
 
   if (provider === 'openai') {
     config.endpoint = 'https://api.openai.com/v1';
@@ -95,8 +95,8 @@ export async function testLLMConnection(): Promise<LLMConnectionResult> {
     const client = await getLLMClient();
     const response = await client.chat.completions.create({
       model: LLM_MODEL,
-      temperature: Number(process.env.LLM_TEST_TEMPERATURE ?? 0),
-      max_tokens: Number(process.env.LLM_TEST_MAX_TOKENS ?? 32),
+      temperature: getAppConfig().llmTest.temperature,
+      max_tokens: getAppConfig().llmTest.maxTokens,
       messages: [
         { role: 'system', content: loadPrompt('llm-config-test-system.txt') },
         { role: 'user', content: 'Test connection' },

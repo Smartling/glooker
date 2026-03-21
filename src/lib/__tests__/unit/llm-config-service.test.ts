@@ -5,13 +5,13 @@ jest.mock('@/lib/llm-provider', () => ({
   extraBodyProps: jest.fn().mockReturnValue({}),
 }));
 
-import { getLLMConfig, testLLMConnection } from '@/lib/llm-config/service';
+import { getAppConfig, testLLMConnection } from '@/lib/llm-config/service';
 import { getLLMClient, extraBodyProps } from '@/lib/llm-provider';
 
 const mockGetLLMClient = getLLMClient as jest.Mock;
 const mockExtraBodyProps = extraBodyProps as jest.Mock;
 
-describe('getLLMConfig', () => {
+describe('getAppConfig', () => {
   const savedEnv: Record<string, string | undefined> = {};
 
   const envKeys = [
@@ -52,35 +52,35 @@ describe('getLLMConfig', () => {
     });
 
     it('returns correct endpoint', () => {
-      const config = getLLMConfig();
+      const config = getAppConfig();
       expect(config.endpoint).toBe('https://api.openai.com/v1');
     });
 
     it('returns hasApiKey=true when LLM_API_KEY is set', () => {
-      const config = getLLMConfig();
+      const config = getAppConfig();
       expect(config.hasApiKey).toBe(true);
     });
 
     it('returns provider and model', () => {
-      const config = getLLMConfig();
+      const config = getAppConfig();
       expect(config.provider).toBe('openai');
       expect(config.model).toBe('gpt-4o');
     });
 
     it('returns ready=true with no missing when key is present', () => {
-      const config = getLLMConfig();
+      const config = getAppConfig();
       expect(config.missing).toEqual([]);
       expect(config.ready).toBe(true);
     });
 
     it('returns default concurrency=5 when LLM_CONCURRENCY not set', () => {
-      const config = getLLMConfig();
+      const config = getAppConfig();
       expect(config.concurrency).toBe(5);
     });
 
     it('uses LLM_CONCURRENCY when set', () => {
       process.env.LLM_CONCURRENCY = '10';
-      const config = getLLMConfig();
+      const config = getAppConfig();
       expect(config.concurrency).toBe(10);
     });
   });
@@ -92,17 +92,17 @@ describe('getLLMConfig', () => {
     });
 
     it('returns correct endpoint', () => {
-      const config = getLLMConfig();
+      const config = getAppConfig();
       expect(config.endpoint).toBe('https://api.anthropic.com/v1');
     });
 
     it('returns provider=anthropic', () => {
-      const config = getLLMConfig();
+      const config = getAppConfig();
       expect(config.provider).toBe('anthropic');
     });
 
     it('returns ready=true when key is present', () => {
-      const config = getLLMConfig();
+      const config = getAppConfig();
       expect(config.ready).toBe(true);
       expect(config.missing).toEqual([]);
     });
@@ -116,19 +116,19 @@ describe('getLLMConfig', () => {
     });
 
     it('uses LLM_BASE_URL as endpoint', () => {
-      const config = getLLMConfig();
+      const config = getAppConfig();
       expect(config.endpoint).toBe('http://localhost:11434/v1');
     });
 
     it('returns ready=true when key and base URL are set', () => {
-      const config = getLLMConfig();
+      const config = getAppConfig();
       expect(config.ready).toBe(true);
       expect(config.missing).toEqual([]);
     });
 
     it('returns "(not set)" and missing LLM_BASE_URL when not provided', () => {
       delete process.env.LLM_BASE_URL;
-      const config = getLLMConfig();
+      const config = getAppConfig();
       expect(config.endpoint).toBe('(not set)');
       expect(config.missing).toContain('LLM_BASE_URL');
       expect(config.ready).toBe(false);
@@ -145,25 +145,25 @@ describe('getLLMConfig', () => {
     });
 
     it('uses SMARTLING_BASE_URL as endpoint', () => {
-      const config = getLLMConfig();
+      const config = getAppConfig();
       expect(config.endpoint).toBe('https://api.smartling.test');
     });
 
     it('returns hasAccountUid, hasUserIdentifier, hasUserSecret flags', () => {
-      const config = getLLMConfig();
+      const config = getAppConfig();
       expect(config.hasAccountUid).toBe(true);
       expect(config.hasUserIdentifier).toBe(true);
       expect(config.hasUserSecret).toBe(true);
     });
 
     it('returns ready=true when all smartling vars are set', () => {
-      const config = getLLMConfig();
+      const config = getAppConfig();
       expect(config.ready).toBe(true);
       expect(config.missing).toEqual([]);
     });
 
     it('does not require LLM_API_KEY', () => {
-      const config = getLLMConfig();
+      const config = getAppConfig();
       expect(config.missing).not.toContain('LLM_API_KEY');
     });
 
@@ -172,7 +172,7 @@ describe('getLLMConfig', () => {
       delete process.env.SMARTLING_ACCOUNT_UID;
       delete process.env.SMARTLING_USER_IDENTIFIER;
       delete process.env.SMARTLING_USER_SECRET;
-      const config = getLLMConfig();
+      const config = getAppConfig();
       expect(config.endpoint).toBe('(not set)');
       expect(config.missing).toContain('SMARTLING_BASE_URL');
       expect(config.missing).toContain('SMARTLING_ACCOUNT_UID');
@@ -190,7 +190,7 @@ describe('getLLMConfig', () => {
     });
 
     it('returns per-service settings with defaults', () => {
-      const config = getLLMConfig();
+      const config = getAppConfig();
       expect(config.promptsDir).toBe('./prompts');
       expect(config.analyzer).toEqual({ temperature: 0, maxTokens: 256 });
       expect(config.chatAgent).toEqual({ temperature: 0.3, maxTokens: 1500, maxIterations: 5 });
@@ -202,25 +202,25 @@ describe('getLLMConfig', () => {
     it('reads per-service settings from env when set', () => {
       process.env.ANALYZER_TEMPERATURE = '0.1';
       process.env.ANALYZER_MAX_TOKENS = '512';
-      const config = getLLMConfig();
+      const config = getAppConfig();
       expect(config.analyzer).toEqual({ temperature: 0.1, maxTokens: 512 });
     });
 
     it('masks secrets showing only last 5 chars', () => {
-      const config = getLLMConfig();
+      const config = getAppConfig();
       expect(config.githubToken).toBe('xxxxx12345');
       expect(config.llmApiKey).toBe('xxxxx12345');
     });
 
     it('returns null for unset secrets', () => {
       delete process.env.GITHUB_TOKEN;
-      const config = getLLMConfig();
+      const config = getAppConfig();
       expect(config.githubToken).toBeNull();
     });
 
     it('masks short secrets entirely', () => {
       process.env.LLM_API_KEY = 'abc';
-      const config = getLLMConfig();
+      const config = getAppConfig();
       expect(config.llmApiKey).toBe('xxxxx');
     });
   });
@@ -229,21 +229,21 @@ describe('getLLMConfig', () => {
     it('reports missing LLM_API_KEY for openai when not set', () => {
       process.env.LLM_PROVIDER = 'openai';
       // no LLM_API_KEY
-      const config = getLLMConfig();
+      const config = getAppConfig();
       expect(config.missing).toContain('LLM_API_KEY');
       expect(config.ready).toBe(false);
     });
 
     it('reports missing LLM_API_KEY for anthropic when not set', () => {
       process.env.LLM_PROVIDER = 'anthropic';
-      const config = getLLMConfig();
+      const config = getAppConfig();
       expect(config.missing).toContain('LLM_API_KEY');
       expect(config.ready).toBe(false);
     });
 
     it('defaults to openai provider when LLM_PROVIDER is unset', () => {
       process.env.LLM_API_KEY = 'key';
-      const config = getLLMConfig();
+      const config = getAppConfig();
       expect(config.provider).toBe('openai');
     });
   });

@@ -1,5 +1,6 @@
 import { getLLMClient, LLM_MODEL, extraBodyProps } from '@/lib/llm-provider';
 import { loadPrompt } from '@/lib/prompt-loader';
+import { getAppConfig } from '@/lib/llm-config/service';
 import { TOOL_DEFINITIONS, executeTool } from './tools';
 
 // Build a text description of available tools for the system prompt
@@ -16,7 +17,7 @@ export interface ChatMessage {
   content: string;
 }
 
-const MAX_ITERATIONS = Number(process.env.CHAT_AGENT_MAX_ITERATIONS ?? 5);
+const MAX_ITERATIONS = getAppConfig().chatAgent.maxIterations;
 
 export async function runChatAgent(
   messages: ChatMessage[],
@@ -33,8 +34,8 @@ export async function runChatAgent(
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     const response = await client.chat.completions.create({
       model: LLM_MODEL,
-      temperature: Number(process.env.CHAT_AGENT_TEMPERATURE ?? 0.3),
-      max_tokens: Number(process.env.CHAT_AGENT_MAX_TOKENS ?? 1500),
+      temperature: getAppConfig().chatAgent.temperature,
+      max_tokens: getAppConfig().chatAgent.maxTokens,
       messages: conversation,
       ...extraBodyProps(),
     } as any);

@@ -1,6 +1,7 @@
 import db from '../db/index';
 import { getLLMClient, LLM_MODEL, extraBodyProps } from '../llm-provider';
 import { loadPrompt } from '../prompt-loader';
+import { getAppConfig } from '../llm-config/service';
 
 export async function getReportHighlights() {
   // 1. Find the latest completed report
@@ -130,8 +131,8 @@ export async function getReportHighlights() {
   const client = await getLLMClient();
   const response = await client.chat.completions.create({
     model: LLM_MODEL,
-    temperature: Number(process.env.HIGHLIGHTS_TEMPERATURE ?? 0.5),
-    max_tokens: Number(process.env.HIGHLIGHTS_MAX_TOKENS ?? 512),
+    temperature: getAppConfig().highlights.temperature,
+    max_tokens: getAppConfig().highlights.maxTokens,
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: systemPrompt },

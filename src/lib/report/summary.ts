@@ -1,6 +1,7 @@
 import db from '@/lib/db';
 import { getLLMClient, LLM_MODEL, extraBodyProps } from '@/lib/llm-provider';
 import { loadPrompt } from '@/lib/prompt-loader';
+import { getAppConfig } from '@/lib/llm-config/service';
 import { ReportNotFoundError } from './service';
 import { DeveloperNotFoundError } from './dev';
 import { dedupCommitsBySha } from './timeline';
@@ -133,8 +134,8 @@ export async function getDevSummary(reportId: string, login: string) {
   const client = await getLLMClient();
   const response = await client.chat.completions.create({
     model: LLM_MODEL,
-    temperature: Number(process.env.SUMMARY_TEMPERATURE ?? 0.7),
-    max_tokens: Number(process.env.SUMMARY_MAX_TOKENS ?? 512),
+    temperature: getAppConfig().summary.temperature,
+    max_tokens: getAppConfig().summary.maxTokens,
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: systemPrompt },
