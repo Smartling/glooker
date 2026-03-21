@@ -23,7 +23,6 @@ Glooker is a Next.js 15 web app that generates developer impact reports for a Gi
 - **Dual DB support** — SQLite (default, zero config) and MySQL (opt-in via `DB_TYPE=mysql`). The SQLite wrapper translates MySQL-dialect SQL on the fly
 - **In-memory progress store** (globalThis Map) — survives Next.js HMR, acceptable for single-user local use
 - **AI detection** has two layers: trailer parsing (confirmed) and LLM heuristic (maybe_ai)
-- **Prompt template system** — LLM prompts live in `prompts/` dir (configurable via `PROMPTS_DIR`), loaded by `prompt-loader.ts` with in-memory caching. Templates use `{{PLACEHOLDER}}` syntax. All LLM settings (temperature, max_tokens, max_iterations) are configurable via env vars with hardcoded defaults.
 
 ## Environment
 
@@ -46,6 +45,3 @@ Glooker is a Next.js 15 web app that generates developer impact reports for a Gi
 - `@octokit/rest` is ESM-only — any test file that imports from `github.ts` (directly or transitively) must `jest.mock('@octokit/rest')` before the import
 - Tests use Jest + ts-jest with `@/` path alias — config in `jest.config.ts`
 - CI runs on all pull requests and pushes to main (`.github/workflows/test.yml`)
-- `PROMPTS_DIR` defaults to `./prompts` relative to CWD — in Docker, ensure the directory is mounted or `outputFileTracingIncludes` is configured in `next.config.ts`
-- Prompt loader caches template files in memory — restart the server after changing prompt template files (or call `clearPromptCache()` in dev)
-- Prompt template files have Jest snapshot tests that assert exact text — after editing any file in `prompts/`, run `npm test -- -u` to update snapshots (or `npm test -- --testPathPattern="analyzer" -u` for a specific service). Review the snapshot diff to confirm the change is intentional.

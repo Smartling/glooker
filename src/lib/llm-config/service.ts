@@ -1,7 +1,6 @@
 import { getLLMClient, LLM_MODEL, extraBodyProps } from '@/lib/llm-provider';
-import { loadPrompt } from '@/lib/prompt-loader';
 
-export interface AppConfig {
+export interface LLMConfig {
   provider: string;
   model: string;
   hasApiKey: boolean;
@@ -12,17 +11,6 @@ export interface AppConfig {
   hasUserSecret?: boolean;
   missing: string[];
   ready: boolean;
-  promptsDir: string;
-  analyzer: { temperature: number; maxTokens: number };
-  chatAgent: { temperature: number; maxTokens: number; maxIterations: number };
-  summary: { temperature: number; maxTokens: number };
-  highlights: { temperature: number; maxTokens: number };
-  llmTest: { temperature: number; maxTokens: number };
-  githubToken: string | null;
-  llmApiKey: string | null;
-  smartlingAccountUid: string | null;
-  smartlingUserIdentifier: string | null;
-  smartlingUserSecret: string | null;
 }
 
 export interface LLMConnectionResult {
@@ -33,20 +21,14 @@ export interface LLMConnectionResult {
   error?: string;
 }
 
-function maskSecret(value?: string): string | null {
-  if (!value) return null;
-  if (value.length <= 5) return 'xxxxx';
-  return 'xxxxx' + value.slice(-5);
-}
-
-export function getAppConfig(): AppConfig {
+export function getLLMConfig(): LLMConfig {
   const provider = process.env.LLM_PROVIDER || 'openai';
   const model = LLM_MODEL;
   const hasApiKey = Boolean(process.env.LLM_API_KEY);
   const baseUrl = process.env.LLM_BASE_URL || null;
   const concurrency = Number(process.env.LLM_CONCURRENCY || 5);
 
-  const config = { provider, model, hasApiKey, concurrency, missing: [] as string[], ready: false } as AppConfig;
+  const config: LLMConfig = { provider, model, hasApiKey, concurrency, missing: [], ready: false };
 
   if (provider === 'openai') {
     config.endpoint = 'https://api.openai.com/v1';
@@ -74,18 +56,6 @@ export function getAppConfig(): AppConfig {
   config.missing = missing;
   config.ready = missing.length === 0;
 
-  config.promptsDir = process.env.PROMPTS_DIR || './prompts';
-  config.analyzer = { temperature: Number(process.env.ANALYZER_TEMPERATURE ?? 0), maxTokens: Number(process.env.ANALYZER_MAX_TOKENS ?? 256) };
-  config.chatAgent = { temperature: Number(process.env.CHAT_AGENT_TEMPERATURE ?? 0.3), maxTokens: Number(process.env.CHAT_AGENT_MAX_TOKENS ?? 1500), maxIterations: Number(process.env.CHAT_AGENT_MAX_ITERATIONS ?? 5) };
-  config.summary = { temperature: Number(process.env.SUMMARY_TEMPERATURE ?? 0.7), maxTokens: Number(process.env.SUMMARY_MAX_TOKENS ?? 512) };
-  config.highlights = { temperature: Number(process.env.HIGHLIGHTS_TEMPERATURE ?? 0.5), maxTokens: Number(process.env.HIGHLIGHTS_MAX_TOKENS ?? 512) };
-  config.llmTest = { temperature: Number(process.env.LLM_TEST_TEMPERATURE ?? 0), maxTokens: Number(process.env.LLM_TEST_MAX_TOKENS ?? 32) };
-  config.githubToken = maskSecret(process.env.GITHUB_TOKEN);
-  config.llmApiKey = maskSecret(process.env.LLM_API_KEY);
-  config.smartlingAccountUid = process.env.SMARTLING_ACCOUNT_UID || null;
-  config.smartlingUserIdentifier = process.env.SMARTLING_USER_IDENTIFIER || null;
-  config.smartlingUserSecret = maskSecret(process.env.SMARTLING_USER_SECRET);
-
   return config;
 }
 
@@ -95,10 +65,10 @@ export async function testLLMConnection(): Promise<LLMConnectionResult> {
     const client = await getLLMClient();
     const response = await client.chat.completions.create({
       model: LLM_MODEL,
-      temperature: getAppConfig().llmTest.temperature,
-      max_tokens: getAppConfig().llmTest.maxTokens,
+      temperature: 0,
+      max_tokens: 32,
       messages: [
-        { role: 'system', content: loadPrompt('llm-config-test-system.txt') },
+        { role: 'system', content: 'Reply with exactly: OK' },
         { role: 'user', content: 'Test connection' },
       ],
       ...extraBodyProps(),

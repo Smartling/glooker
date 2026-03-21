@@ -1,6 +1,4 @@
 import { getLLMClient, LLM_MODEL, extraBodyProps } from '@/lib/llm-provider';
-import { loadPrompt } from '@/lib/prompt-loader';
-import { getAppConfig } from '@/lib/app-config/service';
 import { TOOL_DEFINITIONS, executeTool } from './tools';
 
 // Build a text description of available tools for the system prompt
@@ -12,12 +10,38 @@ const TOOLS_DESC = TOOL_DEFINITIONS.map(t => {
   return `  ${f.name}: ${f.description}\n    Parameters:\n      ${params}`;
 }).join('\n\n');
 
+const SYSTEM_PROMPT = `You are Glooker Assistant — a data analyst for GitHub org developer analytics.
+
+You have tools to query data. To call a tool, output EXACTLY this format on its own line:
+TOOL_CALL: {"name": "toolName", "args": {key: value}}
+
+After you output a TOOL_CALL, you'll receive the result. You can then call more tools or give your final answer.
+
+Rules:
+- Always use tools to get data — never guess numbers
+- You can make multiple TOOL_CALL lines in sequence if needed
+- Be concise — answer first, then data
+- Use @login format for developers
+- Round to 1 decimal place
+- The org parameter is always auto-injected, you don't need to specify it
+
+Formatting rules (IMPORTANT — the chat window is narrow, ~45 chars wide):
+- For tables: use MAX 3-4 short columns. Abbreviate headers (e.g. "Dev", "Impact", "Cmplx")
+- Keep table cell values short — use numbers not sentences
+- Prefer bullet lists over wide tables when possible
+- Truncate developer names to login only (@login) in tables
+- Never use tables wider than 4 columns
+
+Available tools:
+
+${TOOLS_DESC}`;
+
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
 }
 
-const MAX_ITERATIONS = getAppConfig().chatAgent.maxIterations;
+const MAX_ITERATIONS = 5;
 
 export async function runChatAgent(
   messages: ChatMessage[],
@@ -27,15 +51,15 @@ export async function runChatAgent(
   const toolCalls: string[] = [];
 
   const conversation: any[] = [
-    { role: 'system', content: loadPrompt('chat-agent-system.txt', { TOOLS_DESC, ORG: org }) },
+    { role: 'system', content: `${SYSTEM_PROMPT}\n\nCurrent org: ${org}` },
     ...messages.map(m => ({ role: m.role, content: m.content })),
   ];
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     const response = await client.chat.completions.create({
       model: LLM_MODEL,
-      temperature: getAppConfig().chatAgent.temperature,
-      max_tokens: getAppConfig().chatAgent.maxTokens,
+      temperature: 0.3,
+      max_tokens: 1500,
       messages: conversation,
       ...extraBodyProps(),
     } as any);

@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
-import { getAppConfig, testLLMConnection } from '@/lib/app-config/service';
+import { getLLMConfig, testLLMConnection } from '@/lib/llm-config/service';
 
 export async function GET() {
-  return NextResponse.json(getAppConfig());
+  return NextResponse.json(getLLMConfig());
 }
 
 export async function POST() {
