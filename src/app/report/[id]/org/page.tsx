@@ -18,6 +18,7 @@ interface Developer {
   total_prs: number; total_commits: number; lines_added: number; lines_removed: number;
   avg_complexity: number; impact_score: number; pr_percentage: number; ai_percentage: number;
   type_breakdown: Record<string, number>; active_repos: string[];
+  total_jira_issues?: number;
 }
 
 interface WeeklyData {
@@ -77,6 +78,8 @@ export default function OrgDetailPage() {
   }
   const typeEntries = Object.entries(orgTypes).sort((a, b) => b[1] - a[1]);
   const totalTyped = typeEntries.reduce((s, [, c]) => s + c, 0);
+
+  const hasJira = developers.some(d => (d.total_jira_issues ?? 0) > 0);
 
   // Repo breakdown across all developers
   const repoMap = new Map<string, number>();
@@ -202,6 +205,7 @@ export default function OrgDetailPage() {
               <th className="px-4 py-3 text-right">Complexity</th>
               <th className="px-4 py-3 text-right">PR%</th>
               <th className="px-4 py-3 text-right">AI%</th>
+              {hasJira && <th className="px-4 py-3 text-right">Jira</th>}
               <th className="px-4 py-3 text-right">Impact</th>
             </tr>
           </thead>
@@ -251,6 +255,15 @@ export default function OrgDetailPage() {
                       <span className="text-gray-600 text-sm">—</span>
                     )}
                   </td>
+                  {hasJira && (
+                    <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
+                      {(dev.total_jira_issues ?? 0) > 0 ? (
+                        <JiraIssuesPopover reportId={params.id} login={dev.github_login} count={dev.total_jira_issues!} />
+                      ) : (
+                        <span className="text-gray-600 text-sm">—</span>
+                      )}
+                    </td>
+                  )}
                   <td className="px-4 py-3 text-right">
                     <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold text-white ${impactColor}`}>
                       {impact.toFixed(1)}
@@ -262,6 +275,41 @@ export default function OrgDetailPage() {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+function JiraIssuesPopover({ reportId, login, count }: { reportId: string; login: string; count: number }) {
+  const [issues, setIssues] = useState<any[] | null>(null);
+  const [show, setShow] = useState(false);
+
+  const loadIssues = () => {
+    if (issues) return;
+    fetch(`/api/report/${reportId}/jira-issues?login=${login}`)
+      .then(r => r.json())
+      .then(setIssues)
+      .catch(() => {});
+  };
+
+  return (
+    <div className="relative inline-block" onMouseEnter={() => { setShow(true); loadIssues(); }} onMouseLeave={() => setShow(false)}>
+      <span className="text-accent cursor-pointer">{count}</span>
+      {show && issues && (
+        <div className="absolute z-50 bg-gray-900 border border-gray-700 rounded-lg shadow-xl p-3 w-80 max-h-60 overflow-y-auto -left-20 top-6">
+          {issues.map((issue: any) => (
+            <a
+              key={issue.issue_key}
+              href={issue.issue_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block py-1.5 px-2 hover:bg-gray-800 rounded text-sm"
+            >
+              <span className="text-accent font-mono">{issue.issue_key}</span>
+              <span className="text-gray-400 ml-2">{issue.summary?.slice(0, 60)}</span>
+            </a>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
