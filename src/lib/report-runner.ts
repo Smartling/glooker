@@ -344,9 +344,17 @@ export async function runReport(
     }
     const stats = aggregate(allCommits, analyses, prCounts);
 
-    // Attach Jira issue counts to aggregated stats
+    // Attach Jira issue counts to aggregated stats (fall back to DB count for resumed data)
     for (const s of stats) {
-      s.totalJiraIssues = jiraIssueCountByLogin.get(s.githubLogin) || 0;
+      if (jiraIssueCountByLogin.has(s.githubLogin)) {
+        s.totalJiraIssues = jiraIssueCountByLogin.get(s.githubLogin)!;
+      } else {
+        const [jiraRows] = await db.execute(
+          `SELECT COUNT(*) as cnt FROM jira_issues WHERE report_id = ? AND github_login = ?`,
+          [reportId, s.githubLogin],
+        ) as [any[], any];
+        s.totalJiraIssues = jiraRows[0]?.cnt || 0;
+      }
     }
 
     for (const s of stats) {
