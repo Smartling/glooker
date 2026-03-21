@@ -20,6 +20,16 @@ export interface JiraIssueData {
   resolvedAt: string | null;
 }
 
+/** Extract plain text from Atlassian Document Format (ADF) JSON. */
+function extractAdfText(node: any): string {
+  if (!node) return '';
+  if (node.type === 'text') return node.text || '';
+  if (Array.isArray(node.content)) {
+    return node.content.map(extractAdfText).join(node.type === 'paragraph' ? '\n' : '');
+  }
+  return '';
+}
+
 export function buildDoneIssuesJql(
   accountId: string,
   periodDays: number,
@@ -132,7 +142,7 @@ export class JiraClient {
           summary: f.summary || null,
           description: typeof f.description === 'string'
             ? f.description.slice(0, 2000)
-            : (f.description?.content ? '[ADF content]' : null),
+            : (f.description?.content ? extractAdfText(f.description).slice(0, 2000) : null),
           status: f.status?.name || null,
           labels: f.labels || [],
           storyPoints: f.customfield_10016 != null ? Number(f.customfield_10016) : null,
