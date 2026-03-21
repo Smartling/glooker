@@ -5,6 +5,7 @@ export interface CommitData {
   repo:          string;
   author:        string;
   authorName:    string;
+  authorEmail:   string;
   avatarUrl:     string;
   message:       string;      // first line
   fullMessage:   string;      // full commit message (for trailer parsing)
@@ -128,6 +129,7 @@ interface RawCommitHit {
   fullMessage: string;   // complete message
   authorLogin: string;
   authorName:  string;
+  authorEmail: string;
   avatarUrl:   string;
   date:        string;
 }
@@ -165,6 +167,7 @@ async function searchUserCommits(
         fullMessage: item.commit.message,
         authorLogin: item.author?.login       || user,
         authorName:  item.commit.author?.name  || user,
+        authorEmail: item.commit.author?.email || '',
         avatarUrl:   item.author?.avatar_url   || '',
         date:        item.commit.committer?.date || '',
       });
@@ -342,6 +345,7 @@ export async function fetchUserActivity(
       repo:         raw.repo,
       author:       raw.authorLogin,
       authorName:   raw.authorName,
+      authorEmail:  raw.authorEmail,
       avatarUrl:    raw.avatarUrl,
       message:      raw.message,
       fullMessage:  raw.fullMessage,

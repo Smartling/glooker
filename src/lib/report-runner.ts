@@ -193,14 +193,15 @@ export async function runReport(
               // Save to DB immediately (fixes resume)
               await db.execute(
                 `INSERT IGNORE INTO commit_analyses
-                   (report_id, github_login, repo, commit_sha, pr_number, pr_title,
+                   (report_id, github_login, author_email, repo, commit_sha, pr_number, pr_title,
                     commit_message, lines_added, lines_removed,
                     complexity, type, impact_summary, risk_level,
                     ai_co_authored, ai_tool_name, maybe_ai, committed_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                   reportId,
                   commit.author,
+                  commit.authorEmail,
                   commit.repo,
                   commit.sha,
                   commit.prNumber,
