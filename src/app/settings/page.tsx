@@ -1048,26 +1048,47 @@ function AppSettingsTab({ org }: { org: string }) {
         </div>
 
         {config.jira?.enabled && (
-          <div className="flex items-center gap-3 mb-3">
-            <button
-              onClick={testJiraConnection}
-              disabled={jiraTesting}
-              className="px-3 py-1.5 text-xs font-medium bg-accent hover:bg-accent-dark disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg transition-colors flex items-center gap-2"
-            >
-              {jiraTesting && (
-                <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-              )}
-              {jiraTesting ? 'Testing...' : 'Test Connection'}
-            </button>
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">Connection Test</p>
+              <button
+                onClick={testJiraConnection}
+                disabled={jiraTesting}
+                className="px-3 py-1.5 text-xs font-medium bg-accent hover:bg-accent-dark disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg transition-colors flex items-center gap-2"
+              >
+                {jiraTesting && (
+                  <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                )}
+                {jiraTesting ? 'Testing...' : 'Test Connection'}
+              </button>
+            </div>
             {jiraTestResult && (
-              <span className={`text-sm ${jiraTestResult.success ? 'text-green-400' : 'text-red-400'}`}>
-                {jiraTestResult.success
-                  ? `Connected as ${jiraTestResult.user?.displayName || jiraTestResult.user?.emailAddress || 'unknown'}`
-                  : jiraTestResult.error || 'Connection failed'}
-              </span>
+              <div className={`rounded-lg p-3 text-sm ${jiraTestResult.success ? 'bg-green-500/10 border border-green-500/20' : 'bg-red-500/10 border border-red-500/20'}`}>
+                {jiraTestResult.success ? (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-green-400 font-semibold">Success</span>
+                    <span className="text-gray-500">·</span>
+                    <span className="text-gray-400">Connected as {jiraTestResult.user?.displayName || 'unknown'}</span>
+                    {jiraTestResult.user?.emailAddress && (
+                      <>
+                        <span className="text-gray-500">·</span>
+                        <span className="text-gray-500 font-mono text-xs">{jiraTestResult.user.emailAddress}</span>
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    <span className="text-red-400 font-semibold">Failed</span>
+                    <p className="text-xs text-red-300/70 mt-1 font-mono">{jiraTestResult.error}</p>
+                  </div>
+                )}
+              </div>
+            )}
+            {!jiraTestResult && !jiraTesting && (
+              <p className="text-xs text-gray-600">Sends a test request to verify the Jira connection is working.</p>
             )}
           </div>
         )}
