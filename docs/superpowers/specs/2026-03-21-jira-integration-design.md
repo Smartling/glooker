@@ -51,6 +51,8 @@ Add "Jira" section to the Settings page:
 
 ### New Table: `jira_issues`
 
+**MySQL:**
+
 ```sql
 CREATE TABLE IF NOT EXISTS jira_issues (
   id                        INT AUTO_INCREMENT PRIMARY KEY,
@@ -64,7 +66,7 @@ CREATE TABLE IF NOT EXISTS jira_issues (
   summary                   VARCHAR(500) NULL,
   description               TEXT         NULL,
   status                    VARCHAR(100) NULL,
-  labels                    JSON         NULL,
+  labels                    TEXT         NULL,
   story_points              DECIMAL(6,2) NULL,
   original_estimate_seconds INT          NULL,
   issue_url                 VARCHAR(500) NULL,
@@ -79,6 +81,10 @@ CREATE TABLE IF NOT EXISTS jira_issues (
 );
 ```
 
+**SQLite:** Uses `TEXT` for all varchar/enum/json columns, `INTEGER` for int/tinyint, `REAL` for decimal. The `type` column uses `TEXT CHECK(type IN ('feature','bug','refactor','infra','docs','test','other'))` (matching the `commit_analyses` pattern in `sqlite.ts`). The `labels` column uses `TEXT` (stored as JSON string, matching `type_breakdown` in `developer_stats`).
+
+> **Note**: `story_points` is `REAL` in SQLite and `DECIMAL(6,2)` in MySQL — both may return strings. Always use `Number()` before arithmetic or `.toFixed()`, per project convention.
+
 ### New Table: `user_mappings`
 
 ```sql
@@ -88,14 +94,18 @@ CREATE TABLE IF NOT EXISTS user_mappings (
   github_login    VARCHAR(255) NOT NULL,
   jira_account_id VARCHAR(128) NOT NULL,
   jira_email      VARCHAR(255) NULL,
-  created_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at      TIMESTAMP    NOT NULL DEFAULT NOW(),
   UNIQUE KEY uq_org_gh_login (org, github_login)
 );
 ```
 
+**SQLite:** Uses `DEFAULT (datetime('now','localtime'))` for `created_at` (handled by existing `NOW()` → `datetime('now','localtime')` translation in `translateSQL`).
+
 ### Alter `developer_stats`
 
 Add column: `total_jira_issues INT NOT NULL DEFAULT 0`
+
+**Migration strategy**: Since there is no migration system, both `sqlite.ts` and `mysql.ts` must run `ALTER TABLE developer_stats ADD COLUMN total_jira_issues INT NOT NULL DEFAULT 0` at startup inside a try/catch that ignores "duplicate column" errors. This matches how new columns can be safely added to existing databases.
 
 ### SQLite Translation
 
@@ -115,6 +125,7 @@ JiraClient class
 │   └── GET /myself — validates credentials
 ├── findUserByEmail(email: string): Promise<JiraUser | null>
 │   └── GET /user/search?query={email}
+│   └── Filter results by emailAddress field (query is general text search)
 │   └── Returns first match with matching emailAddress
 ├── searchDoneIssues(accountId, periodDays, projects?): Promise<JiraIssue[]>
 │   └── Builds JQL, calls searchJira with pagination
@@ -129,6 +140,8 @@ JiraClient class
 **JQL fields requested**: `summary, description, status, issuetype, labels, customfield_10016` (story points), `timeoriginalestimate, created, resolutiondate`
 
 **Rate limiting**: 1s delay between Jira API calls.
+
+**Known limitation**: Jira Cloud instances with "Email visibility" set to hidden will return empty `emailAddress` fields, causing auto-discovery to always fail silently. In this case, users must manually edit mappings via the Settings UI. The implementation should log a clear warning when user search returns results but none have an `emailAddress` field populated.
 
 ## 4. User Mapping Flow
 
@@ -205,9 +218,10 @@ Updated flow in `report-runner.ts`:
 |---|---|
 | `src/lib/jira.ts` | **New** — Jira client abstraction |
 | `src/lib/app-config/service.ts` | Add Jira config section + validation |
-| `src/lib/report-runner.ts` | Add Jira user mapping + issue fetch steps |
-| `src/lib/aggregator.ts` | Include `total_jira_issues` in aggregation |
-| `src/lib/db/sqlite.ts` | Add `conflictCols` entries for new tables |
+| `src/lib/report-runner.ts` | Add Jira user mapping + issue fetch steps; update **both** INSERT statements (progressive per-member save and final aggregation save) to include `total_jira_issues` |
+| `src/lib/aggregator.ts` | Add `totalJiraIssues` to `DeveloperStats` interface (value passed in from `report-runner.ts` which has the Jira issue count) |
+| `src/lib/db/sqlite.ts` | Add `conflictCols` entries for new tables; add `jira_issues` + `user_mappings` CREATE TABLE; add startup ALTER TABLE migration for `total_jira_issues` |
+| `src/lib/db/mysql.ts` | Add startup ALTER TABLE migration for `total_jira_issues` (try/catch ignore duplicate column) |
 | `schema.sql` | Add `jira_issues`, `user_mappings` tables; alter `developer_stats` |
 | `src/app/report/[id]/org/page.tsx` | Add Jira Issues column with hover popover |
 | `src/app/report/[id]/dev/[login]/page.tsx` | Add Jira Issues section |
