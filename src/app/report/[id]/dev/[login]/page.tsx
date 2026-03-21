@@ -123,7 +123,7 @@ export default function DevDetailPage() {
   }, [params.id, params.login]);
 
   useEffect(() => {
-    if (dev?.total_jira_issues > 0) {
+    if ((dev?.total_jira_issues ?? 0) > 0) {
       fetch(`/api/report/${params.id}/jira-issues?login=${params.login}`)
         .then(r => r.json())
         .then(setJiraIssues)
