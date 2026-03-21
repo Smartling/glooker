@@ -903,11 +903,51 @@ function AppSettingsTab({ org }: { org: string }) {
 
       {/* Config details */}
       <div className="bg-gray-900 rounded-xl p-5 mb-6">
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-3 gap-4 mb-4">
           <ConfigRow label="Provider" value={info.name} />
           <ConfigRow label="Model" value={config.model} />
           <ConfigRow label="Concurrency" value={String(config.concurrency)} />
         </div>
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">Connection Test</p>
+          <button
+            onClick={testConnection}
+            disabled={testing || !config.ready}
+            className="px-3 py-1.5 text-xs font-medium bg-accent hover:bg-accent-dark disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg transition-colors flex items-center gap-2"
+          >
+            {testing && (
+              <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+            )}
+            {testing ? 'Testing...' : 'Test Connection'}
+          </button>
+        </div>
+        {testResult && (
+          <div className={`rounded-lg p-3 text-sm ${testResult.success ? 'bg-green-500/10 border border-green-500/20' : 'bg-red-500/10 border border-red-500/20'}`}>
+            {testResult.success ? (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-green-400 font-semibold">Success</span>
+                <span className="text-gray-500">·</span>
+                <span className="text-gray-400">Model: {testResult.model}</span>
+                <span className="text-gray-500">·</span>
+                <span className="text-gray-400">{testResult.latencyMs}ms</span>
+                <span className="text-gray-500">·</span>
+                <span className="text-gray-500 font-mono text-xs">&quot;{testResult.response}&quot;</span>
+              </div>
+            ) : (
+              <div>
+                <span className="text-red-400 font-semibold">Failed</span>
+                <span className="text-gray-500 ml-2">({testResult.latencyMs}ms)</span>
+                <p className="text-xs text-red-300/70 mt-1 font-mono">{testResult.error}</p>
+              </div>
+            )}
+          </div>
+        )}
+        {!testResult && !testing && (
+          <p className="text-xs text-gray-600">Sends a simple test message to verify the LLM connection is working.</p>
+        )}
       </div>
 
       {/* Per-Service LLM Settings */}
@@ -961,50 +1001,6 @@ function AppSettingsTab({ org }: { org: string }) {
           <ConfigRow label="Smartling User ID" value={config.smartlingUserIdentifier || '(not set)'} />
           <ConfigRow label="Smartling Secret" value={config.smartlingUserSecret || '(not set)'} />
         </div>
-      </div>
-
-      {/* Test connection */}
-      <div className="bg-gray-900 rounded-xl p-5 mb-6">
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">Connection Test</p>
-          <button
-            onClick={testConnection}
-            disabled={testing || !config.ready}
-            className="px-3 py-1.5 text-xs font-medium bg-accent hover:bg-accent-dark disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg transition-colors flex items-center gap-2"
-          >
-            {testing && (
-              <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-            )}
-            {testing ? 'Testing...' : 'Test Connection'}
-          </button>
-        </div>
-        {testResult && (
-          <div className={`rounded-lg p-3 text-sm ${testResult.success ? 'bg-green-500/10 border border-green-500/20' : 'bg-red-500/10 border border-red-500/20'}`}>
-            {testResult.success ? (
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-green-400 font-semibold">Success</span>
-                <span className="text-gray-500">·</span>
-                <span className="text-gray-400">Model: {testResult.model}</span>
-                <span className="text-gray-500">·</span>
-                <span className="text-gray-400">{testResult.latencyMs}ms</span>
-                <span className="text-gray-500">·</span>
-                <span className="text-gray-500 font-mono text-xs">&quot;{testResult.response}&quot;</span>
-              </div>
-            ) : (
-              <div>
-                <span className="text-red-400 font-semibold">Failed</span>
-                <span className="text-gray-500 ml-2">({testResult.latencyMs}ms)</span>
-                <p className="text-xs text-red-300/70 mt-1 font-mono">{testResult.error}</p>
-              </div>
-            )}
-          </div>
-        )}
-        {!testResult && !testing && (
-          <p className="text-xs text-gray-600">Sends a simple test message to verify the LLM connection is working.</p>
-        )}
       </div>
 
       {/* Setup instructions */}
