@@ -1,4 +1,5 @@
 import { getLLMClient, LLM_MODEL, extraBodyProps } from '@/lib/llm-provider';
+import { loadPrompt } from '@/lib/prompt-loader';
 
 export interface LLMConfig {
   provider: string;
@@ -65,10 +66,10 @@ export async function testLLMConnection(): Promise<LLMConnectionResult> {
     const client = await getLLMClient();
     const response = await client.chat.completions.create({
       model: LLM_MODEL,
-      temperature: 0,
-      max_tokens: 32,
+      temperature: Number(process.env.LLM_TEST_TEMPERATURE ?? 0),
+      max_tokens: Number(process.env.LLM_TEST_MAX_TOKENS ?? 32),
       messages: [
-        { role: 'system', content: 'Reply with exactly: OK' },
+        { role: 'system', content: loadPrompt('llm-config-test-system.txt') },
         { role: 'user', content: 'Test connection' },
       ],
       ...extraBodyProps(),
