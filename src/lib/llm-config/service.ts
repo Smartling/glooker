@@ -20,6 +20,8 @@ export interface LLMConfig {
   llmTest: { temperature: number; maxTokens: number };
   githubToken: string | null;
   llmApiKey: string | null;
+  smartlingAccountUid: string | null;
+  smartlingUserIdentifier: string | null;
   smartlingUserSecret: string | null;
 }
 
@@ -80,6 +82,8 @@ export function getLLMConfig(): LLMConfig {
   config.llmTest = { temperature: Number(process.env.LLM_TEST_TEMPERATURE ?? 0), maxTokens: Number(process.env.LLM_TEST_MAX_TOKENS ?? 32) };
   config.githubToken = maskSecret(process.env.GITHUB_TOKEN);
   config.llmApiKey = maskSecret(process.env.LLM_API_KEY);
+  config.smartlingAccountUid = process.env.SMARTLING_ACCOUNT_UID || null;
+  config.smartlingUserIdentifier = process.env.SMARTLING_USER_IDENTIFIER || null;
   config.smartlingUserSecret = maskSecret(process.env.SMARTLING_USER_SECRET);
 
   return config;

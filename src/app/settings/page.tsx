@@ -882,12 +882,14 @@ function LlmSettingsTab() {
         </div>
       )}
 
-      {/* Secrets */}
+      {/* Secrets & Credentials */}
       <div className="bg-gray-900 rounded-xl p-5 mb-6">
-        <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-3">Secrets</p>
+        <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-3">Secrets & Credentials</p>
         <div className="grid grid-cols-3 gap-4">
           <ConfigRow label="GitHub Token" value={config.githubToken || '(not set)'} />
           <ConfigRow label="LLM API Key" value={config.llmApiKey || '(not set)'} />
+          <ConfigRow label="Smartling Account UID" value={config.smartlingAccountUid || '(not set)'} />
+          <ConfigRow label="Smartling User ID" value={config.smartlingUserIdentifier || '(not set)'} />
           <ConfigRow label="Smartling Secret" value={config.smartlingUserSecret || '(not set)'} />
         </div>
       </div>
