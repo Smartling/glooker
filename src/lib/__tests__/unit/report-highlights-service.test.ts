@@ -250,4 +250,78 @@ describe('getReportHighlights', () => {
       expect(cacheCheckCall![1]).toEqual(['report-a', 'report-b']);
     });
   });
+
+  describe('prompt and settings snapshots', () => {
+    function setupFreshPathWithCreateFn() {
+      const createFn = jest.fn().mockResolvedValue({
+        choices: [{ message: { content: JSON.stringify({ highlights: llmHighlights }) } }],
+      });
+      const mockClient = { chat: { completions: { create: createFn } } };
+      mockGetLLMClient.mockResolvedValue(mockClient);
+
+      mockDbExecute
+        .mockResolvedValueOnce([[latestReport], null])  // latest
+        .mockResolvedValueOnce([[prevReport], null])    // prev
+        .mockResolvedValueOnce([[], null])              // cache miss
+        .mockResolvedValueOnce([devStatsA, null])       // statsA
+        .mockResolvedValueOnce([devStatsB, null])       // statsB
+        .mockResolvedValueOnce([{ affectedRows: 1 }, null]); // INSERT
+
+      return createFn;
+    }
+
+    it('sends exact system prompt', async () => {
+      const createFn = setupFreshPathWithCreateFn();
+
+      await getReportHighlights();
+
+      const callArgs = createFn.mock.calls[0][0];
+      const systemMessage = callArgs.messages.find((m: any) => m.role === 'system');
+      expect(systemMessage).toBeDefined();
+      const content: string = systemMessage.content;
+
+      expect(content).toContain('You are a concise engineering analytics assistant for Glooker');
+      expect(content).toContain('Compare two reports');
+      expect(content).toContain('3-5 bullet highlights max.');
+      expect(content).toContain('developers missing from the latest report are NOT "departed"');
+      expect(content).toContain('Return ONLY raw JSON.');
+
+      expect(content).toMatchSnapshot('highlights-system-prompt');
+    });
+
+    it('sends correct user message structure', async () => {
+      const createFn = setupFreshPathWithCreateFn();
+
+      await getReportHighlights();
+
+      const callArgs = createFn.mock.calls[0][0];
+      const userMessage = callArgs.messages.find((m: any) => m.role === 'user');
+      expect(userMessage).toBeDefined();
+      const content: string = userMessage.content;
+
+      expect(content).toContain('Org: acme, Period: 30 days');
+      expect(content).toContain('PREVIOUS REPORT');
+      expect(content).toContain('LATEST REPORT');
+      expect(content).toContain('Top movers:');
+      expect(content).toContain('Recently inactive');
+      expect(content).toContain('@bob');
+      expect(content).toContain('New developers');
+      expect(content).toContain('@carol');
+
+      expect(content).toMatchSnapshot('highlights-user-message');
+    });
+
+    it('passes correct LLM settings', async () => {
+      const createFn = setupFreshPathWithCreateFn();
+
+      await getReportHighlights();
+
+      const callArgs = createFn.mock.calls[0][0];
+
+      expect(callArgs.temperature).toBe(0.5);
+      expect(callArgs.max_tokens).toBe(512);
+      expect(callArgs.model).toBe('test-model');
+      expect(callArgs.response_format).toEqual({ type: 'json_object' });
+    });
+  });
 });
