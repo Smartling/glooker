@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS developer_stats (
   impact_score    REAL,
   pr_percentage   INTEGER NOT NULL DEFAULT 0,
   ai_percentage   INTEGER NOT NULL DEFAULT 0,
+  total_jira_issues INTEGER NOT NULL DEFAULT 0,
   type_breakdown  TEXT,
   active_repos    TEXT,
   FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
@@ -38,6 +39,7 @@ CREATE TABLE IF NOT EXISTS commit_analyses (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   report_id       TEXT    NOT NULL,
   github_login    TEXT    NOT NULL,
+  author_email    TEXT,
   repo            TEXT    NOT NULL,
   commit_sha      TEXT    NOT NULL,
   pr_number       INTEGER,
@@ -55,6 +57,41 @@ CREATE TABLE IF NOT EXISTS commit_analyses (
   committed_at    TEXT,
   FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
   UNIQUE (report_id, commit_sha)
+);
+
+CREATE TABLE IF NOT EXISTS jira_issues (
+  id                        INTEGER PRIMARY KEY AUTOINCREMENT,
+  report_id                 TEXT    NOT NULL,
+  github_login              TEXT    NOT NULL,
+  jira_account_id           TEXT,
+  jira_email                TEXT,
+  project_key               TEXT    NOT NULL,
+  issue_key                 TEXT    NOT NULL,
+  issue_type                TEXT,
+  summary                   TEXT,
+  description               TEXT,
+  status                    TEXT,
+  labels                    TEXT,
+  story_points              REAL,
+  original_estimate_seconds INTEGER,
+  issue_url                 TEXT,
+  created_at                TEXT,
+  resolved_at               TEXT,
+  complexity                INTEGER,
+  type                      TEXT CHECK(type IN ('feature','bug','refactor','infra','docs','test','other')),
+  impact_summary            TEXT,
+  FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
+  UNIQUE (report_id, issue_key)
+);
+
+CREATE TABLE IF NOT EXISTS user_mappings (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  org             TEXT    NOT NULL,
+  github_login    TEXT    NOT NULL,
+  jira_account_id TEXT    NOT NULL,
+  jira_email      TEXT,
+  created_at      TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+  UNIQUE (org, github_login)
 );
 
 CREATE TABLE IF NOT EXISTS developer_summaries (
@@ -125,6 +162,10 @@ export function createSQLiteDB(): DB {
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA);
 
+  // Migrations: safe for existing DBs (ignore "duplicate column" errors)
+  try { db.exec('ALTER TABLE developer_stats ADD COLUMN total_jira_issues INTEGER NOT NULL DEFAULT 0'); } catch (_) {}
+  try { db.exec('ALTER TABLE commit_analyses ADD COLUMN author_email TEXT'); } catch (_) {}
+
   return {
     execute: <T = any>(sql: string, params?: any[]): Promise<[T[], any]> => {
       const translated = translateSQL(sql);
@@ -175,6 +216,8 @@ function translateSQL(sql: string): string {
       report_comparisons: 'report_id_a, report_id_b',
       teams: 'org, name',
       team_members: 'team_id, github_login',
+      jira_issues: 'report_id, issue_key',
+      user_mappings: 'org, github_login',
     };
     const conflict = conflictCols[table] || 'id';
 

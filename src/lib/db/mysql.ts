@@ -1,6 +1,45 @@
 import mysql from 'mysql2/promise';
 import type { DB } from './index';
 
+const JIRA_SCHEMA = `
+CREATE TABLE IF NOT EXISTS jira_issues (
+  id                        INT AUTO_INCREMENT PRIMARY KEY,
+  report_id                 VARCHAR(36)  NOT NULL,
+  github_login              VARCHAR(255) NOT NULL,
+  jira_account_id           VARCHAR(128) NULL,
+  jira_email                VARCHAR(255) NULL,
+  project_key               VARCHAR(50)  NOT NULL,
+  issue_key                 VARCHAR(50)  NOT NULL,
+  issue_type                VARCHAR(100) NULL,
+  summary                   VARCHAR(500) NULL,
+  description               TEXT         NULL,
+  status                    VARCHAR(100) NULL,
+  labels                    TEXT         NULL,
+  story_points              DECIMAL(6,2) NULL,
+  original_estimate_seconds INT          NULL,
+  issue_url                 VARCHAR(500) NULL,
+  created_at                TIMESTAMP    NULL,
+  resolved_at               TIMESTAMP    NULL,
+  complexity                TINYINT      NULL,
+  type                      ENUM('feature','bug','refactor','infra','docs','test','other') NULL,
+  impact_summary            TEXT         NULL,
+  FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_report_issue (report_id, issue_key)
+);
+`;
+
+const USER_MAPPINGS_SCHEMA = `
+CREATE TABLE IF NOT EXISTS user_mappings (
+  id              INT AUTO_INCREMENT PRIMARY KEY,
+  org             VARCHAR(255) NOT NULL,
+  github_login    VARCHAR(255) NOT NULL,
+  jira_account_id VARCHAR(128) NOT NULL,
+  jira_email      VARCHAR(255) NULL,
+  created_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_org_gh_login (org, github_login)
+);
+`;
+
 const SCHEDULES_SCHEMA = `
 CREATE TABLE IF NOT EXISTS schedules (
   id             VARCHAR(36)  NOT NULL PRIMARY KEY,
@@ -31,6 +70,20 @@ export function createMySQLDB(): DB {
   // Auto-create schedules table if it doesn't exist
   pool.execute(SCHEDULES_SCHEMA).catch((err) => {
     console.error('[db/mysql] Failed to create schedules table:', err);
+  });
+  pool.execute(JIRA_SCHEMA).catch((err) => {
+    console.error('[db/mysql] Failed to create jira_issues table:', err);
+  });
+  pool.execute(USER_MAPPINGS_SCHEMA).catch((err) => {
+    console.error('[db/mysql] Failed to create user_mappings table:', err);
+  });
+
+  // Migrations
+  pool.execute('ALTER TABLE developer_stats ADD COLUMN total_jira_issues INT NOT NULL DEFAULT 0').catch((err) => {
+    if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add total_jira_issues:', err);
+  });
+  pool.execute('ALTER TABLE commit_analyses ADD COLUMN author_email VARCHAR(255) NULL AFTER github_login').catch((err) => {
+    if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add author_email:', err);
   });
 
   return {
