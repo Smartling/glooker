@@ -113,6 +113,32 @@ DB_NAME=glooker
 ```
 Then initialize: `mysql -u root < schema.sql`
 
+### Prompt Customization
+
+LLM prompts are stored as template files in the `prompts/` directory. You can customize prompts by editing these files or pointing to a different directory:
+
+```env
+PROMPTS_DIR=./my-custom-prompts
+```
+
+Template files use `{{PLACEHOLDER}}` syntax for dynamic values injected at runtime.
+
+Each LLM-powered service has configurable temperature and max_tokens settings:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `ANALYZER_TEMPERATURE` | 0 | Commit analysis (deterministic) |
+| `ANALYZER_MAX_TOKENS` | 256 | Commit analysis response limit |
+| `CHAT_AGENT_TEMPERATURE` | 0.3 | Chat assistant |
+| `CHAT_AGENT_MAX_TOKENS` | 1500 | Chat assistant response limit |
+| `CHAT_AGENT_MAX_ITERATIONS` | 5 | Max tool-call rounds per chat |
+| `SUMMARY_TEMPERATURE` | 0.7 | Developer summaries |
+| `SUMMARY_MAX_TOKENS` | 512 | Developer summary response limit |
+| `HIGHLIGHTS_TEMPERATURE` | 0.5 | Report comparison highlights |
+| `HIGHLIGHTS_MAX_TOKENS` | 512 | Highlights response limit |
+
+All settings are optional — defaults match the original hardcoded values.
+
 ## Docker
 
 ```bash
