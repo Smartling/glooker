@@ -12,6 +12,15 @@ export interface LLMConfig {
   hasUserSecret?: boolean;
   missing: string[];
   ready: boolean;
+  promptsDir: string;
+  analyzer: { temperature: number; maxTokens: number };
+  chatAgent: { temperature: number; maxTokens: number; maxIterations: number };
+  summary: { temperature: number; maxTokens: number };
+  highlights: { temperature: number; maxTokens: number };
+  llmTest: { temperature: number; maxTokens: number };
+  githubToken: string | null;
+  llmApiKey: string | null;
+  smartlingUserSecret: string | null;
 }
 
 export interface LLMConnectionResult {
@@ -20,6 +29,12 @@ export interface LLMConnectionResult {
   model?: string;
   latencyMs: number;
   error?: string;
+}
+
+function maskSecret(value?: string): string | null {
+  if (!value) return null;
+  if (value.length <= 5) return 'xxxxx';
+  return 'xxxxx' + value.slice(-5);
 }
 
 export function getLLMConfig(): LLMConfig {
@@ -56,6 +71,16 @@ export function getLLMConfig(): LLMConfig {
 
   config.missing = missing;
   config.ready = missing.length === 0;
+
+  config.promptsDir = process.env.PROMPTS_DIR || './prompts';
+  config.analyzer = { temperature: Number(process.env.ANALYZER_TEMPERATURE ?? 0), maxTokens: Number(process.env.ANALYZER_MAX_TOKENS ?? 256) };
+  config.chatAgent = { temperature: Number(process.env.CHAT_AGENT_TEMPERATURE ?? 0.3), maxTokens: Number(process.env.CHAT_AGENT_MAX_TOKENS ?? 1500), maxIterations: Number(process.env.CHAT_AGENT_MAX_ITERATIONS ?? 5) };
+  config.summary = { temperature: Number(process.env.SUMMARY_TEMPERATURE ?? 0.7), maxTokens: Number(process.env.SUMMARY_MAX_TOKENS ?? 512) };
+  config.highlights = { temperature: Number(process.env.HIGHLIGHTS_TEMPERATURE ?? 0.5), maxTokens: Number(process.env.HIGHLIGHTS_MAX_TOKENS ?? 512) };
+  config.llmTest = { temperature: Number(process.env.LLM_TEST_TEMPERATURE ?? 0), maxTokens: Number(process.env.LLM_TEST_MAX_TOKENS ?? 32) };
+  config.githubToken = maskSecret(process.env.GITHUB_TOKEN);
+  config.llmApiKey = maskSecret(process.env.LLM_API_KEY);
+  config.smartlingUserSecret = maskSecret(process.env.SMARTLING_USER_SECRET);
 
   return config;
 }

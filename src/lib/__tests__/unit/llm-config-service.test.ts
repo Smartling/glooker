@@ -23,6 +23,10 @@ describe('getLLMConfig', () => {
     'SMARTLING_ACCOUNT_UID',
     'SMARTLING_USER_IDENTIFIER',
     'SMARTLING_USER_SECRET',
+    'GITHUB_TOKEN',
+    'ANALYZER_TEMPERATURE',
+    'ANALYZER_MAX_TOKENS',
+    'PROMPTS_DIR',
   ];
 
   beforeEach(() => {
@@ -175,6 +179,49 @@ describe('getLLMConfig', () => {
       expect(config.missing).toContain('SMARTLING_USER_IDENTIFIER');
       expect(config.missing).toContain('SMARTLING_USER_SECRET');
       expect(config.ready).toBe(false);
+    });
+  });
+
+  describe('extended config fields', () => {
+    beforeEach(() => {
+      process.env.LLM_PROVIDER = 'openai';
+      process.env.LLM_API_KEY = 'sk-test-key-12345';
+      process.env.GITHUB_TOKEN = 'github_pat_abcdef12345';
+    });
+
+    it('returns per-service settings with defaults', () => {
+      const config = getLLMConfig();
+      expect(config.promptsDir).toBe('./prompts');
+      expect(config.analyzer).toEqual({ temperature: 0, maxTokens: 256 });
+      expect(config.chatAgent).toEqual({ temperature: 0.3, maxTokens: 1500, maxIterations: 5 });
+      expect(config.summary).toEqual({ temperature: 0.7, maxTokens: 512 });
+      expect(config.highlights).toEqual({ temperature: 0.5, maxTokens: 512 });
+      expect(config.llmTest).toEqual({ temperature: 0, maxTokens: 32 });
+    });
+
+    it('reads per-service settings from env when set', () => {
+      process.env.ANALYZER_TEMPERATURE = '0.1';
+      process.env.ANALYZER_MAX_TOKENS = '512';
+      const config = getLLMConfig();
+      expect(config.analyzer).toEqual({ temperature: 0.1, maxTokens: 512 });
+    });
+
+    it('masks secrets showing only last 5 chars', () => {
+      const config = getLLMConfig();
+      expect(config.githubToken).toBe('xxxxx12345');
+      expect(config.llmApiKey).toBe('xxxxx12345');
+    });
+
+    it('returns null for unset secrets', () => {
+      delete process.env.GITHUB_TOKEN;
+      const config = getLLMConfig();
+      expect(config.githubToken).toBeNull();
+    });
+
+    it('masks short secrets entirely', () => {
+      process.env.LLM_API_KEY = 'abc';
+      const config = getLLMConfig();
+      expect(config.llmApiKey).toBe('xxxxx');
     });
   });
 
