@@ -29,6 +29,7 @@ COPY --from=base /app/package.json ./
 COPY --from=base /app/next.config.ts ./
 COPY --from=base /app/schema.sql ./
 COPY --from=base /app/public ./public
+COPY --from=base /app/prompts ./prompts
 
 ENV NODE_ENV=production
 EXPOSE 3000
