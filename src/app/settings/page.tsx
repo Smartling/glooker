@@ -1092,10 +1092,6 @@ function AppSettingsTab({ org }: { org: string }) {
             )}
           </div>
         )}
-
-        <p className="text-xs text-gray-600">
-          Configure via environment variables: JIRA_ENABLED, JIRA_HOST, JIRA_USERNAME, JIRA_API_TOKEN
-        </p>
       </div>
 
       {/* Jira User Mappings */}
