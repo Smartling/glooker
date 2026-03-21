@@ -13,6 +13,7 @@ export interface DeveloperStats {
   impactScore:    number;
   prPercentage:   number;  // % of commits that went through a PR
   aiPercentage:   number;  // % of commits with confirmed or suspected AI assistance
+  totalJiraIssues: number;
   typeBreakdown:  Record<string, number>;
   activeRepos:    string[];
 }
@@ -103,6 +104,7 @@ export function aggregate(
       impactScore,
       prPercentage,
       aiPercentage,
+      totalJiraIssues: 0,  // Set by report-runner after Jira fetch
       typeBreakdown,
       activeRepos:   [...dev.repos],
     });

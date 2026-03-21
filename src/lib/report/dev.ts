@@ -28,6 +28,7 @@ export async function getDevReport(reportId: string, login: string) {
     `SELECT github_login, github_name, avatar_url,
             total_prs, total_commits, lines_added, lines_removed,
             avg_complexity, impact_score, pr_percentage, ai_percentage,
+            total_jira_issues,
             type_breakdown, active_repos
      FROM developer_stats
      WHERE report_id = ? AND github_login = ?`,
@@ -41,7 +42,8 @@ export async function getDevReport(reportId: string, login: string) {
   // All developers' stats (for percentile computation)
   const [allDevRows] = await db.execute(
     `SELECT github_login, total_prs, total_commits, lines_added, lines_removed,
-            avg_complexity, impact_score, pr_percentage, ai_percentage
+            avg_complexity, impact_score, pr_percentage, ai_percentage,
+            total_jira_issues
      FROM developer_stats
      WHERE report_id = ?
      ORDER BY impact_score DESC`,
