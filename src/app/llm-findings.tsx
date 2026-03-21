@@ -41,7 +41,7 @@ export default function LlmFindings() {
   return (
     <div className="space-y-6">
       {/* Tip of the Day */}
-      <div className="bg-gradient-to-br from-indigo-500/10 to-emerald-500/5 border border-indigo-500/25 rounded-2xl p-5">
+      <div className="bg-gradient-to-br from-accent/10 to-emerald-500/5 border border-accent/30 rounded-2xl p-5">
         <div className="flex items-center gap-2 mb-3">
           <span className="text-lg">💡</span>
           <span className="text-xs font-bold tracking-widest uppercase text-white/40">Tip of the Day</span>

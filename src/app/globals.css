@@ -2,6 +2,42 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Theme accent colors via CSS custom properties ── */
+:root {
+  --accent: #D97706;
+  --accent-light: #F59E0B;
+  --accent-lighter: #FBBF24;
+  --accent-dark: #B45309;
+  --accent-darker: #92400E;
+  --accent-bg: #78350F;
+}
+
+/* Accent utility classes */
+.bg-accent { background-color: var(--accent); }
+.bg-accent-light { background-color: var(--accent-light); }
+.bg-accent-dark { background-color: var(--accent-dark); }
+.bg-accent-darker { background-color: var(--accent-darker); }
+.bg-accent-bg { background-color: var(--accent-bg); }
+.bg-accent\/20 { background-color: color-mix(in srgb, var(--accent) 20%, transparent); }
+.bg-accent\/10 { background-color: color-mix(in srgb, var(--accent) 10%, transparent); }
+.text-accent { color: var(--accent); }
+.text-accent-light { color: var(--accent-light); }
+.text-accent-lighter { color: var(--accent-lighter); }
+.text-accent-dark { color: var(--accent-dark); }
+.border-accent { border-color: var(--accent); }
+.border-accent-dark { border-color: var(--accent-dark); }
+.border-accent-darker { border-color: var(--accent-darker); }
+.border-accent\/30 { border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+.border-accent\/50 { border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+.ring-accent\/50 { --tw-ring-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+.hover\:text-accent-lighter:hover { color: var(--accent-lighter); }
+.hover\:text-accent-light:hover { color: var(--accent-light); }
+.hover\:text-accent:hover { color: var(--accent); }
+.hover\:bg-accent-dark:hover { background-color: var(--accent-dark); }
+.hover\:bg-accent\/30:hover { background-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+.focus\:border-accent:focus { border-color: var(--accent); }
+.focus\:border-accent-dark:focus { border-color: var(--accent-dark); }
+
 @media print {
   /* Reset background for paper */
   body {

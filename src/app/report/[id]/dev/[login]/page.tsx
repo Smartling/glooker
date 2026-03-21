@@ -152,7 +152,7 @@ export default function DevDetailPage() {
           </svg>
           Back to report
         </button>
-        <span className="text-xl font-bold text-white cursor-pointer hover:text-blue-400 transition-colors" onClick={() => router.push('/')}>Glooker</span>
+        <span className="text-xl font-bold text-white cursor-pointer hover:text-accent-light transition-colors" onClick={() => router.push('/')}>Glooker</span>
       </div>
 
       {/* Header */}
@@ -165,7 +165,7 @@ export default function DevDetailPage() {
           <div className="min-w-0">
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-bold text-white truncate">{dev.github_name || dev.github_login}</h1>
-              <span className="px-2.5 py-0.5 bg-blue-600 text-white text-xs font-bold rounded-full shrink-0">
+              <span className="px-2.5 py-0.5 bg-accent text-white text-xs font-bold rounded-full shrink-0">
                 #{rank}
               </span>
             </div>
@@ -265,7 +265,7 @@ export default function DevDetailPage() {
                 <div key={repo} className="flex items-center gap-3">
                   <span className="text-sm text-gray-300 truncate min-w-0 flex-1">{repo}</span>
                   <div className="w-24 h-1.5 bg-gray-800 rounded-full overflow-hidden shrink-0">
-                    <div className="h-full bg-blue-500 rounded-full" style={{ width: `${pct}%` }} />
+                    <div className="h-full bg-accent-light rounded-full" style={{ width: `${pct}%` }} />
                   </div>
                   <span className="text-xs text-gray-600 w-8 text-right shrink-0">{count}</span>
                 </div>
@@ -324,7 +324,7 @@ export default function DevDetailPage() {
               <span className="text-sm">Generating performance summary...</span>
             </div>
             <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
-              <div className="h-full bg-blue-500 rounded-full animate-pulse" style={{ width: '60%' }} />
+              <div className="h-full bg-accent-light rounded-full animate-pulse" style={{ width: '60%' }} />
             </div>
           </div>
         )}
@@ -407,7 +407,7 @@ export default function DevDetailPage() {
                         href={`https://github.com/${report.org}/${c.repo}/commit/${c.commit_sha}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-blue-400 hover:text-blue-300 hover:underline"
+                        className="text-accent-light hover:text-accent-lighter hover:underline"
                         onClick={e => e.stopPropagation()}
                       >
                         {c.commit_sha.slice(0, 7)}
@@ -427,7 +427,7 @@ export default function DevDetailPage() {
                           href={`https://github.com/${report.org}/${c.repo}/pull/${c.pr_number}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-blue-400 hover:text-blue-300 hover:underline text-xs"
+                          className="text-accent-light hover:text-accent-lighter hover:underline text-xs"
                           onClick={e => e.stopPropagation()}
                           title={c.pr_title || ''}
                         >

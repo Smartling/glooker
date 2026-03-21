@@ -369,7 +369,7 @@ export default function Home() {
       {/* Header */}
       <div className="mb-8 flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-white cursor-pointer hover:text-blue-400 transition-colors" onClick={() => { setActiveReport(null); setDevelopers([]); setProgress(null); setRunning(false); stopPolling(); }}>Glooker</h1>
+          <h1 className="text-3xl font-bold tracking-tight text-white cursor-pointer hover:text-accent-light transition-colors" onClick={() => { setActiveReport(null); setDevelopers([]); setProgress(null); setRunning(false); stopPolling(); }}>Glooker</h1>
           <p className="text-gray-400 mt-1">GitHub org developer impact analytics</p>
         </div>
         <button
@@ -392,7 +392,7 @@ export default function Home() {
             <button
               onClick={() => setShowReportForm(true)}
               disabled={orgs.length === 0}
-              className="text-xs text-blue-400 hover:text-blue-300 disabled:text-gray-600 disabled:cursor-not-allowed"
+              className="text-xs text-accent-light hover:text-accent-lighter disabled:text-gray-600 disabled:cursor-not-allowed"
             >
               + New
             </button>
@@ -405,13 +405,13 @@ export default function Home() {
               const isActive   = activeReport?.id === r.id;
               const isDeleting = deletingId === r.id;
               const statusColor =
-                r.status === 'completed' ? 'text-green-400' :
+                r.status === 'completed' ? 'text-accent-light' :
                 r.status === 'failed'    ? 'text-red-400' :
                 r.status === 'stopped'   ? 'text-orange-400' :
-                r.status === 'running'   ? 'text-blue-400' :
+                r.status === 'running'   ? 'text-accent-lighter' :
                 'text-gray-500';
               const borderColor =
-                r.status === 'completed' ? 'border-green-800' :
+                r.status === 'completed' ? 'border-accent-darker' :
                 r.status === 'failed'    ? 'border-red-900' :
                 r.status === 'stopped'   ? 'border-orange-900' :
                 'border-gray-800';
@@ -453,7 +453,7 @@ export default function Home() {
                             <span
                               role="button"
                               onClick={(e) => { e.stopPropagation(); resumeReport(r.id); }}
-                              className="text-xs font-medium text-blue-400 hover:text-blue-300 cursor-pointer"
+                              className="text-xs font-medium text-accent-light hover:text-accent-lighter cursor-pointer"
                               title="Resume this report"
                             >
                               resume
@@ -514,7 +514,7 @@ export default function Home() {
                       value={org}
                       onChange={(e) => setOrg(e.target.value)}
                       disabled={running || orgs.length === 0}
-                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent"
                     >
                       {orgs.length === 0 && <option value="">Loading…</option>}
                       {orgs.map((o) => (
@@ -533,7 +533,7 @@ export default function Home() {
                           disabled={running}
                           className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                             period === d
-                              ? 'bg-blue-600 text-white'
+                              ? 'bg-accent text-white'
                               : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
                           }`}
                         >
@@ -547,7 +547,7 @@ export default function Home() {
                   <button
                     type="submit"
                     disabled={!org.trim() || running}
-                    className="px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors"
+                    className="px-5 py-2 bg-accent hover:bg-accent-dark disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors"
                   >
                     Run Report
                   </button>
@@ -629,7 +629,7 @@ export default function Home() {
                           : line.includes('SKIP')
                           ? 'text-yellow-500'
                           : line.includes('LLM [')
-                          ? 'text-blue-400'
+                          ? 'text-accent-light'
                           : line.includes('DEV ')
                           ? 'text-green-400'
                           : 'text-gray-500'
@@ -649,7 +649,7 @@ export default function Home() {
             <div className="flex items-center justify-between mb-4">
               <div>
                 <span
-                  className="text-gray-300 font-medium hover:text-blue-400 cursor-pointer transition-colors"
+                  className="text-gray-300 font-medium hover:text-accent-light cursor-pointer transition-colors"
                   onClick={() => window.location.href = `/report/${activeReport.id}/org`}
                 >{activeReport.org}</span>
                 <span className="text-gray-500 text-sm ml-2">
@@ -701,7 +701,7 @@ export default function Home() {
                       if (team) setFilterLogins(new Set(team.members));
                       e.target.value = '';
                     }}
-                    className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-gray-400 focus:outline-none focus:border-blue-500 cursor-pointer"
+                    className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-gray-400 focus:outline-none focus:border-accent cursor-pointer"
                   >
                     <option value="">Filter by team...</option>
                     {teams.map(t => (
@@ -712,10 +712,10 @@ export default function Home() {
                 {[...filterLogins].map(login => {
                   const dev = developers.find(d => d.github_login === login);
                   return (
-                    <span key={login} className="inline-flex items-center gap-1.5 bg-blue-600/20 text-blue-300 text-xs font-medium px-2.5 py-1 rounded-lg border border-blue-500/30">
+                    <span key={login} className="inline-flex items-center gap-1.5 bg-accent/20 text-accent-lighter text-xs font-medium px-2.5 py-1 rounded-lg border border-accent/30">
                       {dev?.avatar_url && <img src={dev.avatar_url} alt="" className="w-4 h-4 rounded-full" />}
                       {dev?.github_name || login}
-                      <button onClick={() => setFilterLogins(prev => { const n = new Set(prev); n.delete(login); return n; })} className="text-blue-400 hover:text-white ml-0.5">&times;</button>
+                      <button onClick={() => setFilterLogins(prev => { const n = new Set(prev); n.delete(login); return n; })} className="text-accent-light hover:text-white ml-0.5">&times;</button>
                     </span>
                   );
                 })}
@@ -755,7 +755,7 @@ export default function Home() {
                             }
                           }}
                           placeholder={filterLogins.size > 0 ? 'Add more...' : 'Filter by developer...'}
-                          className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 w-48"
+                          className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-accent w-48"
                         />
                         {matches.length > 0 && (
                           <div className="absolute z-40 top-full mt-1 left-0 w-64 bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden">
@@ -905,8 +905,8 @@ function ComplexityBadge({ value }: { value: number }) {
 function ImpactBadge({ value }: { value: number }) {
   const n = Number(value) || 0;
   const color =
-    n >= 7 ? 'bg-blue-500' :
-    n >= 4 ? 'bg-blue-700' :
+    n >= 7 ? 'bg-accent-light' :
+    n >= 4 ? 'bg-accent-dark' :
     'bg-gray-700';
   return (
     <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold text-white ${color}`}>
@@ -1032,7 +1032,7 @@ function CommitCountWithTooltip({
               {commits.map((c: any) => (
                 <tr key={c.commit_sha} className="border-b border-gray-700/30 last:border-0">
                   <td className="py-1.5 px-1 font-mono whitespace-nowrap align-top">
-                    <a href={`https://github.com/${org}/${c.repo}/commit/${c.commit_sha}`} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 hover:underline">{c.commit_sha.slice(0, 7)}</a>
+                    <a href={`https://github.com/${org}/${c.repo}/commit/${c.commit_sha}`} target="_blank" rel="noopener noreferrer" className="text-accent-light hover:text-accent-lighter hover:underline">{c.commit_sha.slice(0, 7)}</a>
                   </td>
                   <td className="py-1.5 px-1 text-gray-400 align-top" style={{ maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.commit_message}>
                     {c.commit_message?.split('\n')[0]?.slice(0, 60) || '\u2014'}
