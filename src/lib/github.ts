@@ -356,5 +356,40 @@ export async function fetchUserActivity(
     });
   }
 
+  // 4. Second pass: for commits without PR association, check GitHub's "pulls for commit" API
+  const unmatchedCommits = commits.filter(c => c.prNumber === null);
+  if (unmatchedCommits.length > 0) {
+    if (unmatchedCommits.length > 200) {
+      log?.(`PR lookup: skipping — ${unmatchedCommits.length} unmatched commits exceeds limit of 200`);
+    } else {
+    for (const commit of unmatchedCommits) {
+      try {
+        await sleep(1000); // lighter rate limiting for this secondary lookup
+        const response: any = await withRetry(
+          () => (octokit as any).repos.listPullRequestsAssociatedWithCommit({
+            owner: org,
+            repo: commit.repo,
+            commit_sha: commit.sha,
+            per_page: 1,
+          }),
+          log,
+        );
+        const pullsForCommit = response.data || [];
+        if (pullsForCommit.length > 0) {
+          const pr = pullsForCommit[0];
+          commit.prNumber = pr.number;
+          commit.prTitle = pr.title;
+        }
+      } catch {
+        // proceed without PR association
+      }
+    }
+    const matched = unmatchedCommits.filter(c => c.prNumber !== null).length;
+    if (matched > 0) {
+      log?.(`PR lookup: matched ${matched}/${unmatchedCommits.length} commits to PRs`);
+    }
+    }
+  }
+
   return { commits, prs };
 }
