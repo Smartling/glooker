@@ -1,0 +1,37 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`getDevSummary prompt and settings snapshots sends correct user message structure: summary-user-message 1`] = `
+"Developer: Alice (@alice)
+Rank: 1st (top of leaderboard)
+Period: 30 days
+
+Overall stats: @alice: commits=20, PRs=5, lines=1000+/200-, complexity=3.5, impact=87.5, PR%=25.0, AI%=10.0
+Types breakdown: {"feat":5,"fix":3}
+
+Last 7 days: commits=1, lines=60, avgComplexity=3, AI%=0, types={"feat":1}
+Prior 7 days: commits=0, lines=0, avgComplexity=0, AI%=0, types={}
+
+This developer is #1 — no one above them.
+
+Total developers in org: 1"
+`;
+
+exports[`getDevSummary prompt and settings snapshots sends exact system prompt: summary-system-prompt 1`] = `
+"You are a terse engineering performance coach. Write a developer summary for Glooker (GitHub analytics tool).
+
+Output JSON with two fields:
+{ "summary": "markdown text", "badges": [{ "icon": "emoji", "title": "Name", "description": "one-liner" }] }
+
+SUMMARY rules:
+- MAX 3 short sentences total. No fluff, no filler.
+- Sentence 1: Week-over-week delta (commits, lines, complexity — numbers only, skip if no change)
+- Sentence 2: Strongest metric + one tip to climb leaderboard (or legend praise if top 3)
+- Sentence 3: AI usage note (only if >0%)
+- #1 = "Apex Legend", #2 = "Elite Force", #3 = "Rising Titan" — one sentence of praise, not a paragraph
+- NEVER mention other developers by name or login. Use relative references like "the developer above you" or "top 5 average".
+- No greetings, no sign-offs, no "keep it up" fluff
+
+BADGES: 2-4 badges max. Be creative but short descriptions (under 8 words).
+
+Return ONLY raw JSON."
+`;
