@@ -48,3 +48,4 @@ Glooker is a Next.js 15 web app that generates developer impact reports for a Gi
 - CI runs on all pull requests and pushes to main (`.github/workflows/test.yml`)
 - `PROMPTS_DIR` defaults to `./prompts` relative to CWD — in Docker, ensure the directory is mounted or `outputFileTracingIncludes` is configured in `next.config.ts`
 - Prompt loader caches template files in memory — restart the server after changing prompt template files (or call `clearPromptCache()` in dev)
+- Prompt template files have Jest snapshot tests that assert exact text — after editing any file in `prompts/`, run `npm test -- -u` to update snapshots (or `npm test -- --testPathPattern="analyzer" -u` for a specific service). Review the snapshot diff to confirm the change is intentional.

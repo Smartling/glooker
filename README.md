@@ -139,6 +139,8 @@ Each LLM-powered service has configurable temperature and max_tokens settings:
 
 All settings are optional — defaults match the original hardcoded values.
 
+> **After editing prompt templates:** Run `npm test -- -u` to update Jest snapshots, then review the diff to confirm the change is intentional. Snapshots assert the exact prompt text to prevent accidental regressions.
+
 ## Docker
 
 ```bash
