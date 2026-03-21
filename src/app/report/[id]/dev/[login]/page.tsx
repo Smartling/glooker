@@ -87,6 +87,7 @@ export default function DevDetailPage() {
   const [commits, setCommits] = useState<Commit[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [expandedSha, setExpandedSha] = useState<string | null>(null);
+  const [expandedIssueKey, setExpandedIssueKey] = useState<string | null>(null);
   const [timeline, setTimeline] = useState<WeeklyData[]>([]);
   const [summary, setSummary] = useState<string | null>(null);
   const [badges, setBadges] = useState<Array<{ icon: string; title: string; description: string }>>([]);
@@ -380,66 +381,6 @@ export default function DevDetailPage() {
         )}
       </div>
 
-      {/* Jira Issues Table */}
-      {jiraIssues.length > 0 && (
-        <div className="bg-gray-900 rounded-xl overflow-hidden mb-6">
-          <div className="px-5 py-3 border-b border-gray-800">
-            <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">
-              Jira Issues ({jiraIssues.length})
-            </p>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs text-gray-500 uppercase tracking-wider border-b border-gray-800">
-                  <th className="px-4 py-3">Issue Key</th>
-                  <th className="px-4 py-3">Type</th>
-                  <th className="px-4 py-3">Summary</th>
-                  <th className="px-4 py-3 text-right">Story Points</th>
-                  <th className="px-4 py-3">Labels</th>
-                  <th className="px-4 py-3">Resolved Date</th>
-                </tr>
-              </thead>
-              <tbody>
-                {jiraIssues.map(issue => (
-                  <tr key={issue.issue_key} className="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors">
-                    <td className="px-4 py-2.5 font-mono whitespace-nowrap">
-                      <a
-                        href={issue.issue_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-accent-light hover:text-accent-lighter hover:underline"
-                      >
-                        {issue.issue_key}
-                      </a>
-                    </td>
-                    <td className="px-4 py-2.5 text-gray-400 whitespace-nowrap text-xs">{issue.issue_type}</td>
-                    <td className="px-4 py-2.5 text-gray-300 max-w-[320px]">
-                      <div className="truncate" title={issue.summary}>{issue.summary}</div>
-                    </td>
-                    <td className="px-4 py-2.5 text-right text-gray-300 font-mono">
-                      {issue.story_points != null ? Number(issue.story_points) : '—'}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <div className="flex flex-wrap gap-1">
-                        {issue.labels.map(label => (
-                          <span key={label} className="px-1.5 py-0.5 bg-gray-800 text-gray-400 text-xs rounded">
-                            {label}
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap text-xs">
-                      {issue.resolved_at ? new Date(issue.resolved_at).toLocaleDateString() : '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
       {/* Commits Table */}
       <div className="bg-gray-900 rounded-xl overflow-hidden">
         <div className="px-5 py-3 border-b border-gray-800">
@@ -557,6 +498,81 @@ export default function DevDetailPage() {
           </table>
         </div>
       </div>
+
+      {/* Jira Issues Table */}
+      {jiraIssues.length > 0 && (
+        <div className="bg-gray-900 rounded-xl overflow-hidden mt-6">
+          <div className="px-5 py-3 border-b border-gray-800">
+            <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">
+              Jira Issues ({jiraIssues.length})
+            </p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-gray-500 uppercase tracking-wider border-b border-gray-800">
+                  <th className="px-4 py-3">Issue Key</th>
+                  <th className="px-4 py-3">Type</th>
+                  <th className="px-4 py-3">Summary</th>
+                  <th className="px-4 py-3 text-right">Story Points</th>
+                  <th className="px-4 py-3">Labels</th>
+                  <th className="px-4 py-3">Resolved Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {jiraIssues.map(issue => {
+                  const isExpanded = expandedIssueKey === issue.issue_key;
+                  return (
+                    <tr
+                      key={issue.issue_key}
+                      className="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors cursor-pointer"
+                      onClick={() => setExpandedIssueKey(isExpanded ? null : issue.issue_key)}
+                    >
+                      <td className="px-4 py-2.5 font-mono whitespace-nowrap">
+                        <a
+                          href={issue.issue_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-accent-light hover:text-accent-lighter hover:underline"
+                          onClick={e => e.stopPropagation()}
+                        >
+                          {issue.issue_key}
+                        </a>
+                      </td>
+                      <td className="px-4 py-2.5 text-gray-400 whitespace-nowrap text-xs">{issue.issue_type}</td>
+                      <td className="px-4 py-2.5 text-gray-300 max-w-[320px]">
+                        {isExpanded ? (
+                          <div className="whitespace-normal">{issue.summary}</div>
+                        ) : (
+                          <div className="truncate" title={issue.summary}>{issue.summary}</div>
+                        )}
+                        {isExpanded && issue.description && (
+                          <p className="text-xs text-gray-500 mt-1 whitespace-normal">{issue.description}</p>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-right text-gray-300 font-mono">
+                        {issue.story_points != null ? Number(issue.story_points) : '—'}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <div className="flex flex-wrap gap-1">
+                          {issue.labels.map(label => (
+                            <span key={label} className="px-1.5 py-0.5 bg-gray-800 text-gray-400 text-xs rounded">
+                              {label}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap text-xs">
+                        {issue.resolved_at ? new Date(issue.resolved_at).toLocaleDateString() : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
