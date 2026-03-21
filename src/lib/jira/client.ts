@@ -43,11 +43,15 @@ export class JiraClient {
   private api: JiraApi;
   private host: string;
   private protocol: string;
+  private apiVersion: string;
+  private authHeader: string;
 
   constructor(host: string, username: string, apiToken: string, apiVersion = '3') {
     const isHttps = !host.includes('localhost') && !host.startsWith('http://');
     this.protocol = isHttps ? 'https' : 'http';
     this.host = host.replace(/^https?:\/\//, '');
+    this.apiVersion = apiVersion;
+    this.authHeader = 'Basic ' + Buffer.from(`${username}:${apiToken}`).toString('base64');
 
     this.api = new JiraApi({
       protocol: this.protocol,
@@ -76,6 +80,33 @@ export class JiraClient {
     return match || null;
   }
 
+  /**
+   * Call the new /rest/api/{version}/search/jql endpoint directly.
+   * The old /rest/api/3/search was removed by Atlassian in 2025.
+   */
+  private async searchJql(
+    jql: string,
+    fields: string[],
+    startAt: number,
+    maxResults: number,
+  ): Promise<{ total: number; issues: Array<{ key: string; fields: Record<string, any> }> }> {
+    const url = `${this.protocol}://${this.host}/rest/api/${this.apiVersion}/search/jql`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': this.authHeader,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify({ jql, fields, startAt, maxResults }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Jira search failed (${res.status}): ${text}`);
+    }
+    return res.json();
+  }
+
   async searchDoneIssues(
     accountId: string,
     periodDays: number,
@@ -92,7 +123,8 @@ export class JiraClient {
     const maxResults = 50;
 
     while (true) {
-      const result = await this.api.searchJira(jql, { startAt, maxResults, fields });
+      // Use new /search/jql endpoint (Atlassian removed /search in 2025)
+      const result = await this.searchJql(jql, fields, startAt, maxResults);
 
       for (const issue of result.issues) {
         const f = issue.fields;
