@@ -138,12 +138,14 @@ export default function DevDetailPage() {
   const rank = allDevs.findIndex(d => d.github_login === dev.github_login) + 1;
 
   // Percentile data
+  const hasJiraData = allDevs.some(d => (d.total_jira_issues ?? 0) > 0);
   const metrics = [
     { label: 'Commits', value: dev.total_commits, values: allDevs.map(d => d.total_commits), higherIsBetter: true },
     { label: 'PRs', value: dev.total_prs, values: allDevs.map(d => d.total_prs), higherIsBetter: true },
     { label: 'Lines Changed', value: dev.lines_added + dev.lines_removed, values: allDevs.map(d => d.lines_added + d.lines_removed), higherIsBetter: true },
     { label: 'Complexity', value: Number(dev.avg_complexity), values: allDevs.map(d => Number(d.avg_complexity)), higherIsBetter: true },
     { label: 'PR %', value: dev.pr_percentage, values: allDevs.map(d => d.pr_percentage), higherIsBetter: true },
+    ...(hasJiraData ? [{ label: 'Jira Issues', value: dev.total_jira_issues, values: allDevs.map(d => d.total_jira_issues ?? 0), higherIsBetter: true }] : []),
     { label: 'Impact', value: Number(dev.impact_score), values: allDevs.map(d => Number(d.impact_score)), higherIsBetter: true },
   ];
 
