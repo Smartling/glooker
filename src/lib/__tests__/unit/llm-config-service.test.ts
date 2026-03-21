@@ -5,7 +5,7 @@ jest.mock('@/lib/llm-provider', () => ({
   extraBodyProps: jest.fn().mockReturnValue({}),
 }));
 
-import { getAppConfig, testLLMConnection } from '@/lib/llm-config/service';
+import { getAppConfig, testLLMConnection } from '@/lib/app-config/service';
 import { getLLMClient, extraBodyProps } from '@/lib/llm-provider';
 
 const mockGetLLMClient = getLLMClient as jest.Mock;

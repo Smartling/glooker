@@ -1,6 +1,6 @@
 import { getLLMClient, LLM_MODEL, extraBodyProps } from '@/lib/llm-provider';
 import { loadPrompt } from '@/lib/prompt-loader';
-import { getAppConfig } from '@/lib/llm-config/service';
+import { getAppConfig } from '@/lib/app-config/service';
 import { TOOL_DEFINITIONS, executeTool } from './tools';
 
 // Build a text description of available tools for the system prompt

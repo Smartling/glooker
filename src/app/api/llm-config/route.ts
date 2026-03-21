@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getAppConfig, testLLMConnection } from '@/lib/llm-config/service';
+import { getAppConfig, testLLMConnection } from '@/lib/app-config/service';
 
 export async function GET() {
   return NextResponse.json(getAppConfig());

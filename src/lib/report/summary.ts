@@ -1,7 +1,7 @@
 import db from '@/lib/db';
 import { getLLMClient, LLM_MODEL, extraBodyProps } from '@/lib/llm-provider';
 import { loadPrompt } from '@/lib/prompt-loader';
-import { getAppConfig } from '@/lib/llm-config/service';
+import { getAppConfig } from '@/lib/app-config/service';
 import { ReportNotFoundError } from './service';
 import { DeveloperNotFoundError } from './dev';
 import { dedupCommitsBySha } from './timeline';

@@ -1,6 +1,6 @@
 import { getLLMClient, LLM_MODEL, extraBodyProps } from './llm-provider';
 import { loadPrompt } from './prompt-loader';
-import { getAppConfig } from './llm-config/service';
+import { getAppConfig } from './app-config/service';
 import type { CommitData } from './github';
 
 export interface CommitAnalysis {

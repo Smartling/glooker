@@ -1,7 +1,7 @@
 import db from '../db/index';
 import { getLLMClient, LLM_MODEL, extraBodyProps } from '../llm-provider';
 import { loadPrompt } from '../prompt-loader';
-import { getAppConfig } from '../llm-config/service';
+import { getAppConfig } from '../app-config/service';
 
 export async function getReportHighlights() {
   // 1. Find the latest completed report
