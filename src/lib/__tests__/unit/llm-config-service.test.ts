@@ -272,4 +272,39 @@ describe('testLLMConnection', () => {
     expect(result.success).toBe(false);
     expect(result.error).toBe('timeout');
   });
+
+  describe('prompt and settings snapshots', () => {
+    it('sends exact system prompt and user message', async () => {
+      const mockCreate = jest.fn().mockResolvedValue({
+        choices: [{ message: { content: 'OK' } }],
+        model: 'gpt-4o',
+      });
+      mockGetLLMClient.mockResolvedValue({
+        chat: { completions: { create: mockCreate } },
+      });
+
+      await testLLMConnection();
+
+      const callArgs = mockCreate.mock.calls[0][0];
+      expect(callArgs.messages[0]).toEqual({ role: 'system', content: 'Reply with exactly: OK' });
+      expect(callArgs.messages[1]).toEqual({ role: 'user', content: 'Test connection' });
+    });
+
+    it('passes correct LLM settings', async () => {
+      const mockCreate = jest.fn().mockResolvedValue({
+        choices: [{ message: { content: 'OK' } }],
+        model: 'gpt-4o',
+      });
+      mockGetLLMClient.mockResolvedValue({
+        chat: { completions: { create: mockCreate } },
+      });
+
+      await testLLMConnection();
+
+      const callArgs = mockCreate.mock.calls[0][0];
+      expect(callArgs.temperature).toBe(0);
+      expect(callArgs.max_tokens).toBe(32);
+      expect(callArgs.model).toBe('gpt-4o');
+    });
+  });
 });
