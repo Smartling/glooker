@@ -123,7 +123,7 @@ export class JiraClient {
     const jql = buildDoneIssuesJql(accountId, periodDays, projects);
     const fields = [
       'summary', 'description', 'status', 'issuetype', 'labels',
-      'customfield_10016', 'timeoriginalestimate', 'created', 'resolutiondate',
+      'story_points', 'customfield_10016', 'timeoriginalestimate', 'created', 'resolutiondate',
     ];
 
     const allIssues: JiraIssueData[] = [];
@@ -145,7 +145,8 @@ export class JiraClient {
             : (f.description?.content ? extractAdfText(f.description).slice(0, 2000) : null),
           status: f.status?.name || null,
           labels: f.labels || [],
-          storyPoints: f.customfield_10016 != null ? Number(f.customfield_10016) : null,
+          storyPoints: f.story_points != null ? Number(f.story_points)
+            : f.customfield_10016 != null ? Number(f.customfield_10016) : null,
           originalEstimateSeconds: f.timeoriginalestimate || null,
           issueUrl: `${this.protocol}://${this.host}/browse/${issue.key}`,
           createdAt: f.created || null,
