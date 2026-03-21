@@ -2,8 +2,10 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { useTheme } from '../theme-context';
+import { THEMES } from '../themes';
 
-type Tab = 'schedules' | 'teams' | 'llm';
+type Tab = 'schedules' | 'teams' | 'llm' | 'appearance';
 
 const CADENCE_PRESETS = [
   { label: 'Every hour',           cron: '0 * * * *' },
@@ -49,7 +51,7 @@ export default function SettingsPage() {
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-4">
           <span
-            className="text-2xl font-bold text-white cursor-pointer hover:text-blue-400 transition-colors"
+            className="text-2xl font-bold text-white cursor-pointer hover:text-accent-light transition-colors"
             onClick={() => router.push('/')}
           >
             Glooker
@@ -65,13 +67,14 @@ export default function SettingsPage() {
           { id: 'schedules' as Tab, label: 'Schedules', icon: '🕐' },
           { id: 'teams' as Tab, label: 'Teams', icon: '👥' },
           { id: 'llm' as Tab, label: 'LLM Settings', icon: '🤖' },
+          { id: 'appearance' as Tab, label: 'Appearance', icon: '🎨' },
         ]).map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
             className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
               activeTab === tab.id
-                ? 'text-white border-blue-500'
+                ? 'text-white border-accent'
                 : 'text-gray-500 border-transparent hover:text-gray-300 hover:border-gray-700'
             }`}
           >
@@ -85,6 +88,7 @@ export default function SettingsPage() {
       {activeTab === 'schedules' && <SchedulesTab />}
       {activeTab === 'teams' && selectedOrg && <TeamsTab org={selectedOrg} />}
       {activeTab === 'llm' && <LlmSettingsTab />}
+      {activeTab === 'appearance' && <AppearanceTab />}
     </div>
   );
 }
@@ -193,7 +197,7 @@ function SchedulesTab() {
     <div>
       <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-gray-400">Scheduled report generation for your organizations.</p>
-        <button onClick={openNew} className="px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors">
+        <button onClick={openNew} className="px-3 py-1.5 text-xs font-medium bg-accent hover:bg-accent-dark text-white rounded-lg transition-colors">
           + New Schedule
         </button>
       </div>
@@ -246,7 +250,7 @@ function SchedulesTab() {
                             <span className={
                               s.last_report_status === 'completed' ? ' text-green-500' :
                               s.last_report_status === 'failed' ? ' text-red-400' :
-                              s.last_report_status === 'running' ? ' text-blue-400' : ''
+                              s.last_report_status === 'running' ? ' text-accent-light' : ''
                             }> ({s.last_report_status})</span>
                           )}
                         </>
@@ -296,14 +300,14 @@ function SchedulesTab() {
               <div>
                 <label className="block text-xs text-gray-400 mb-1 font-medium">Org</label>
                 <select value={formOrg} onChange={e => setFormOrg(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500">
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent">
                   {orgs.map(o => <option key={o.login} value={o.login}>{o.login}</option>)}
                 </select>
               </div>
               <div>
                 <label className="block text-xs text-gray-400 mb-1 font-medium">Period</label>
                 <select value={formPeriod} onChange={e => setFormPeriod(Number(e.target.value))}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500">
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent">
                   {[3, 14, 30, 90].map(d => <option key={d} value={d}>{d} days</option>)}
                 </select>
               </div>
@@ -315,20 +319,20 @@ function SchedulesTab() {
                     if (e.target.value === '__custom__') { setIsCustomCron(true); setFormCadence(''); }
                     else { setIsCustomCron(false); setFormCadence(e.target.value); setFormCustomCron(''); }
                   }}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500">
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent">
                   {CADENCE_PRESETS.map(p => <option key={p.cron} value={p.cron}>{p.label}</option>)}
                   <option value="__custom__">Custom cron expression</option>
                 </select>
                 {isCustomCron && (
                   <input type="text" value={formCustomCron} onChange={e => setFormCustomCron(e.target.value)}
                     placeholder="e.g. 0 9 * * 1-5"
-                    className="w-full mt-2 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-blue-500" />
+                    className="w-full mt-2 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-accent" />
                 )}
               </div>
               <div>
                 <label className="block text-xs text-gray-400 mb-1 font-medium">Timezone</label>
                 <select value={formTz} onChange={e => setFormTz(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500">
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent">
                   {TIMEZONES.map(tz => <option key={tz} value={tz}>{tz}</option>)}
                 </select>
               </div>
@@ -344,7 +348,7 @@ function SchedulesTab() {
               </label>
             </div>
             <div className="flex gap-3 mt-4">
-              <button onClick={save} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors">
+              <button onClick={save} className="px-4 py-2 bg-accent hover:bg-accent-dark text-white rounded-lg text-sm font-medium transition-colors">
                 {editing ? 'Update' : 'Create'} Schedule
               </button>
               {editing && deletingId !== editing.id && (
@@ -508,7 +512,7 @@ function TeamsTab({ org }: { org: string }) {
     <div>
       <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-gray-400">Group developers into teams for aggregated analytics and filtering.</p>
-        <button onClick={openNew} className="px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors">
+        <button onClick={openNew} className="px-3 py-1.5 text-xs font-medium bg-accent hover:bg-accent-dark text-white rounded-lg transition-colors">
           + New Team
         </button>
       </div>
@@ -527,7 +531,7 @@ function TeamsTab({ org }: { org: string }) {
         ) : (
           <div
             key={team.id}
-            className={`bg-gray-900 rounded-xl p-5 border-t-2 transition-all ${dragOverTeamId === team.id ? 'ring-2 ring-blue-500/50 bg-gray-800' : ''}`}
+            className={`bg-gray-900 rounded-xl p-5 border-t-2 transition-all ${dragOverTeamId === team.id ? 'ring-2 ring-accent/50 bg-gray-800' : ''}`}
             style={{ borderTopColor: team.color }}
             onDragOver={e => { e.preventDefault(); setDragOverTeamId(team.id); }}
             onDragLeave={() => setDragOverTeamId(null)}
@@ -627,7 +631,7 @@ function TeamsTab({ org }: { org: string }) {
               <label className="block text-xs text-gray-400 mb-1 font-medium">Team Name</label>
               <input type="text" value={formName} onChange={e => setFormName(e.target.value)}
                 placeholder="e.g. Platform, Frontend, Data"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent" />
             </div>
 
             {/* Color */}
@@ -645,14 +649,14 @@ function TeamsTab({ org }: { org: string }) {
             {/* Members */}
             <div className="mb-4">
               <label className="block text-xs text-gray-400 mb-1 font-medium">Members</label>
-              <div className="flex items-center gap-2 flex-wrap bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 focus-within:border-blue-500 transition-colors">
+              <div className="flex items-center gap-2 flex-wrap bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 focus-within:border-accent transition-colors">
                 {formMembers.map(login => {
                   const d = devMap.get(login);
                   return (
-                    <span key={login} className="inline-flex items-center gap-1.5 bg-blue-600/20 text-blue-300 text-xs font-medium px-2 py-1 rounded-lg border border-blue-500/30">
+                    <span key={login} className="inline-flex items-center gap-1.5 bg-accent/20 text-accent-lighter text-xs font-medium px-2 py-1 rounded-lg border border-accent/30">
                       {d?.avatar_url && <img src={d.avatar_url} alt="" className="w-4 h-4 rounded-full" />}
                       {d?.github_name || login}
-                      <button onClick={() => setFormMembers(formMembers.filter(m => m !== login))} className="text-blue-400 hover:text-white ml-0.5">&times;</button>
+                      <button onClick={() => setFormMembers(formMembers.filter(m => m !== login))} className="text-accent-light hover:text-white ml-0.5">&times;</button>
                     </span>
                   );
                 })}
@@ -735,7 +739,7 @@ function TeamsTab({ org }: { org: string }) {
             {/* Actions */}
             <div className="flex gap-3">
               <button onClick={save} disabled={!formName.trim()}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors">
+                className="px-4 py-2 bg-accent hover:bg-accent-dark disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors">
                 {editingTeam ? 'Update' : 'Create'} Team
               </button>
               {editingTeam && deletingId !== editingTeam.id && (
@@ -848,7 +852,7 @@ function LlmSettingsTab() {
           <button
             onClick={testConnection}
             disabled={testing || !config.ready}
-            className="px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg transition-colors flex items-center gap-2"
+            className="px-3 py-1.5 text-xs font-medium bg-accent hover:bg-accent-dark disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg transition-colors flex items-center gap-2"
           >
             {testing && (
               <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -897,7 +901,7 @@ function LlmSettingsTab() {
           </pre>
           {info.docs && (
             <p className="text-xs text-gray-500 mt-3">
-              Get your API key: <a href={info.docs} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">{info.docs}</a>
+              Get your API key: <a href={info.docs} target="_blank" rel="noopener noreferrer" className="text-accent-light hover:text-accent-lighter">{info.docs}</a>
             </p>
           )}
         </div>
@@ -914,6 +918,54 @@ function ConfigRow({ label, value, status }: { label: string; value: string; sta
         <p className="text-sm text-white font-mono">{value}</p>
         {status === 'ok' && <span className="w-1.5 h-1.5 rounded-full bg-green-400" />}
         {status === 'missing' && <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />}
+      </div>
+    </div>
+  );
+}
+
+/* ── Appearance Tab ── */
+function AppearanceTab() {
+  const { theme, setThemeId } = useTheme();
+
+  return (
+    <div>
+      <p className="text-sm text-gray-400 mb-6">Choose your accent color scheme. Changes apply instantly.</p>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        {THEMES.map(t => (
+          <button
+            key={t.id}
+            onClick={() => setThemeId(t.id)}
+            className={`bg-gray-900 rounded-xl p-5 text-left border-2 transition-all hover:-translate-y-0.5 ${
+              theme.id === t.id ? 'border-white/30 ring-1 ring-white/10' : 'border-transparent hover:border-gray-800'
+            }`}
+          >
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-8 h-8 rounded-lg" style={{ background: t.accent }} />
+              <div>
+                <p className="text-sm font-bold text-white">{t.name}</p>
+                {theme.id === t.id && <p className="text-[10px] text-gray-500">Active</p>}
+              </div>
+            </div>
+            {/* Color swatches */}
+            <div className="flex gap-1.5">
+              {[t.accentDarker, t.accentDark, t.accent, t.accentLight, t.accentLighter].map((hex, i) => (
+                <div key={i} className="w-6 h-6 rounded" style={{ background: hex }} />
+              ))}
+            </div>
+            {/* Mini preview */}
+            <div className="mt-3 rounded-lg p-3" style={{ background: t.bodyBg }}>
+              <div className="flex items-center gap-2 mb-2">
+                <div className="h-1.5 w-12 rounded-full" style={{ background: t.accentLight }} />
+                <div className="h-1.5 w-8 rounded-full bg-gray-700" />
+              </div>
+              <div className="flex gap-1.5">
+                <div className="h-6 flex-1 rounded" style={{ background: `color-mix(in srgb, ${t.accent} 20%, transparent)` }} />
+                <div className="h-6 flex-1 rounded bg-gray-800" />
+                <div className="h-6 flex-1 rounded bg-gray-800" />
+              </div>
+            </div>
+          </button>
+        ))}
       </div>
     </div>
   );

@@ -112,7 +112,7 @@ export default function OrgDetailPage() {
           </svg>
           Back to report
         </button>
-        <span className="text-xl font-bold text-white cursor-pointer hover:text-blue-400 transition-colors" onClick={() => router.push('/')}>Glooker</span>
+        <span className="text-xl font-bold text-white cursor-pointer hover:text-accent-light transition-colors" onClick={() => router.push('/')}>Glooker</span>
       </div>
 
       {/* Header */}
@@ -159,7 +159,7 @@ export default function OrgDetailPage() {
               <div key={repo} className="flex items-center gap-3">
                 <span className="text-sm text-gray-300 truncate min-w-0 flex-1">{repo}</span>
                 <div className="w-24 h-1.5 bg-gray-800 rounded-full overflow-hidden shrink-0">
-                  <div className="h-full bg-blue-500 rounded-full" style={{ width: `${(devCount / maxRepoDevs) * 100}%` }} />
+                  <div className="h-full bg-accent-light rounded-full" style={{ width: `${(devCount / maxRepoDevs) * 100}%` }} />
                 </div>
                 <span className="text-xs text-gray-600 w-8 text-right shrink-0">{devCount}</span>
               </div>
@@ -210,7 +210,7 @@ export default function OrgDetailPage() {
               const complexity = Number(dev.avg_complexity) || 0;
               const complexColor = complexity >= 7 ? 'text-red-400' : complexity >= 4 ? 'text-yellow-400' : 'text-green-400';
               const impact = Number(dev.impact_score) || 0;
-              const impactColor = impact >= 7 ? 'bg-blue-500' : impact >= 4 ? 'bg-blue-700' : 'bg-gray-700';
+              const impactColor = impact >= 7 ? 'bg-accent-light' : impact >= 4 ? 'bg-accent-dark' : 'bg-gray-700';
               const prColor = dev.pr_percentage >= 80 ? 'text-green-400' : dev.pr_percentage >= 50 ? 'text-yellow-400' : 'text-red-400';
 
               return (
