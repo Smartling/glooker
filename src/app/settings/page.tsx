@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useTheme } from '../theme-context';
 import { THEMES } from '../themes';
 
-type Tab = 'schedules' | 'teams' | 'llm' | 'jira' | 'appearance';
+type Tab = 'schedules' | 'teams' | 'app' | 'appearance';
 
 const CADENCE_PRESETS = [
   { label: 'Every hour',           cron: '0 * * * *' },
@@ -33,7 +33,7 @@ function timeAgo(dateStr: string): string {
 
 export default function SettingsPage() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<Tab>('schedules');
+  const [activeTab, setActiveTab] = useState<Tab>('app');
   const [orgs, setOrgs] = useState<Array<{ login: string }>>([]);
   const [selectedOrg, setSelectedOrg] = useState('');
 
@@ -66,8 +66,7 @@ export default function SettingsPage() {
         {([
           { id: 'schedules' as Tab, label: 'Schedules', icon: '🕐' },
           { id: 'teams' as Tab, label: 'Teams', icon: '👥' },
-          { id: 'llm' as Tab, label: 'LLM Settings', icon: '🤖' },
-          { id: 'jira' as Tab, label: 'Jira', icon: '🔗' },
+          { id: 'app' as Tab, label: 'App Settings', icon: '⚙️' },
           { id: 'appearance' as Tab, label: 'Appearance', icon: '🎨' },
         ]).map(tab => (
           <button
@@ -88,8 +87,7 @@ export default function SettingsPage() {
       {/* Tab Content */}
       {activeTab === 'schedules' && <SchedulesTab />}
       {activeTab === 'teams' && selectedOrg && <TeamsTab org={selectedOrg} />}
-      {activeTab === 'llm' && <LlmSettingsTab />}
-      {activeTab === 'jira' && selectedOrg && <JiraSettingsTab org={selectedOrg} />}
+      {activeTab === 'app' && <AppSettingsTab org={selectedOrg} />}
       {activeTab === 'appearance' && <AppearanceTab />}
     </div>
   );
@@ -791,15 +789,42 @@ const PROVIDER_INFO: Record<string, { name: string; docs: string; envVars: strin
   },
 };
 
-function LlmSettingsTab() {
+function AppSettingsTab({ org }: { org: string }) {
   const [config, setConfig] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<any>(null);
 
+  // Jira state
+  const [jiraTesting, setJiraTesting] = useState(false);
+  const [jiraTestResult, setJiraTestResult] = useState<{ success: boolean; error?: string; user?: { displayName: string; emailAddress: string } } | null>(null);
+  const [mappings, setMappings] = useState<any[]>([]);
+  const [loadingMappings, setLoadingMappings] = useState(false);
+  const [emailEdits, setEmailEdits] = useState<Record<string, string>>({});
+  const [savingRow, setSavingRow] = useState<Record<string, boolean>>({});
+  const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
+
   useEffect(() => {
     fetch('/api/llm-config').then(r => r.json()).then(setConfig).catch(() => {}).finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!config?.jira?.enabled || !org) return;
+    setLoadingMappings(true);
+    fetch(`/api/settings/user-mappings?org=${encodeURIComponent(org)}`)
+      .then(r => r.json())
+      .then(data => {
+        setMappings(Array.isArray(data) ? data : []);
+        const initial: Record<string, string> = {};
+        (Array.isArray(data) ? data : []).forEach((m: any) => {
+          initial[m.github_login] = m.jira_email || '';
+        });
+        setEmailEdits(initial);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingMappings(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [org, config?.jira?.enabled]);
 
   async function testConnection() {
     setTesting(true);
@@ -814,6 +839,44 @@ function LlmSettingsTab() {
     setTesting(false);
   }
 
+  async function testJiraConnection() {
+    setJiraTesting(true);
+    setJiraTestResult(null);
+    try {
+      const res = await fetch('/api/settings/jira/test-connection', { method: 'POST' });
+      const data = await res.json();
+      setJiraTestResult(data);
+    } catch {
+      setJiraTestResult({ success: false, error: 'Network error' });
+    }
+    setJiraTesting(false);
+  }
+
+  async function saveMapping(login: string) {
+    setSavingRow(prev => ({ ...prev, [login]: true }));
+    setRowErrors(prev => ({ ...prev, [login]: '' }));
+    try {
+      const res = await fetch('/api/settings/user-mappings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ org, github_login: login, jira_email: emailEdits[login] || '' }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setRowErrors(prev => ({ ...prev, [login]: data.error || 'Save failed' }));
+      } else {
+        setMappings(prev => prev.map(m =>
+          m.github_login === login
+            ? { ...m, jira_email: emailEdits[login] || null, jira_account_id: data.jira_account_id || null }
+            : m,
+        ));
+      }
+    } catch {
+      setRowErrors(prev => ({ ...prev, [login]: 'Network error' }));
+    }
+    setSavingRow(prev => ({ ...prev, [login]: false }));
+  }
+
   if (loading) return <div className="text-gray-500 text-sm py-8">Loading configuration...</div>;
   if (!config) return <div className="text-red-400 text-sm py-8">Failed to load configuration.</div>;
 
@@ -821,7 +884,7 @@ function LlmSettingsTab() {
 
   return (
     <div>
-      <p className="text-sm text-gray-400 mb-6">Current LLM configuration (read-only). Edit <code className="text-xs bg-gray-800 px-1.5 py-0.5 rounded">.env.local</code> to change settings.</p>
+      <p className="text-sm text-gray-400 mb-6">Current app configuration (read-only). Edit <code className="text-xs bg-gray-800 px-1.5 py-0.5 rounded">.env.local</code> to change settings.</p>
 
       {/* Status */}
       <div className={`rounded-xl p-4 mb-6 flex items-center gap-3 ${config.ready ? 'bg-green-500/10 border border-green-500/20' : 'bg-amber-500/10 border border-amber-500/20'}`}>
@@ -961,182 +1024,63 @@ function LlmSettingsTab() {
           )}
         </div>
       )}
-    </div>
-  );
-}
 
-function ConfigRow({ label, value, status }: { label: string; value: string; status?: 'ok' | 'missing' }) {
-  return (
-    <div>
-      <p className="text-xs text-gray-500 mb-0.5">{label}</p>
-      <div className="flex items-center gap-2">
-        <p className="text-sm text-white font-mono">{value}</p>
-        {status === 'ok' && <span className="w-1.5 h-1.5 rounded-full bg-green-400" />}
-        {status === 'missing' && <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />}
-      </div>
-    </div>
-  );
-}
+      {/* Jira Configuration */}
+      <div className="bg-gray-900 rounded-xl p-5 mb-6 mt-6">
+        <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-3">Jira Integration</p>
 
-/* ── Jira Settings Tab ── */
-function JiraSettingsTab({ org }: { org: string }) {
-  const [config, setConfig] = useState<any>(null);
-  const [loadingConfig, setLoadingConfig] = useState(true);
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; error?: string; user?: { displayName: string; emailAddress: string } } | null>(null);
-
-  const [mappings, setMappings] = useState<any[]>([]);
-  const [loadingMappings, setLoadingMappings] = useState(true);
-  const [emailEdits, setEmailEdits] = useState<Record<string, string>>({});
-  const [savingRow, setSavingRow] = useState<Record<string, boolean>>({});
-  const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
-
-  useEffect(() => {
-    fetch('/api/llm-config')
-      .then(r => r.json())
-      .then(data => setConfig(data))
-      .catch(() => {})
-      .finally(() => setLoadingConfig(false));
-  }, []);
-
-  useEffect(() => {
-    if (!config?.jira?.enabled) { setLoadingMappings(false); return; }
-    setLoadingMappings(true);
-    fetch(`/api/settings/user-mappings?org=${encodeURIComponent(org)}`)
-      .then(r => r.json())
-      .then(data => {
-        setMappings(Array.isArray(data) ? data : []);
-        const initial: Record<string, string> = {};
-        (Array.isArray(data) ? data : []).forEach((m: any) => {
-          initial[m.github_login] = m.jira_email || '';
-        });
-        setEmailEdits(initial);
-      })
-      .catch(() => {})
-      .finally(() => setLoadingMappings(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [org, config?.jira?.enabled]);
-
-  async function testConnection() {
-    setTesting(true);
-    setTestResult(null);
-    try {
-      const res = await fetch('/api/settings/jira/test-connection', { method: 'POST' });
-      const data = await res.json();
-      setTestResult(data);
-    } catch {
-      setTestResult({ success: false, error: 'Network error' });
-    }
-    setTesting(false);
-  }
-
-  async function saveMapping(login: string) {
-    setSavingRow(prev => ({ ...prev, [login]: true }));
-    setRowErrors(prev => ({ ...prev, [login]: '' }));
-    try {
-      const res = await fetch('/api/settings/user-mappings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ org, github_login: login, jira_email: emailEdits[login] || '' }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setRowErrors(prev => ({ ...prev, [login]: data.error || 'Save failed' }));
-      } else {
-        setMappings(prev => prev.map(m =>
-          m.github_login === login
-            ? { ...m, jira_email: emailEdits[login] || null, jira_account_id: data.jira_account_id || null }
-            : m,
-        ));
-      }
-    } catch {
-      setRowErrors(prev => ({ ...prev, [login]: 'Network error' }));
-    }
-    setSavingRow(prev => ({ ...prev, [login]: false }));
-  }
-
-  if (loadingConfig) return <div className="text-gray-500 text-sm py-8">Loading configuration...</div>;
-  if (!config) return <div className="text-red-400 text-sm py-8">Failed to load configuration.</div>;
-
-  const jira = config.jira || {};
-
-  return (
-    <div>
-      {/* Section A: Jira Configuration */}
-      <div className="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-6">
-        <h2 className="text-lg font-semibold text-white mb-4">Jira Configuration</h2>
-
-        <div className="grid grid-cols-2 gap-x-8 gap-y-4 mb-6">
+        <div className="grid grid-cols-3 gap-4 mb-4">
           <div>
-            <p className="text-xs text-gray-400 mb-0.5">Enabled</p>
-            <p className={`text-sm font-mono ${jira.enabled ? 'text-green-400' : 'text-gray-400'}`}>
-              {jira.enabled ? 'Yes' : 'No'}
+            <p className="text-xs text-gray-500 mb-0.5">Enabled</p>
+            <p className={`text-sm font-mono ${config.jira?.enabled ? 'text-green-400' : 'text-gray-400'}`}>
+              {config.jira?.enabled ? 'Yes' : 'No'}
             </p>
           </div>
-          {jira.enabled && (
+          {config.jira?.enabled && (
             <>
-              <div>
-                <p className="text-xs text-gray-400 mb-0.5">Host</p>
-                <p className="text-sm text-white font-mono">{jira.host || '(not set)'}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-400 mb-0.5">Username</p>
-                <p className="text-sm text-white font-mono">{jira.username || '(not set)'}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-400 mb-0.5">API Token</p>
-                <p className="text-sm text-white font-mono">{jira.hasApiToken ? '••••••••' : '(not set)'}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-400 mb-0.5">API Version</p>
-                <p className="text-sm text-white font-mono">{jira.apiVersion || '3'}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-400 mb-0.5">Projects</p>
-                <p className="text-sm text-white font-mono">
-                  {jira.projects && jira.projects.length > 0 ? jira.projects.join(', ') : '(all)'}
-                </p>
-              </div>
+              <ConfigRow label="Host" value={config.jira.host || '(not set)'} />
+              <ConfigRow label="Username" value={config.jira.username || '(not set)'} />
+              <ConfigRow label="API Token" value={config.jira.hasApiToken ? '••••••••' : '(not set)'} />
+              <ConfigRow label="API Version" value={config.jira.apiVersion || '3'} />
+              <ConfigRow label="Projects" value={config.jira.projects?.length > 0 ? config.jira.projects.join(', ') : '(all)'} />
             </>
           )}
         </div>
 
-        {jira.enabled && (
-          <div>
-            <div className="flex items-center gap-3 mb-3">
-              <button
-                onClick={testConnection}
-                disabled={testing}
-                className="px-3 py-1.5 text-sm bg-accent hover:bg-accent-light disabled:bg-gray-700 disabled:text-gray-500 text-white rounded transition-colors flex items-center gap-2"
-              >
-                {testing && (
-                  <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                )}
-                {testing ? 'Testing...' : 'Test Connection'}
-              </button>
-              {testResult && (
-                <span className={`text-sm ${testResult.success ? 'text-green-400' : 'text-red-400'}`}>
-                  {testResult.success
-                    ? `Connected as ${testResult.user?.displayName || testResult.user?.emailAddress || 'unknown'}`
-                    : testResult.error || 'Connection failed'}
-                </span>
+        {config.jira?.enabled && (
+          <div className="flex items-center gap-3 mb-3">
+            <button
+              onClick={testJiraConnection}
+              disabled={jiraTesting}
+              className="px-3 py-1.5 text-xs font-medium bg-accent hover:bg-accent-dark disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg transition-colors flex items-center gap-2"
+            >
+              {jiraTesting && (
+                <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
               )}
-            </div>
+              {jiraTesting ? 'Testing...' : 'Test Connection'}
+            </button>
+            {jiraTestResult && (
+              <span className={`text-sm ${jiraTestResult.success ? 'text-green-400' : 'text-red-400'}`}>
+                {jiraTestResult.success
+                  ? `Connected as ${jiraTestResult.user?.displayName || jiraTestResult.user?.emailAddress || 'unknown'}`
+                  : jiraTestResult.error || 'Connection failed'}
+              </span>
+            )}
           </div>
         )}
 
-        <p className="text-xs text-gray-600 mt-2">
-          Configure via environment variables: JIRA_ENABLED, JIRA_HOST, JIRA_USERNAME, JIRA_API_TOKEN, JIRA_API_VERSION, JIRA_PROJECTS
+        <p className="text-xs text-gray-600">
+          Configure via environment variables: JIRA_ENABLED, JIRA_HOST, JIRA_USERNAME, JIRA_API_TOKEN
         </p>
       </div>
 
-      {/* Section B: User Mappings */}
-      {jira.enabled && (
-        <div className="bg-gray-900 border border-gray-800 rounded-lg p-6">
-          <h2 className="text-lg font-semibold text-white mb-4">User Mappings</h2>
+      {/* Jira User Mappings */}
+      {config.jira?.enabled && org && (
+        <div className="bg-gray-900 rounded-xl p-5 mb-6">
+          <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-3">Jira User Mappings</p>
           <p className="text-sm text-gray-400 mb-4">Map GitHub users to their Jira email addresses for issue attribution.</p>
 
           {loadingMappings ? (
@@ -1213,6 +1157,20 @@ function JiraSettingsTab({ org }: { org: string }) {
     </div>
   );
 }
+
+function ConfigRow({ label, value, status }: { label: string; value: string; status?: 'ok' | 'missing' }) {
+  return (
+    <div>
+      <p className="text-xs text-gray-500 mb-0.5">{label}</p>
+      <div className="flex items-center gap-2">
+        <p className="text-sm text-white font-mono">{value}</p>
+        {status === 'ok' && <span className="w-1.5 h-1.5 rounded-full bg-green-400" />}
+        {status === 'missing' && <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />}
+      </div>
+    </div>
+  );
+}
+
 
 /* ── Appearance Tab ── */
 function AppearanceTab() {
