@@ -1,5 +1,3 @@
-import JiraApi from 'jira-client';
-
 export interface JiraUser {
   accountId: string;
   displayName: string;
@@ -40,7 +38,6 @@ export function buildDoneIssuesJql(
 }
 
 export class JiraClient {
-  private api: JiraApi;
   private host: string;
   private protocol: string;
   private apiVersion: string;
@@ -52,27 +49,41 @@ export class JiraClient {
     this.host = host.replace(/^https?:\/\//, '');
     this.apiVersion = apiVersion;
     this.authHeader = 'Basic ' + Buffer.from(`${username}:${apiToken}`).toString('base64');
+  }
 
-    this.api = new JiraApi({
-      protocol: this.protocol,
-      host: this.host,
-      username,
-      password: apiToken,
-      apiVersion,
-      strictSSL: isHttps,
+  private get baseUrl(): string {
+    return `${this.protocol}://${this.host}/rest/api/${this.apiVersion}`;
+  }
+
+  private async jiraFetch<T>(path: string, options?: RequestInit): Promise<T> {
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      ...options,
+      headers: {
+        'Authorization': this.authHeader,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        ...options?.headers,
+      },
     });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Jira API error (${res.status}): ${text}`);
+    }
+    return res.json();
   }
 
   async testConnection(): Promise<JiraUser> {
-    return this.api.getCurrentUser() as Promise<JiraUser>;
+    return this.jiraFetch<JiraUser>('/myself');
   }
 
   async findUserByEmail(email: string): Promise<JiraUser | null> {
-    const results = await this.api.searchUsers({ query: email, maxResults: 10 });
-    const match = results.find(
-      (u: JiraUser) => u.emailAddress?.toLowerCase() === email.toLowerCase() && u.active,
+    const results = await this.jiraFetch<JiraUser[]>(
+      `/user/search?query=${encodeURIComponent(email)}&maxResults=10`,
     );
-    if (!match && results.length > 0 && results.every((u: JiraUser) => !u.emailAddress)) {
+    const match = results.find(
+      (u) => u.emailAddress?.toLowerCase() === email.toLowerCase() && u.active,
+    );
+    if (!match && results.length > 0 && results.every((u) => !u.emailAddress)) {
       console.warn(
         `[jira] User search for "${email}" returned ${results.length} results but none have emailAddress — email visibility may be restricted`,
       );
@@ -80,34 +91,18 @@ export class JiraClient {
     return match || null;
   }
 
-  /**
-   * Call the new /rest/api/{version}/search/jql endpoint directly.
-   * The old /rest/api/3/search was removed by Atlassian in 2025.
-   * Uses nextPageToken for pagination (not startAt).
-   */
   private async searchJql(
     jql: string,
     fields: string[],
     maxResults: number,
     nextPageToken?: string,
   ): Promise<{ total: number; nextPageToken?: string; issues: Array<{ key: string; fields: Record<string, any> }> }> {
-    const url = `${this.protocol}://${this.host}/rest/api/${this.apiVersion}/search/jql`;
     const body: Record<string, any> = { jql, fields, maxResults };
     if (nextPageToken) body.nextPageToken = nextPageToken;
-    const res = await fetch(url, {
+    return this.jiraFetch('/search/jql', {
       method: 'POST',
-      headers: {
-        'Authorization': this.authHeader,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
       body: JSON.stringify(body),
     });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Jira search failed (${res.status}): ${text}`);
-    }
-    return res.json();
   }
 
   async searchDoneIssues(
