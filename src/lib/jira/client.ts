@@ -83,14 +83,17 @@ export class JiraClient {
   /**
    * Call the new /rest/api/{version}/search/jql endpoint directly.
    * The old /rest/api/3/search was removed by Atlassian in 2025.
+   * Uses nextPageToken for pagination (not startAt).
    */
   private async searchJql(
     jql: string,
     fields: string[],
-    startAt: number,
     maxResults: number,
-  ): Promise<{ total: number; issues: Array<{ key: string; fields: Record<string, any> }> }> {
+    nextPageToken?: string,
+  ): Promise<{ total: number; nextPageToken?: string; issues: Array<{ key: string; fields: Record<string, any> }> }> {
     const url = `${this.protocol}://${this.host}/rest/api/${this.apiVersion}/search/jql`;
+    const body: Record<string, any> = { jql, fields, maxResults };
+    if (nextPageToken) body.nextPageToken = nextPageToken;
     const res = await fetch(url, {
       method: 'POST',
       headers: {
@@ -98,7 +101,7 @@ export class JiraClient {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
       },
-      body: JSON.stringify({ jql, fields, startAt, maxResults }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) {
       const text = await res.text();
@@ -119,12 +122,11 @@ export class JiraClient {
     ];
 
     const allIssues: JiraIssueData[] = [];
-    let startAt = 0;
     const maxResults = 50;
+    let nextPageToken: string | undefined;
 
     while (true) {
-      // Use new /search/jql endpoint (Atlassian removed /search in 2025)
-      const result = await this.searchJql(jql, fields, startAt, maxResults);
+      const result = await this.searchJql(jql, fields, maxResults, nextPageToken);
 
       for (const issue of result.issues) {
         const f = issue.fields;
@@ -146,8 +148,8 @@ export class JiraClient {
         });
       }
 
-      if (allIssues.length >= result.total || result.issues.length < maxResults) break;
-      startAt += maxResults;
+      if (!result.nextPageToken || result.issues.length < maxResults) break;
+      nextPageToken = result.nextPageToken;
       await new Promise(r => setTimeout(r, 1000));
     }
 
