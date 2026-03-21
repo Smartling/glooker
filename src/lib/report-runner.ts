@@ -4,6 +4,9 @@ import { listOrgMembers, fetchUserActivity, type CommitData } from './github';
 import { analyzeCommit, type CommitAnalysis } from './analyzer';
 import { aggregate } from './aggregator';
 import { updateProgress, addLog } from './progress-store';
+import { getJiraClient } from './jira';
+import { resolveJiraUser } from './jira';
+import { getAppConfig } from './app-config/service';
 
 const CONCURRENCY = Number(process.env.LLM_CONCURRENCY || 5);
 
@@ -257,6 +260,80 @@ export async function runReport(
 
     log(`LLM analysis complete: ${analyses.size} total, ${llmErrors} failed`);
 
+    // Jira integration: resolve users and fetch done issues
+    const jiraConfig = getAppConfig().jira;
+    const jiraIssueCountByLogin = new Map<string, number>();
+
+    if (jiraConfig.enabled) {
+      const jiraClient = getJiraClient();
+      if (jiraClient) {
+        log('Starting Jira issue collection...');
+        let jiraProcessed = 0;
+        const jiraTotal = [...memberCommits.entries()].filter(([, c]) => c.length > 0).length;
+
+        for (const [login, commits] of memberCommits.entries()) {
+          if (commits.length === 0) continue;
+          if (shouldStop(reportId)) throw new Error('Stopped by user');
+
+          jiraProcessed++;
+          updateProgress(reportId, {
+            step: `[${jiraProcessed}/${jiraTotal}] Fetching Jira issues: @${login}`,
+          });
+
+          // Resume: skip if already have jira_issues for this user/report
+          const [existingJira] = await db.execute(
+            `SELECT COUNT(*) as cnt FROM jira_issues WHERE report_id = ? AND github_login = ?`,
+            [reportId, login],
+          ) as [any[], any];
+
+          if (existingJira[0]?.cnt > 0) {
+            jiraIssueCountByLogin.set(login, existingJira[0].cnt);
+            log(`[jira] @${login}: ${existingJira[0].cnt} issues already in DB (resume)`);
+            continue;
+          }
+
+          try {
+            const mapping = await resolveJiraUser(org, login, reportId, log);
+            if (!mapping) {
+              jiraIssueCountByLogin.set(login, 0);
+              continue;
+            }
+
+            const issues = await jiraClient.searchDoneIssues(
+              mapping.accountId, days, jiraConfig.projects.length > 0 ? jiraConfig.projects : undefined,
+            );
+
+            for (const issue of issues) {
+              await db.execute(
+                `INSERT IGNORE INTO jira_issues
+                   (report_id, github_login, jira_account_id, jira_email,
+                    project_key, issue_key, issue_type, summary, description,
+                    status, labels, story_points, original_estimate_seconds,
+                    issue_url, created_at, resolved_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                  reportId, login, mapping.accountId, mapping.email,
+                  issue.projectKey, issue.issueKey, issue.issueType,
+                  issue.summary, issue.description, issue.status,
+                  JSON.stringify(issue.labels), issue.storyPoints,
+                  issue.originalEstimateSeconds, issue.issueUrl,
+                  issue.createdAt, issue.resolvedAt,
+                ],
+              );
+            }
+
+            jiraIssueCountByLogin.set(login, issues.length);
+            if (issues.length > 0) log(`[jira] @${login}: ${issues.length} resolved issues`);
+          } catch (err) {
+            log(`[jira] ERROR @${login}: ${err instanceof Error ? err.message : String(err)}`);
+            jiraIssueCountByLogin.set(login, 0);
+          }
+        }
+
+        log(`Jira collection complete: ${[...jiraIssueCountByLogin.values()].reduce((a, b) => a + b, 0)} total issues`);
+      }
+    }
+
     // 3. Final aggregation with full cross-member view (overwrites per-member stats)
     updateProgress(reportId, { step: 'Final aggregation...', completedDevelopers: membersWithCommits });
     log('Running final aggregation...');
@@ -266,6 +343,11 @@ export async function runReport(
       allCommits.push(...commits);
     }
     const stats = aggregate(allCommits, analyses, prCounts);
+
+    // Attach Jira issue counts to aggregated stats
+    for (const s of stats) {
+      s.totalJiraIssues = jiraIssueCountByLogin.get(s.githubLogin) || 0;
+    }
 
     for (const s of stats) {
       await db.execute(
