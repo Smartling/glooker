@@ -1,5 +1,7 @@
 import db from '../db/index';
 import { getLLMClient, LLM_MODEL, extraBodyProps } from '../llm-provider';
+import { loadPrompt } from '../prompt-loader';
+import { getAppConfig } from '../app-config/service';
 
 export async function getReportHighlights() {
   // 1. Find the latest completed report
@@ -107,38 +109,30 @@ export async function getReportHighlights() {
     .sort((a, b) => Math.abs(b.impactDelta) - Math.abs(a.impactDelta))
     .slice(0, 5);
 
-  const systemPrompt = `You are a concise engineering analytics assistant for Glooker (GitHub org analytics).
-Compare two reports for the same org and period. Return JSON:
-{ "highlights": [{ "icon": "emoji", "text": "one sentence", "sentiment": "positive|neutral|warning" }] }
+  const systemPrompt = loadPrompt('report-highlights-system.txt');
 
-Rules:
-- 3-5 bullet highlights max. Be specific — name developers, cite numbers.
-- Focus on: biggest movers (rank changes, impact delta), org-wide trends (commits, AI%, complexity), newly active or recently inactive developers.
-- IMPORTANT: developers missing from the latest report are NOT "departed" — they are simply inactive in this period (vacation, different projects, etc). Never use words like "departed" or "left".
-- If nothing significant changed, return 1 bullet: "Steady state — no major shifts in the leaderboard or metrics."
-- Keep each bullet under 20 words. No fluff.
-- sentiment: "positive" for improvements, "warning" for regressions, "neutral" for informational.
-Return ONLY raw JSON.`;
+  const newDevsSection = newDevs.length > 0 ? `\nNew developers: ${newDevs.map(l => '@' + l).join(', ')}` : '';
+  const inactiveDevsSection = inactiveDevs.length > 0 ? `\nRecently inactive (no commits in latest report): ${inactiveDevs.map(l => '@' + l).join(', ')}` : '';
 
-  const userMessage = `Org: ${latest.org}, Period: ${latest.period_days} days
-
-PREVIOUS REPORT (${prev.created_at}):
-  Totals: ${totalA.devs} devs, ${totalA.commits} commits, ${totalA.prs} PRs, avgComplexity=${totalA.avgComplexity}, avgAI=${totalA.avgAi}%
-  Top 5: ${statsA.slice(0, 5).map(formatDev).join('\n  ')}
-
-LATEST REPORT (${latest.created_at}):
-  Totals: ${totalB.devs} devs, ${totalB.commits} commits, ${totalB.prs} PRs, avgComplexity=${totalB.avgComplexity}, avgAI=${totalB.avgAi}%
-  Top 5: ${statsB.slice(0, 5).map(formatDev).join('\n  ')}
-
-Top movers: ${movers.map(m => `@${m.login}: rank ${m.rankA}→${m.rankB}, impact ${m.impactDelta > 0 ? '+' : ''}${m.impactDelta.toFixed(1)}`).join(', ')}
-${newDevs.length > 0 ? `New developers: ${newDevs.map(l => '@' + l).join(', ')}` : ''}
-${inactiveDevs.length > 0 ? `Recently inactive (no commits in latest report): ${inactiveDevs.map(l => '@' + l).join(', ')}` : ''}`;
+  const userMessage = loadPrompt('report-highlights-user.txt', {
+    ORG: latest.org,
+    PERIOD_DAYS: String(latest.period_days),
+    PREV_DATE: String(prev.created_at),
+    TOTALS_A: `${totalA.devs} devs, ${totalA.commits} commits, ${totalA.prs} PRs, avgComplexity=${totalA.avgComplexity}, avgAI=${totalA.avgAi}%`,
+    TOP5_A: statsA.slice(0, 5).map(formatDev).join('\n  '),
+    LATEST_DATE: String(latest.created_at),
+    TOTALS_B: `${totalB.devs} devs, ${totalB.commits} commits, ${totalB.prs} PRs, avgComplexity=${totalB.avgComplexity}, avgAI=${totalB.avgAi}%`,
+    TOP5_B: statsB.slice(0, 5).map(formatDev).join('\n  '),
+    MOVERS: movers.map(m => `@${m.login}: rank ${m.rankA}→${m.rankB}, impact ${m.impactDelta > 0 ? '+' : ''}${m.impactDelta.toFixed(1)}`).join(', '),
+    NEW_DEVS_SECTION: newDevsSection,
+    INACTIVE_DEVS_SECTION: inactiveDevsSection,
+  });
 
   const client = await getLLMClient();
   const response = await client.chat.completions.create({
     model: LLM_MODEL,
-    temperature: 0.5,
-    max_tokens: 512,
+    temperature: getAppConfig().highlights.temperature,
+    max_tokens: getAppConfig().highlights.maxTokens,
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: systemPrompt },

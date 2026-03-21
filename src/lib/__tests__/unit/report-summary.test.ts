@@ -169,6 +169,78 @@ describe('getDevSummary', () => {
     });
   });
 
+  describe('prompt and settings snapshots', () => {
+    function setupFreshPathWithCreateFn() {
+      const createFn = jest.fn().mockResolvedValue({
+        choices: [{ message: { content: JSON.stringify(llmResponse) } }],
+      });
+      const mockClient = { chat: { completions: { create: createFn } } };
+      mockGetLLMClient.mockResolvedValue(mockClient);
+
+      mockDbExecute
+        .mockResolvedValueOnce([[], null])                          // cache miss
+        .mockResolvedValueOnce([[reportRow], null])                 // report metadata
+        .mockResolvedValueOnce([[devRow], null])                    // all devs (single dev = rank 1)
+        .mockResolvedValueOnce([[{ id: 'report-1' }], null])       // all report IDs for org
+        .mockResolvedValueOnce([[commitRow], null])                 // commits for dev
+        .mockResolvedValueOnce([{ affectedRows: 1 }, null]);       // INSERT
+
+      return createFn;
+    }
+
+    it('sends exact system prompt', async () => {
+      const createFn = setupFreshPathWithCreateFn();
+
+      await getDevSummary('report-1', 'alice');
+
+      const callArgs = createFn.mock.calls[0][0];
+      const systemMsg = callArgs.messages.find((m: any) => m.role === 'system');
+      const systemContent = systemMsg.content as string;
+
+      expect(systemContent).toContain('You are a terse engineering performance coach.');
+      expect(systemContent).toContain('Output JSON with two fields:');
+      expect(systemContent).toContain('SUMMARY rules:');
+      expect(systemContent).toContain('BADGES: 2-4 badges max.');
+      expect(systemContent).toContain('Return ONLY raw JSON.');
+
+      expect(systemContent).toMatchSnapshot('summary-system-prompt');
+    });
+
+    it('sends correct user message structure', async () => {
+      const createFn = setupFreshPathWithCreateFn();
+
+      await getDevSummary('report-1', 'alice');
+
+      const callArgs = createFn.mock.calls[0][0];
+      const userMsg = callArgs.messages.find((m: any) => m.role === 'user');
+      const userContent = userMsg.content as string;
+
+      expect(userContent).toContain('Developer: Alice (@alice)');
+      expect(userContent).toContain('Rank: 1st (top of leaderboard)');
+      expect(userContent).toContain('Period: 30 days');
+      expect(userContent).toContain('Overall stats:');
+      expect(userContent).toContain('Last 7 days:');
+      expect(userContent).toContain('Prior 7 days:');
+      expect(userContent).toContain('This developer is #1');
+      expect(userContent).toContain('Total developers in org: 1');
+
+      expect(userContent).toMatchSnapshot('summary-user-message');
+    });
+
+    it('passes correct LLM settings', async () => {
+      const createFn = setupFreshPathWithCreateFn();
+
+      await getDevSummary('report-1', 'alice');
+
+      const callArgs = createFn.mock.calls[0][0];
+
+      expect(callArgs.temperature).toBe(0.7);
+      expect(callArgs.max_tokens).toBe(512);
+      expect(callArgs.model).toBe('test-model');
+      expect(callArgs.response_format).toEqual({ type: 'json_object' });
+    });
+  });
+
   describe('error cases', () => {
     it('throws ReportNotFoundError when report is missing', async () => {
       mockDbExecute

@@ -841,6 +841,59 @@ function LlmSettingsTab() {
         </div>
       </div>
 
+      {/* Per-Service LLM Settings */}
+      <div className="bg-gray-900 rounded-xl p-5 mb-6">
+        <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-3">Per-Service LLM Settings</p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-gray-500 border-b border-gray-800">
+                <th className="pb-2 pr-4">Service</th>
+                <th className="pb-2 pr-4">Temperature</th>
+                <th className="pb-2 pr-4">Max Tokens</th>
+                <th className="pb-2">Other</th>
+              </tr>
+            </thead>
+            <tbody className="text-gray-300 font-mono">
+              {[
+                { name: 'Commit Analyzer', ...(config.analyzer || {}) },
+                { name: 'Chat Agent', ...(config.chatAgent || {}) },
+                { name: 'Dev Summary', ...(config.summary || {}) },
+                { name: 'Report Highlights', ...(config.highlights || {}) },
+                { name: 'Connection Test', ...(config.llmTest || {}) },
+              ].map((s: any) => (
+                <tr key={s.name} className="border-b border-gray-800/50">
+                  <td className="py-2 pr-4 text-gray-400 text-xs">{s.name}</td>
+                  <td className="py-2 pr-4">{s.temperature}</td>
+                  <td className="py-2 pr-4">{s.maxTokens}</td>
+                  <td className="py-2 text-xs text-gray-500">{s.maxIterations ? `Max iterations: ${s.maxIterations}` : ''}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Prompt Templates */}
+      {config.promptsDir && (
+        <div className="bg-gray-900 rounded-xl p-5 mb-6">
+          <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-3">Prompt Templates</p>
+          <ConfigRow label="Directory" value={config.promptsDir} />
+        </div>
+      )}
+
+      {/* Secrets & Credentials */}
+      <div className="bg-gray-900 rounded-xl p-5 mb-6">
+        <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-3">Secrets & Credentials</p>
+        <div className="grid grid-cols-3 gap-4">
+          <ConfigRow label="GitHub Token" value={config.githubToken || '(not set)'} />
+          <ConfigRow label="LLM API Key" value={config.llmApiKey || '(not set)'} />
+          <ConfigRow label="Smartling Account UID" value={config.smartlingAccountUid || '(not set)'} />
+          <ConfigRow label="Smartling User ID" value={config.smartlingUserIdentifier || '(not set)'} />
+          <ConfigRow label="Smartling Secret" value={config.smartlingUserSecret || '(not set)'} />
+        </div>
+      </div>
+
       {/* Test connection */}
       <div className="bg-gray-900 rounded-xl p-5 mb-6">
         <div className="flex items-center justify-between mb-3">

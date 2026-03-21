@@ -1,5 +1,7 @@
 import db from '@/lib/db';
 import { getLLMClient, LLM_MODEL, extraBodyProps } from '@/lib/llm-provider';
+import { loadPrompt } from '@/lib/prompt-loader';
+import { getAppConfig } from '@/lib/app-config/service';
 import { ReportNotFoundError } from './service';
 import { DeveloperNotFoundError } from './dev';
 import { dedupCommitsBySha } from './timeline';
@@ -102,44 +104,38 @@ export async function getDevSummary(reportId: string, login: string) {
 
   const rankLabel = rank === 1 ? '1st (top of leaderboard)' : rank === 2 ? '2nd' : rank === 3 ? '3rd' : `#${rank} of ${totalDevs}`;
 
-  const systemPrompt = `You are a terse engineering performance coach. Write a developer summary for Glooker (GitHub analytics tool).
+  const systemPrompt = loadPrompt('report-summary-system.txt');
 
-Output JSON with two fields:
-{ "summary": "markdown text", "badges": [{ "icon": "emoji", "title": "Name", "description": "one-liner" }] }
+  const devsAboveSection = devsAbove.length > 0
+    ? `Developers ranked above (anonymous, for comparison only):\n${devsAbove.map((d, i) => `  ${formatDev({ ...d, rank: rank - devsAbove.length + i }, true)}`).join('\n')}`
+    : 'This developer is #1 — no one above them.';
 
-SUMMARY rules:
-- MAX 3 short sentences total. No fluff, no filler.
-- Sentence 1: Week-over-week delta (commits, lines, complexity — numbers only, skip if no change)
-- Sentence 2: Strongest metric + one tip to climb leaderboard (or legend praise if top 3)
-- Sentence 3: AI usage note (only if >0%)
-- #1 = "Apex Legend", #2 = "Elite Force", #3 = "Rising Titan" — one sentence of praise, not a paragraph
-- NEVER mention other developers by name or login. Use relative references like "the developer above you" or "top 5 average".
-- No greetings, no sign-offs, no "keep it up" fluff
-
-BADGES: 2-4 badges max. Be creative but short descriptions (under 8 words).
-
-Return ONLY raw JSON.`;
-
-  const userMessage = `Developer: ${dev.github_name || dev.github_login} (@${dev.github_login})
-Rank: ${rankLabel}
-Period: ${period_days} days
-
-Overall stats: ${formatDev(dev)}
-Types breakdown: ${JSON.stringify(typeof dev.type_breakdown === 'string' ? JSON.parse(dev.type_breakdown || '{}') : (dev.type_breakdown || {}))}
-
-Last 7 days: commits=${recentStats.count}, lines=${recentStats.lines}, avgComplexity=${recentStats.avgComplexity}, AI%=${recentStats.aiPct}, types=${JSON.stringify(recentStats.types)}
-Prior 7 days: commits=${priorStats.count}, lines=${priorStats.lines}, avgComplexity=${priorStats.avgComplexity}, AI%=${priorStats.aiPct}, types=${JSON.stringify(priorStats.types)}
-
-${devsAbove.length > 0 ? `Developers ranked above (anonymous, for comparison only):
-${devsAbove.map((d, i) => `  ${formatDev({ ...d, rank: rank - devsAbove.length + i }, true)}`).join('\n')}` : 'This developer is #1 — no one above them.'}
-
-Total developers in org: ${totalDevs}`;
+  const userMessage = loadPrompt('report-summary-user.txt', {
+    DEV_DISPLAY_NAME: dev.github_name || dev.github_login,
+    DEV_LOGIN: dev.github_login,
+    RANK_LABEL: rankLabel,
+    PERIOD_DAYS: String(period_days),
+    DEV_STATS: formatDev(dev),
+    TYPES_BREAKDOWN: JSON.stringify(typeof dev.type_breakdown === 'string' ? JSON.parse(dev.type_breakdown || '{}') : (dev.type_breakdown || {})),
+    RECENT_COUNT: String(recentStats.count),
+    RECENT_LINES: String(recentStats.lines),
+    RECENT_COMPLEXITY: String(recentStats.avgComplexity),
+    RECENT_AI_PCT: String(recentStats.aiPct),
+    RECENT_TYPES: JSON.stringify(recentStats.types),
+    PRIOR_COUNT: String(priorStats.count),
+    PRIOR_LINES: String(priorStats.lines),
+    PRIOR_COMPLEXITY: String(priorStats.avgComplexity),
+    PRIOR_AI_PCT: String(priorStats.aiPct),
+    PRIOR_TYPES: JSON.stringify(priorStats.types),
+    DEVS_ABOVE_SECTION: devsAboveSection,
+    TOTAL_DEVS: String(totalDevs),
+  });
 
   const client = await getLLMClient();
   const response = await client.chat.completions.create({
     model: LLM_MODEL,
-    temperature: 0.7,
-    max_tokens: 512,
+    temperature: getAppConfig().summary.temperature,
+    max_tokens: getAppConfig().summary.maxTokens,
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: systemPrompt },
