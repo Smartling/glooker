@@ -44,7 +44,7 @@ export function getLLMConfig(): LLMConfig {
   const baseUrl = process.env.LLM_BASE_URL || null;
   const concurrency = Number(process.env.LLM_CONCURRENCY || 5);
 
-  const config: LLMConfig = { provider, model, hasApiKey, concurrency, missing: [], ready: false };
+  const config = { provider, model, hasApiKey, concurrency, missing: [] as string[], ready: false } as LLMConfig;
 
   if (provider === 'openai') {
     config.endpoint = 'https://api.openai.com/v1';
