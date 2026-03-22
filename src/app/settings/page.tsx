@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useTheme } from '../theme-context';
 import { THEMES } from '../themes';
 
-type Tab = 'schedules' | 'teams' | 'llm' | 'appearance';
+type Tab = 'schedules' | 'teams' | 'app' | 'appearance';
 
 const CADENCE_PRESETS = [
   { label: 'Every hour',           cron: '0 * * * *' },
@@ -33,7 +33,7 @@ function timeAgo(dateStr: string): string {
 
 export default function SettingsPage() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<Tab>('schedules');
+  const [activeTab, setActiveTab] = useState<Tab>('app');
   const [orgs, setOrgs] = useState<Array<{ login: string }>>([]);
   const [selectedOrg, setSelectedOrg] = useState('');
 
@@ -66,7 +66,7 @@ export default function SettingsPage() {
         {([
           { id: 'schedules' as Tab, label: 'Schedules', icon: '🕐' },
           { id: 'teams' as Tab, label: 'Teams', icon: '👥' },
-          { id: 'llm' as Tab, label: 'LLM Settings', icon: '🤖' },
+          { id: 'app' as Tab, label: 'App Settings', icon: '⚙️' },
           { id: 'appearance' as Tab, label: 'Appearance', icon: '🎨' },
         ]).map(tab => (
           <button
@@ -87,7 +87,7 @@ export default function SettingsPage() {
       {/* Tab Content */}
       {activeTab === 'schedules' && <SchedulesTab />}
       {activeTab === 'teams' && selectedOrg && <TeamsTab org={selectedOrg} />}
-      {activeTab === 'llm' && <LlmSettingsTab />}
+      {activeTab === 'app' && <AppSettingsTab org={selectedOrg} />}
       {activeTab === 'appearance' && <AppearanceTab />}
     </div>
   );
@@ -789,15 +789,42 @@ const PROVIDER_INFO: Record<string, { name: string; docs: string; envVars: strin
   },
 };
 
-function LlmSettingsTab() {
+function AppSettingsTab({ org }: { org: string }) {
   const [config, setConfig] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<any>(null);
 
+  // Jira state
+  const [jiraTesting, setJiraTesting] = useState(false);
+  const [jiraTestResult, setJiraTestResult] = useState<{ success: boolean; error?: string; user?: { displayName: string; emailAddress: string } } | null>(null);
+  const [mappings, setMappings] = useState<any[]>([]);
+  const [loadingMappings, setLoadingMappings] = useState(false);
+  const [emailEdits, setEmailEdits] = useState<Record<string, string>>({});
+  const [savingRow, setSavingRow] = useState<Record<string, boolean>>({});
+  const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
+
   useEffect(() => {
     fetch('/api/llm-config').then(r => r.json()).then(setConfig).catch(() => {}).finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!config?.jira?.enabled || !org) return;
+    setLoadingMappings(true);
+    fetch(`/api/settings/user-mappings?org=${encodeURIComponent(org)}`)
+      .then(r => r.json())
+      .then(data => {
+        setMappings(Array.isArray(data) ? data : []);
+        const initial: Record<string, string> = {};
+        (Array.isArray(data) ? data : []).forEach((m: any) => {
+          initial[m.github_login] = m.jira_email || '';
+        });
+        setEmailEdits(initial);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingMappings(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [org, config?.jira?.enabled]);
 
   async function testConnection() {
     setTesting(true);
@@ -812,6 +839,44 @@ function LlmSettingsTab() {
     setTesting(false);
   }
 
+  async function testJiraConnection() {
+    setJiraTesting(true);
+    setJiraTestResult(null);
+    try {
+      const res = await fetch('/api/settings/jira/test-connection', { method: 'POST' });
+      const data = await res.json();
+      setJiraTestResult(data);
+    } catch {
+      setJiraTestResult({ success: false, error: 'Network error' });
+    }
+    setJiraTesting(false);
+  }
+
+  async function saveMapping(login: string) {
+    setSavingRow(prev => ({ ...prev, [login]: true }));
+    setRowErrors(prev => ({ ...prev, [login]: '' }));
+    try {
+      const res = await fetch('/api/settings/user-mappings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ org, github_login: login, jira_email: emailEdits[login] || '' }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setRowErrors(prev => ({ ...prev, [login]: data.error || 'Save failed' }));
+      } else {
+        setMappings(prev => prev.map(m =>
+          m.github_login === login
+            ? { ...m, jira_email: emailEdits[login] || null, jira_account_id: data.jira_account_id || null }
+            : m,
+        ));
+      }
+    } catch {
+      setRowErrors(prev => ({ ...prev, [login]: 'Network error' }));
+    }
+    setSavingRow(prev => ({ ...prev, [login]: false }));
+  }
+
   if (loading) return <div className="text-gray-500 text-sm py-8">Loading configuration...</div>;
   if (!config) return <div className="text-red-400 text-sm py-8">Failed to load configuration.</div>;
 
@@ -819,7 +884,7 @@ function LlmSettingsTab() {
 
   return (
     <div>
-      <p className="text-sm text-gray-400 mb-6">Current LLM configuration (read-only). Edit <code className="text-xs bg-gray-800 px-1.5 py-0.5 rounded">.env.local</code> to change settings.</p>
+      <p className="text-sm text-gray-400 mb-6">Current app configuration (read-only). Edit <code className="text-xs bg-gray-800 px-1.5 py-0.5 rounded">.env.local</code> to change settings.</p>
 
       {/* Status */}
       <div className={`rounded-xl p-4 mb-6 flex items-center gap-3 ${config.ready ? 'bg-green-500/10 border border-green-500/20' : 'bg-amber-500/10 border border-amber-500/20'}`}>
@@ -838,11 +903,51 @@ function LlmSettingsTab() {
 
       {/* Config details */}
       <div className="bg-gray-900 rounded-xl p-5 mb-6">
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-3 gap-4 mb-4">
           <ConfigRow label="Provider" value={info.name} />
           <ConfigRow label="Model" value={config.model} />
           <ConfigRow label="Concurrency" value={String(config.concurrency)} />
         </div>
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">Connection Test</p>
+          <button
+            onClick={testConnection}
+            disabled={testing || !config.ready}
+            className="px-3 py-1.5 text-xs font-medium bg-accent hover:bg-accent-dark disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg transition-colors flex items-center gap-2"
+          >
+            {testing && (
+              <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+            )}
+            {testing ? 'Testing...' : 'Test Connection'}
+          </button>
+        </div>
+        {testResult && (
+          <div className={`rounded-lg p-3 text-sm ${testResult.success ? 'bg-green-500/10 border border-green-500/20' : 'bg-red-500/10 border border-red-500/20'}`}>
+            {testResult.success ? (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-green-400 font-semibold">Success</span>
+                <span className="text-gray-500">·</span>
+                <span className="text-gray-400">Model: {testResult.model}</span>
+                <span className="text-gray-500">·</span>
+                <span className="text-gray-400">{testResult.latencyMs}ms</span>
+                <span className="text-gray-500">·</span>
+                <span className="text-gray-500 font-mono text-xs">&quot;{testResult.response}&quot;</span>
+              </div>
+            ) : (
+              <div>
+                <span className="text-red-400 font-semibold">Failed</span>
+                <span className="text-gray-500 ml-2">({testResult.latencyMs}ms)</span>
+                <p className="text-xs text-red-300/70 mt-1 font-mono">{testResult.error}</p>
+              </div>
+            )}
+          </div>
+        )}
+        {!testResult && !testing && (
+          <p className="text-xs text-gray-600">Sends a simple test message to verify the LLM connection is working.</p>
+        )}
       </div>
 
       {/* Per-Service LLM Settings */}
@@ -898,50 +1003,6 @@ function LlmSettingsTab() {
         </div>
       </div>
 
-      {/* Test connection */}
-      <div className="bg-gray-900 rounded-xl p-5 mb-6">
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">Connection Test</p>
-          <button
-            onClick={testConnection}
-            disabled={testing || !config.ready}
-            className="px-3 py-1.5 text-xs font-medium bg-accent hover:bg-accent-dark disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg transition-colors flex items-center gap-2"
-          >
-            {testing && (
-              <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-            )}
-            {testing ? 'Testing...' : 'Test Connection'}
-          </button>
-        </div>
-        {testResult && (
-          <div className={`rounded-lg p-3 text-sm ${testResult.success ? 'bg-green-500/10 border border-green-500/20' : 'bg-red-500/10 border border-red-500/20'}`}>
-            {testResult.success ? (
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-green-400 font-semibold">Success</span>
-                <span className="text-gray-500">·</span>
-                <span className="text-gray-400">Model: {testResult.model}</span>
-                <span className="text-gray-500">·</span>
-                <span className="text-gray-400">{testResult.latencyMs}ms</span>
-                <span className="text-gray-500">·</span>
-                <span className="text-gray-500 font-mono text-xs">&quot;{testResult.response}&quot;</span>
-              </div>
-            ) : (
-              <div>
-                <span className="text-red-400 font-semibold">Failed</span>
-                <span className="text-gray-500 ml-2">({testResult.latencyMs}ms)</span>
-                <p className="text-xs text-red-300/70 mt-1 font-mono">{testResult.error}</p>
-              </div>
-            )}
-          </div>
-        )}
-        {!testResult && !testing && (
-          <p className="text-xs text-gray-600">Sends a simple test message to verify the LLM connection is working.</p>
-        )}
-      </div>
-
       {/* Setup instructions */}
       {!config.ready && (
         <div className="bg-gray-900 rounded-xl p-5">
@@ -956,6 +1017,153 @@ function LlmSettingsTab() {
             <p className="text-xs text-gray-500 mt-3">
               Get your API key: <a href={info.docs} target="_blank" rel="noopener noreferrer" className="text-accent-light hover:text-accent-lighter">{info.docs}</a>
             </p>
+          )}
+        </div>
+      )}
+
+      {/* Jira Configuration */}
+      <div className="bg-gray-900 rounded-xl p-5 mb-6 mt-6">
+        <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-3">Jira Integration</p>
+
+        <div className="grid grid-cols-3 gap-4 mb-4">
+          <div>
+            <p className="text-xs text-gray-500 mb-0.5">Enabled</p>
+            <p className={`text-sm font-mono ${config.jira?.enabled ? 'text-green-400' : 'text-gray-400'}`}>
+              {config.jira?.enabled ? 'Yes' : 'No'}
+            </p>
+          </div>
+          {config.jira?.enabled && (
+            <>
+              <ConfigRow label="Host" value={config.jira.host || '(not set)'} />
+              <ConfigRow label="Username" value={config.jira.username || '(not set)'} />
+              <ConfigRow label="API Token" value={config.jira.hasApiToken ? '••••••••' : '(not set)'} />
+              <ConfigRow label="API Version" value={config.jira.apiVersion || '3'} />
+              <ConfigRow label="Projects" value={config.jira.projects?.length > 0 ? config.jira.projects.join(', ') : '(all)'} />
+            </>
+          )}
+        </div>
+
+        {config.jira?.enabled && (
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">Connection Test</p>
+              <button
+                onClick={testJiraConnection}
+                disabled={jiraTesting}
+                className="px-3 py-1.5 text-xs font-medium bg-accent hover:bg-accent-dark disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg transition-colors flex items-center gap-2"
+              >
+                {jiraTesting && (
+                  <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                )}
+                {jiraTesting ? 'Testing...' : 'Test Connection'}
+              </button>
+            </div>
+            {jiraTestResult && (
+              <div className={`rounded-lg p-3 text-sm ${jiraTestResult.success ? 'bg-green-500/10 border border-green-500/20' : 'bg-red-500/10 border border-red-500/20'}`}>
+                {jiraTestResult.success ? (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-green-400 font-semibold">Success</span>
+                    <span className="text-gray-500">·</span>
+                    <span className="text-gray-400">Connected as {jiraTestResult.user?.displayName || 'unknown'}</span>
+                    {jiraTestResult.user?.emailAddress && (
+                      <>
+                        <span className="text-gray-500">·</span>
+                        <span className="text-gray-500 font-mono text-xs">{jiraTestResult.user.emailAddress}</span>
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    <span className="text-red-400 font-semibold">Failed</span>
+                    <p className="text-xs text-red-300/70 mt-1 font-mono">{jiraTestResult.error}</p>
+                  </div>
+                )}
+              </div>
+            )}
+            {!jiraTestResult && !jiraTesting && (
+              <p className="text-xs text-gray-600">Sends a test request to verify the Jira connection is working.</p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Jira User Mappings */}
+      {config.jira?.enabled && org && (
+        <div className="bg-gray-900 rounded-xl p-5 mb-6">
+          <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-3">Jira User Mappings</p>
+          <p className="text-sm text-gray-400 mb-4">Map GitHub users to their Jira email addresses for issue attribution.</p>
+
+          {loadingMappings ? (
+            <div className="text-gray-500 text-sm py-4">Loading mappings...</div>
+          ) : mappings.length === 0 ? (
+            <p className="text-sm text-gray-500 py-4">
+              No mappings yet. Mappings are auto-discovered during report generation.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-gray-500 border-b border-gray-800">
+                    <th className="pb-2 pr-4">GitHub User</th>
+                    <th className="pb-2 pr-4">Jira Email</th>
+                    <th className="pb-2 pr-4">Jira Account</th>
+                    <th className="pb-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mappings.map((m: any) => {
+                    const currentEmail = emailEdits[m.github_login] ?? (m.jira_email || '');
+                    const isDirty = currentEmail !== (m.jira_email || '');
+                    return (
+                      <tr key={m.github_login} className="border-b border-gray-800/50">
+                        <td className="py-2 pr-4">
+                          <div className="flex items-center gap-2">
+                            {m.avatar_url && (
+                              <img src={m.avatar_url} alt="" className="w-5 h-5 rounded-full" />
+                            )}
+                            <span className="text-white">{m.github_name || m.github_login}</span>
+                            {m.github_name && (
+                              <span className="text-gray-500 text-xs">@{m.github_login}</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-2 pr-4">
+                          <input
+                            type="email"
+                            value={currentEmail}
+                            onChange={e => setEmailEdits(prev => ({ ...prev, [m.github_login]: e.target.value }))}
+                            placeholder="user@example.com"
+                            className="bg-gray-800 text-white border border-gray-700 rounded px-2 py-1 text-sm w-48"
+                          />
+                          {rowErrors[m.github_login] && (
+                            <p className="text-xs text-red-400 mt-1">{rowErrors[m.github_login]}</p>
+                          )}
+                        </td>
+                        <td className="py-2 pr-4">
+                          <span className="text-gray-400 font-mono text-xs">
+                            {m.jira_account_id ? `${m.jira_account_id.slice(0, 12)}...` : '—'}
+                          </span>
+                        </td>
+                        <td className="py-2">
+                          {isDirty && (
+                            <button
+                              onClick={() => saveMapping(m.github_login)}
+                              disabled={savingRow[m.github_login]}
+                              className="px-3 py-1 bg-accent hover:bg-accent-light disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm rounded transition-colors"
+                            >
+                              {savingRow[m.github_login] ? 'Saving...' : 'Save'}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}
@@ -975,6 +1183,7 @@ function ConfigRow({ label, value, status }: { label: string; value: string; sta
     </div>
   );
 }
+
 
 /* ── Appearance Tab ── */
 function AppearanceTab() {

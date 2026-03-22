@@ -6,19 +6,20 @@ import LlmFindings from './llm-findings';
 import ChatPanel from './chat-panel';
 
 interface Developer {
-  github_login:   string;
-  github_name:    string;
-  avatar_url:     string;
-  total_prs:      number;
-  total_commits:  number;
-  lines_added:    number;
-  lines_removed:  number;
-  avg_complexity: number;
-  impact_score:   number;
-  pr_percentage:  number;
-  ai_percentage:  number;
-  type_breakdown: Record<string, number>;
-  active_repos:   string[];
+  github_login:       string;
+  github_name:        string;
+  avatar_url:         string;
+  total_prs:          number;
+  total_commits:      number;
+  lines_added:        number;
+  lines_removed:      number;
+  avg_complexity:     number;
+  impact_score:       number;
+  pr_percentage:      number;
+  ai_percentage:      number;
+  total_jira_issues?: number;
+  type_breakdown:     Record<string, number>;
+  active_repos:       string[];
 }
 
 interface Progress {
@@ -68,6 +69,7 @@ export default function Home() {
   const pollRef  = useRef<ReturnType<typeof setInterval> | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const commitCache = useRef<Map<string, any[]>>(new Map());
+  const jiraCache = useRef<Map<string, any[]>>(new Map());
   const [filterLogins, setFilterLogins] = useState<Set<string>>(new Set());
   const [filterQuery, setFilterQuery] = useState('');
   const [filterOpen, setFilterOpen] = useState(false);
@@ -789,6 +791,7 @@ export default function Home() {
           {/* Developer table */}
           {(() => {
             const filteredDevs = filterLogins.size > 0 ? developers.filter(d => filterLogins.has(d.github_login)) : developers;
+            const hasJira = developers.some(d => (d.total_jira_issues ?? 0) > 0);
             return filteredDevs.length > 0 && (
             <div className="bg-gray-900 rounded-xl overflow-hidden">
               <table className="w-full text-sm table-fixed">
@@ -801,6 +804,7 @@ export default function Home() {
                     <th className="px-4 py-3 text-right w-[7%]">Cmplx</th>
                     <th className="px-4 py-3 text-right w-[5%]">PR%</th>
                     <th className="px-4 py-3 text-right w-[5%]">AI%</th>
+                    {hasJira && <th className="px-4 py-3 text-right w-[5%]">Jira</th>}
                     <th className="px-4 py-3 w-[24%]">Types</th>
                     <th className="px-4 py-3 text-right w-[7%]">Impact</th>
                   </tr>
@@ -852,6 +856,20 @@ export default function Home() {
                       <td className="px-4 py-3 text-right">
                         <AiPercentBadge value={dev.ai_percentage} />
                       </td>
+                      {hasJira && (
+                        <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
+                          {(dev.total_jira_issues ?? 0) > 0 ? (
+                            <JiraCountWithTooltip
+                              count={dev.total_jira_issues!}
+                              reportId={reportId || activeReport?.id || ''}
+                              login={dev.github_login}
+                              cacheRef={jiraCache}
+                            />
+                          ) : (
+                            <span className="text-gray-600 text-sm">—</span>
+                          )}
+                        </td>
+                      )}
                       <td className="px-4 py-3">
                         <TypeBreakdown breakdown={dev.type_breakdown} />
                       </td>
@@ -1044,6 +1062,82 @@ function CommitCountWithTooltip({
           </table>
         )}
       </div>
+    </div>,
+    document.body,
+  ) : null;
+
+  return (
+    <span className="inline-block" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
+      <span ref={triggerRef} className="text-gray-300 cursor-default underline decoration-dotted decoration-gray-600 underline-offset-4">
+        {count}
+      </span>
+      {tooltip}
+    </span>
+  );
+}
+
+function JiraCountWithTooltip({
+  count,
+  reportId,
+  login,
+  cacheRef,
+}: {
+  count: number;
+  reportId: string;
+  login: string;
+  cacheRef: React.RefObject<Map<string, any[]>>;
+}) {
+  const [issues, setIssues] = useState<any[] | null>(null);
+  const [show, setShow] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number; flipDown: boolean }>({ top: 0, left: 0, flipDown: false });
+  const triggerRef = useRef<HTMLSpanElement>(null);
+  const hideTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  async function handleMouseEnter() {
+    if (hideTimeout.current) clearTimeout(hideTimeout.current);
+    if (triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      const flipDown = rect.top < 300;
+      setPos({ top: flipDown ? rect.bottom + 8 : rect.top - 8, left: rect.right, flipDown });
+    }
+    setShow(true);
+    const key = `jira:${reportId}:${login}`;
+    if (cacheRef.current!.has(key)) { setIssues(cacheRef.current!.get(key)!); return; }
+    setLoading(true);
+    try {
+      const rows = await fetch(`/api/report/${reportId}/jira-issues?login=${login}`).then(r => r.json());
+      cacheRef.current!.set(key, rows);
+      setIssues(rows);
+    } catch { setIssues([]); }
+    setLoading(false);
+  }
+
+  function handleMouseLeave() {
+    hideTimeout.current = setTimeout(() => setShow(false), 200);
+  }
+
+  const tooltip = show && typeof document !== 'undefined' ? createPortal(
+    <div
+      className="fixed z-[9999] bg-gray-900 border border-gray-700 rounded-lg shadow-2xl p-3 w-80 max-h-60 overflow-y-auto text-sm"
+      style={{ top: pos.flipDown ? pos.top : undefined, bottom: pos.flipDown ? undefined : `${window.innerHeight - pos.top}px`, left: Math.max(pos.left - 320, 8) }}
+      onMouseEnter={() => { if (hideTimeout.current) clearTimeout(hideTimeout.current); }}
+      onMouseLeave={handleMouseLeave}
+    >
+      {loading && <div className="text-gray-500 text-xs py-2">Loading...</div>}
+      {issues && issues.length === 0 && <div className="text-gray-500 text-xs py-2">No issues found</div>}
+      {issues && issues.map((issue: any) => (
+        <a
+          key={issue.issue_key}
+          href={issue.issue_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block py-1.5 px-2 hover:bg-gray-800 rounded"
+        >
+          <span className="text-accent-light font-mono text-xs">{issue.issue_key}</span>
+          <span className="text-gray-400 ml-2 text-xs">{issue.summary?.slice(0, 50)}</span>
+        </a>
+      ))}
     </div>,
     document.body,
   ) : null;

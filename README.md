@@ -22,6 +22,7 @@ That's it. Glooker uses SQLite by default — no database setup needed.
 
 ## Features
 
+- **Jira integration** — optionally tracks resolved Jira issues per developer, auto-discovers GitHub→Jira user mappings via commit emails
 - **Full commit coverage** — uses GitHub's commit search API to capture all commits, not just PR-linked ones
 - **LLM-powered analysis** — each commit is analyzed for complexity (1-10), type (feature/bug/refactor/etc), risk level, and whether it appears AI-generated
 - **AI detection** — three layers: confirmed via `Co-Authored-By` trailers, PR body patterns (e.g. "Generated with Claude Code"), branch commit trailer scanning for merge commits, and LLM heuristic analysis
@@ -43,6 +44,7 @@ That's it. Glooker uses SQLite by default — no database setup needed.
 | Complexity | Mean LLM-assessed complexity (1-10) |
 | PR% | Percentage of commits that went through a PR |
 | AI% | Percentage of commits with AI assistance (confirmed + suspected) |
+| Jira Issues | Resolved Jira tickets in period (optional, requires Jira config) |
 | Impact | Weighted score: complexity (3.5) + PRs (3.0) + volume (2.0) + PR discipline (1.1) |
 | Types | Commit categorization: feature, bug, refactor, infra, docs, test |
 
@@ -95,6 +97,21 @@ SMARTLING_USER_IDENTIFIER=your_user_identifier
 SMARTLING_USER_SECRET=your_user_secret
 LLM_MODEL=anthropic/claude-sonnet-4-20250514
 ```
+
+### Jira (optional)
+
+Track resolved Jira issues per developer. Requires a Jira Cloud or Server instance:
+
+```env
+JIRA_ENABLED=true
+JIRA_HOST=mycompany.atlassian.net
+JIRA_USERNAME=your-email@company.com
+JIRA_API_TOKEN=your-jira-api-token
+JIRA_API_VERSION=3          # 3 for Cloud, 2 for Server
+# JIRA_PROJECTS=PROJ1,PROJ2 # optional filter, default: all projects
+```
+
+GitHub→Jira user mappings are auto-discovered via commit author emails and cached in the `user_mappings` table. Editable in Settings > App Settings.
 
 ### Database
 
@@ -161,6 +178,7 @@ docker compose up --build -d
 ```
 Browser (Next.js)  →  API Routes  →  GitHub API
                                   →  LLM Provider (OpenAI / Anthropic / Smartling / custom)
+                                  →  Jira API (optional)
                                   →  SQLite or MySQL
 ```
 
@@ -174,8 +192,9 @@ Browser (Next.js)  →  API Routes  →  GitHub API
    - Queue LLM analysis (concurrency-limited) for complexity, type, risk, and AI-generation detection
    - Save each commit analysis to DB immediately (enables resume)
 3. When all of a member's commits are analyzed, aggregate and save developer stats to DB (enables progressive UI)
-4. Final cross-member aggregation overwrites with canonical stats
-5. Display ranked table with export options
+4. If Jira enabled: resolve each member's Jira account (via commit emails → `user_mappings`), fetch resolved issues via JQL, save to `jira_issues`
+5. Final cross-member aggregation overwrites with canonical stats
+6. Display ranked table with export options
 
 ### Key files
 
@@ -187,6 +206,10 @@ src/lib/
 ├── analyzer.ts               # LLM commit analysis prompt + response parsing
 ├── aggregator.ts             # Per-developer metric rollup
 ├── report-runner.ts          # Pipeline orchestrator (pipelined fetch → analyze → save)
+├── jira/
+│   ├── client.ts             # Jira REST API client (direct fetch, no external deps)
+│   ├── mapper.ts             # GitHub→Jira user mapping (auto-discover + persist)
+│   └── index.ts              # Re-exports
 ├── progress-store.ts         # In-memory progress tracking (developer-based)
 ├── schedule-manager.ts       # Cron-based scheduled report execution
 ├── schedule-validation.ts    # Schedule input validation

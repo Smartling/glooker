@@ -4,6 +4,9 @@ import { listOrgMembers, fetchUserActivity, type CommitData } from './github';
 import { analyzeCommit, type CommitAnalysis } from './analyzer';
 import { aggregate } from './aggregator';
 import { updateProgress, addLog } from './progress-store';
+import { getJiraClient } from './jira';
+import { resolveJiraUser } from './jira';
+import { getAppConfig } from './app-config/service';
 
 const CONCURRENCY = Number(process.env.LLM_CONCURRENCY || 5);
 
@@ -106,19 +109,21 @@ export async function runReport(
              (report_id, github_login, github_name, avatar_url,
               total_prs, total_commits, lines_added, lines_removed,
               avg_complexity, impact_score, pr_percentage, ai_percentage,
+              total_jira_issues,
               type_breakdown, active_repos)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON DUPLICATE KEY UPDATE
-             total_prs      = VALUES(total_prs),
-             total_commits  = VALUES(total_commits),
-             lines_added    = VALUES(lines_added),
-             lines_removed  = VALUES(lines_removed),
-             avg_complexity = VALUES(avg_complexity),
-             impact_score   = VALUES(impact_score),
-             pr_percentage  = VALUES(pr_percentage),
-             ai_percentage  = VALUES(ai_percentage),
-             type_breakdown = VALUES(type_breakdown),
-             active_repos   = VALUES(active_repos)`,
+             total_prs        = VALUES(total_prs),
+             total_commits    = VALUES(total_commits),
+             lines_added      = VALUES(lines_added),
+             lines_removed    = VALUES(lines_removed),
+             avg_complexity   = VALUES(avg_complexity),
+             impact_score     = VALUES(impact_score),
+             pr_percentage    = VALUES(pr_percentage),
+             ai_percentage    = VALUES(ai_percentage),
+             total_jira_issues = VALUES(total_jira_issues),
+             type_breakdown   = VALUES(type_breakdown),
+             active_repos     = VALUES(active_repos)`,
           [
             reportId,
             s.githubLogin,
@@ -132,6 +137,7 @@ export async function runReport(
             s.impactScore,
             s.prPercentage,
             s.aiPercentage,
+            s.totalJiraIssues,
             JSON.stringify(s.typeBreakdown),
             JSON.stringify(s.activeRepos),
           ],
@@ -193,14 +199,15 @@ export async function runReport(
               // Save to DB immediately (fixes resume)
               await db.execute(
                 `INSERT IGNORE INTO commit_analyses
-                   (report_id, github_login, repo, commit_sha, pr_number, pr_title,
+                   (report_id, github_login, author_email, repo, commit_sha, pr_number, pr_title,
                     commit_message, lines_added, lines_removed,
                     complexity, type, impact_summary, risk_level,
                     ai_co_authored, ai_tool_name, maybe_ai, committed_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                   reportId,
                   commit.author,
+                  commit.authorEmail,
                   commit.repo,
                   commit.sha,
                   commit.prNumber,
@@ -253,6 +260,80 @@ export async function runReport(
 
     log(`LLM analysis complete: ${analyses.size} total, ${llmErrors} failed`);
 
+    // Jira integration: resolve users and fetch done issues
+    const jiraConfig = getAppConfig().jira;
+    const jiraIssueCountByLogin = new Map<string, number>();
+
+    if (jiraConfig.enabled) {
+      const jiraClient = getJiraClient();
+      if (jiraClient) {
+        log('Starting Jira issue collection...');
+        let jiraProcessed = 0;
+        const jiraTotal = [...memberCommits.entries()].filter(([, c]) => c.length > 0).length;
+
+        for (const [login, commits] of memberCommits.entries()) {
+          if (commits.length === 0) continue;
+          if (shouldStop(reportId)) throw new Error('Stopped by user');
+
+          jiraProcessed++;
+          updateProgress(reportId, {
+            step: `[${jiraProcessed}/${jiraTotal}] Fetching Jira issues: @${login}`,
+          });
+
+          // Resume: skip if already have jira_issues for this user/report
+          const [existingJira] = await db.execute(
+            `SELECT COUNT(*) as cnt FROM jira_issues WHERE report_id = ? AND github_login = ?`,
+            [reportId, login],
+          ) as [any[], any];
+
+          if (existingJira[0]?.cnt > 0) {
+            jiraIssueCountByLogin.set(login, existingJira[0].cnt);
+            log(`[jira] @${login}: ${existingJira[0].cnt} issues already in DB (resume)`);
+            continue;
+          }
+
+          try {
+            const mapping = await resolveJiraUser(org, login, reportId, log);
+            if (!mapping) {
+              jiraIssueCountByLogin.set(login, 0);
+              continue;
+            }
+
+            const issues = await jiraClient.searchDoneIssues(
+              mapping.accountId, days, jiraConfig.projects.length > 0 ? jiraConfig.projects : undefined,
+            );
+
+            for (const issue of issues) {
+              await db.execute(
+                `INSERT IGNORE INTO jira_issues
+                   (report_id, github_login, jira_account_id, jira_email,
+                    project_key, issue_key, issue_type, summary, description,
+                    status, labels, story_points, original_estimate_seconds,
+                    issue_url, created_at, resolved_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                  reportId, login, mapping.accountId, mapping.email,
+                  issue.projectKey, issue.issueKey, issue.issueType,
+                  issue.summary, issue.description, issue.status,
+                  JSON.stringify(issue.labels), issue.storyPoints,
+                  issue.originalEstimateSeconds, issue.issueUrl,
+                  issue.createdAt, issue.resolvedAt,
+                ],
+              );
+            }
+
+            jiraIssueCountByLogin.set(login, issues.length);
+            if (issues.length > 0) log(`[jira] @${login}: ${issues.length} resolved issues`);
+          } catch (err) {
+            log(`[jira] ERROR @${login}: ${err instanceof Error ? err.message : String(err)}`);
+            jiraIssueCountByLogin.set(login, 0);
+          }
+        }
+
+        log(`Jira collection complete: ${[...jiraIssueCountByLogin.values()].reduce((a, b) => a + b, 0)} total issues`);
+      }
+    }
+
     // 3. Final aggregation with full cross-member view (overwrites per-member stats)
     updateProgress(reportId, { step: 'Final aggregation...', completedDevelopers: membersWithCommits });
     log('Running final aggregation...');
@@ -263,25 +344,40 @@ export async function runReport(
     }
     const stats = aggregate(allCommits, analyses, prCounts);
 
+    // Attach Jira issue counts to aggregated stats (fall back to DB count for resumed data)
+    for (const s of stats) {
+      if (jiraIssueCountByLogin.has(s.githubLogin)) {
+        s.totalJiraIssues = jiraIssueCountByLogin.get(s.githubLogin)!;
+      } else {
+        const [jiraRows] = await db.execute(
+          `SELECT COUNT(*) as cnt FROM jira_issues WHERE report_id = ? AND github_login = ?`,
+          [reportId, s.githubLogin],
+        ) as [any[], any];
+        s.totalJiraIssues = jiraRows[0]?.cnt || 0;
+      }
+    }
+
     for (const s of stats) {
       await db.execute(
         `INSERT INTO developer_stats
            (report_id, github_login, github_name, avatar_url,
             total_prs, total_commits, lines_added, lines_removed,
             avg_complexity, impact_score, pr_percentage, ai_percentage,
+            total_jira_issues,
             type_breakdown, active_repos)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
-           total_prs      = VALUES(total_prs),
-           total_commits  = VALUES(total_commits),
-           lines_added    = VALUES(lines_added),
-           lines_removed  = VALUES(lines_removed),
-           avg_complexity = VALUES(avg_complexity),
-           impact_score   = VALUES(impact_score),
-           pr_percentage  = VALUES(pr_percentage),
-           ai_percentage  = VALUES(ai_percentage),
-           type_breakdown = VALUES(type_breakdown),
-           active_repos   = VALUES(active_repos)`,
+           total_prs         = VALUES(total_prs),
+           total_commits     = VALUES(total_commits),
+           lines_added       = VALUES(lines_added),
+           lines_removed     = VALUES(lines_removed),
+           avg_complexity    = VALUES(avg_complexity),
+           impact_score      = VALUES(impact_score),
+           pr_percentage     = VALUES(pr_percentage),
+           ai_percentage     = VALUES(ai_percentage),
+           total_jira_issues = VALUES(total_jira_issues),
+           type_breakdown    = VALUES(type_breakdown),
+           active_repos      = VALUES(active_repos)`,
         [
           reportId,
           s.githubLogin,
@@ -295,6 +391,7 @@ export async function runReport(
           s.impactScore,
           s.prPercentage,
           s.aiPercentage,
+          s.totalJiraIssues,
           JSON.stringify(s.typeBreakdown),
           JSON.stringify(s.activeRepos),
         ],

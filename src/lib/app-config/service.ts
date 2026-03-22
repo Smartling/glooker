@@ -23,6 +23,15 @@ export interface AppConfig {
   smartlingAccountUid: string | null;
   smartlingUserIdentifier: string | null;
   smartlingUserSecret: string | null;
+  jira: {
+    enabled: boolean;
+    host: string | null;
+    username: string | null;
+    hasApiToken: boolean;
+    apiVersion: string;
+    projects: string[];
+    missing: string[];
+  };
 }
 
 export interface LLMConnectionResult {
@@ -85,6 +94,23 @@ export function getAppConfig(): AppConfig {
   config.smartlingAccountUid = process.env.SMARTLING_ACCOUNT_UID || null;
   config.smartlingUserIdentifier = process.env.SMARTLING_USER_IDENTIFIER || null;
   config.smartlingUserSecret = maskSecret(process.env.SMARTLING_USER_SECRET);
+
+  const jiraEnabled = process.env.JIRA_ENABLED === 'true';
+  const jiraMissing: string[] = [];
+  if (jiraEnabled) {
+    if (!process.env.JIRA_HOST) jiraMissing.push('JIRA_HOST');
+    if (!process.env.JIRA_USERNAME) jiraMissing.push('JIRA_USERNAME');
+    if (!process.env.JIRA_API_TOKEN) jiraMissing.push('JIRA_API_TOKEN');
+  }
+  config.jira = {
+    enabled: jiraEnabled,
+    host: process.env.JIRA_HOST || null,
+    username: process.env.JIRA_USERNAME || null,
+    hasApiToken: Boolean(process.env.JIRA_API_TOKEN),
+    apiVersion: process.env.JIRA_API_VERSION || '3',
+    projects: process.env.JIRA_PROJECTS ? process.env.JIRA_PROJECTS.split(',').map(p => p.trim()).filter(Boolean) : [],
+    missing: jiraMissing,
+  };
 
   return config;
 }

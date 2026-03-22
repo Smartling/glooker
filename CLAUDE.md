@@ -24,6 +24,7 @@ Glooker is a Next.js 15 web app that generates developer impact reports for a Gi
 - **In-memory progress store** (globalThis Map) — survives Next.js HMR, acceptable for single-user local use
 - **AI detection** has two layers: trailer parsing (confirmed) and LLM heuristic (maybe_ai)
 - **Prompt template system** — LLM prompts live in `prompts/` dir (configurable via `PROMPTS_DIR`), loaded by `prompt-loader.ts` with in-memory caching. Templates use `{{PLACEHOLDER}}` syntax. All LLM settings (temperature, max_tokens, max_iterations) are configurable via env vars with hardcoded defaults.
+- **Jira integration** (`src/lib/jira/`) — optional, enabled via `JIRA_ENABLED=true`. Uses direct `fetch` calls to Jira REST API (no external SDK). Auto-discovers GitHub→Jira user mappings via commit author emails, persists to `user_mappings` table. Fetches resolved issues via JQL (`statusCategory = "Done"`) using the new `/search/jql` endpoint. Jira data is gathered but does **not** influence the impact score formula yet.
 
 ## Environment
 
@@ -31,6 +32,7 @@ Glooker is a Next.js 15 web app that generates developer impact reports for a Gi
 - `.env.example` has placeholder values for all providers
 - `LLM_PROVIDER` selects backend: `openai` (default), `anthropic`, `openai-compatible`, `smartling`
 - `DB_TYPE` selects database: `sqlite` (default), `mysql`
+- `JIRA_ENABLED=true` enables Jira integration; requires `JIRA_HOST`, `JIRA_USERNAME`, `JIRA_API_TOKEN`
 - GitHub fine-grained token needs: Contents:read, Pull requests:read, Metadata:read, Members:read
 
 ## Gotchas
@@ -49,3 +51,8 @@ Glooker is a Next.js 15 web app that generates developer impact reports for a Gi
 - `PROMPTS_DIR` defaults to `./prompts` relative to CWD — in Docker, ensure the directory is mounted or `outputFileTracingIncludes` is configured in `next.config.ts`
 - Prompt loader caches template files in memory — restart the server after changing prompt template files (or call `clearPromptCache()` in dev)
 - Prompt template files have Jest snapshot tests that assert exact text — after editing any file in `prompts/`, run `npm test -- -u` to update snapshots (or `npm test -- --testPathPattern="analyzer" -u` for a specific service). Review the snapshot diff to confirm the change is intentional.
+- Jira Cloud removed `/rest/api/3/search` in 2025 — use `/rest/api/3/search/jql` with `nextPageToken` pagination (not `startAt`)
+- Jira Cloud API v3 returns descriptions as ADF (Atlassian Document Format) JSON, not plain text — `extractAdfText()` in `jira/client.ts` handles this
+- Jira Cloud instances with hidden email visibility will cause auto-discovery to fail silently — users must edit mappings manually in Settings
+- The `jira_issues` table has nullable LLM columns (`complexity`, `type`, `impact_summary`) for future use — no LLM analysis runs on Jira items yet
+- The main report page (`page.tsx`) and org report page (`report/[id]/org/page.tsx`) both render developer tables — changes to columns must be applied to both

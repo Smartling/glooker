@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS developer_stats (
   impact_score    DECIMAL(4,2)   NULL,
   pr_percentage   INT            NOT NULL DEFAULT 0,
   ai_percentage   INT            NOT NULL DEFAULT 0,
+  total_jira_issues INT          NOT NULL DEFAULT 0,
   type_breakdown  JSON           NULL,
   active_repos    JSON           NULL,
   FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
@@ -35,6 +36,7 @@ CREATE TABLE IF NOT EXISTS commit_analyses (
   id              INT AUTO_INCREMENT PRIMARY KEY,
   report_id       VARCHAR(36)  NOT NULL,
   github_login    VARCHAR(255) NOT NULL,
+  author_email    VARCHAR(255) NULL,
   repo            VARCHAR(255) NOT NULL,
   commit_sha      VARCHAR(40)  NOT NULL,
   pr_number       INT          NULL,
@@ -52,6 +54,41 @@ CREATE TABLE IF NOT EXISTS commit_analyses (
   committed_at    TIMESTAMP    NULL,
   FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
   UNIQUE KEY uq_report_commit (report_id, commit_sha)
+);
+
+CREATE TABLE IF NOT EXISTS jira_issues (
+  id                        INT AUTO_INCREMENT PRIMARY KEY,
+  report_id                 VARCHAR(36)  NOT NULL,
+  github_login              VARCHAR(255) NOT NULL,
+  jira_account_id           VARCHAR(128) NULL,
+  jira_email                VARCHAR(255) NULL,
+  project_key               VARCHAR(50)  NOT NULL,
+  issue_key                 VARCHAR(50)  NOT NULL,
+  issue_type                VARCHAR(100) NULL,
+  summary                   VARCHAR(500) NULL,
+  description               TEXT         NULL,
+  status                    VARCHAR(100) NULL,
+  labels                    TEXT         NULL,
+  story_points              DECIMAL(6,2) NULL,
+  original_estimate_seconds INT          NULL,
+  issue_url                 VARCHAR(500) NULL,
+  created_at                TIMESTAMP    NULL,
+  resolved_at               TIMESTAMP    NULL,
+  complexity                TINYINT      NULL,
+  type                      ENUM('feature','bug','refactor','infra','docs','test','other') NULL,
+  impact_summary            TEXT         NULL,
+  FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_report_issue (report_id, issue_key)
+);
+
+CREATE TABLE IF NOT EXISTS user_mappings (
+  id              INT AUTO_INCREMENT PRIMARY KEY,
+  org             VARCHAR(255) NOT NULL,
+  github_login    VARCHAR(255) NOT NULL,
+  jira_account_id VARCHAR(128) NOT NULL,
+  jira_email      VARCHAR(255) NULL,
+  created_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_org_gh_login (org, github_login)
 );
 
 CREATE TABLE IF NOT EXISTS report_comparisons (
