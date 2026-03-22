@@ -7,6 +7,7 @@ export function makeCommit(overrides: Partial<CommitData> = {}): CommitData {
     repo: 'my-repo',
     author: 'testuser',
     authorName: 'Test User',
+    authorEmail: 'test@example.com',
     avatarUrl: 'https://example.com/avatar.png',
     message: 'feat: add feature',
     fullMessage: 'feat: add feature',

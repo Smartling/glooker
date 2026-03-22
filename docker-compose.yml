@@ -29,6 +29,13 @@ services:
       SMARTLING_ACCOUNT_UID: ${SMARTLING_ACCOUNT_UID:-}
       SMARTLING_USER_IDENTIFIER: ${SMARTLING_USER_IDENTIFIER:-}
       SMARTLING_USER_SECRET: ${SMARTLING_USER_SECRET:-}
+
+      # Jira (optional)
+      JIRA_ENABLED: ${JIRA_ENABLED:-}
+      JIRA_HOST: ${JIRA_HOST:-}
+      JIRA_USERNAME: ${JIRA_USERNAME:-}
+      JIRA_API_TOKEN: ${JIRA_API_TOKEN:-}
+      JIRA_API_VERSION: ${JIRA_API_VERSION:-3}
     depends_on:
       mysql:
         condition: service_healthy

@@ -32,6 +32,7 @@ interface CompactDev {
   github_login: string; total_prs: number; total_commits: number;
   lines_added: number; lines_removed: number;
   avg_complexity: number; impact_score: number; pr_percentage: number; ai_percentage: number;
+  total_jira_issues: number;
 }
 
 interface Commit {

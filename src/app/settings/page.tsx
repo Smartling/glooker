@@ -1099,9 +1099,22 @@ function AppSettingsTab({ org }: { org: string }) {
           {loadingMappings ? (
             <div className="text-gray-500 text-sm py-4">Loading mappings...</div>
           ) : mappings.length === 0 ? (
-            <p className="text-sm text-gray-500 py-4">
-              No mappings yet. Mappings are auto-discovered during report generation.
-            </p>
+            <div className="rounded-xl p-4 bg-accent\/10 border border-accent\/30 flex items-start gap-3">
+              <span className="text-lg shrink-0">💡</span>
+              <div>
+                <p className="text-sm font-semibold text-accent-lighter mb-1">Jira is connected but no user mappings exist yet.</p>
+                <p className="text-xs text-gray-400 leading-relaxed">
+                  Run a report to automatically map GitHub logins to Jira accounts using email matching.
+                  Mappings are saved and reused across future reports.
+                </p>
+                <button
+                  onClick={() => window.location.href = '/'}
+                  className="mt-3 px-3 py-1.5 text-xs font-medium bg-accent hover:bg-accent-dark text-white rounded-lg transition-colors"
+                >
+                  Run Report →
+                </button>
+              </div>
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
