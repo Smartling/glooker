@@ -74,7 +74,7 @@ describe('llm-provider', () => {
       jest.isolateModules(() => {
         mod = require('@/lib/llm-provider');
       });
-      expect(mod.LLM_MODEL).toBe('anthropic.claude-sonnet-4-20250514-v1:0');
+      expect(mod.LLM_MODEL).toBe('us.anthropic.claude-sonnet-4-6');
     });
   });
 

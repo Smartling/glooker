@@ -22,7 +22,7 @@ let cachedClient: OpenAI | null = null;
 
 const MODEL_DEFAULTS: Record<string, string> = {
   anthropic: 'claude-sonnet-4-20250514',
-  bedrock:   'anthropic.claude-sonnet-4-20250514-v1:0',
+  bedrock:   'us.anthropic.claude-sonnet-4-6',
 };
 
 export const LLM_MODEL =

@@ -19,7 +19,7 @@ Glooker is a Next.js 15 web app that generates developer impact reports for a Gi
 
 - **Per-user GitHub search** (not per-repo) — orgs can have 600+ repos, iterating each is too slow
 - **Commit search API** is the primary data source (not PR search) — captures direct pushes that never went through PRs
-- **LLM provider abstraction** (`llm-provider.ts`) — all providers use the OpenAI SDK since they all support the chat completions format. Smartling AI Proxy is one option alongside direct OpenAI/Anthropic
+- **LLM provider abstraction** (`llm-provider.ts`) — all providers use the OpenAI SDK since they all support the chat completions format. Smartling AI Proxy is one option alongside direct OpenAI/Anthropic. AWS Bedrock uses a duck-typed adapter (`bedrock-adapter.ts`) that translates OpenAI-style requests to Bedrock's InvokeModel API
 - **Dual DB support** — SQLite (default, zero config) and MySQL (opt-in via `DB_TYPE=mysql`). The SQLite wrapper translates MySQL-dialect SQL on the fly
 - **In-memory progress store** (globalThis Map) — survives Next.js HMR, acceptable for single-user local use
 - **AI detection** has two layers: trailer parsing (confirmed) and LLM heuristic (maybe_ai)
@@ -29,7 +29,7 @@ Glooker is a Next.js 15 web app that generates developer impact reports for a Gi
 
 - Secrets in `.env.local` (gitignored) — never commit
 - `.env.example` has placeholder values for all providers
-- `LLM_PROVIDER` selects backend: `openai` (default), `anthropic`, `openai-compatible`, `smartling`
+- `LLM_PROVIDER` selects backend: `openai` (default), `anthropic`, `openai-compatible`, `smartling`, `bedrock`
 - `DB_TYPE` selects database: `sqlite` (default), `mysql`
 - GitHub fine-grained token needs: Contents:read, Pull requests:read, Metadata:read, Members:read
 
