@@ -12,6 +12,7 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.1014.0",
     "@octokit/rest": "^21.0.2",
     "better-sqlite3": "^12.6.2",
     "croner": "^10.0.1",
