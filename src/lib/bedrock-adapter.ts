@@ -18,7 +18,14 @@ export function createBedrockClient() {
   return {
     chat: {
       completions: {
-        async create(params: any) {
+        async create(params: {
+          messages: { role: string; content: string }[];
+          model: string;
+          temperature?: number;
+          max_tokens?: number;
+          response_format?: { type: string };
+          [key: string]: unknown;
+        }) {
           const { messages, model, temperature, max_tokens, response_format } = params;
 
           // Separate system messages from conversation messages
@@ -57,6 +64,7 @@ export function createBedrockClient() {
           });
 
           const response = await bedrockClient.send(command);
+          if (!response.body) throw new Error('Empty response from Bedrock');
           const decoded = JSON.parse(new TextDecoder().decode(response.body));
 
           return {
