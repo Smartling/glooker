@@ -33,7 +33,7 @@ export default function LlmFindings() {
   // Project insights
   const [projects, setProjects] = useState<ProjectInsight[]>([]);
   const [untrackedWork, setUntrackedWork] = useState<UntrackedWork[]>([]);
-  const [projectsMeta, setProjectsMeta] = useState<{ org: string; periodDays: number; createdAt: string } | null>(null);
+  const [projectsMeta, setProjectsMeta] = useState<{ id: string; org: string; periodDays: number; createdAt: string } | null>(null);
   const [projectsLoading, setProjectsLoading] = useState(true);
 
   useEffect(() => {
@@ -63,7 +63,7 @@ export default function LlmFindings() {
         if (data.available) {
           setProjects(data.projects || []);
           setUntrackedWork(data.untracked_work || []);
-          setProjectsMeta({ org: data.report.org, periodDays: data.report.periodDays, createdAt: data.report.createdAt });
+          setProjectsMeta({ id: data.report.id, org: data.report.org, periodDays: data.report.periodDays, createdAt: data.report.createdAt });
         }
       })
       .catch(() => {})
@@ -159,7 +159,7 @@ export default function LlmFindings() {
                 <p className="text-xs text-gray-500 pl-6 mb-1.5">{p.summary}</p>
                 <div className="flex gap-1 pl-6 flex-wrap">
                   {p.developers.map(d => (
-                    <span key={d} className="text-[10px] px-1.5 py-0.5 rounded" style={{ color: 'var(--accent-dark)', backgroundColor: 'color-mix(in srgb, var(--accent) 8%, transparent)' }}>@{d}</span>
+                    <a key={d} href={`/report/${projectsMeta.id}/dev/${d}`} className="text-[10px] px-1.5 py-0.5 rounded hover:opacity-80 transition-opacity" style={{ color: 'var(--accent-dark)', backgroundColor: 'color-mix(in srgb, var(--accent) 8%, transparent)' }}>@{d}</a>
                   ))}
                 </div>
               </div>
@@ -179,7 +179,7 @@ export default function LlmFindings() {
                       <div className="flex items-center gap-2 mt-1 text-[10px] text-gray-600">
                         <span>{w.commits} commits</span>
                         <span>·</span>
-                        <span>{w.developers.map(d => '@' + d).join(', ')}</span>
+                        <span>{w.developers.map((d, di) => (<span key={d}>{di > 0 && ', '}<a href={`/report/${projectsMeta!.id}/dev/${d}`} className="hover:opacity-80 transition-opacity" style={{ color: 'var(--accent-dark)' }}>@{d}</a></span>))}</span>
                       </div>
                     </div>
                   </div>
