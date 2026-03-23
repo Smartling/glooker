@@ -8,10 +8,33 @@ interface Highlight {
   sentiment: 'positive' | 'neutral' | 'warning';
 }
 
+interface ProjectInsight {
+  name: string;
+  developers: string[];
+  summary: string;
+  jira_count: number;
+  estimated_commits: number;
+  estimated_prs: number;
+}
+
+interface UntrackedWork {
+  name: string;
+  repo: string;
+  developers: string[];
+  commits: number;
+  summary: string;
+}
+
 export default function LlmFindings() {
   const [highlights, setHighlights] = useState<Highlight[] | null>(null);
   const [highlightsLoading, setHighlightsLoading] = useState(true);
   const [highlightsMeta, setHighlightsMeta] = useState<{ org: string; periodDays: number; dateA: string; dateB: string } | null>(null);
+
+  // Project insights
+  const [projects, setProjects] = useState<ProjectInsight[]>([]);
+  const [untrackedWork, setUntrackedWork] = useState<UntrackedWork[]>([]);
+  const [projectsMeta, setProjectsMeta] = useState<{ org: string; periodDays: number; createdAt: string } | null>(null);
+  const [projectsLoading, setProjectsLoading] = useState(true);
 
   useEffect(() => {
     fetch('/api/report-highlights')
@@ -32,6 +55,19 @@ export default function LlmFindings() {
       })
       .catch(() => {})
       .finally(() => setHighlightsLoading(false));
+
+    // Project insights
+    fetch('/api/project-insights')
+      .then(async r => { try { return JSON.parse(await r.text()); } catch { return { available: false }; } })
+      .then(data => {
+        if (data.available) {
+          setProjects(data.projects || []);
+          setUntrackedWork(data.untracked_work || []);
+          setProjectsMeta({ org: data.report.org, periodDays: data.report.periodDays, createdAt: data.report.createdAt });
+        }
+      })
+      .catch(() => {})
+      .finally(() => setProjectsLoading(false));
   }, []);
 
   const formatDate = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -40,38 +76,6 @@ export default function LlmFindings() {
 
   return (
     <div className="space-y-6">
-      {/* Tip of the Day */}
-      <div className="bg-gradient-to-br from-accent/10 to-emerald-500/5 border border-accent/30 rounded-2xl p-5">
-        <div className="flex items-center gap-2 mb-3">
-          <span className="text-lg">💡</span>
-          <span className="text-xs font-bold tracking-widest uppercase text-white/40">Tip of the Day</span>
-        </div>
-        <p className="text-sm leading-relaxed text-white/70">
-          The bottleneck has shifted from <em>writing code</em> to{' '}
-          <span className="text-emerald-400 font-semibold">reviewing, governing, and directing code</span>.
-          For every dollar invested in velocity, invest <strong className="text-white">at least fifty cents in reducing governance debt</strong>.
-        </p>
-        <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-4 mt-4 text-center">
-          <div className="flex items-center justify-center flex-wrap gap-2 text-base font-bold">
-            <span className="px-3 py-1 rounded-md bg-amber-500/15 text-amber-300 font-extrabold">Output</span>
-            <span className="text-white/25 text-sm">=</span>
-            <div className="flex flex-col items-center">
-              <div className="flex gap-2 items-center pb-1.5 border-b-2 border-white/15">
-                <span className="px-3 py-1 rounded-md bg-indigo-500/20 text-indigo-300 font-extrabold">LLM Velocity</span>
-                <span className="text-white/35 font-normal">×</span>
-                <span className="px-3 py-1 rounded-md bg-emerald-500/20 text-emerald-400 font-extrabold">Human Judgment</span>
-              </div>
-              <span className="px-3 py-1 rounded-md bg-red-500/20 text-red-400 font-extrabold mt-1.5">Governance Debt</span>
-            </div>
-          </div>
-          <div className="flex justify-center gap-5 mt-3 flex-wrap">
-            <span className="flex items-center gap-1.5 text-[11px] text-white/35"><span className="w-2 h-2 rounded bg-indigo-400" /> Scales fast</span>
-            <span className="flex items-center gap-1.5 text-[11px] text-white/35"><span className="w-2 h-2 rounded bg-emerald-400" /> Scarce resource</span>
-            <span className="flex items-center gap-1.5 text-[11px] text-white/35"><span className="w-2 h-2 rounded bg-red-400" /> Accumulates silently</span>
-          </div>
-        </div>
-      </div>
-
       {/* Highlights */}
       {highlightsLoading && (
         <div className="bg-white/[0.03] border border-white/[0.07] rounded-2xl p-5">
@@ -93,11 +97,10 @@ export default function LlmFindings() {
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <span className="text-lg">📊</span>
-              <span className="text-xs font-bold tracking-widest uppercase text-white/40">Highlights</span>
+              <span className="text-xs font-bold tracking-widest uppercase text-white/40">
+                {highlightsMeta.org} · {highlightsMeta.periodDays}d · {formatDate(highlightsMeta.dateA)} vs {formatDate(highlightsMeta.dateB)}
+              </span>
             </div>
-            <span className="text-[11px] text-white/25">
-              {highlightsMeta.org} · {highlightsMeta.periodDays}d · {formatDate(highlightsMeta.dateA)} vs {formatDate(highlightsMeta.dateB)}
-            </span>
           </div>
           <div className="space-y-2.5">
             {highlights.map((h, i) => (
@@ -108,6 +111,82 @@ export default function LlmFindings() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Project Insights */}
+      {projectsLoading && (
+        <div className="bg-white/[0.03] border border-white/[0.07] rounded-2xl p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-lg">🏗️</span>
+            <span className="text-xs font-bold tracking-widest uppercase text-white/40">Top Projects</span>
+          </div>
+          <div className="flex items-center gap-2 text-gray-500 text-sm">
+            <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            Analyzing projects...
+          </div>
+        </div>
+      )}
+      {!projectsLoading && projects.length > 0 && projectsMeta && (
+        <div className="bg-white/[0.03] border border-white/[0.07] rounded-2xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">🏗️</span>
+              <span className="text-xs font-bold tracking-widest uppercase text-white/40">
+                Top Projects · {projectsMeta.org} · {projectsMeta.periodDays}d · {formatDate(projectsMeta.createdAt)}
+              </span>
+            </div>
+          </div>
+
+          {/* Project list */}
+          <div className="space-y-3 mb-4">
+            {projects.map((p, i) => (
+              <div key={i} className="bg-white/[0.02] rounded-lg p-3">
+                <div className="flex items-start justify-between gap-3 mb-1">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-xs text-gray-600 w-4 shrink-0 text-right">{i + 1}</span>
+                    <span className="text-sm font-semibold text-white">{p.name}</span>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0 text-[11px] text-gray-500">
+                    <span>{p.jira_count} jiras</span>
+                    <span>~{p.estimated_commits} commits</span>
+                    <span>~{p.estimated_prs} PRs</span>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500 pl-6 mb-1.5">{p.summary}</p>
+                <div className="flex gap-1 pl-6 flex-wrap">
+                  {p.developers.map(d => (
+                    <span key={d} className="text-[10px] px-1.5 py-0.5 rounded" style={{ color: 'var(--accent-dark)', backgroundColor: 'color-mix(in srgb, var(--accent) 8%, transparent)' }}>@{d}</span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Work with no Jiras */}
+          {untrackedWork.length > 0 && (
+            <div className="border-t border-white/[0.06] pt-3 mt-3">
+              <p className="text-[10px] text-white/25 uppercase tracking-widest font-bold mb-2">Top {untrackedWork.length} with no Jiras</p>
+              <div className="space-y-2">
+                {untrackedWork.map((w, i) => (
+                  <div key={i} className="flex items-start gap-3 bg-amber-500/5 border border-amber-500/10 rounded-lg p-2.5">
+                    <span className="text-xs text-amber-400/80 font-semibold shrink-0">{w.repo}</span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs text-gray-400">{w.summary}</p>
+                      <div className="flex items-center gap-2 mt-1 text-[10px] text-gray-600">
+                        <span>{w.commits} commits</span>
+                        <span>·</span>
+                        <span>{w.developers.map(d => '@' + d).join(', ')}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
