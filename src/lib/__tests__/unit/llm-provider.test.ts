@@ -66,6 +66,16 @@ describe('llm-provider', () => {
       });
       expect(mod.LLM_MODEL).toBe('custom-model');
     });
+
+    it('defaults to bedrock claude model for bedrock provider', () => {
+      process.env.LLM_PROVIDER = 'bedrock';
+      delete process.env.LLM_MODEL;
+      let mod: any;
+      jest.isolateModules(() => {
+        mod = require('@/lib/llm-provider');
+      });
+      expect(mod.LLM_MODEL).toBe('us.anthropic.claude-sonnet-4-6');
+    });
   });
 
   describe('getLLMClient', () => {
@@ -136,6 +146,38 @@ describe('llm-provider', () => {
       expect(client._opts.baseURL).toBe(
         'https://api.smartling.test/ai-proxy-api/v2/accounts/acc-123/compatible/openai',
       );
+    });
+
+    it('creates Bedrock client via adapter', async () => {
+      process.env.LLM_PROVIDER = 'bedrock';
+
+      jest.doMock('@/lib/bedrock-adapter', () => ({
+        createBedrockClient: jest.fn().mockReturnValue({ chat: { completions: { create: jest.fn() } } }),
+      }));
+
+      let mod: any;
+      jest.isolateModules(() => {
+        mod = require('@/lib/llm-provider');
+      });
+      const client = await mod.getLLMClient();
+      expect(client).toBeDefined();
+      expect(client.chat.completions.create).toBeDefined();
+    });
+
+    it('caches Bedrock client on second call', async () => {
+      process.env.LLM_PROVIDER = 'bedrock';
+
+      jest.doMock('@/lib/bedrock-adapter', () => ({
+        createBedrockClient: jest.fn().mockReturnValue({ chat: { completions: { create: jest.fn() } } }),
+      }));
+
+      let mod: any;
+      jest.isolateModules(() => {
+        mod = require('@/lib/llm-provider');
+      });
+      const first = await mod.getLLMClient();
+      const second = await mod.getLLMClient();
+      expect(first).toBe(second);
     });
 
     it('does not cache Smartling client (token expires)', async () => {

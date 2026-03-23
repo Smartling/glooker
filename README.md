@@ -32,7 +32,7 @@ That's it. Glooker uses SQLite by default — no database setup needed.
 - **Resumable reports** — interrupted reports can be resumed, skipping already-analyzed commits (commit analyses save to DB inline)
 - **Scheduled reports** — configure recurring reports on a cron schedule
 - **Export** — CSV download, Google Sheets, or Download PDF (print-optimized layout)
-- **Multiple LLM providers** — OpenAI, Anthropic, any OpenAI-compatible endpoint (Ollama, vLLM, Azure), or Smartling AI Proxy
+- **Multiple LLM providers** — OpenAI, Anthropic, AWS Bedrock, any OpenAI-compatible endpoint (Ollama, vLLM, Azure), or Smartling AI Proxy
 
 ## Report Metrics
 
@@ -86,6 +86,23 @@ LLM_API_KEY=not-needed
 ```
 
 > **Apple Silicon (M1/M2/M3/M4) GPU acceleration:** If you install Ollama via an x86 Homebrew (`/usr/local/bin/brew`), it will run under Rosetta and **cannot access the Metal GPU** — inference will be CPU-only and much slower. Install Ollama using the [official installer](https://ollama.com/install.sh) or an ARM-native Homebrew (`/opt/homebrew/bin/brew`) to get full GPU acceleration. Verify with `ollama ps` — the PROCESSOR column should show `100% GPU`, not `100% CPU`.
+
+#### AWS Bedrock
+For AWS users with Bedrock model access enabled:
+```env
+LLM_PROVIDER=bedrock
+# Uses the default AWS credential provider chain (AWS_PROFILE, IAM role, etc.)
+# AWS_PROFILE=your-profile
+# AWS_REGION=us-east-1
+LLM_MODEL=us.anthropic.claude-sonnet-4-6
+```
+
+For SSO authentication, run your dev server through `aws-okta` or `aws sso login`:
+```bash
+aws-okta exec your-profile -- npm run dev
+# or
+aws sso login --profile your-profile && AWS_PROFILE=your-profile npm run dev
+```
 
 #### Smartling AI Proxy
 For Smartling customers with AI Proxy access:
@@ -177,7 +194,7 @@ docker compose up --build -d
 
 ```
 Browser (Next.js)  →  API Routes  →  GitHub API
-                                  →  LLM Provider (OpenAI / Anthropic / Smartling / custom)
+                                  →  LLM Provider (OpenAI / Anthropic / Bedrock / Smartling / custom)
                                   →  Jira API (optional)
                                   →  SQLite or MySQL
 ```
@@ -201,6 +218,7 @@ Browser (Next.js)  →  API Routes  →  GitHub API
 ```
 src/lib/
 ├── llm-provider.ts          # LLM provider factory (OpenAI SDK for all providers)
+├── bedrock-adapter.ts       # AWS Bedrock adapter (only loaded when provider=bedrock)
 ├── smartling-auth.ts         # Smartling OAuth (only loaded when provider=smartling)
 ├── github.ts                 # GitHub API: members, commit/PR search, diffs, AI detection
 ├── analyzer.ts               # LLM commit analysis prompt + response parsing

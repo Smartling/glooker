@@ -10,18 +10,23 @@ import OpenAI from 'openai';
  *   anthropic          — Anthropic API (OpenAI-compatible endpoint)
  *   smartling          — Smartling AI Proxy
  *   openai-compatible  — Any OpenAI-compatible endpoint (Ollama, vLLM, Azure, etc.)
+ *   bedrock            — AWS Bedrock (Anthropic models via InvokeModel)
  */
 
-type Provider = 'openai' | 'anthropic' | 'smartling' | 'openai-compatible';
+type Provider = 'openai' | 'anthropic' | 'smartling' | 'openai-compatible' | 'bedrock';
 
 const provider = (process.env.LLM_PROVIDER || 'openai') as Provider;
 
 // Cache the client (or a promise for Smartling which needs async auth)
 let cachedClient: OpenAI | null = null;
 
+const MODEL_DEFAULTS: Record<string, string> = {
+  anthropic: 'claude-sonnet-4-20250514',
+  bedrock:   'us.anthropic.claude-sonnet-4-6',
+};
+
 export const LLM_MODEL =
-  process.env.LLM_MODEL ||
-  (provider === 'anthropic' ? 'claude-sonnet-4-20250514' : 'gpt-4o');
+  process.env.LLM_MODEL || MODEL_DEFAULTS[provider] || 'gpt-4o';
 
 /**
  * Extra body properties to include in each chat completion request.
@@ -78,7 +83,13 @@ export async function getLLMClient(): Promise<OpenAI> {
       });
     }
 
+    case 'bedrock': {
+      const { createBedrockClient } = await import('./bedrock-adapter');
+      cachedClient = createBedrockClient() as unknown as OpenAI;
+      return cachedClient;
+    }
+
     default:
-      throw new Error(`Unknown LLM_PROVIDER: ${provider}. Use: openai, anthropic, smartling, or openai-compatible`);
+      throw new Error(`Unknown LLM_PROVIDER: ${provider}. Use: openai, anthropic, smartling, openai-compatible, or bedrock`);
   }
 }
