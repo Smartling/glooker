@@ -9,6 +9,7 @@ import { resolveJiraUser } from './jira';
 import { getAppConfig } from './app-config/service';
 
 const CONCURRENCY = Number(process.env.LLM_CONCURRENCY || 5);
+const JIRA_CONCURRENCY = Number(process.env.JIRA_CONCURRENCY || 3);
 
 // Stop signal store (globalThis to survive Next.js HMR)
 const g = globalThis as typeof globalThis & { __glooker_stops?: Set<string> };
@@ -86,6 +87,7 @@ export async function runReport(
     const pendingLLM: Promise<void>[] = [];
     const pendingJira: Promise<void>[] = [];
     const limit            = pLimit(CONCURRENCY);
+    const limitJira        = pLimit(JIRA_CONCURRENCY);
     let llmErrors          = 0;
     let processedMembers   = 0;
     let activeMemberCount  = 0;
@@ -245,7 +247,7 @@ export async function runReport(
         if (jiraClient && thisMemCommits.length > 0) {
           const login = member.login;
           const emails = [...new Set(thisMemCommits.map(c => c.authorEmail).filter((e): e is string => Boolean(e)))];
-          const jp = (async () => {
+          const jp = limitJira(async () => {
             if (shouldStop(reportId)) return;
 
             // Resume: skip if already have jira_issues for this user/report
@@ -307,7 +309,7 @@ export async function runReport(
               log(`[jira] ERROR @${login}: ${err instanceof Error ? err.message : String(err)}`);
               jiraIssueCountByLogin.set(login, 0);
             }
-          })();
+          });
           pendingJira.push(jp);
         }
 
