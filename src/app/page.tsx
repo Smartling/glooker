@@ -94,7 +94,7 @@ export default function Home() {
       .then((r) => r.json())
       .then(setPastReports)
       .catch((err) => console.error('[glooker]', err));
-    fetch('/api/llm-config')
+    fetch('/api/app-config')
       .then((r) => r.json())
       .then((cfg) => setJiraEnabled(cfg?.jira?.enabled ?? false))
       .catch(() => {});

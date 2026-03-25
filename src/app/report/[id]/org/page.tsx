@@ -51,7 +51,7 @@ export default function OrgDetailPage() {
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
-    fetch('/api/llm-config')
+    fetch('/api/app-config')
       .then(r => r.json())
       .then(cfg => setJiraEnabled(cfg?.jira?.enabled ?? false))
       .catch(() => {});
