@@ -126,9 +126,12 @@ JIRA_USERNAME=your-email@company.com
 JIRA_API_TOKEN=your-jira-api-token
 JIRA_API_VERSION=3          # 3 for Cloud, 2 for Server
 # JIRA_PROJECTS=PROJ1,PROJ2 # optional filter, default: all projects
+# JIRA_STORY_POINTS_FIELDS=customfield_10016  # optional, instance-specific
 ```
 
 GitHub→Jira user mappings are auto-discovered via commit author emails and cached in the `user_mappings` table. Editable in Settings > App Settings.
+
+To find story points field IDs for your instance: `GET https://<JIRA_HOST>/rest/api/3/field` — look for fields with "story" or "point" in the name and use the `id` value (e.g. `customfield_10016`). If unset, story points are not collected.
 
 ### Database
 

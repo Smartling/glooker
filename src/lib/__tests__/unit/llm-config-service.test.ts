@@ -27,6 +27,11 @@ describe('getAppConfig', () => {
     'ANALYZER_TEMPERATURE',
     'ANALYZER_MAX_TOKENS',
     'PROMPTS_DIR',
+    'JIRA_ENABLED',
+    'JIRA_HOST',
+    'JIRA_USERNAME',
+    'JIRA_API_TOKEN',
+    'JIRA_STORY_POINTS_FIELDS',
   ];
 
   beforeEach(() => {
@@ -222,6 +227,46 @@ describe('getAppConfig', () => {
       process.env.LLM_API_KEY = 'abc';
       const config = getAppConfig();
       expect(config.llmApiKey).toBe('xxxxx');
+    });
+  });
+
+  describe('jira.storyPointsFields parsing', () => {
+    beforeEach(() => {
+      // Enable Jira so the config block runs
+      process.env.JIRA_ENABLED = 'true';
+      process.env.JIRA_HOST = 'example.atlassian.net';
+      process.env.JIRA_USERNAME = 'user@example.com';
+      process.env.JIRA_API_TOKEN = 'token';
+    });
+
+    it('returns empty array when JIRA_STORY_POINTS_FIELDS is not set', () => {
+      delete process.env.JIRA_STORY_POINTS_FIELDS;
+      const config = getAppConfig();
+      expect(config.jira.storyPointsFields).toEqual([]);
+    });
+
+    it('parses a single field ID', () => {
+      process.env.JIRA_STORY_POINTS_FIELDS = 'customfield_10016';
+      const config = getAppConfig();
+      expect(config.jira.storyPointsFields).toEqual(['customfield_10016']);
+    });
+
+    it('parses multiple comma-separated field IDs', () => {
+      process.env.JIRA_STORY_POINTS_FIELDS = 'customfield_10016,customfield_10028';
+      const config = getAppConfig();
+      expect(config.jira.storyPointsFields).toEqual(['customfield_10016', 'customfield_10028']);
+    });
+
+    it('trims whitespace around field IDs', () => {
+      process.env.JIRA_STORY_POINTS_FIELDS = ' customfield_10016 , customfield_10028 ';
+      const config = getAppConfig();
+      expect(config.jira.storyPointsFields).toEqual(['customfield_10016', 'customfield_10028']);
+    });
+
+    it('filters out empty strings from the list', () => {
+      process.env.JIRA_STORY_POINTS_FIELDS = 'customfield_10016,,';
+      const config = getAppConfig();
+      expect(config.jira.storyPointsFields).toEqual(['customfield_10016']);
     });
   });
 

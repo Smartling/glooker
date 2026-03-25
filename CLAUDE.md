@@ -55,4 +55,5 @@ Glooker is a Next.js 15 web app that generates developer impact reports for a Gi
 - Jira Cloud API v3 returns descriptions as ADF (Atlassian Document Format) JSON, not plain text — `extractAdfText()` in `jira/client.ts` handles this
 - Jira Cloud instances with hidden email visibility will cause auto-discovery to fail silently — users must edit mappings manually in Settings
 - The `jira_issues` table has nullable LLM columns (`complexity`, `type`, `impact_summary`) for future use — no LLM analysis runs on Jira items yet
+- Jira story points field IDs are instance-specific — `JIRA_STORY_POINTS_FIELDS` must be configured explicitly (no default). Discover IDs via `GET /rest/api/3/field`, use the `id` of fields whose name contains "story" or "point". If unset, `storyPoints` is always `null`.
 - The main report page (`page.tsx`) and org report page (`report/[id]/org/page.tsx`) both render developer tables — changes to columns must be applied to both
