@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTheme } from '../theme-context';
-import { THEMES } from '../themes';
+import { THEMES, type ThemeColors } from '../themes';
 
 type Tab = 'schedules' | 'teams' | 'app' | 'appearance';
 
@@ -1205,47 +1205,68 @@ function ConfigRow({ label, value, status }: { label: string; value: string; sta
 
 
 /* ── Appearance Tab ── */
+function ThemeCard({ t, isActive, onSelect }: { t: ThemeColors; isActive: boolean; onSelect: () => void }) {
+  const isLight = t.mode === 'light';
+  return (
+    <button
+      onClick={onSelect}
+      className={`rounded-xl p-5 text-left border-2 transition-all hover:-translate-y-0.5 ${
+        isLight ? 'bg-white' : 'bg-gray-900'
+      } ${
+        isActive
+          ? isLight ? 'border-gray-400 ring-1 ring-gray-300' : 'border-white/30 ring-1 ring-white/10'
+          : isLight ? 'border-gray-200 hover:border-gray-300' : 'border-transparent hover:border-gray-800'
+      }`}
+    >
+      <div className="flex items-center gap-3 mb-3">
+        <div className="w-8 h-8 rounded-lg" style={{ background: t.accent }} />
+        <div>
+          <p className={`text-sm font-bold ${isLight ? 'text-gray-900' : 'text-white'}`}>{t.name}</p>
+          {isActive && <p className={`text-[10px] ${isLight ? 'text-gray-400' : 'text-gray-500'}`}>Active</p>}
+        </div>
+      </div>
+      {/* Color swatches */}
+      <div className="flex gap-1.5">
+        {[t.accentDarker, t.accentDark, t.accent, t.accentLight, t.accentLighter].map((hex, i) => (
+          <div key={i} className="w-6 h-6 rounded" style={{ background: hex }} />
+        ))}
+      </div>
+      {/* Mini preview */}
+      <div className="mt-3 rounded-lg p-3" style={{ background: t.bodyBg, border: isLight ? '1px solid #e5e7eb' : 'none' }}>
+        <div className="flex items-center gap-2 mb-2">
+          <div className="h-1.5 w-12 rounded-full" style={{ background: t.accentLight }} />
+          <div className="h-1.5 w-8 rounded-full" style={{ background: isLight ? '#d1d5db' : '#374151' }} />
+        </div>
+        <div className="flex gap-1.5">
+          <div className="h-6 flex-1 rounded" style={{ background: `color-mix(in srgb, ${t.accent} 20%, transparent)` }} />
+          <div className="h-6 flex-1 rounded" style={{ background: isLight ? '#f3f4f6' : '#1f2937' }} />
+          <div className="h-6 flex-1 rounded" style={{ background: isLight ? '#f3f4f6' : '#1f2937' }} />
+        </div>
+      </div>
+    </button>
+  );
+}
+
 function AppearanceTab() {
   const { theme, setThemeId } = useTheme();
+  const darkThemes = THEMES.filter(t => t.mode === 'dark');
+  const lightThemes = THEMES.filter(t => t.mode === 'light');
 
   return (
     <div>
       <p className="text-sm text-gray-400 mb-6">Choose your accent color scheme. Changes apply instantly.</p>
+
+      <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Dark</h3>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
+        {darkThemes.map(t => (
+          <ThemeCard key={t.id} t={t} isActive={theme.id === t.id} onSelect={() => setThemeId(t.id)} />
+        ))}
+      </div>
+
+      <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Light</h3>
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-        {THEMES.map(t => (
-          <button
-            key={t.id}
-            onClick={() => setThemeId(t.id)}
-            className={`bg-gray-900 rounded-xl p-5 text-left border-2 transition-all hover:-translate-y-0.5 ${
-              theme.id === t.id ? 'border-white/30 ring-1 ring-white/10' : 'border-transparent hover:border-gray-800'
-            }`}
-          >
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-8 h-8 rounded-lg" style={{ background: t.accent }} />
-              <div>
-                <p className="text-sm font-bold text-white">{t.name}</p>
-                {theme.id === t.id && <p className="text-[10px] text-gray-500">Active</p>}
-              </div>
-            </div>
-            {/* Color swatches */}
-            <div className="flex gap-1.5">
-              {[t.accentDarker, t.accentDark, t.accent, t.accentLight, t.accentLighter].map((hex, i) => (
-                <div key={i} className="w-6 h-6 rounded" style={{ background: hex }} />
-              ))}
-            </div>
-            {/* Mini preview */}
-            <div className="mt-3 rounded-lg p-3" style={{ background: t.bodyBg }}>
-              <div className="flex items-center gap-2 mb-2">
-                <div className="h-1.5 w-12 rounded-full" style={{ background: t.accentLight }} />
-                <div className="h-1.5 w-8 rounded-full bg-gray-700" />
-              </div>
-              <div className="flex gap-1.5">
-                <div className="h-6 flex-1 rounded" style={{ background: `color-mix(in srgb, ${t.accent} 20%, transparent)` }} />
-                <div className="h-6 flex-1 rounded bg-gray-800" />
-                <div className="h-6 flex-1 rounded bg-gray-800" />
-              </div>
-            </div>
-          </button>
+        {lightThemes.map(t => (
+          <ThemeCard key={t.id} t={t} isActive={theme.id === t.id} onSelect={() => setThemeId(t.id)} />
         ))}
       </div>
     </div>
