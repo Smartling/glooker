@@ -43,7 +43,7 @@ Glooker is a Next.js 15 web app that generates developer impact reports for a Gi
 - Some LLM providers wrap JSON in markdown fences despite `response_format: json_object` — the parser strips ` ```json ``` ` fences
 - Smartling auth token expires in ~24h — `smartling-auth.ts` caches and auto-refreshes 5 min before expiry
 - `next build` artifacts conflict with `next dev` — always `rm -rf .next` when switching
-- SQLite SQL translator handles `INSERT IGNORE`, `ON DUPLICATE KEY UPDATE`, and `NOW()` — if adding new MySQL-specific SQL, update `translateSQL()` in `db/sqlite.ts`
+- SQLite SQL translator handles `INSERT IGNORE`, `ON DUPLICATE KEY UPDATE`, and `NOW()` — if adding new MySQL-specific SQL, update `translateSQL()` in `db/sqlite.ts`. Avoid `LEFT(str, n)` — use `SUBSTR(str, 1, n)` instead (standard SQL, works in both engines)
 - Progress store and stop-signal store use `globalThis` to survive Next.js HMR module reloads
 - `@octokit/rest` is ESM-only — any test file that imports from `github.ts` (directly or transitively) must `jest.mock('@octokit/rest')` before the import
 - Tests use Jest + ts-jest with `@/` path alias — config in `jest.config.ts`
