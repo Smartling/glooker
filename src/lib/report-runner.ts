@@ -138,7 +138,7 @@ export async function runReport(
             s.impactScore,
             s.prPercentage,
             s.aiPercentage,
-            s.totalJiraIssues,
+            jiraIssueCountByLogin.get(s.githubLogin) ?? s.totalJiraIssues,
             JSON.stringify(s.typeBreakdown),
             JSON.stringify(s.activeRepos),
           ],
@@ -291,7 +291,16 @@ export async function runReport(
               }
 
               jiraIssueCountByLogin.set(login, issues.length);
-              if (issues.length > 0) log(`[jira] @${login}: ${issues.length} resolved issues`);
+              if (issues.length > 0) {
+                log(`[jira] @${login}: ${issues.length} resolved issues`);
+                // If LLM finished first and already wrote stats with 0, patch the count now
+                if (completedMembers.has(login)) {
+                  db.execute(
+                    `UPDATE developer_stats SET total_jira_issues = ? WHERE report_id = ? AND github_login = ?`,
+                    [issues.length, reportId, login],
+                  ).catch((err) => log(`DB WARN updating jira count for @${login}: ${err}`));
+                }
+              }
             } catch (err) {
               log(`[jira] ERROR @${login}: ${err instanceof Error ? err.message : String(err)}`);
               jiraIssueCountByLogin.set(login, 0);
