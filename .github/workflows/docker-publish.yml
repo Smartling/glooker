@@ -47,7 +47,7 @@ jobs:
         run: |
           SHA="${{ github.sha }}"
           SHORT_SHA="${SHA:0:7}"
-          IMAGE="ghcr.io/${{ github.repository }}"
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
           # Always tag with short commit SHA.
           # workflow_dispatch can target any branch — this allows building
           # feature branch images for testing before merge.
