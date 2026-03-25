@@ -15,17 +15,29 @@ jest.mock('p-limit', () => ({
   __esModule: true,
   default: () => <T>(fn: () => T) => fn(),
 }));
+jest.mock('@/lib/jira', () => ({
+  getJiraClient: jest.fn(),
+  resolveJiraUser: jest.fn(),
+}));
+jest.mock('@/lib/app-config/service', () => ({
+  getAppConfig: jest.fn(),
+}));
 
 import { runReport, requestStop } from '@/lib/report-runner';
 import { listOrgMembers, fetchUserActivity } from '@/lib/github';
 import { analyzeCommit } from '@/lib/analyzer';
 import db from '@/lib/db/index';
 import { updateProgress, addLog } from '@/lib/progress-store';
+import { getJiraClient, resolveJiraUser } from '@/lib/jira';
+import { getAppConfig } from '@/lib/app-config/service';
 
 const mockListOrgMembers = listOrgMembers as jest.Mock;
 const mockFetchUserActivity = fetchUserActivity as jest.Mock;
 const mockAnalyzeCommit = analyzeCommit as jest.Mock;
 const mockDbExecute = db.execute as jest.Mock;
+const mockGetJiraClient = getJiraClient as jest.Mock;
+const mockResolveJiraUser = resolveJiraUser as jest.Mock;
+const mockGetAppConfig = getAppConfig as jest.Mock;
 
 describe('runReport', () => {
   beforeEach(() => {
@@ -47,6 +59,9 @@ describe('runReport', () => {
     );
 
     mockDbExecute.mockResolvedValue([[], null]);
+    // Required: getAppConfig is fully mocked, so ALL tests need a default return value
+    // or they throw TypeError: Cannot read properties of undefined (reading 'jira')
+    mockGetAppConfig.mockReturnValue({ jira: { enabled: false, projects: [] } });
   });
 
   it('happy path: calls analyzeCommit for each unique commit and writes to DB', async () => {
@@ -180,5 +195,50 @@ describe('runReport', () => {
       (call: any[]) => typeof call[0] === 'string' && call[0].includes('completed'),
     );
     expect(completedCall).toBeTruthy();
+  });
+
+  it('fires Jira discovery per active member when Jira is enabled', async () => {
+    mockGetAppConfig.mockReturnValue({ jira: { enabled: true, projects: [] } });
+
+    const mockJiraClient = {
+      searchDoneIssues: jest.fn().mockResolvedValue([
+        {
+          projectKey: 'PROJ', issueKey: 'PROJ-1', issueType: 'Story',
+          summary: 'A ticket', description: '', status: 'Done',
+          labels: [], storyPoints: null, originalEstimateSeconds: null,
+          issueUrl: 'https://jira.example.com/browse/PROJ-1',
+          createdAt: '2025-01-01', resolvedAt: '2025-01-10',
+        },
+      ]),
+    };
+    mockGetJiraClient.mockReturnValue(mockJiraClient);
+    mockResolveJiraUser.mockResolvedValue({ accountId: 'jira-abc', email: 'alice@co.com' });
+
+    mockDbExecute.mockImplementation(async (sql: string) => {
+      if (typeof sql === 'string' && sql.includes('jira_issues') && sql.includes('COUNT')) {
+        return [[{ cnt: 0 }], null];
+      }
+      return [[], null];
+    });
+
+    await runReport('r-jira', 'my-org', 14);
+
+    // Both alice and bob have commits → Jira should be queried for both
+    expect(mockResolveJiraUser).toHaveBeenCalledTimes(2);
+    expect(mockJiraClient.searchDoneIssues).toHaveBeenCalledTimes(2);
+
+    // Verify jira_issues INSERT was called for both members (1 issue each)
+    const jiraInserts = mockDbExecute.mock.calls.filter(
+      (call: any[]) => typeof call[0] === 'string' && call[0].includes('INSERT IGNORE INTO jira_issues'),
+    );
+    expect(jiraInserts).toHaveLength(2);
+
+    // Verify final developer_stats includes total_jira_issues = 1
+    const statsInserts = mockDbExecute.mock.calls.filter(
+      (call: any[]) => typeof call[0] === 'string' && call[0].includes('INSERT INTO developer_stats'),
+    );
+    const finalInsert = statsInserts[statsInserts.length - 1];
+    // total_jira_issues is the 13th param (index 12) in the VALUES list
+    expect(finalInsert[1][12]).toBe(1);
   });
 });
