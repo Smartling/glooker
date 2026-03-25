@@ -300,7 +300,10 @@ export async function runReport(
             }
 
             const issues = await jiraClient.searchDoneIssues(
-              mapping.accountId, days, jiraConfig.projects.length > 0 ? jiraConfig.projects : undefined,
+              mapping.accountId,
+              days,
+              jiraConfig.projects.length > 0 ? jiraConfig.projects : undefined,
+              jiraConfig.storyPointsFields,
             );
 
             for (const issue of issues) {

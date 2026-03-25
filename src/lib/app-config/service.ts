@@ -30,6 +30,7 @@ export interface AppConfig {
     hasApiToken: boolean;
     apiVersion: string;
     projects: string[];
+    storyPointsFields: string[];
     missing: string[];
   };
 }
@@ -109,6 +110,9 @@ export function getAppConfig(): AppConfig {
     hasApiToken: Boolean(process.env.JIRA_API_TOKEN),
     apiVersion: process.env.JIRA_API_VERSION || '3',
     projects: process.env.JIRA_PROJECTS ? process.env.JIRA_PROJECTS.split(',').map(p => p.trim()).filter(Boolean) : [],
+    storyPointsFields: process.env.JIRA_STORY_POINTS_FIELDS
+      ? process.env.JIRA_STORY_POINTS_FIELDS.split(',').map(p => p.trim()).filter(Boolean)
+      : [],
     missing: jiraMissing,
   };
 

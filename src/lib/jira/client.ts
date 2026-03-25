@@ -119,11 +119,13 @@ export class JiraClient {
     accountId: string,
     periodDays: number,
     projects?: string[],
+    storyPointsFields: string[] = [],
   ): Promise<JiraIssueData[]> {
     const jql = buildDoneIssuesJql(accountId, periodDays, projects);
     const fields = [
       'summary', 'description', 'status', 'issuetype', 'labels',
-      'story_points', 'customfield_10016', 'timeoriginalestimate', 'created', 'resolutiondate',
+      ...storyPointsFields,
+      'timeoriginalestimate', 'created', 'resolutiondate',
     ];
 
     const allIssues: JiraIssueData[] = [];
@@ -135,6 +137,18 @@ export class JiraClient {
 
       for (const issue of result.issues) {
         const f = issue.fields;
+
+        let storyPoints: number | null = null;
+        for (const field of storyPointsFields) {
+          if (f[field] != null) {
+            const v = Number(f[field]);
+            if (!isNaN(v)) {
+              storyPoints = v;
+              break;
+            }
+          }
+        }
+
         allIssues.push({
           issueKey: issue.key,
           projectKey: issue.key.split('-')[0],
@@ -145,8 +159,7 @@ export class JiraClient {
             : (f.description?.content ? extractAdfText(f.description).slice(0, 2000) : null),
           status: f.status?.name || null,
           labels: f.labels || [],
-          storyPoints: f.story_points != null ? Number(f.story_points)
-            : f.customfield_10016 != null ? Number(f.customfield_10016) : null,
+          storyPoints,
           originalEstimateSeconds: f.timeoriginalestimate || null,
           issueUrl: `${this.protocol}://${this.host}/browse/${issue.key}`,
           createdAt: f.created || null,

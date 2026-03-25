@@ -36,6 +36,8 @@ services:
       JIRA_USERNAME: ${JIRA_USERNAME:-}
       JIRA_API_TOKEN: ${JIRA_API_TOKEN:-}
       JIRA_API_VERSION: ${JIRA_API_VERSION:-3}
+      JIRA_PROJECTS: ${JIRA_PROJECTS:-}
+      JIRA_STORY_POINTS_FIELDS: ${JIRA_STORY_POINTS_FIELDS:-}
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
       interval: 30s

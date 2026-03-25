@@ -1039,6 +1039,12 @@ function AppSettingsTab({ org }: { org: string }) {
               <ConfigRow label="API Token" value={config.jira.hasApiToken ? '••••••••' : '(not set)'} />
               <ConfigRow label="API Version" value={config.jira.apiVersion || '3'} />
               <ConfigRow label="Projects" value={config.jira.projects?.length > 0 ? config.jira.projects.join(', ') : '(all)'} />
+              <ConfigRow
+                label="Story Points Fields"
+                value={config.jira.storyPointsFields?.length > 0
+                  ? config.jira.storyPointsFields.join(', ')
+                  : '(not configured)'}
+              />
             </>
           )}
         </div>
