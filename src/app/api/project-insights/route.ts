@@ -45,7 +45,7 @@ export async function GET() {
   // Gather data for LLM
   // 1. All Jira issues (compact)
   const [jiraRows] = await db.execute(
-    `SELECT issue_key, project_key, issue_type, github_login, LEFT(summary, 80) as summary
+    `SELECT issue_key, project_key, issue_type, github_login, SUBSTR(summary, 1, 80) as summary
      FROM jira_issues WHERE report_id = ? ORDER BY project_key, issue_key`,
     [report.id],
   ) as [any[], any];
