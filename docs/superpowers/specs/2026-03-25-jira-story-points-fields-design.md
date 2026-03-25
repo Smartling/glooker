@@ -24,11 +24,11 @@ The Jira `/rest/api/3/field` endpoint returns both `id` and `key`. For custom fi
 - Add `storyPointsFields: string[]` parameter to `searchDoneIssues`
 - Remove hardcoded `story_points` and `customfield_10016` from the `fields` array
 - Spread `storyPointsFields` into the `fields` array instead
-- In the response mapping, iterate `storyPointsFields` and return the first non-null numeric value as `storyPoints`
+- In the response mapping, iterate `storyPointsFields` and return the first valid value as `storyPoints`: use `!= null` (covers both `null` and `undefined`), apply `Number()` coercion (Jira fields can come back as strings), and guard against `NaN` — same rigor as the existing hardcoded logic
 
 ### 2. `src/lib/app-config/service.ts`
 
-Add to the `jira` config block:
+Add `storyPointsFields: string[]` to the `AppConfig` jira interface type, and add to the `jira` config block:
 
 ```ts
 storyPointsFields: process.env.JIRA_STORY_POINTS_FIELDS
@@ -63,11 +63,11 @@ Add to Gotchas:
 
 ### 7. `src/app/settings/page.tsx`
 
-In the Jira config display section (read-only), add a row for story points fields using the same pattern as `projects` — show the list or "not configured" if empty.
+Inside the `jira.enabled` guard block where host, username, api version, and projects are already displayed, add a row for story points fields — show the comma-joined list or "not configured" if empty. Same pattern as `projects`.
 
 ### 8. `src/lib/__tests__/unit/jira-client.test.ts`
 
-Update existing `searchDoneIssues` test calls to pass `storyPointsFields` as a parameter (empty array `[]` or a test value).
+`searchDoneIssues` is currently not directly unit-tested (only `buildDoneIssuesJql` is). Add new unit tests for `searchDoneIssues` with a mocked `fetch`. The test file already imports `JiraClient` — add tests for the story points mapping logic specifically.
 
 ## Data Flow
 
@@ -85,7 +85,9 @@ The `jira_issues.story_points` column already exists and is nullable. If `JIRA_S
 
 ## Testing
 
-- Update `jira-client.test.ts` to pass `storyPointsFields` param
-- Add a test case: empty `storyPointsFields` → `storyPoints` is `null`
-- Add a test case: configured field present in response → value mapped correctly
-- Add a test case: multiple fields configured, first non-null wins
+Add new `searchDoneIssues` unit tests (mocking `fetch`):
+- Empty `storyPointsFields` → `storyPoints` is `null`
+- Single configured field present in response → value mapped correctly (coerced via `Number()`)
+- Field value returned as string → correctly coerced to number
+- Multiple fields configured, first non-null wins
+- All configured fields `null`/`undefined` in response → `storyPoints` is `null`
