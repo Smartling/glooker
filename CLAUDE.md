@@ -48,6 +48,9 @@ Glooker is a Next.js 15 web app that generates developer impact reports for a Gi
 - `@octokit/rest` is ESM-only — any test file that imports from `github.ts` (directly or transitively) must `jest.mock('@octokit/rest')` before the import
 - Tests use Jest + ts-jest with `@/` path alias — config in `jest.config.ts`
 - CI runs on all pull requests and pushes to main (`.github/workflows/test.yml`)
+- Docker images are built and pushed to GHCR on merge to main and via `workflow_dispatch` (`.github/workflows/docker-publish.yml`). Images tagged with 7-char short SHA; `:latest` tag only on main pushes.
+- `GET /api/health` — liveness probe endpoint, returns `{ status: "ok", version }`. No auth, no DB check.
+- Env vars are validated at startup in `instrumentation.ts` via `env-validation.ts` — warns about missing/invalid vars but does not crash the server
 - `PROMPTS_DIR` defaults to `./prompts` relative to CWD — in Docker, ensure the directory is mounted or `outputFileTracingIncludes` is configured in `next.config.ts`
 - Prompt loader caches template files in memory — restart the server after changing prompt template files (or call `clearPromptCache()` in dev)
 - Prompt template files have Jest snapshot tests that assert exact text — after editing any file in `prompts/`, run `npm test -- -u` to update snapshots (or `npm test -- --testPathPattern="analyzer" -u` for a specific service). Review the snapshot diff to confirm the change is intentional.
