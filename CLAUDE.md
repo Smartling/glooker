@@ -60,3 +60,4 @@ Glooker is a Next.js 15 web app that generates developer impact reports for a Gi
 - The `jira_issues` table has nullable LLM columns (`complexity`, `type`, `impact_summary`) for future use — no LLM analysis runs on Jira items yet
 - Jira story points field IDs are instance-specific — `JIRA_STORY_POINTS_FIELDS` must be configured explicitly (no default). Discover IDs via `GET /rest/api/3/field`, use the `id` of fields whose name contains "story" or "point". If unset, `storyPoints` is always `null`.
 - The main report page (`page.tsx`) and org report page (`report/[id]/org/page.tsx`) both render developer tables — changes to columns must be applied to both
+- `AUTH_ENABLED=true` enables user profile feature — extracts identity from ALB OIDC JWT header (`x-amzn-oidc-data` by default). Requires `user_mappings` table populated (via Jira auto-discovery) for full GitHub profile linking. Off by default — zero impact when disabled.

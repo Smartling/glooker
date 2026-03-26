@@ -55,6 +55,15 @@ const rules: EnvRule[] = [
         : 'must be a positive integer';
     },
   },
+  {
+    name: 'AUTH_ENABLED',
+    required: false,
+    description: 'Enable user profile via ALB OIDC (true/false)',
+    validate: (v) =>
+      ['true', 'false'].includes(v)
+        ? null
+        : 'must be true or false',
+  },
 ];
 
 /**
