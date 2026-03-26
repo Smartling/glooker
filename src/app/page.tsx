@@ -80,6 +80,22 @@ export default function Home() {
 
   const [showReportForm, setShowReportForm] = useState(false);
 
+  const [sidebarExpanded, setSidebarExpanded] = useState(false);
+
+  // Initialize sidebar state from localStorage (must run client-side)
+  useEffect(() => {
+    const stored = localStorage.getItem('glooker-sidebar-expanded');
+    if (stored === 'true') setSidebarExpanded(true);
+  }, []);
+
+  function toggleSidebar() {
+    setSidebarExpanded((prev) => {
+      const next = !prev;
+      localStorage.setItem('glooker-sidebar-expanded', String(next));
+      return next;
+    });
+  }
+
   // Load orgs and past reports on mount
   useEffect(() => {
     fetch('/api/orgs')
@@ -366,6 +382,35 @@ export default function Home() {
     ? Math.round((progress.completedDevelopers / progress.totalDevelopers) * 100)
     : progress?.status === 'completed' ? 100 : 0;
 
+  function formatCompactTime(dateStr: string): string {
+    const d = new Date(dateStr);
+    let h = d.getHours();
+    const m = d.getMinutes();
+    const suffix = h >= 12 ? 'p' : 'a';
+    h = h % 12 || 12;
+    return m === 0 ? `${h}${suffix}` : `${h}:${String(m).padStart(2, '0')}${suffix}`;
+  }
+
+  function statusBorderClass(status: string): string {
+    switch (status) {
+      case 'completed': return 'border-l-amber-500';
+      case 'failed':    return 'border-l-red-500';
+      case 'stopped':   return 'border-l-orange-500';
+      case 'running':   return 'border-l-amber-300';
+      default:          return 'border-l-gray-600';
+    }
+  }
+
+  function statusOutlineClass(status: string): string {
+    switch (status) {
+      case 'completed': return 'ring-1 ring-amber-500/60';
+      case 'failed':    return 'ring-1 ring-red-500/60';
+      case 'stopped':   return 'ring-1 ring-orange-500/60';
+      case 'running':   return 'ring-1 ring-amber-300/60';
+      default:          return 'ring-1 ring-gray-600/60';
+    }
+  }
+
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
       {/* Header */}
@@ -386,11 +431,77 @@ export default function Home() {
         </button>
       </div>
 
-      <div className="flex gap-8">
+      <div className={`flex ${sidebarExpanded ? 'gap-8' : 'gap-4'}`}>
         {/* Sidebar: past reports */}
-        <div className="w-60 shrink-0 no-print">
+        <div
+          className={`shrink-0 no-print transition-all duration-300 ease-in-out overflow-hidden ${
+            sidebarExpanded ? 'w-60' : 'w-[52px]'
+          }`}
+        >
+          {!sidebarExpanded ? (
+            <div className="flex flex-col items-center gap-1.5 pt-1">
+              {/* Expand toggle */}
+              <button
+                onClick={toggleSidebar}
+                className="w-9 h-7 flex items-center justify-center rounded-md bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-gray-200 transition-colors mb-1"
+                title="Expand sidebar"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+              {/* + New button */}
+              <button
+                onClick={() => setShowReportForm(true)}
+                disabled={orgs.length === 0}
+                className="w-9 h-6 flex items-center justify-center rounded border border-dashed border-gray-700 hover:border-accent-light text-accent-light hover:text-accent-lighter disabled:text-gray-700 disabled:border-gray-800 disabled:cursor-not-allowed transition-colors mb-1"
+                title="New report"
+              >
+                <span className="text-sm leading-none">+</span>
+              </button>
+              {/* Report date cards */}
+              {pastReports.map((r) => {
+                const isActive = activeReport?.id === r.id;
+                const created = new Date(r.created_at);
+                const month = created.toLocaleString('en-US', { month: 'short' });
+                const day = created.getDate();
+                const time = formatCompactTime(r.created_at);
+                const tooltip = `${r.org} — ${r.status === 'completed' ? 'done' : r.status}\n${r.period_days} days\n${created.toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`;
+
+                return (
+                  <button
+                    key={r.id}
+                    onClick={() => loadReport(r.id)}
+                    className={`w-9 rounded text-center border-l-2 ${statusBorderClass(r.status)} ${
+                      isActive ? `bg-gray-800 ${statusOutlineClass(r.status)}` : 'bg-gray-800/50 hover:bg-gray-800'
+                    } py-1.5 transition-colors`}
+                    title={tooltip}
+                  >
+                    <div className="text-[9px] leading-tight text-gray-500">{month}</div>
+                    <div className="text-[10px] leading-tight font-semibold text-gray-200">{day}</div>
+                    <div className="text-[7px] leading-tight text-gray-600 mt-px">{time}</div>
+                  </button>
+                );
+              })}
+              {pastReports.length === 0 && (
+                <p className="text-gray-700 text-[8px] text-center mt-1">No reports</p>
+              )}
+            </div>
+          ) : (
+            <>
           <div className="flex items-center justify-between mb-3">
-            <p className="text-xs uppercase tracking-wider text-gray-500 font-semibold">Reports</p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={toggleSidebar}
+                className="text-gray-500 hover:text-gray-300 transition-colors"
+                title="Collapse sidebar"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+              <p className="text-xs uppercase tracking-wider text-gray-500 font-semibold">Reports</p>
+            </div>
             <button
               onClick={() => setShowReportForm(true)}
               disabled={orgs.length === 0}
@@ -491,6 +602,8 @@ export default function Home() {
               );
             })}
           </div>
+            </>
+          )}
 
         </div>
 
