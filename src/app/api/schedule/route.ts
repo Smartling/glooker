@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateScheduleBody } from '@/lib/schedule/validation';
 import { listSchedules, createSchedule } from '@/lib/schedule/service';
+import { requireAdmin } from '@/lib/auth';
 
 export async function GET() {
   try {
@@ -12,6 +13,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
   try {
     const body = await req.json();
     const error = validateScheduleBody(body);

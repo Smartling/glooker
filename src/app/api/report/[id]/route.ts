@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getReport, deleteReport, ReportNotFoundError } from '@/lib/report/service';
+import { requireAdmin } from '@/lib/auth';
 
 export async function GET(
   _req: NextRequest,
@@ -19,9 +20,11 @@ export async function GET(
 }
 
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
   const { id } = await params;
 
   try {

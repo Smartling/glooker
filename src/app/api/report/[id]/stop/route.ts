@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { stopReport, ReportNotFoundError, ReportNotRunningError } from '@/lib/report/service';
+import { requireAdmin } from '@/lib/auth';
 
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
   const { id } = await params;
 
   try {

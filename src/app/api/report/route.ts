@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { listReports, createReport } from '@/lib/report/service';
+import { requireAdmin } from '@/lib/auth';
 
 export async function POST(req: NextRequest) {
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
   const { org, periodDays, testMode } = await req.json();
 
   if (!org || !periodDays) {

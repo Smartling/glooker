@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { updateTeam, deleteTeam, TeamNotFoundError } from '@/lib/teams/service';
+import { requireAdmin } from '@/lib/auth';
 
 export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
   const { id } = await params;
   const body = await req.json();
 
@@ -20,9 +23,11 @@ export async function PUT(
 }
 
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
   const { id } = await params;
   await deleteTeam(id);
   return NextResponse.json({ deleted: true });

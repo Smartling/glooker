@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { listTeams, createTeam, TeamDuplicateError } from '@/lib/teams/service';
+import { requireAdmin } from '@/lib/auth';
 
 export async function GET(req: NextRequest) {
   const org = req.nextUrl.searchParams.get('org');
@@ -9,6 +10,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
   const body = await req.json();
   const { org, name } = body;
 

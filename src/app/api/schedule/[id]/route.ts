@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateScheduleBody } from '@/lib/schedule/validation';
 import { updateSchedule, deleteSchedule, ScheduleNotFoundError } from '@/lib/schedule/service';
+import { requireAdmin } from '@/lib/auth';
 
 export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
   try {
     const { id } = await params;
     const body = await req.json();
@@ -24,9 +27,11 @@ export async function PUT(
 }
 
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
   try {
     const { id } = await params;
     await deleteSchedule(id);

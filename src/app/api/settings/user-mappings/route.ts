@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getUserMappings, updateUserMapping, JiraNotConfiguredError, JiraUserNotFoundError } from '@/lib/jira';
+import { requireAdmin } from '@/lib/auth';
 
 export async function GET(req: NextRequest) {
   const org = req.nextUrl.searchParams.get('org');
@@ -8,6 +9,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PUT(req: Request) {
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
   const { org, github_login, jira_email } = await req.json();
   if (!org || !github_login) {
     return NextResponse.json({ error: 'org and github_login required' }, { status: 400 });
