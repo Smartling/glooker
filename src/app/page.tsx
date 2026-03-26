@@ -55,7 +55,7 @@ const TYPE_COLORS: Record<string, string> = {
 
 
 export default function Home() {
-  const auth = useAuth();
+  const { canAct, ...auth } = useAuth();
   const [org, setOrg]               = useState('');
   const [period, setPeriod]         = useState(30);
   const [running, setRunning]       = useState(false);
@@ -583,7 +583,7 @@ export default function Home() {
                       <div className="flex items-center justify-between">
                         <span className="font-medium truncate">{r.org}</span>
                         <div className="flex items-center gap-1.5">
-                          {canResume && (
+                          {canAct && canResume && (
                             <span
                               role="button"
                               onClick={(e) => { e.stopPropagation(); resumeReport(r.id); }}
@@ -642,6 +642,7 @@ export default function Home() {
                   </svg>
                 </button>
               </div>
+              {canAct && (
               <form onSubmit={(e) => { handleRun(e); setShowReportForm(false); }}>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -689,13 +690,14 @@ export default function Home() {
                   </button>
                 </div>
               </form>
+              )}
             </div>
           </div>
         )}
 
         <div className="flex-1 min-w-0">
           {/* Stop button for running report */}
-          {running && (
+          {canAct && running && (
             <div className="bg-gray-900 rounded-xl p-5 mb-6 flex items-center justify-between">
               <span className="text-sm text-gray-300">Report is running…</span>
               <button

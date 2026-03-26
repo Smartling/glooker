@@ -68,6 +68,12 @@ export default function ProfileContent() {
               </span>
             </div>
           )}
+          {auth.user.role && (
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-gray-500">Role</span>
+              <span className="text-sm text-gray-300 capitalize">{auth.user.role}</span>
+            </div>
+          )}
         </div>
 
         <p className="text-xs text-gray-600 mt-8">

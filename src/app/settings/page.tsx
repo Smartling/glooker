@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTheme } from '../theme-context';
 import { THEMES, type ThemeColors } from '../themes';
+import { useAuth } from '../auth-context';
 
 type Tab = 'schedules' | 'teams' | 'app' | 'appearance';
 
@@ -33,7 +34,8 @@ function timeAgo(dateStr: string): string {
 
 export default function SettingsPage() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<Tab>('app');
+  const { canAct } = useAuth();
+  const [activeTab, setActiveTab] = useState<Tab>(canAct ? 'app' : 'appearance');
   const [orgs, setOrgs] = useState<Array<{ login: string }>>([]);
   const [selectedOrg, setSelectedOrg] = useState('');
 
@@ -64,11 +66,11 @@ export default function SettingsPage() {
       {/* Tabs */}
       <div className="flex gap-1 mb-6 border-b border-gray-800">
         {([
-          { id: 'schedules' as Tab, label: 'Schedules', icon: '🕐' },
-          { id: 'teams' as Tab, label: 'Teams', icon: '👥' },
-          { id: 'app' as Tab, label: 'App Settings', icon: '⚙️' },
-          { id: 'appearance' as Tab, label: 'Appearance', icon: '🎨' },
-        ]).map(tab => (
+          { id: 'schedules' as Tab, label: 'Schedules', icon: '🕐', adminOnly: true },
+          { id: 'teams' as Tab, label: 'Teams', icon: '👥', adminOnly: true },
+          { id: 'app' as Tab, label: 'App Settings', icon: '⚙️', adminOnly: true },
+          { id: 'appearance' as Tab, label: 'Appearance', icon: '🎨', adminOnly: false },
+        ]).filter(tab => !tab.adminOnly || canAct).map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
