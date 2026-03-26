@@ -102,6 +102,13 @@ const conditionalRules: {
       { name: 'JIRA_API_TOKEN', description: 'Jira API token' },
     ],
   },
+  {
+    when: () => process.env.AUTH_ENABLED === 'true',
+    featureLabel: 'AUTH_ENABLED=true',
+    vars: [
+      { name: 'AUTH_ADMIN_GROUP', description: 'Okta group for admin role (without this, no one can run reports or manage settings)' },
+    ],
+  },
 ];
 
 export function validateEnv(): void {
