@@ -8,6 +8,7 @@ interface AuthUser {
   name: string | null;
   avatarUrl: string | null;
   team: { name: string; color: string } | null;
+  role: 'admin' | 'viewer';
 }
 
 interface AuthContextType {
@@ -52,5 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 }
 
 export function useAuth() {
-  return useContext(AuthContext);
+  const ctx = useContext(AuthContext);
+  const canAct = !ctx.enabled || ctx.user?.role === 'admin';
+  return { ...ctx, canAct };
 }
