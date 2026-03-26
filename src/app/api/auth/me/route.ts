@@ -12,7 +12,9 @@ export async function GET(req: Request) {
     return NextResponse.json({ enabled: true, user: null });
   }
 
-  // Look up GitHub identity via jira_email
+  const adminGroup = process.env.AUTH_ADMIN_GROUP;
+  const role = adminGroup && user.groups.includes(adminGroup) ? 'admin' : 'viewer';
+
   const [identityRows] = await db.execute(
     `SELECT um.github_login, ds.github_name, ds.avatar_url
      FROM user_mappings um
@@ -27,13 +29,12 @@ export async function GET(req: Request) {
   if (!identityRows.length) {
     return NextResponse.json({
       enabled: true,
-      user: { email: user.email, githubLogin: null, name: null, avatarUrl: null, team: null },
+      user: { email: user.email, githubLogin: null, name: user.name, avatarUrl: null, team: null, role },
     });
   }
 
   const identity = identityRows[0];
 
-  // Look up team
   let team: { name: string; color: string } | null = null;
   if (identity.github_login) {
     const [teamRows] = await db.execute(
@@ -55,9 +56,10 @@ export async function GET(req: Request) {
     user: {
       email: user.email,
       githubLogin: identity.github_login || null,
-      name: identity.github_name || null,
+      name: user.name || identity.github_name || null,
       avatarUrl: identity.avatar_url || null,
       team,
+      role,
     },
   });
 }
