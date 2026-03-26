@@ -32,7 +32,7 @@
 | `src/app/page.tsx:372-387` | Add profile pill right of Settings button |
 | `docker-compose.yml:38` | Add `AUTH_ENABLED`, `AUTH_HEADER` env vars after Jira block |
 | `.env.example` | Document new env vars |
-| `src/lib/env-validation.ts:63-96` | Add conditional rule for `AUTH_ENABLED` |
+| `src/lib/env-validation.ts:20-58` | Add `AUTH_ENABLED` to `rules` array |
 | `CLAUDE.md` | Document feature |
 
 ---
@@ -689,11 +689,9 @@ Add a new section after the Jira block:
 # AUTH_HEADER=x-amzn-oidc-data
 ```
 
-- [ ] **Step 3: Add conditional validation to `env-validation.ts`**
+- [ ] **Step 3: Add validation to `env-validation.ts`**
 
-Add to the `conditionalRules` array (after the `JIRA_ENABLED` block):
-
-Add `AUTH_ENABLED` as an optional rule with boolean validation:
+Add `AUTH_ENABLED` as an optional rule with boolean validation to the `rules` array (after the `LLM_CONCURRENCY` entry, around line 57):
 
 ```typescript
   {
