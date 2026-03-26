@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import LlmFindings from './llm-findings';
 import ChatPanel from './chat-panel';
+import { useAuth } from './auth-context';
 
 interface Developer {
   github_login:       string;
@@ -54,6 +55,7 @@ const TYPE_COLORS: Record<string, string> = {
 
 
 export default function Home() {
+  const auth = useAuth();
   const [org, setOrg]               = useState('');
   const [period, setPeriod]         = useState(30);
   const [running, setRunning]       = useState(false);
@@ -419,16 +421,35 @@ export default function Home() {
           <h1 className="text-3xl font-bold tracking-tight text-white cursor-pointer hover:text-accent-light transition-colors" onClick={() => { setActiveReport(null); setDevelopers([]); setProgress(null); setRunning(false); stopPolling(); }}>Glooker</h1>
           <p className="text-gray-400 mt-1">GitHub org developer impact analytics</p>
         </div>
-        <button
-          onClick={() => window.location.href = '/settings'}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-300 bg-gray-900 hover:bg-gray-800 rounded-lg border border-gray-800 transition-colors"
-        >
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
-          Settings
-        </button>
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={() => window.location.href = '/settings'}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-300 bg-gray-900 hover:bg-gray-800 rounded-lg border border-gray-800 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            Settings
+          </button>
+          {auth.enabled && auth.user && !auth.loading && (
+            <a
+              href="/profile"
+              className="flex items-center gap-2 pl-1 pr-3 py-1 bg-gray-900 hover:bg-gray-800 rounded-full border border-gray-800 transition-colors"
+            >
+              {auth.user.avatarUrl ? (
+                <img src={auth.user.avatarUrl} alt="" className="w-7 h-7 rounded-full border-2 border-gray-700" />
+              ) : (
+                <div className="w-7 h-7 rounded-full bg-gray-700 flex items-center justify-center text-xs text-gray-400">
+                  {(auth.user.name || auth.user.email)[0].toUpperCase()}
+                </div>
+              )}
+              <span className="text-xs font-medium text-gray-300">
+                {auth.user.githubLogin || auth.user.email}
+              </span>
+            </a>
+          )}
+        </div>
       </div>
 
       <div className={`flex ${sidebarExpanded ? 'gap-8' : 'gap-4'}`}>
