@@ -149,7 +149,7 @@ If no JWT header is present (shouldn't happen behind ALB, but defensive):
 - Shows GitHub avatar (28px circle) + GitHub login as text, or email as fallback if no GitHub link
 - Clicking navigates to `/profile`
 - Hidden when `enabled` is `false` or `loading` is `true`
-- Appears on all pages that have the header — currently the header is duplicated across `page.tsx`, `report/[id]/org/page.tsx`, and `report/[id]/dev/[login]/page.tsx`. The pill is added to each. Extracting a shared header component is desirable but out of scope for this feature.
+- Only appears on the main page (`page.tsx`) which has the Settings button. The report sub-pages (`report/[id]/org/page.tsx`, `report/[id]/dev/[login]/page.tsx`) have a minimal "Back / Glooker" nav without Settings — no pill there.
 
 ### `/profile` page
 
@@ -160,7 +160,7 @@ Simple card showing:
 - Team name + color badge (if assigned)
 - Subtle note: "Identity provided by your organization's identity provider"
 
-When `AUTH_ENABLED=false`: the page component calls `notFound()` from `next/navigation` at the top of render, producing the standard 404.
+When `AUTH_ENABLED=false`: the page uses a server component wrapper that reads `process.env.AUTH_ENABLED` directly and calls `notFound()` from `next/navigation`, producing the standard 404. The profile content itself is a client component rendered inside the server wrapper.
 
 ## Files to Create
 
@@ -177,8 +177,6 @@ When `AUTH_ENABLED=false`: the page component calls `notFound()` from `next/navi
 |------|--------|
 | `src/app/layout.tsx` | Wrap children with `AuthProvider` |
 | `src/app/page.tsx` | Add profile pill to header (right of Settings button) |
-| `src/app/report/[id]/org/page.tsx` | Add profile pill to header |
-| `src/app/report/[id]/dev/[login]/page.tsx` | Add profile pill to header |
 | `docker-compose.yml` | Add `AUTH_ENABLED`, `AUTH_HEADER` env vars |
 | `.env.example` | Document new env vars |
 | `src/lib/env-validation.ts` | Add conditional validation (same pattern as `JIRA_ENABLED`) |
