@@ -805,7 +805,7 @@ function AppSettingsTab({ org }: { org: string }) {
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    fetch('/api/llm-config').then(r => r.json()).then(setConfig).catch(() => {}).finally(() => setLoading(false));
+    fetch('/api/app-config').then(r => r.json()).then(setConfig).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
@@ -830,7 +830,7 @@ function AppSettingsTab({ org }: { org: string }) {
     setTesting(true);
     setTestResult(null);
     try {
-      const res = await fetch('/api/llm-config', { method: 'POST' });
+      const res = await fetch('/api/app-config', { method: 'POST' });
       const data = await res.json();
       setTestResult(data);
     } catch {

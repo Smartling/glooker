@@ -24,36 +24,43 @@ describe('resolveJiraUser', () => {
       jira_email: 'dev@co.com',
     }], null]);
 
-    const result = await resolveJiraUser('myorg', 'devuser', 'report-1');
+    const result = await resolveJiraUser('myorg', 'devuser', ['dev@co.com']);
     expect(result).toEqual({ accountId: 'jira-123', email: 'dev@co.com' });
+    // Only one DB call — the mapping lookup; no email query
+    expect(mockDb.execute).toHaveBeenCalledTimes(1);
   });
 
   it('returns null when no mapping and no Jira client', async () => {
     mockDb.execute.mockResolvedValueOnce([[], null]);
     mockGetJiraClient.mockReturnValue(null);
 
-    const result = await resolveJiraUser('myorg', 'devuser', 'report-1');
+    const result = await resolveJiraUser('myorg', 'devuser', ['dev@co.com']);
     expect(result).toBeNull();
   });
 
-  it('auto-discovers via commit emails and persists mapping', async () => {
+  it('returns null when no mapping, client present, but no emails provided', async () => {
+    mockDb.execute.mockResolvedValueOnce([[], null]);
+    mockGetJiraClient.mockReturnValue({ findUserByEmail: jest.fn() });
+
+    const result = await resolveJiraUser('myorg', 'devuser', []);
+    expect(result).toBeNull();
+  });
+
+  it('auto-discovers via provided emails and persists mapping', async () => {
+    // DB calls: 1 mapping lookup + 1 persist (no longer a 3rd call for email query)
     mockDb.execute
-      .mockResolvedValueOnce([[], null])
-      .mockResolvedValueOnce([[
-        { author_email: 'dev@co.com' },
-        { author_email: 'dev@personal.com' },
-      ], null])
-      .mockResolvedValueOnce([[], null]);
+      .mockResolvedValueOnce([[], null])   // mapping lookup → not found
+      .mockResolvedValueOnce([[], null]);  // persist INSERT
 
     const mockClient = {
       findUserByEmail: jest.fn()
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce({ accountId: 'jira-456', displayName: 'Dev', emailAddress: 'dev@personal.com' }),
+        .mockResolvedValueOnce(null)  // dev@co.com → not found
+        .mockResolvedValueOnce({ accountId: 'jira-456', displayName: 'Dev' }),
     };
     mockGetJiraClient.mockReturnValue(mockClient);
 
-    const result = await resolveJiraUser('myorg', 'devuser', 'report-1');
+    const result = await resolveJiraUser('myorg', 'devuser', ['dev@co.com', 'dev@personal.com']);
     expect(result).toEqual({ accountId: 'jira-456', email: 'dev@personal.com' });
-    expect(mockDb.execute).toHaveBeenCalledTimes(3);
+    expect(mockDb.execute).toHaveBeenCalledTimes(2);
   });
 });

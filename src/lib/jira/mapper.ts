@@ -9,7 +9,7 @@ interface JiraMapping {
 export async function resolveJiraUser(
   org: string,
   githubLogin: string,
-  reportId: string,
+  emails: string[],
   log?: (msg: string) => void,
 ): Promise<JiraMapping | null> {
   // 1. Check existing mapping
@@ -22,18 +22,12 @@ export async function resolveJiraUser(
     return { accountId: rows[0].jira_account_id, email: rows[0].jira_email };
   }
 
-  // 2. Auto-discover via commit emails
+  // 2. Auto-discover via provided emails
   const client = getJiraClient();
   if (!client) return null;
 
-  const [emailRows] = await db.execute(
-    `SELECT DISTINCT author_email FROM commit_analyses WHERE report_id = ? AND github_login = ? AND author_email IS NOT NULL AND author_email != ''`,
-    [reportId, githubLogin],
-  ) as [any[], any];
-
-  const emails: string[] = emailRows.map((r: any) => r.author_email);
   if (emails.length === 0) {
-    log?.(`[jira] No commit emails found for @${githubLogin}, cannot auto-discover Jira mapping`);
+    log?.(`[jira] No commit emails provided for @${githubLogin}, cannot auto-discover Jira mapping`);
     return null;
   }
 

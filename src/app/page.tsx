@@ -70,6 +70,7 @@ export default function Home() {
   const logsEndRef = useRef<HTMLDivElement>(null);
   const commitCache = useRef<Map<string, any[]>>(new Map());
   const jiraCache = useRef<Map<string, any[]>>(new Map());
+  const [jiraEnabled, setJiraEnabled] = useState(false);
   const [filterLogins, setFilterLogins] = useState<Set<string>>(new Set());
   const [filterQuery, setFilterQuery] = useState('');
   const [filterOpen, setFilterOpen] = useState(false);
@@ -109,6 +110,10 @@ export default function Home() {
       .then((r) => r.json())
       .then(setPastReports)
       .catch((err) => console.error('[glooker]', err));
+    fetch('/api/app-config')
+      .then((r) => r.json())
+      .then((cfg) => setJiraEnabled(cfg?.jira?.enabled ?? false))
+      .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -904,7 +909,7 @@ export default function Home() {
           {/* Developer table */}
           {(() => {
             const filteredDevs = filterLogins.size > 0 ? developers.filter(d => filterLogins.has(d.github_login)) : developers;
-            const hasJira = developers.some(d => (d.total_jira_issues ?? 0) > 0);
+            const hasJira = jiraEnabled || developers.some(d => (d.total_jira_issues ?? 0) > 0);
             return filteredDevs.length > 0 && (
             <div className="bg-gray-900 rounded-xl overflow-hidden">
               <table className="w-full text-sm table-fixed">

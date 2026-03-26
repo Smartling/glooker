@@ -39,6 +39,7 @@ export default function OrgDetailPage() {
   const [developers, setDevelopers] = useState<Developer[]>([]);
   const [timeline, setTimeline] = useState<WeeklyData[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [jiraEnabled, setJiraEnabled] = useState(false);
 
   useEffect(() => {
     fetch(`/api/report/${params.id}/org`)
@@ -50,6 +51,10 @@ export default function OrgDetailPage() {
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
+    fetch('/api/app-config')
+      .then(r => r.json())
+      .then(cfg => setJiraEnabled(cfg?.jira?.enabled ?? false))
+      .catch(() => {});
   }, [params.id]);
 
   if (loading) return <div className="max-w-6xl mx-auto px-4 py-16 text-gray-500">Loading...</div>;
@@ -79,7 +84,7 @@ export default function OrgDetailPage() {
   const typeEntries = Object.entries(orgTypes).sort((a, b) => b[1] - a[1]);
   const totalTyped = typeEntries.reduce((s, [, c]) => s + c, 0);
 
-  const hasJira = developers.some(d => (d.total_jira_issues ?? 0) > 0);
+  const hasJira = jiraEnabled || developers.some(d => (d.total_jira_issues ?? 0) > 0);
 
   // Repo breakdown across all developers
   const repoMap = new Map<string, number>();

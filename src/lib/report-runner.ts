@@ -9,6 +9,7 @@ import { resolveJiraUser } from './jira';
 import { getAppConfig } from './app-config/service';
 
 const CONCURRENCY = Number(process.env.LLM_CONCURRENCY || 5);
+const JIRA_CONCURRENCY = Number(process.env.JIRA_CONCURRENCY || 3);
 
 // Stop signal store (globalThis to survive Next.js HMR)
 const g = globalThis as typeof globalThis & { __glooker_stops?: Set<string> };
@@ -84,7 +85,9 @@ export async function runReport(
     const analyses         = new Map<string, CommitAnalysis>(existingAnalyses);
     const seen             = new Set<string>();                 // global dedup
     const pendingLLM: Promise<void>[] = [];
+    const pendingJira: Promise<void>[] = [];
     const limit            = pLimit(CONCURRENCY);
+    const limitJira        = pLimit(JIRA_CONCURRENCY);
     let llmErrors          = 0;
     let processedMembers   = 0;
     let activeMemberCount  = 0;
@@ -137,7 +140,7 @@ export async function runReport(
             s.impactScore,
             s.prPercentage,
             s.aiPercentage,
-            s.totalJiraIssues,
+            jiraIssueCountByLogin.get(s.githubLogin) ?? s.totalJiraIssues,
             JSON.stringify(s.typeBreakdown),
             JSON.stringify(s.activeRepos),
           ],
@@ -146,6 +149,10 @@ export async function runReport(
 
       updateProgress(reportId, { completedDevelopers: completedMembers.size });
     }
+
+    const jiraConfig = getAppConfig().jira;
+    const jiraClient = jiraConfig.enabled ? getJiraClient() : null;
+    const jiraIssueCountByLogin = new Map<string, number>();
 
     // 2. Pipelined fetch+LLM loop
     for (const member of members) {
@@ -236,6 +243,76 @@ export async function runReport(
           pendingLLM.push(p);
         }
 
+        // Jira discovery: fire in parallel with LLM work — only needs emails from commits
+        if (jiraClient && thisMemCommits.length > 0) {
+          const login = member.login;
+          const emails = [...new Set(thisMemCommits.map(c => c.authorEmail).filter((e): e is string => Boolean(e)))];
+          const jp = limitJira(async () => {
+            if (shouldStop(reportId)) return;
+
+            // Resume: skip if already have jira_issues for this user/report
+            const [existingJira] = await db.execute(
+              `SELECT COUNT(*) as cnt FROM jira_issues WHERE report_id = ? AND github_login = ?`,
+              [reportId, login],
+            ) as [any[], any];
+
+            if (existingJira[0]?.cnt > 0) {
+              jiraIssueCountByLogin.set(login, existingJira[0].cnt);
+              log(`[jira] @${login}: ${existingJira[0].cnt} issues already in DB (resume)`);
+              return;
+            }
+
+            try {
+              const mapping = await resolveJiraUser(org, login, emails, log);
+              if (!mapping) {
+                jiraIssueCountByLogin.set(login, 0);
+                return;
+              }
+
+              const issues = await jiraClient.searchDoneIssues(
+                mapping.accountId, days,
+                jiraConfig.projects.length > 0 ? jiraConfig.projects : undefined,
+                jiraConfig.storyPointsFields,
+              );
+
+              for (const issue of issues) {
+                await db.execute(
+                  `INSERT IGNORE INTO jira_issues
+                     (report_id, github_login, jira_account_id, jira_email,
+                      project_key, issue_key, issue_type, summary, description,
+                      status, labels, story_points, original_estimate_seconds,
+                      issue_url, created_at, resolved_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                  [
+                    reportId, login, mapping.accountId, mapping.email,
+                    issue.projectKey, issue.issueKey, issue.issueType,
+                    issue.summary, issue.description, issue.status,
+                    JSON.stringify(issue.labels), issue.storyPoints,
+                    issue.originalEstimateSeconds, issue.issueUrl,
+                    issue.createdAt, issue.resolvedAt,
+                  ],
+                );
+              }
+
+              jiraIssueCountByLogin.set(login, issues.length);
+              if (issues.length > 0) {
+                log(`[jira] @${login}: ${issues.length} resolved issues`);
+                // If LLM finished first and already wrote stats with 0, patch the count now
+                if (completedMembers.has(login)) {
+                  db.execute(
+                    `UPDATE developer_stats SET total_jira_issues = ? WHERE report_id = ? AND github_login = ?`,
+                    [issues.length, reportId, login],
+                  ).catch((err) => log(`DB WARN updating jira count for @${login}: ${err}`));
+                }
+              }
+            } catch (err) {
+              log(`[jira] ERROR @${login}: ${err instanceof Error ? err.message : String(err)}`);
+              jiraIssueCountByLogin.set(login, 0);
+            }
+          });
+          pendingJira.push(jp);
+        }
+
         // If no new commits needed LLM, member is immediately complete
         if (pendingCount === 0 && thisMemCommits.length > 0) {
           checkMemberComplete(member.login);
@@ -253,88 +330,15 @@ export async function runReport(
     });
     log(`Total: ${seen.size} unique commits from ${membersWithCommits} active developers`);
 
-    // Wait for remaining LLM work
-    await Promise.all(pendingLLM);
+    // Wait for remaining LLM work and concurrent Jira discovery
+    await Promise.all([...pendingLLM, ...pendingJira]);
 
     if (shouldStop(reportId)) throw new Error('Stopped by user');
 
     log(`LLM analysis complete: ${analyses.size} total, ${llmErrors} failed`);
-
-    // Jira integration: resolve users and fetch done issues
-    const jiraConfig = getAppConfig().jira;
-    const jiraIssueCountByLogin = new Map<string, number>();
-
-    if (jiraConfig.enabled) {
-      const jiraClient = getJiraClient();
-      if (jiraClient) {
-        log('Starting Jira issue collection...');
-        let jiraProcessed = 0;
-        const jiraTotal = [...memberCommits.entries()].filter(([, c]) => c.length > 0).length;
-
-        for (const [login, commits] of memberCommits.entries()) {
-          if (commits.length === 0) continue;
-          if (shouldStop(reportId)) throw new Error('Stopped by user');
-
-          jiraProcessed++;
-          updateProgress(reportId, {
-            step: `[${jiraProcessed}/${jiraTotal}] Fetching Jira issues: @${login}`,
-          });
-
-          // Resume: skip if already have jira_issues for this user/report
-          const [existingJira] = await db.execute(
-            `SELECT COUNT(*) as cnt FROM jira_issues WHERE report_id = ? AND github_login = ?`,
-            [reportId, login],
-          ) as [any[], any];
-
-          if (existingJira[0]?.cnt > 0) {
-            jiraIssueCountByLogin.set(login, existingJira[0].cnt);
-            log(`[jira] @${login}: ${existingJira[0].cnt} issues already in DB (resume)`);
-            continue;
-          }
-
-          try {
-            const mapping = await resolveJiraUser(org, login, reportId, log);
-            if (!mapping) {
-              jiraIssueCountByLogin.set(login, 0);
-              continue;
-            }
-
-            const issues = await jiraClient.searchDoneIssues(
-              mapping.accountId,
-              days,
-              jiraConfig.projects.length > 0 ? jiraConfig.projects : undefined,
-              jiraConfig.storyPointsFields,
-            );
-
-            for (const issue of issues) {
-              await db.execute(
-                `INSERT IGNORE INTO jira_issues
-                   (report_id, github_login, jira_account_id, jira_email,
-                    project_key, issue_key, issue_type, summary, description,
-                    status, labels, story_points, original_estimate_seconds,
-                    issue_url, created_at, resolved_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [
-                  reportId, login, mapping.accountId, mapping.email,
-                  issue.projectKey, issue.issueKey, issue.issueType,
-                  issue.summary, issue.description, issue.status,
-                  JSON.stringify(issue.labels), issue.storyPoints,
-                  issue.originalEstimateSeconds, issue.issueUrl,
-                  issue.createdAt, issue.resolvedAt,
-                ],
-              );
-            }
-
-            jiraIssueCountByLogin.set(login, issues.length);
-            if (issues.length > 0) log(`[jira] @${login}: ${issues.length} resolved issues`);
-          } catch (err) {
-            log(`[jira] ERROR @${login}: ${err instanceof Error ? err.message : String(err)}`);
-            jiraIssueCountByLogin.set(login, 0);
-          }
-        }
-
-        log(`Jira collection complete: ${[...jiraIssueCountByLogin.values()].reduce((a, b) => a + b, 0)} total issues`);
-      }
+    if (jiraClient) {
+      const jiraTotal = [...jiraIssueCountByLogin.values()].reduce((a, b) => a + b, 0);
+      log(`Jira collection complete: ${jiraTotal} total issues`);
     }
 
     // 3. Final aggregation with full cross-member view (overwrites per-member stats)
