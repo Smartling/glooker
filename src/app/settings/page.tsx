@@ -34,10 +34,15 @@ function timeAgo(dateStr: string): string {
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { canAct } = useAuth();
-  const [activeTab, setActiveTab] = useState<Tab>(canAct ? 'app' : 'appearance');
+  const { canAct, loading } = useAuth();
+  const [activeTab, setActiveTab] = useState<Tab>('appearance');
   const [orgs, setOrgs] = useState<Array<{ login: string }>>([]);
   const [selectedOrg, setSelectedOrg] = useState('');
+
+  // Set default tab to 'app' once auth loads and user is admin
+  useEffect(() => {
+    if (!loading && canAct) setActiveTab('app');
+  }, [loading, canAct]);
 
   useEffect(() => {
     fetch('/api/orgs').then(r => r.json()).then((data: Array<{ login: string }>) => {

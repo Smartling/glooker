@@ -472,6 +472,7 @@ export default function Home() {
                 </svg>
               </button>
               {/* + New button */}
+              {canAct && (
               <button
                 onClick={() => setShowReportForm(true)}
                 disabled={orgs.length === 0}
@@ -480,6 +481,7 @@ export default function Home() {
               >
                 <span className="text-sm leading-none">+</span>
               </button>
+              )}
               {/* Report date cards */}
               {pastReports.map((r) => {
                 const isActive = activeReport?.id === r.id;
@@ -523,6 +525,7 @@ export default function Home() {
               </button>
               <p className="text-xs uppercase tracking-wider text-gray-500 font-semibold">Reports</p>
             </div>
+            {canAct && (
             <button
               onClick={() => setShowReportForm(true)}
               disabled={orgs.length === 0}
@@ -530,6 +533,7 @@ export default function Home() {
             >
               + New
             </button>
+            )}
           </div>
           <div className="space-y-1.5">
             {pastReports.length === 0 && (
