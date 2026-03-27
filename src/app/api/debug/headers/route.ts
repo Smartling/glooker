@@ -3,9 +3,25 @@ import { NextResponse } from 'next/server';
 export async function GET(req: Request) {
   const headers: Record<string, string> = {};
   req.headers.forEach((value, key) => {
-    // Truncate long values (JWTs) to keep output readable
-    headers[key] = value.length > 200 ? value.slice(0, 200) + '...' : value;
+    headers[key] = value;
   });
 
-  return NextResponse.json({ headers, timestamp: new Date().toISOString() });
+  // Decode OIDC JWTs for debugging
+  const decoded: Record<string, unknown> = {};
+  for (const name of ['x-amzn-oidc-data', 'x-amzn-oidc-accesstoken']) {
+    const jwt = req.headers.get(name);
+    if (jwt) {
+      try {
+        const parts = jwt.split('.');
+        if (parts.length >= 2) {
+          decoded[`${name}:header`] = JSON.parse(Buffer.from(parts[0], 'base64').toString());
+          decoded[`${name}:payload`] = JSON.parse(Buffer.from(parts[1], 'base64').toString());
+        }
+      } catch (e) {
+        decoded[`${name}:error`] = e instanceof Error ? e.message : String(e);
+      }
+    }
+  }
+
+  return NextResponse.json({ headers, decoded, timestamp: new Date().toISOString() });
 }

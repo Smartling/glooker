@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 
 export default function DebugHeadersPage() {
-  const [data, setData] = useState<{ headers: Record<string, string>; timestamp: string } | null>(null);
+  const [data, setData] = useState<{ headers: Record<string, string>; decoded?: Record<string, unknown>; timestamp: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -41,6 +41,20 @@ export default function DebugHeadersPage() {
                 ))}
             </tbody>
           </table>
+        </>
+      )}
+
+      {data?.decoded && Object.keys(data.decoded).length > 0 && (
+        <>
+          <h2 className="text-lg font-bold text-white mt-10 mb-4">Decoded OIDC JWTs</h2>
+          {Object.entries(data.decoded).map(([key, value]) => (
+            <div key={key} className="mb-4">
+              <p className="text-accent-light mb-1">{key}</p>
+              <pre className="bg-gray-900 rounded-lg p-4 text-gray-300 overflow-x-auto text-xs">
+                {JSON.stringify(value, null, 2)}
+              </pre>
+            </div>
+          ))}
         </>
       )}
 
