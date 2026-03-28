@@ -131,5 +131,14 @@ CREATE TABLE IF NOT EXISTS team_members (
   UNIQUE KEY uq_team_member (team_id, github_login)
 );
 
+CREATE TABLE IF NOT EXISTS release_notes (
+  id              INT AUTO_INCREMENT PRIMARY KEY,
+  latest_commit_sha VARCHAR(40) NOT NULL,
+  summary         TEXT         NOT NULL,
+  commit_count    INT          NOT NULL DEFAULT 0,
+  generated_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_commit_sha (latest_commit_sha)
+);
+
 CREATE INDEX idx_devstats_login ON developer_stats(github_login);
 CREATE INDEX idx_reports_org_status_created ON reports(org, status, created_at);

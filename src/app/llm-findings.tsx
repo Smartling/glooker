@@ -36,6 +36,12 @@ export default function LlmFindings() {
   const [projectsMeta, setProjectsMeta] = useState<{ id: string; org: string; periodDays: number; createdAt: string } | null>(null);
   const [projectsLoading, setProjectsLoading] = useState(true);
 
+  // Release notes
+  const [releaseNotes, setReleaseNotes] = useState<string | null>(null);
+  const [releaseNotesCount, setReleaseNotesCount] = useState(0);
+  const [releaseNotesDismissed, setReleaseNotesDismissed] = useState(false);
+  const [releaseNotesSha, setReleaseNotesSha] = useState<string | null>(null);
+
   useEffect(() => {
     fetch('/api/report-highlights')
       .then(async r => {
@@ -55,6 +61,20 @@ export default function LlmFindings() {
       })
       .catch(() => {})
       .finally(() => setHighlightsLoading(false));
+
+    // Release notes
+    fetch('/api/release-notes')
+      .then(async r => { try { return JSON.parse(await r.text()); } catch { return { available: false }; } })
+      .then(data => {
+        if (data.available && data.latestSha) {
+          setReleaseNotes(data.summary);
+          setReleaseNotesCount(data.commitCount || 0);
+          setReleaseNotesSha(data.latestSha);
+          const dismissed = localStorage.getItem('glooker-release-notes-dismissed');
+          if (dismissed === data.latestSha) setReleaseNotesDismissed(true);
+        }
+      })
+      .catch(() => {});
 
     // Project insights
     fetch('/api/project-insights')
@@ -187,6 +207,32 @@ export default function LlmFindings() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Release Notes */}
+      {releaseNotes && !releaseNotesDismissed && (
+        <div className="bg-white/[0.03] border border-white/[0.07] rounded-2xl p-5 mb-4">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-lg">🚀</span>
+            <span className="text-xs font-bold tracking-widest uppercase text-white/40">What&apos;s New in Glooker</span>
+            <span className="text-[10px] text-white/20 ml-auto">{releaseNotesCount} commits in the last 14 days</span>
+            <button
+              onClick={() => {
+                setReleaseNotesDismissed(true);
+                if (releaseNotesSha) localStorage.setItem('glooker-release-notes-dismissed', releaseNotesSha);
+              }}
+              className="text-white/20 hover:text-white/50 transition-colors ml-1"
+              title="Dismiss"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          <div className="text-sm text-white/60 leading-relaxed whitespace-pre-line">
+            {releaseNotes}
+          </div>
         </div>
       )}
 
