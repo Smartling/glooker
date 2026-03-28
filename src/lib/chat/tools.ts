@@ -85,6 +85,39 @@ export const TOOL_DEFINITIONS = [
       },
     },
   },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'queryJiraIssues',
+      description: 'Search Jira issues resolved by developers. Use for questions about what Jira tickets someone worked on, issue types, story points, project breakdown.',
+      parameters: {
+        type: 'object',
+        properties: {
+          org: { type: 'string', description: 'GitHub org name' },
+          login: { type: 'string', description: 'Filter by developer GitHub login (optional)' },
+          projectKey: { type: 'string', description: 'Filter by Jira project key e.g. TCM, BRZ (optional)' },
+          issueType: { type: 'string', description: 'Filter by issue type e.g. Story, Bug, Task (optional)' },
+          limit: { type: 'number', description: 'Max results (default 20, max 100)' },
+        },
+        required: ['org'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'queryJiraSummary',
+      description: 'Get aggregate Jira stats: total issues, story points, breakdown by project and type. Use for questions about Jira workload, project distribution, story points totals.',
+      parameters: {
+        type: 'object',
+        properties: {
+          org: { type: 'string', description: 'GitHub org name' },
+          login: { type: 'string', description: 'Filter by developer GitHub login (optional)' },
+        },
+        required: ['org'],
+      },
+    },
+  },
 ];
 
 // Tool execution
@@ -96,6 +129,8 @@ export async function executeTool(name: string, args: Record<string, any>): Prom
       case 'queryCommits': return JSON.stringify(await queryCommits(args));
       case 'queryTeams': return JSON.stringify(await queryTeams(args));
       case 'queryOrgSummary': return JSON.stringify(await queryOrgSummary(args));
+      case 'queryJiraIssues': return JSON.stringify(await queryJiraIssues(args));
+      case 'queryJiraSummary': return JSON.stringify(await queryJiraSummary(args));
       default: return JSON.stringify({ error: `Unknown tool: ${name}` });
     }
   } catch (err) {
@@ -265,10 +300,89 @@ async function queryOrgSummary(args: any) {
     [org],
   ) as [any[], any];
 
+  const [jiraStats] = await db.execute(
+    `SELECT COUNT(*) as total_issues, SUM(story_points) as total_story_points,
+            COUNT(DISTINCT project_key) as project_count
+     FROM jira_issues WHERE report_id = ?`,
+    [reportId],
+  ) as [any[], any];
+
   return {
     org,
     report: report[0],
     stats: stats[0],
     teamCount: teamCount[0]?.count || 0,
+    jira: jiraStats[0] || { total_issues: 0, total_story_points: 0, project_count: 0 },
+  };
+}
+
+async function queryJiraIssues(args: any) {
+  const { org, login, projectKey, issueType, limit: rawLimit = 20 } = args;
+  const limit = Math.min(Number(rawLimit) || 20, 100);
+  const reportId = await latestReportId(org);
+  if (!reportId) return { error: 'No completed reports found' };
+
+  const conditions = ['ji.report_id = ?'];
+  const params: any[] = [reportId];
+
+  if (login) { conditions.push('ji.github_login = ?'); params.push(login); }
+  if (projectKey) { conditions.push('ji.project_key = ?'); params.push(projectKey); }
+  if (issueType) { conditions.push('ji.issue_type = ?'); params.push(issueType); }
+
+  params.push(String(limit));
+
+  const [rows] = await db.execute(
+    `SELECT ji.issue_key, ji.project_key, ji.issue_type, ji.summary,
+            ji.status, ji.story_points, ji.github_login, ji.resolved_at
+     FROM jira_issues ji
+     WHERE ${conditions.join(' AND ')}
+     ORDER BY ji.resolved_at DESC
+     LIMIT ?`,
+    params,
+  ) as [any[], any];
+
+  return { issues: rows, count: rows.length };
+}
+
+async function queryJiraSummary(args: any) {
+  const { org, login } = args;
+  const reportId = await latestReportId(org);
+  if (!reportId) return { error: 'No completed reports found' };
+
+  const loginFilter = login ? 'AND ji.github_login = ?' : '';
+  const params = login ? [reportId, login] : [reportId];
+
+  const [totals] = await db.execute(
+    `SELECT COUNT(*) as total_issues,
+            SUM(ji.story_points) as total_story_points,
+            COUNT(DISTINCT ji.github_login) as developer_count
+     FROM jira_issues ji
+     WHERE ji.report_id = ? ${loginFilter}`,
+    params,
+  ) as [any[], any];
+
+  const [byProject] = await db.execute(
+    `SELECT ji.project_key, COUNT(*) as issue_count,
+            SUM(ji.story_points) as story_points
+     FROM jira_issues ji
+     WHERE ji.report_id = ? ${loginFilter}
+     GROUP BY ji.project_key
+     ORDER BY issue_count DESC`,
+    params,
+  ) as [any[], any];
+
+  const [byType] = await db.execute(
+    `SELECT ji.issue_type, COUNT(*) as issue_count
+     FROM jira_issues ji
+     WHERE ji.report_id = ? ${loginFilter}
+     GROUP BY ji.issue_type
+     ORDER BY issue_count DESC`,
+    params,
+  ) as [any[], any];
+
+  return {
+    totals: totals[0],
+    byProject,
+    byType,
   };
 }
