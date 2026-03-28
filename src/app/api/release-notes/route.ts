@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import db from '@/lib/db';
-import { getLLMClient, LLM_MODEL, extraBodyProps } from '@/lib/llm-provider';
+import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit } from '@/lib/llm-provider';
 
 const REPO_OWNER = 'Smartling';
 const REPO_NAME = 'glooker';
@@ -66,7 +66,7 @@ export async function GET() {
     const response = await client.chat.completions.create({
       model: LLM_MODEL,
       temperature: 0.3,
-      max_tokens: 512,
+      ...tokenLimit(512),
       messages: [
         {
           role: 'system',

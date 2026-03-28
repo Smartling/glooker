@@ -1,4 +1,4 @@
-import { getLLMClient, LLM_MODEL, extraBodyProps } from './llm-provider';
+import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit } from './llm-provider';
 import { loadPrompt } from './prompt-loader';
 import { getAppConfig } from './app-config/service';
 import type { CommitData } from './github';
@@ -32,7 +32,7 @@ ${commit.diff || '(no diff available)'}`;
   const response = await client.chat.completions.create({
     model:       LLM_MODEL,
     temperature: getAppConfig().analyzer.temperature,
-    max_tokens:  getAppConfig().analyzer.maxTokens,
+    ...tokenLimit(getAppConfig().analyzer.maxTokens),
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: systemPrompt },

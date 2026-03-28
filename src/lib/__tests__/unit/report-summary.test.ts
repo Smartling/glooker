@@ -6,6 +6,7 @@ jest.mock('@/lib/llm-provider', () => ({
   getLLMClient: jest.fn(),
   LLM_MODEL: 'test-model',
   extraBodyProps: jest.fn().mockReturnValue({}),
+  tokenLimit: (n: number) => ({ max_completion_tokens: n }),
 }));
 
 import { getDevSummary } from '@/lib/report/summary';
@@ -235,7 +236,7 @@ describe('getDevSummary', () => {
       const callArgs = createFn.mock.calls[0][0];
 
       expect(callArgs.temperature).toBe(0.7);
-      expect(callArgs.max_tokens).toBe(512);
+      expect(callArgs.max_completion_tokens).toBe(512);
       expect(callArgs.model).toBe('test-model');
       expect(callArgs.response_format).toEqual({ type: 'json_object' });
     });

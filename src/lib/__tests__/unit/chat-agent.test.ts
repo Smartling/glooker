@@ -4,6 +4,7 @@ jest.mock('@/lib/llm-provider', () => ({
   getLLMClient: jest.fn(),
   LLM_MODEL: 'test-model',
   extraBodyProps: jest.fn().mockReturnValue({}),
+  tokenLimit: (n: number) => ({ max_completion_tokens: n }),
 }));
 jest.mock('@/lib/chat/tools', () => ({
   TOOL_DEFINITIONS: [
@@ -73,7 +74,7 @@ describe('chat-agent', () => {
 
       const createCall = mockClient.chat.completions.create.mock.calls[0][0];
       expect(createCall.temperature).toBe(0.3);
-      expect(createCall.max_tokens).toBe(1500);
+      expect(createCall.max_completion_tokens).toBe(1500);
       expect(createCall.model).toBe('test-model');
     });
   });

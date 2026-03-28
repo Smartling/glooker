@@ -1,4 +1,4 @@
-import { getLLMClient, LLM_MODEL, extraBodyProps } from '@/lib/llm-provider';
+import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit } from '@/lib/llm-provider';
 import { loadPrompt } from '@/lib/prompt-loader';
 import { getAppConfig } from '@/lib/app-config/service';
 import { TOOL_DEFINITIONS, executeTool } from './tools';
@@ -35,7 +35,7 @@ export async function runChatAgent(
     const response = await client.chat.completions.create({
       model: LLM_MODEL,
       temperature: getAppConfig().chatAgent.temperature,
-      max_tokens: getAppConfig().chatAgent.maxTokens,
+      ...tokenLimit(getAppConfig().chatAgent.maxTokens),
       messages: conversation,
       ...extraBodyProps(),
     } as any);

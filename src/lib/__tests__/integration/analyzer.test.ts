@@ -5,6 +5,7 @@ jest.mock('@/lib/llm-provider', () => ({
   LLM_MODEL: 'test-model',
   extraBodyProps: () => ({}),
   getLLMClient: jest.fn(),
+  tokenLimit: (n: number) => ({ max_completion_tokens: n }),
 }));
 
 import { analyzeCommit } from '@/lib/analyzer';
@@ -189,7 +190,7 @@ describe('analyzeCommit', () => {
       await analyzeCommit(makeCommit());
       const callArgs = createFn.mock.calls[0][0];
       expect(callArgs.temperature).toBe(0);
-      expect(callArgs.max_tokens).toBe(256);
+      expect(callArgs.max_completion_tokens).toBe(256);
       expect(callArgs.model).toBe('test-model');
       expect(callArgs.response_format).toEqual({ type: 'json_object' });
     });

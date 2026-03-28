@@ -43,6 +43,21 @@ export function extraBodyProps(): Record<string, unknown> {
   return {};
 }
 
+/**
+ * Normalize max_tokens → max_completion_tokens for OpenAI models that require it.
+ * Newer OpenAI models (o1, o3, etc.) reject "max_tokens" and require "max_completion_tokens".
+ * This function should be spread into chat.completions.create() params.
+ */
+export function tokenLimit(maxTokens: number): { max_tokens?: number; max_completion_tokens?: number } {
+  if (provider === 'openai') {
+    // Use max_completion_tokens for OpenAI — works for all models including newer ones.
+    // Older models that only support max_tokens also accept max_completion_tokens in SDK v4.
+    return { max_completion_tokens: maxTokens };
+  }
+  // Other providers (Anthropic, Smartling, Bedrock, etc.) use max_tokens
+  return { max_tokens: maxTokens };
+}
+
 export async function getLLMClient(): Promise<OpenAI> {
   if (cachedClient) return cachedClient;
 

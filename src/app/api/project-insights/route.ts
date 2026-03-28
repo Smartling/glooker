@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import db from '@/lib/db';
-import { getLLMClient, LLM_MODEL, extraBodyProps } from '@/lib/llm-provider';
+import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit } from '@/lib/llm-provider';
 
 export async function GET() {
   // Find latest completed report
@@ -133,7 +133,7 @@ ${noJiraData}`;
     const response = await client.chat.completions.create({
       model: LLM_MODEL,
       temperature: 0.3,
-      max_tokens: 2048,
+      ...tokenLimit(2048),
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: systemPrompt },

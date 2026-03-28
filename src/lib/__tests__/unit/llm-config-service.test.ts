@@ -3,6 +3,7 @@ jest.mock('@/lib/llm-provider', () => ({
   getLLMClient: jest.fn(),
   LLM_MODEL: 'gpt-4o',
   extraBodyProps: jest.fn().mockReturnValue({}),
+  tokenLimit: (n: number) => ({ max_completion_tokens: n }),
 }));
 
 import { getAppConfig, testLLMConnection } from '@/lib/app-config/service';
@@ -395,7 +396,7 @@ describe('testLLMConnection', () => {
 
       const callArgs = mockCreate.mock.calls[0][0];
       expect(callArgs.temperature).toBe(0);
-      expect(callArgs.max_tokens).toBe(32);
+      expect(callArgs.max_completion_tokens).toBe(32);
       expect(callArgs.model).toBe('gpt-4o');
     });
   });
