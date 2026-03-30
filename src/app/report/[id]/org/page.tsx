@@ -4,8 +4,13 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 
 const TYPE_COLORS: Record<string, string> = {
-  feature: 'bg-blue-500', bug: 'bg-red-500', refactor: 'bg-purple-500',
-  infra: 'bg-yellow-500', docs: 'bg-gray-500', test: 'bg-green-500', other: 'bg-gray-600',
+  feature: 'bg-blue-500/10 text-blue-400 ring-1 ring-inset ring-blue-500/20',
+  bug: 'bg-red-500/10 text-red-400 ring-1 ring-inset ring-red-500/20',
+  refactor: 'bg-purple-500/10 text-purple-400 ring-1 ring-inset ring-purple-500/20',
+  infra: 'bg-yellow-500/10 text-yellow-400 ring-1 ring-inset ring-yellow-500/20',
+  docs: 'bg-gray-500/10 text-gray-400 ring-1 ring-inset ring-gray-500/20',
+  test: 'bg-green-500/10 text-green-400 ring-1 ring-inset ring-green-500/20',
+  other: 'bg-gray-500/10 text-gray-500 ring-1 ring-inset ring-gray-500/20',
 };
 
 const TYPE_HEX: Record<string, string> = {
@@ -189,7 +194,7 @@ export default function OrgDetailPage() {
       {timeline.length >= 2 && <StackedTypesChart data={timeline} />}
 
       {/* Top Developers Table */}
-      <div className="bg-gray-900 rounded-xl overflow-hidden">
+      <div className="bg-gray-900 rounded-lg overflow-hidden">
         <div className="px-5 py-3 border-b border-gray-800">
           <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">
             Developers ({developers.length})
@@ -265,7 +270,7 @@ export default function OrgDetailPage() {
                     </td>
                   )}
                   <td className="px-4 py-3 text-right">
-                    <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold text-white ${impactColor}`}>
+                    <span className={`inline-block px-2 py-0.5 rounded-md text-xs font-bold text-white ring-1 ring-inset ring-white/10 ${impactColor}`}>
                       {impact.toFixed(1)}
                     </span>
                   </td>
@@ -546,7 +551,7 @@ function PieChart({ entries, total }: { entries: [string, number][]; total: numb
             onMouseEnter={() => setHoverType(type)}
             onMouseLeave={() => setHoverType(null)}
           >
-            <span className={`w-3 h-3 rounded-sm shrink-0 ${TYPE_COLORS[type] || 'bg-gray-600'}`} />
+            <span className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: TYPE_HEX[type] || '#4B5563' }} />
             <span className="text-gray-300 font-medium">{type}</span>
             <span className="text-gray-500">{count} ({Math.round((count / total) * 100)}%)</span>
           </div>

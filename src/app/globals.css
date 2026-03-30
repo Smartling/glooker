@@ -38,6 +38,88 @@
 .focus\:border-accent:focus { border-color: var(--accent); }
 .focus\:border-accent-dark:focus { border-color: var(--accent-dark); }
 
+/* ── Tremor dark-mode palette remapping ── */
+/* Remap Tailwind grays to navy-tinted Tremor palette */
+:root {
+  --tremor-page-bg: #111827;
+  --tremor-card-bg: #090E1A;
+  --tremor-input-bg: #1a2332;
+  --tremor-hover-bg: #1f2937;
+  --tremor-border: #1e293b;
+  --tremor-border-light: #334155;
+}
+
+/* Page / body background */
+.bg-gray-950,
+.bg-\[\#0F0F0F\],
+.bg-\[\#0A0A0A\],
+.bg-\[\#09090B\],
+.bg-\[\#0C0A14\],
+.bg-\[\#030712\] {
+  background-color: var(--tremor-page-bg) !important;
+}
+
+/* Card backgrounds — deep navy */
+:root:not([data-theme-mode="light"]) .bg-gray-900 {
+  background-color: var(--tremor-card-bg) !important;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05);
+}
+
+/* Input / hover backgrounds */
+:root:not([data-theme-mode="light"]) .bg-gray-800 {
+  background-color: var(--tremor-input-bg) !important;
+}
+:root:not([data-theme-mode="light"]) .bg-gray-800\/50 {
+  background-color: rgba(26, 35, 50, 0.5) !important;
+}
+:root:not([data-theme-mode="light"]) .bg-gray-700 {
+  background-color: var(--tremor-hover-bg) !important;
+}
+
+/* Hover backgrounds (dark mode) */
+:root:not([data-theme-mode="light"]) .hover\:bg-gray-800:hover {
+  background-color: var(--tremor-input-bg) !important;
+}
+:root:not([data-theme-mode="light"]) .hover\:bg-gray-700:hover {
+  background-color: var(--tremor-hover-bg) !important;
+}
+:root:not([data-theme-mode="light"]) .hover\:bg-gray-800\/50:hover {
+  background-color: rgba(26, 35, 50, 0.5) !important;
+}
+:root:not([data-theme-mode="light"]) .hover\:bg-gray-800\/30:hover,
+:root:not([data-theme-mode="light"]) .hover\:bg-gray-800\/30 {
+  background-color: rgba(26, 35, 50, 0.3) !important;
+}
+
+/* Borders — slate-tinted */
+:root:not([data-theme-mode="light"]) .border-gray-800 {
+  border-color: var(--tremor-border) !important;
+}
+:root:not([data-theme-mode="light"]) .border-gray-800\/50 {
+  border-color: rgba(30, 41, 59, 0.5) !important;
+}
+:root:not([data-theme-mode="light"]) .border-gray-700 {
+  border-color: var(--tremor-border-light) !important;
+}
+:root:not([data-theme-mode="light"]) .border-gray-700\/50 {
+  border-color: rgba(51, 65, 85, 0.5) !important;
+}
+
+/* Dividers */
+:root:not([data-theme-mode="light"]) .divide-gray-800 > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--tremor-border) !important;
+}
+
+/* Progress bars — use accent color instead of blue-500 */
+:root:not([data-theme-mode="light"]) .bg-blue-500.h-full.rounded-full {
+  background-color: var(--accent) !important;
+}
+
+/* Table containers — less rounded for Tremor feel */
+:root:not([data-theme-mode="light"]) .bg-gray-900.rounded-xl {
+  border-radius: 0.5rem;
+}
+
 /* ── Light theme overrides ── */
 /* Remap dark-mode Tailwind classes to light equivalents */
 [data-theme-mode="light"] {
@@ -52,7 +134,8 @@
 /* Backgrounds: dark → light */
 [data-theme-mode="light"] .bg-\[\#0F0F0F\],
 [data-theme-mode="light"] .bg-\[\#0A0A0A\],
-[data-theme-mode="light"] .bg-\[\#030712\] {
+[data-theme-mode="light"] .bg-\[\#030712\],
+[data-theme-mode="light"] .bg-\[\#111827\] {
   background-color: var(--body-bg) !important;
 }
 [data-theme-mode="light"] .bg-gray-950 {
@@ -200,7 +283,12 @@
 
 /* Shadow adjustments — dark mode uses no/subtle shadows; light needs them */
 [data-theme-mode="light"] .bg-gray-900 {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* Reset Tremor card rounding in light mode */
+[data-theme-mode="light"] .bg-gray-900.rounded-xl {
+  border-radius: 0.75rem;
 }
 
 @media print {
@@ -262,7 +350,8 @@
   }
 
   /* Page breaks */
-  .bg-gray-900.rounded-xl { break-inside: avoid; }
+  .bg-gray-900.rounded-xl,
+  .bg-gray-900.rounded-lg { break-inside: avoid; }
   tr { break-inside: avoid; }
 
   /* Remove max-height/overflow on tables for full print */

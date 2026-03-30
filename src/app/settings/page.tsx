@@ -214,7 +214,7 @@ function SchedulesTab() {
       )}
 
       {schedules.length > 0 && (
-        <div className="bg-gray-900 rounded-xl overflow-hidden">
+        <div className="bg-gray-900 rounded-lg overflow-hidden">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs text-gray-500 uppercase tracking-wider border-b border-gray-800">
@@ -294,7 +294,7 @@ function SchedulesTab() {
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { setShowForm(false); resetForm(); }} />
-          <div className="relative bg-gray-900 rounded-xl p-6 w-full max-w-lg border border-gray-800 shadow-2xl">
+          <div className="relative bg-gray-900 rounded-lg p-6 w-full max-w-lg border border-gray-800 shadow-2xl">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-semibold text-white">{editing ? 'Edit Schedule' : 'New Schedule'}</h3>
               <button onClick={() => { setShowForm(false); resetForm(); }} className="text-gray-500 hover:text-gray-300">
@@ -623,7 +623,7 @@ function TeamsTab({ org }: { org: string }) {
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { setShowForm(false); resetForm(); }} />
-          <div className="relative bg-gray-900 rounded-xl p-6 w-full max-w-lg border border-gray-800 shadow-2xl">
+          <div className="relative bg-gray-900 rounded-lg p-6 w-full max-w-lg border border-gray-800 shadow-2xl">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-semibold text-white">{editingTeam ? 'Edit Team' : 'New Team'}</h3>
               <button onClick={() => { setShowForm(false); resetForm(); }} className="text-gray-500 hover:text-gray-300">
@@ -1217,7 +1217,7 @@ function ThemeCard({ t, isActive, onSelect }: { t: ThemeColors; isActive: boolea
   return (
     <button
       onClick={onSelect}
-      className={`rounded-xl p-5 text-left border-2 transition-all hover:-translate-y-0.5 ${
+      className={`rounded-lg p-5 text-left border-2 transition-all hover:-translate-y-0.5 ${
         isLight ? 'bg-white' : 'bg-gray-900'
       } ${
         isActive
