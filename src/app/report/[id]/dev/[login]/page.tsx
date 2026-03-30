@@ -4,13 +4,23 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 
 const TYPE_COLORS: Record<string, string> = {
-  feature: 'bg-blue-500', bug: 'bg-red-500', refactor: 'bg-purple-500',
-  infra: 'bg-yellow-500', docs: 'bg-gray-500', test: 'bg-green-500', other: 'bg-gray-600',
+  feature: 'bg-blue-500/10 text-blue-400 ring-1 ring-inset ring-blue-500/20',
+  bug: 'bg-red-500/10 text-red-400 ring-1 ring-inset ring-red-500/20',
+  refactor: 'bg-purple-500/10 text-purple-400 ring-1 ring-inset ring-purple-500/20',
+  infra: 'bg-yellow-500/10 text-yellow-400 ring-1 ring-inset ring-yellow-500/20',
+  docs: 'bg-gray-500/10 text-gray-400 ring-1 ring-inset ring-gray-500/20',
+  test: 'bg-green-500/10 text-green-400 ring-1 ring-inset ring-green-500/20',
+  other: 'bg-gray-500/10 text-gray-500 ring-1 ring-inset ring-gray-500/20',
 };
 
 const TYPE_TEXT_COLORS: Record<string, string> = {
   feature: 'text-blue-400', bug: 'text-red-400', refactor: 'text-purple-400',
   infra: 'text-yellow-400', docs: 'text-gray-400', test: 'text-green-400', other: 'text-gray-500',
+};
+
+const TYPE_HEX: Record<string, string> = {
+  feature: '#3B82F6', bug: '#EF4444', refactor: '#A855F7',
+  infra: '#EAB308', docs: '#6B7280', test: '#22C55E', other: '#4B5563',
 };
 
 interface DevStats {
@@ -259,8 +269,8 @@ export default function DevDetailPage() {
               {typeEntries.map(([type, count]) => (
                 <div
                   key={type}
-                  className={`${TYPE_COLORS[type] || 'bg-gray-600'} h-full`}
-                  style={{ width: `${(count / totalTyped) * 100}%` }}
+                  className="h-full"
+                  style={{ width: `${(count / totalTyped) * 100}%`, backgroundColor: TYPE_HEX[type] || '#4B5563' }}
                   title={`${type}: ${count}`}
                 />
               ))}
@@ -269,7 +279,7 @@ export default function DevDetailPage() {
           <div className="flex flex-wrap gap-2">
             {typeEntries.map(([type, count]) => (
               <div key={type} className="flex items-center gap-1.5 text-xs">
-                <span className={`w-2.5 h-2.5 rounded-sm ${TYPE_COLORS[type] || 'bg-gray-600'}`} />
+                <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: TYPE_HEX[type] || '#4B5563' }} />
                 <span className="text-gray-400">{type}</span>
                 <span className="text-gray-600">{count} ({Math.round((count / totalTyped) * 100)}%)</span>
               </div>
@@ -385,7 +395,7 @@ export default function DevDetailPage() {
       </div>
 
       {/* Commits Table */}
-      <div className="bg-gray-900 rounded-xl overflow-hidden">
+      <div className="bg-gray-900 rounded-lg overflow-hidden">
         <div className="px-5 py-3 border-b border-gray-800">
           <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">
             Commits ({commits.length})
@@ -462,7 +472,7 @@ export default function DevDetailPage() {
                     <td className="px-4 py-2.5 text-gray-500 text-xs whitespace-nowrap">{c.repo}</td>
                     <td className="px-4 py-2.5">
                       {c.type && (
-                        <span className={`inline-block px-1.5 py-0.5 rounded text-xs text-white ${TYPE_COLORS[c.type] || 'bg-gray-600'}`}>
+                        <span className={`inline-block px-1.5 py-0.5 rounded-md text-xs ${TYPE_COLORS[c.type] || 'bg-gray-500/10 text-gray-500 ring-1 ring-inset ring-gray-500/20'}`}>
                           {c.type}
                         </span>
                       )}
@@ -504,7 +514,7 @@ export default function DevDetailPage() {
 
       {/* Jira Issues Table */}
       {jiraIssues.length > 0 && (
-        <div className="bg-gray-900 rounded-xl overflow-hidden mt-6">
+        <div className="bg-gray-900 rounded-lg overflow-hidden mt-6">
           <div className="px-5 py-3 border-b border-gray-800">
             <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">
               Jira Issues ({jiraIssues.length})

@@ -44,13 +44,13 @@ interface Report {
 }
 
 const TYPE_COLORS: Record<string, string> = {
-  feature:  'bg-blue-500',
-  bug:      'bg-red-500',
-  refactor: 'bg-purple-500',
-  infra:    'bg-yellow-500',
-  docs:     'bg-gray-500',
-  test:     'bg-green-500',
-  other:    'bg-gray-600',
+  feature:  'bg-blue-500/10 text-blue-400 ring-1 ring-inset ring-blue-500/20',
+  bug:      'bg-red-500/10 text-red-400 ring-1 ring-inset ring-red-500/20',
+  refactor: 'bg-purple-500/10 text-purple-400 ring-1 ring-inset ring-purple-500/20',
+  infra:    'bg-yellow-500/10 text-yellow-400 ring-1 ring-inset ring-yellow-500/20',
+  docs:     'bg-gray-500/10 text-gray-400 ring-1 ring-inset ring-gray-500/20',
+  test:     'bg-green-500/10 text-green-400 ring-1 ring-inset ring-green-500/20',
+  other:    'bg-gray-500/10 text-gray-500 ring-1 ring-inset ring-gray-500/20',
 };
 
 
@@ -637,7 +637,7 @@ export default function Home() {
         {showReportForm && (
           <div className="fixed inset-0 z-50 flex items-center justify-center">
             <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowReportForm(false)} />
-            <div className="relative bg-gray-900 rounded-xl p-6 w-full max-w-lg border border-gray-800 shadow-2xl">
+            <div className="relative bg-gray-900 rounded-lg p-6 w-full max-w-lg border border-gray-800 shadow-2xl">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-semibold text-white">New Report</h3>
                 <button onClick={() => setShowReportForm(false)} className="text-gray-500 hover:text-gray-300">
@@ -933,7 +933,7 @@ export default function Home() {
             const filteredDevs = filterLogins.size > 0 ? developers.filter(d => filterLogins.has(d.github_login)) : developers;
             const hasJira = developers.some(d => (d.total_jira_issues ?? 0) > 0);
             return filteredDevs.length > 0 && (
-            <div className="bg-gray-900 rounded-xl overflow-hidden">
+            <div className="bg-gray-900 rounded-lg overflow-hidden">
               <table className="w-full text-sm table-fixed">
                 <thead>
                   <tr className="text-left text-xs text-gray-500 uppercase tracking-wider border-b border-gray-800">
@@ -1067,7 +1067,7 @@ function ImpactBadge({ value }: { value: number }) {
     n >= 4 ? 'bg-accent-dark' :
     'bg-gray-700';
   return (
-    <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold text-white ${color}`}>
+    <span className={`inline-block px-2 py-0.5 rounded-md text-xs font-bold text-white ring-1 ring-inset ring-white/10 ${color}`}>
       {n.toFixed(1)}
     </span>
   );
@@ -1105,7 +1105,7 @@ function TypeBreakdown({ breakdown }: { breakdown: Record<string, number> }) {
       {entries.map(([type, count]) => (
         <span
           key={type}
-          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs text-white ${TYPE_COLORS[type] || 'bg-gray-600'}`}
+          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-xs ${TYPE_COLORS[type] || 'bg-gray-500/10 text-gray-500 ring-1 ring-inset ring-gray-500/20'}`}
         >
           {type} <span className="opacity-75">{count}</span>
         </span>

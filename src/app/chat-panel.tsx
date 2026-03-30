@@ -84,8 +84,8 @@ export default function ChatPanel({ org }: { org: string }) {
       {open && (
         <div className={`fixed z-50 bg-gray-900 border border-gray-800 shadow-2xl flex flex-col overflow-hidden no-print transition-all duration-200 ${
           maximized
-            ? 'inset-4 rounded-2xl'
-            : 'bottom-6 right-6 w-[420px] h-[600px] rounded-2xl'
+            ? 'inset-4 rounded-lg'
+            : 'bottom-6 right-6 w-[420px] h-[600px] rounded-lg'
         }`}>
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
