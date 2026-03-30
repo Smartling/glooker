@@ -77,6 +77,7 @@ export default function Home() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [filterHighlight, setFilterHighlight] = useState(0);
   const [teams, setTeams] = useState<Array<{ id: string; name: string; color: string; members: string[] }>>([]);
+  const [jiraProjectsEnabled, setJiraProjectsEnabled] = useState(false);
   const generationRef = useRef(0);
   const lastCompletedDevsRef = useRef(0);
 
@@ -107,6 +108,12 @@ export default function Home() {
         if (data.length > 0 && !org) setOrg(data[0].login);
       })
       .catch((err) => console.error('[glooker]', err));
+    fetch('/api/llm-config')
+      .then((r) => r.json())
+      .then((data: any) => {
+        if (data.jira?.enabled && data.jira?.projectsJql) setJiraProjectsEnabled(true);
+      })
+      .catch(() => {});
     fetch('/api/report')
       .then((r) => r.json())
       .then(setPastReports)
@@ -422,6 +429,17 @@ export default function Home() {
           <p className="text-gray-400 mt-1">GitHub org developer impact analytics</p>
         </div>
         <div className="flex items-center gap-2.5">
+          {jiraProjectsEnabled && (
+            <button
+              onClick={() => window.location.href = '/projects'}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-300 bg-gray-900 hover:bg-gray-800 rounded-lg border border-gray-800 transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              </svg>
+              Projects
+            </button>
+          )}
           <button
             onClick={() => window.location.href = '/settings'}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-300 bg-gray-900 hover:bg-gray-800 rounded-lg border border-gray-800 transition-colors"

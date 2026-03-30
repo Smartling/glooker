@@ -38,6 +38,7 @@ services:
       JIRA_API_VERSION: ${JIRA_API_VERSION:-3}
       JIRA_PROJECTS: ${JIRA_PROJECTS:-}
       JIRA_STORY_POINTS_FIELDS: ${JIRA_STORY_POINTS_FIELDS:-}
+      JIRA_PROJECTS_JQL: ${JIRA_PROJECTS_JQL:-}
 
       # Auth (optional — for ALB OIDC deployments)
       AUTH_ENABLED: ${AUTH_ENABLED:-}

@@ -1,0 +1,286 @@
+'use client';
+
+import { useState, useEffect, useMemo } from 'react';
+
+interface ProjectEpic {
+  key: string;
+  summary: string;
+  status: string;
+  dueDate: string | null;
+  assignee: string | null;
+  team: { name: string; color: string } | null;
+  initiative: { key: string; summary: string } | null;
+  goal: { key: string; summary: string } | null;
+}
+
+export default function ProjectsContent() {
+  const [epics, setEpics] = useState<ProjectEpic[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [org, setOrg] = useState<string | null>(null);
+  const [jiraHost, setJiraHost] = useState<string | null>(null);
+
+  // Filters
+  const [filterTeam, setFilterTeam] = useState<string>('');
+  const [filterGoal, setFilterGoal] = useState<string>('');
+  const [filterInitiative, setFilterInitiative] = useState<string>('');
+
+  useEffect(() => {
+    fetch('/api/orgs')
+      .then(r => r.json())
+      .then(data => {
+        if (data.length > 0) setOrg(data[0].login);
+        else setError('No GitHub org configured');
+      })
+      .catch(() => setError('Failed to load org'));
+  }, []);
+
+  useEffect(() => {
+    if (!org) return;
+    setLoading(true);
+    fetch(`/api/projects?org=${encodeURIComponent(org)}`)
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then(data => { setEpics(data.epics); setJiraHost(data.jiraHost); })
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [org]);
+
+  // Derive unique filter options from data
+  const teams = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of epics) if (e.team) set.add(e.team.name);
+    return Array.from(set).sort();
+  }, [epics]);
+
+  const goals = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of epics) if (e.goal) set.add(e.goal.summary);
+    return Array.from(set).sort();
+  }, [epics]);
+
+  const initiatives = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of epics) if (e.initiative) set.add(e.initiative.summary);
+    return Array.from(set).sort();
+  }, [epics]);
+
+  // Apply filters
+  const filteredEpics = useMemo(() => {
+    return epics.filter(e => {
+      if (filterTeam === '__none__' && e.team !== null) return false;
+      if (filterTeam && filterTeam !== '__none__' && e.team?.name !== filterTeam) return false;
+      if (filterGoal && e.goal?.summary !== filterGoal) return false;
+      if (filterInitiative && e.initiative?.summary !== filterInitiative) return false;
+      return true;
+    });
+  }, [epics, filterTeam, filterGoal, filterInitiative]);
+
+  const activeFilterCount = [filterTeam, filterGoal, filterInitiative].filter(Boolean).length;
+
+  const isOverdue = (dateStr: string | null) => {
+    if (!dateStr) return false;
+    return new Date(dateStr) < new Date();
+  };
+
+  const formatDate = (dateStr: string | null) => {
+    if (!dateStr) return '—';
+    const d = new Date(dateStr);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+  // Precompute rowSpans for merged goal and initiative cells
+  const spans = useMemo(() => {
+    const result: Array<{ goalSpan: number; initSpan: number; showGoal: boolean; showInit: boolean }> = [];
+    for (let i = 0; i < filteredEpics.length; i++) {
+      const goalKey = filteredEpics[i].goal?.summary || '—';
+      const initKey = (filteredEpics[i].goal?.summary || '—') + '|' + (filteredEpics[i].initiative?.summary || '—');
+
+      // Count how many consecutive rows share the same goal
+      let goalSpan = 0;
+      for (let j = i; j < filteredEpics.length; j++) {
+        if ((filteredEpics[j].goal?.summary || '—') === goalKey) goalSpan++;
+        else break;
+      }
+
+      // Count how many consecutive rows share the same initiative (within same goal)
+      let initSpan = 0;
+      for (let j = i; j < filteredEpics.length; j++) {
+        const jKey = (filteredEpics[j].goal?.summary || '—') + '|' + (filteredEpics[j].initiative?.summary || '—');
+        if (jKey === initKey) initSpan++;
+        else break;
+      }
+
+      // Is this the first row of a goal group?
+      const showGoal = i === 0 || (filteredEpics[i - 1].goal?.summary || '—') !== goalKey;
+      // Is this the first row of an initiative group?
+      const prevInitKey = i > 0 ? (filteredEpics[i - 1].goal?.summary || '—') + '|' + (filteredEpics[i - 1].initiative?.summary || '—') : '';
+      const showInit = i === 0 || prevInitKey !== initKey;
+
+      result.push({ goalSpan, initSpan, showGoal, showInit });
+    }
+    return result;
+  }, [filteredEpics]);
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 py-8">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Projects</h1>
+          <p className="text-gray-400 text-sm mt-1">In-progress epics from Jira</p>
+        </div>
+        <a
+          href="/"
+          className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+        >
+          &larr; Back to Dashboard
+        </a>
+      </div>
+
+      {loading && <div className="text-gray-500 py-8">Loading projects from Jira...</div>}
+      {error && <div className="text-red-400 py-8">Error: {error}</div>}
+
+      {!loading && !error && epics.length > 0 && (
+        <>
+          {/* Filters */}
+          <div className="flex items-center gap-3 mb-4 flex-wrap">
+            <select
+              value={filterGoal}
+              onChange={e => setFilterGoal(e.target.value)}
+              className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-gray-400 focus:outline-none focus:border-accent cursor-pointer"
+            >
+              <option value="">All goals</option>
+              {goals.map(g => <option key={g} value={g}>{g}</option>)}
+            </select>
+            <select
+              value={filterInitiative}
+              onChange={e => setFilterInitiative(e.target.value)}
+              className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-gray-400 focus:outline-none focus:border-accent cursor-pointer"
+            >
+              <option value="">All initiatives</option>
+              {initiatives.map(i => <option key={i} value={i}>{i}</option>)}
+            </select>
+            <select
+              value={filterTeam}
+              onChange={e => setFilterTeam(e.target.value)}
+              className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-gray-400 focus:outline-none focus:border-accent cursor-pointer"
+            >
+              <option value="">All teams</option>
+              <option value="__none__">No team</option>
+              {teams.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            {/* Active filter pills */}
+            {filterGoal && (
+              <span className="inline-flex items-center gap-1.5 bg-accent/20 text-accent-lighter text-xs font-medium px-2.5 py-1 rounded-lg border border-accent/30">
+                {filterGoal}
+                <button onClick={() => setFilterGoal('')} className="text-accent-light hover:text-white ml-0.5">&times;</button>
+              </span>
+            )}
+            {filterInitiative && (
+              <span className="inline-flex items-center gap-1.5 bg-accent/20 text-accent-lighter text-xs font-medium px-2.5 py-1 rounded-lg border border-accent/30">
+                {filterInitiative}
+                <button onClick={() => setFilterInitiative('')} className="text-accent-light hover:text-white ml-0.5">&times;</button>
+              </span>
+            )}
+            {filterTeam && (
+              <span className="inline-flex items-center gap-1.5 bg-accent/20 text-accent-lighter text-xs font-medium px-2.5 py-1 rounded-lg border border-accent/30">
+                {filterTeam === '__none__' ? 'No team' : filterTeam}
+                <button onClick={() => setFilterTeam('')} className="text-accent-light hover:text-white ml-0.5">&times;</button>
+              </span>
+            )}
+            {activeFilterCount > 1 && (
+              <button onClick={() => { setFilterTeam(''); setFilterGoal(''); setFilterInitiative(''); }} className="text-xs text-gray-600 hover:text-gray-400">Clear all</button>
+            )}
+          </div>
+
+          {filteredEpics.length === 0 ? (
+            <div className="text-gray-500 py-8">No epics match the selected filters.</div>
+          ) : (
+            <div className="overflow-x-auto rounded-lg border border-gray-800">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-900/50 text-gray-400 text-left text-xs uppercase tracking-wider">
+                    <th className="px-4 py-3 font-medium">Business Goal</th>
+                    <th className="px-4 py-3 font-medium">Initiative</th>
+                    <th className="px-4 py-3 font-medium">Epic</th>
+                    <th className="px-4 py-3 font-medium">Due</th>
+                    <th className="px-4 py-3 font-medium">Lead</th>
+                    <th className="px-4 py-3 font-medium">Team</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredEpics.map((epic, i) => {
+                    const { goalSpan, initSpan, showGoal, showInit } = spans[i];
+
+                    return (
+                      <tr
+                        key={epic.key}
+                        className={`border-b border-gray-800/50 hover:bg-gray-900/30 transition-colors`}
+                      >
+                        {showGoal && (
+                          <td className="px-4 py-3 align-top border-r border-gray-800/30" rowSpan={goalSpan}>
+                            {epic.goal ? (
+                              <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-accent-bg/30 text-accent-lighter">
+                                {epic.goal.summary}
+                              </span>
+                            ) : (
+                              <span className="text-gray-600">—</span>
+                            )}
+                          </td>
+                        )}
+                        {showInit && (
+                          <td className="px-4 py-3 align-top border-r border-gray-800/30" rowSpan={initSpan}>
+                            {epic.initiative ? (
+                              <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-gray-800 text-gray-300">
+                                {epic.initiative.summary}
+                              </span>
+                            ) : (
+                              <span className="text-gray-600">—</span>
+                            )}
+                          </td>
+                        )}
+                        <td className="px-4 py-3 text-white font-medium">
+                          {jiraHost ? (
+                            <a href={`https://${jiraHost}/browse/${epic.key}`} target="_blank" rel="noopener noreferrer" className="text-accent-light hover:text-accent-lighter underline">{epic.key}</a>
+                          ) : (
+                            <span>{epic.key}</span>
+                          )}
+                          {' '}{epic.summary}
+                        </td>
+                        <td className={`px-4 py-3 ${isOverdue(epic.dueDate) ? 'text-red-400' : 'text-gray-400'}`}>
+                          {formatDate(epic.dueDate)}
+                        </td>
+                        <td className="px-4 py-3 text-gray-300">
+                          {epic.assignee || '—'}
+                        </td>
+                        <td className="px-4 py-3">
+                          {epic.team ? (
+                            <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-accent/20 text-accent-lighter border border-accent/30">
+                              {epic.team.name}
+                            </span>
+                          ) : (
+                            <span className="text-gray-600">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              <div className="px-4 py-2 text-xs text-gray-500 bg-gray-900/30 border-t border-gray-800">
+                {filteredEpics.length}{filteredEpics.length !== epics.length ? ` of ${epics.length}` : ''} epic{filteredEpics.length !== 1 ? 's' : ''}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {!loading && !error && epics.length === 0 && (
+        <div className="text-gray-500 py-8">No epics found matching the configured JQL.</div>
+      )}
+    </div>
+  );
+}

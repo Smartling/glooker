@@ -31,6 +31,7 @@ export interface AppConfig {
     apiVersion: string;
     projects: string[];
     storyPointsFields: string[];
+    projectsJql: string | null;
     missing: string[];
   };
 }
@@ -113,6 +114,7 @@ export function getAppConfig(): AppConfig {
     storyPointsFields: process.env.JIRA_STORY_POINTS_FIELDS
       ? process.env.JIRA_STORY_POINTS_FIELDS.split(',').map(p => p.trim()).filter(Boolean)
       : [],
+    projectsJql: process.env.JIRA_PROJECTS_JQL || null,
     missing: jiraMissing,
   };
 

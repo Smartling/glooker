@@ -174,6 +174,60 @@ export class JiraClient {
 
     return allIssues;
   }
+
+  async searchEpics(
+    jql: string,
+  ): Promise<Array<{
+    key: string;
+    summary: string;
+    status: string;
+    dueDate: string | null;
+    assigneeDisplayName: string | null;
+    assigneeEmail: string | null;
+    parentKey: string | null;
+    parentSummary: string | null;
+    parentTypeName: string | null;
+  }>> {
+    const fields = ['summary', 'status', 'duedate', 'assignee', 'parent'];
+    const allIssues: Array<{
+      key: string;
+      summary: string;
+      status: string;
+      dueDate: string | null;
+      assigneeDisplayName: string | null;
+      assigneeEmail: string | null;
+      parentKey: string | null;
+      parentSummary: string | null;
+      parentTypeName: string | null;
+    }> = [];
+    const maxResults = 50;
+    let nextPageToken: string | undefined;
+
+    while (true) {
+      const result = await this.searchJql(jql, fields, maxResults, nextPageToken);
+
+      for (const issue of result.issues) {
+        const f = issue.fields;
+        allIssues.push({
+          key: issue.key,
+          summary: f.summary || '',
+          status: f.status?.name || '',
+          dueDate: f.duedate || null,
+          assigneeDisplayName: f.assignee?.displayName || null,
+          assigneeEmail: f.assignee?.emailAddress || null,
+          parentKey: f.parent?.key || null,
+          parentSummary: f.parent?.fields?.summary || null,
+          parentTypeName: f.parent?.fields?.issuetype?.name || null,
+        });
+      }
+
+      if (!result.nextPageToken || result.issues.length < maxResults) break;
+      nextPageToken = result.nextPageToken;
+      await new Promise(r => setTimeout(r, 1000));
+    }
+
+    return allIssues;
+  }
 }
 
 let cachedClient: JiraClient | null = null;

@@ -100,6 +100,7 @@ const conditionalRules: {
       { name: 'JIRA_HOST', description: 'Jira Cloud hostname (e.g. mycompany.atlassian.net)' },
       { name: 'JIRA_USERNAME', description: 'Jira username / email' },
       { name: 'JIRA_API_TOKEN', description: 'Jira API token' },
+      { name: 'JIRA_PROJECTS_JQL', description: 'JQL query for the Projects page (e.g. project = SPS AND issuetype = Epic AND statusCategory = "In Progress")' },
     ],
   },
   {
