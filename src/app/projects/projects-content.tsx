@@ -28,7 +28,6 @@ export default function ProjectsContent() {
   // Hover state for grouped rows
   const [hoveredGoal, setHoveredGoal] = useState<string | null>(null);
   const [hoveredInit, setHoveredInit] = useState<string | null>(null);
-  const [hoveredRow, setHoveredRow] = useState<string | null>(null);
 
   // Epic summary expand
   const [expandedEpic, setExpandedEpic] = useState<string | null>(null);
@@ -264,16 +263,14 @@ export default function ProjectsContent() {
                     return (
                       <tr
                         key={epic.key}
-                        className={`border-b border-gray-800/50 transition-colors ${hoveredRow === epic.key ? 'bg-gray-900/40' : isGoalHovered ? 'bg-gray-900/15' : ''}`}
-                        onMouseEnter={() => { setHoveredGoal(goalGroupId); setHoveredInit(initGroupId); setHoveredRow(epic.key); }}
-                        onMouseLeave={() => { setHoveredGoal(null); setHoveredInit(null); setHoveredRow(null); }}
+                        className={`border-b border-gray-800/50 transition-colors ${isGoalHovered ? 'bg-gray-900/30' : ''}`}
+                        onMouseEnter={() => { setHoveredGoal(goalGroupId); setHoveredInit(initGroupId); }}
+                        onMouseLeave={() => { setHoveredGoal(null); setHoveredInit(null); }}
                       >
                         {showGoal && (
                           <td
-                            className={`px-4 py-3 align-top border-r border-gray-800/30 transition-colors ${isGoalHovered ? 'bg-gray-900/20' : ''}`}
+                            className={`px-4 py-3 align-top border-r border-gray-800/30 transition-colors ${isGoalHovered ? 'bg-gray-900/30' : ''}`}
                             rowSpan={goalSpan}
-                            onMouseEnter={() => setHoveredGoal(goalGroupId)}
-                            onMouseLeave={() => setHoveredGoal(null)}
                           >
                             {epic.goal ? (
                               <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-accent-bg/30 text-accent-lighter">
@@ -286,10 +283,8 @@ export default function ProjectsContent() {
                         )}
                         {showInit && (
                           <td
-                            className={`px-4 py-3 align-top border-r border-gray-800/30 transition-colors ${isInitHovered ? 'bg-gray-900/30' : isGoalHovered ? 'bg-gray-900/20' : ''}`}
+                            className={`px-4 py-3 align-top border-r border-gray-800/30 transition-colors ${isInitHovered ? 'bg-gray-900/30' : ''}`}
                             rowSpan={initSpan}
-                            onMouseEnter={() => { setHoveredGoal(goalGroupId); setHoveredInit(initGroupId); }}
-                            onMouseLeave={() => { setHoveredGoal(null); setHoveredInit(null); }}
                           >
                             {epic.initiative ? (
                               <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-gray-800 text-gray-300">
