@@ -209,18 +209,20 @@ async function getCommitStats(epicKey: string, childKeys: string[], assigneeEmai
      WHERE r.org = ? AND r.status = 'completed'
      AND ca.committed_at >= DATE_SUB(NOW(), INTERVAL 14 DAY)
      AND (${conditions.join(' OR ')})
-     GROUP BY ca.commit_sha, ca.repo, ca.github_login, ca.commit_message,
-              ca.lines_added, ca.lines_removed, ca.pr_number, ca.pr_title, ca.committed_at
      ORDER BY ca.committed_at DESC`,
     params,
   ) as [any[], any];
 
+  // Deduplicate by commit_sha (same commit appears in multiple reports)
+  const seen = new Set<string>();
   const repos = new Set<string>();
   let linesAdded = 0;
   let linesRemoved = 0;
   const commits: CommitDetail[] = [];
 
   for (const row of rows) {
+    if (seen.has(row.commit_sha)) continue;
+    seen.add(row.commit_sha);
     repos.add(row.repo);
     linesAdded += Number(row.lines_added);
     linesRemoved += Number(row.lines_removed);
