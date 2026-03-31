@@ -1,0 +1,264 @@
+import { getJiraClient } from '@/lib/jira/client';
+import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit } from '@/lib/llm-provider';
+import { loadPrompt } from '@/lib/prompt-loader';
+import db from '@/lib/db';
+
+export interface WorkGroup {
+  name: string;
+  summary: string;
+  commitCount: number;
+  repos: string[];
+  linesAdded: number;
+  linesRemoved: number;
+}
+
+export interface UntrackedTeam {
+  name: string;
+  color: string;
+  groups: WorkGroup[];
+  totalCommits: number;
+}
+
+export interface UntrackedResult {
+  teams: UntrackedTeam[];
+  cached: boolean;
+}
+
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+export async function getUntrackedWork(org: string, forceRefresh: boolean): Promise<UntrackedResult> {
+  // 1. Get all child issue key prefixes from tracked epics (one batch Jira call)
+  //    Also get repos from cached epic summaries for better exclusion
+  const excludedPrefixes = await getTrackedIssuePrefixes();
+  const excludedRepos = await getTrackedEpicRepos(org);
+
+  // 2. Get all teams with members
+  const [teamRows] = await db.execute(
+    `SELECT t.id, t.name, t.color FROM teams t WHERE t.org = ? ORDER BY t.name`,
+    [org],
+  ) as [any[], any];
+
+  const teams: Array<{ id: string; name: string; color: string; members: string[] }> = [];
+  for (const t of teamRows) {
+    const [members] = await db.execute(
+      `SELECT github_login FROM team_members WHERE team_id = ?`,
+      [t.id],
+    ) as [any[], any];
+    if (members.length > 0) {
+      teams.push({ id: t.id, name: t.name, color: t.color, members: members.map((m: any) => m.github_login) });
+    }
+  }
+
+  const results: UntrackedTeam[] = [];
+
+  for (const team of teams) {
+    if (!forceRefresh) {
+      const cached = await getCachedUntracked(team.name, org);
+      if (cached) {
+        results.push({ name: team.name, color: team.color, groups: cached.groups, totalCommits: cached.totalCommits });
+        continue;
+      }
+    }
+
+    const commits = await getTeamUntrackedCommits(team.members, org, excludedPrefixes, excludedRepos);
+    if (commits.length === 0) continue;
+
+    const groups = await clusterCommits(team.name, commits);
+    await storeUntracked(team.name, org, groups, commits.length);
+    results.push({ name: team.name, color: team.color, groups, totalCommits: commits.length });
+  }
+
+  return { teams: results.filter(t => t.groups.length > 0), cached: false };
+}
+
+/**
+ * Fetch all child issues for all tracked SPS epics in one batch query,
+ * then extract unique Jira project key prefixes (e.g., PARSER, DT, DELTA, TQCT).
+ * These prefixes are used to exclude commits from the "untracked" bucket.
+ */
+async function getTrackedIssuePrefixes(): Promise<string[]> {
+  const client = getJiraClient();
+  if (!client) return ['SPS'];
+
+  const jql = process.env.JIRA_PROJECTS_JQL;
+  if (!jql) return ['SPS'];
+
+  try {
+    // Get all tracked epics
+    const epics = await client.searchEpics(jql);
+    const epicKeys = epics.map(e => e.key);
+    if (epicKeys.length === 0) return ['SPS'];
+
+    // Batch query: get all child issues for all epics at once
+    // Using searchEpics which does paginated JQL and returns keys
+    const inClause = epicKeys.map(k => `"${k}"`).join(',');
+    const childJql = `parent in (${inClause}) ORDER BY key`;
+    const childResults = await client.searchEpics(childJql);
+
+    // Extract unique project key prefixes
+    const prefixes = new Set<string>();
+    prefixes.add('SPS');
+    for (const child of childResults) {
+      const prefix = child.key.split('-')[0];
+      if (prefix) prefixes.add(prefix);
+    }
+    for (const epic of epics) {
+      const prefix = epic.key.split('-')[0];
+      if (prefix) prefixes.add(prefix);
+    }
+
+    console.log(`[untracked] Excluding commits matching ${prefixes.size} Jira prefixes: ${Array.from(prefixes).join(', ')}`);
+    return Array.from(prefixes);
+  } catch (err) {
+    console.error('[untracked] Failed to fetch tracked issue prefixes:', err);
+    return ['SPS'];
+  }
+}
+
+interface RawCommit {
+  repo: string;
+  author: string;
+  message: string;
+  linesAdded: number;
+  linesRemoved: number;
+}
+
+/**
+ * Get repos from cached epic summaries. These are repos where tracked-epic
+ * work was detected, so commits there are likely project-related.
+ * Only use repos that appear in ≤3 epics (widely shared repos like "tms" are excluded).
+ */
+async function getTrackedEpicRepos(org: string): Promise<string[]> {
+  const [rows] = await db.execute(
+    `SELECT repos FROM epic_summaries WHERE org = ?`,
+    [org],
+  ) as [any[], any];
+
+  const repoCounts = new Map<string, number>();
+  for (const row of rows) {
+    const repos: string[] = row.repos
+      ? (typeof row.repos === 'string' ? JSON.parse(row.repos) : row.repos)
+      : [];
+    for (const r of repos) {
+      repoCounts.set(r, (repoCounts.get(r) || 0) + 1);
+    }
+  }
+
+  // Only exclude repos unique to ≤3 epics (avoid widely shared repos like tms, gdn-frontend-monorepo)
+  const exclusiveRepos = Array.from(repoCounts.entries())
+    .filter(([, count]) => count <= 3)
+    .map(([repo]) => repo);
+
+  if (exclusiveRepos.length > 0) {
+    console.log(`[untracked] Excluding ${exclusiveRepos.length} epic-associated repos: ${exclusiveRepos.join(', ')}`);
+  }
+  return exclusiveRepos;
+}
+
+async function getTeamUntrackedCommits(members: string[], org: string, excludedPrefixes: string[], excludedRepos: string[]): Promise<RawCommit[]> {
+  const memberPlaceholders = members.map(() => '?').join(',');
+
+  // Build exclusion: NOT LIKE '%PREFIX-%' for each tracked Jira project prefix
+  const prefixClauses = excludedPrefixes.map(() => 'ca.commit_message NOT LIKE ?').join(' AND ');
+  const prefixValues = excludedPrefixes.map(p => `%${p}-%`);
+
+  // Build repo exclusion
+  let repoClause = '';
+  let repoValues: string[] = [];
+  if (excludedRepos.length > 0) {
+    const repoPlaceholders = excludedRepos.map(() => '?').join(',');
+    repoClause = `AND ca.repo NOT IN (${repoPlaceholders})`;
+    repoValues = excludedRepos;
+  }
+
+  const [rows] = await db.execute(
+    `SELECT ca.commit_sha, ca.repo, ca.github_login, LEFT(ca.commit_message, 120) as msg,
+            ca.lines_added, ca.lines_removed
+     FROM commit_analyses ca
+     JOIN reports r ON r.id = ca.report_id
+     WHERE r.org = ? AND r.status = 'completed'
+     AND ca.github_login IN (${memberPlaceholders})
+     AND ca.committed_at >= DATE_SUB(NOW(), INTERVAL 14 DAY)
+     AND ${prefixClauses}
+     ${repoClause}
+     GROUP BY ca.commit_sha, ca.repo, ca.github_login, ca.commit_message, ca.lines_added, ca.lines_removed`,
+    [org, ...members, ...prefixValues, ...repoValues],
+  ) as [any[], any];
+
+  return rows.map((r: any) => ({
+    repo: r.repo,
+    author: r.github_login,
+    message: r.msg,
+    linesAdded: Number(r.lines_added),
+    linesRemoved: Number(r.lines_removed),
+  }));
+}
+
+async function clusterCommits(teamName: string, commits: RawCommit[]): Promise<WorkGroup[]> {
+  const commitLines = commits.map(c =>
+    `${c.repo} | ${c.author} | ${c.message} | +${c.linesAdded} | -${c.linesRemoved}`
+  ).join('\n');
+
+  const prompt = loadPrompt('untracked-work-system.txt', {
+    TEAM_NAME: teamName,
+    COMMITS: commitLines,
+  });
+
+  const client = await getLLMClient();
+
+  const response = await client.chat.completions.create({
+    model: LLM_MODEL,
+    temperature: 0.3,
+    ...tokenLimit(1024),
+    response_format: { type: 'json_object' },
+    messages: [
+      { role: 'user', content: prompt },
+    ],
+    ...extraBodyProps(),
+  } as any);
+
+  const raw = response.choices[0]?.message?.content || '{}';
+  const cleaned = raw.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
+
+  try {
+    const parsed = JSON.parse(cleaned);
+    return (parsed.groups || []).map((g: any) => ({
+      name: String(g.name || 'Unknown'),
+      summary: String(g.summary || ''),
+      commitCount: Number(g.commitCount || 0),
+      repos: Array.isArray(g.repos) ? g.repos : [],
+      linesAdded: Number(g.linesAdded || 0),
+      linesRemoved: Number(g.linesRemoved || 0),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+async function getCachedUntracked(teamName: string, org: string): Promise<{ groups: WorkGroup[]; totalCommits: number } | null> {
+  const [rows] = await db.execute(
+    `SELECT groups_json, total_commits, generated_at FROM untracked_summaries WHERE team_name = ? AND org = ?`,
+    [teamName, org],
+  ) as [any[], any];
+
+  if (rows.length === 0) return null;
+
+  const row = rows[0];
+  const generatedAt = new Date(row.generated_at);
+  if (Date.now() - generatedAt.getTime() > CACHE_TTL_MS) return null;
+
+  const groups = typeof row.groups_json === 'string' ? JSON.parse(row.groups_json) : row.groups_json;
+  return { groups, totalCommits: Number(row.total_commits) };
+}
+
+async function storeUntracked(teamName: string, org: string, groups: WorkGroup[], totalCommits: number): Promise<void> {
+  await db.execute(
+    `INSERT INTO untracked_summaries (team_name, org, groups_json, total_commits, generated_at)
+     VALUES (?, ?, ?, ?, NOW())
+     ON DUPLICATE KEY UPDATE
+       groups_json = VALUES(groups_json),
+       total_commits = VALUES(total_commits),
+       generated_at = NOW()`,
+    [teamName, org, JSON.stringify(groups), totalCommits],
+  );
+}

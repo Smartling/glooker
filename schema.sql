@@ -155,5 +155,15 @@ CREATE TABLE IF NOT EXISTS epic_summaries (
   UNIQUE KEY uq_epic_org (epic_key, org)
 );
 
+CREATE TABLE IF NOT EXISTS untracked_summaries (
+  id              INT AUTO_INCREMENT PRIMARY KEY,
+  team_name       VARCHAR(255) NOT NULL,
+  org             VARCHAR(255) NOT NULL,
+  groups_json     TEXT         NOT NULL,
+  total_commits   INT          NOT NULL DEFAULT 0,
+  generated_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_team_org (team_name, org)
+);
+
 CREATE INDEX idx_devstats_login ON developer_stats(github_login);
 CREATE INDEX idx_reports_org_status_created ON reports(org, status, created_at);

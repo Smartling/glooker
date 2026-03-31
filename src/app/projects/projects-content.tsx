@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { useAuth } from '../auth-context';
 
 interface ProjectEpic {
   key: string;
@@ -13,7 +14,24 @@ interface ProjectEpic {
   goal: { key: string; summary: string } | null;
 }
 
+interface WorkGroup {
+  name: string;
+  summary: string;
+  commitCount: number;
+  repos: string[];
+  linesAdded: number;
+  linesRemoved: number;
+}
+
+interface UntrackedTeam {
+  name: string;
+  color: string;
+  groups: WorkGroup[];
+  totalCommits: number;
+}
+
 export default function ProjectsContent() {
+  const { canAct } = useAuth();
   const [epics, setEpics] = useState<ProjectEpic[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -28,6 +46,10 @@ export default function ProjectsContent() {
   // Hover state for grouped rows
   const [hoveredGoal, setHoveredGoal] = useState<string | null>(null);
   const [hoveredInit, setHoveredInit] = useState<string | null>(null);
+
+  // Untracked work
+  const [untrackedTeams, setUntrackedTeams] = useState<UntrackedTeam[]>([]);
+  const [untrackedLoading, setUntrackedLoading] = useState(false);
 
   // Epic summary expand
   const [expandedEpic, setExpandedEpic] = useState<string | null>(null);
@@ -82,6 +104,19 @@ export default function ProjectsContent() {
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
   }, [org]);
+
+  const loadUntracked = () => {
+    if (!org || untrackedLoading) return;
+    setUntrackedLoading(true);
+    fetch(`/api/projects/untracked?org=${encodeURIComponent(org)}`)
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then(data => setUntrackedTeams(data.teams || []))
+      .catch(() => setUntrackedTeams([]))
+      .finally(() => setUntrackedLoading(false));
+  };
 
   // Derive unique filter options from data
   const teams = useMemo(() => {
@@ -358,10 +393,104 @@ export default function ProjectsContent() {
                       </tr>
                     );
                   })}
+                  {/* Not in Project rows */}
+                  {(() => {
+                    const filtered = untrackedTeams.filter(t => {
+                      if (filterGoal && filterGoal !== 'Not in Project') return false;
+                      if (filterTeam && filterTeam !== '__none__' && filterTeam !== t.name) return false;
+                      if (filterTeam === '__none__') return false;
+                      if (filterInitiative && filterInitiative !== t.name) return false;
+                      return true;
+                    });
+                    const totalRows = filtered.reduce((sum, t) => sum + t.groups.length, 0);
+                    if (totalRows === 0) return null;
+                    let rowIdx = 0;
+                    const untrackedGoalId = 'g-Not in Project';
+
+                    return filtered.map((team, teamIdx) =>
+                      team.groups.map((group, groupIdx) => {
+                        const isFirstRow = rowIdx === 0;
+                        const isFirstGroup = groupIdx === 0;
+                        const groupId = `untracked-${team.name}-${group.name}`;
+                        const isHovered = hoveredGoal === untrackedGoalId;
+                        rowIdx++;
+
+                        return (
+                          <tr
+                            key={groupId}
+                            className={`border-b border-gray-800/50 transition-colors ${isHovered ? 'bg-gray-900/30' : ''}`}
+                            onMouseEnter={() => { setHoveredGoal(untrackedGoalId); setHoveredInit(null); }}
+                            onMouseLeave={() => { setHoveredGoal(null); setHoveredInit(null); }}
+                          >
+                            {isFirstRow && (
+                              <td
+                                className={`px-4 py-3 align-top border-r border-gray-800/30 transition-colors ${isHovered ? 'bg-gray-900/30' : ''}`}
+                                rowSpan={totalRows}
+                              >
+                                <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-gray-700/50 text-gray-400">
+                                  Not in Project
+                                </span>
+                              </td>
+                            )}
+                            {isFirstGroup && (
+                              <td
+                                className={`px-4 py-3 align-top border-r border-gray-800/30 transition-colors ${isHovered ? 'bg-gray-900/30' : ''}`}
+                                rowSpan={team.groups.length}
+                              >
+                                <span className="text-gray-600">—</span>
+                              </td>
+                            )}
+                            <td className="px-4 py-3 text-white font-medium">
+                              <div className="flex items-start gap-1.5">
+                                <button
+                                  onClick={() => setExpandedEpic(expandedEpic === groupId ? null : groupId)}
+                                  className="mt-0.5 text-gray-500 hover:text-gray-300 transition-transform shrink-0"
+                                  style={{ transform: expandedEpic === groupId ? 'rotate(90deg)' : 'rotate(0deg)' }}
+                                >
+                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                  </svg>
+                                </button>
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-gray-300">{group.name}</div>
+                                  {expandedEpic === groupId && (
+                                    <div className="mt-2 pt-2 border-t border-gray-800/50">
+                                      <p className="text-gray-400 text-xs leading-relaxed">{group.summary}</p>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-gray-600">—</td>
+                            <td className="px-4 py-3 text-gray-600">—</td>
+                            <td className="px-4 py-3">
+                              <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-accent/20 text-accent-lighter border border-accent/30">
+                                {team.name}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    );
+                  })()}
                 </tbody>
               </table>
-              <div className="px-4 py-2 text-xs text-gray-500 bg-gray-900/30 border-t border-gray-800">
-                {filteredEpics.length}{filteredEpics.length !== epics.length ? ` of ${epics.length}` : ''} epic{filteredEpics.length !== 1 ? 's' : ''}
+              <div className="px-4 py-2 text-xs text-gray-500 bg-gray-900/30 border-t border-gray-800 flex items-center justify-between">
+                <span>
+                  {filteredEpics.length}{filteredEpics.length !== epics.length ? ` of ${epics.length}` : ''} epic{filteredEpics.length !== 1 ? 's' : ''}
+                  {untrackedTeams.length > 0 && ` · ${untrackedTeams.length} team${untrackedTeams.length !== 1 ? 's' : ''} with untracked work`}
+                </span>
+                {untrackedTeams.length === 0 && !untrackedLoading && canAct && (
+                  <button
+                    onClick={loadUntracked}
+                    className="text-xs text-gray-500 hover:text-gray-300 bg-gray-800 hover:bg-gray-700 px-2.5 py-1 rounded border border-gray-700 transition-colors"
+                  >
+                    Show work outside projects
+                  </button>
+                )}
+                {untrackedLoading && (
+                  <span className="text-xs text-gray-500 animate-pulse">Loading untracked work...</span>
+                )}
               </div>
             </div>
           )}

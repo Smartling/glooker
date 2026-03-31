@@ -163,6 +163,16 @@ CREATE TABLE IF NOT EXISTS epic_summaries (
   UNIQUE (epic_key, org)
 );
 
+CREATE TABLE IF NOT EXISTS untracked_summaries (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  team_name       TEXT    NOT NULL,
+  org             TEXT    NOT NULL,
+  groups_json     TEXT    NOT NULL,
+  total_commits   INTEGER NOT NULL DEFAULT 0,
+  generated_at    TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+  UNIQUE (team_name, org)
+);
+
 CREATE INDEX IF NOT EXISTS idx_devstats_login ON developer_stats(github_login);
 CREATE INDEX IF NOT EXISTS idx_reports_org_status_created ON reports(org, status, created_at);
 `;

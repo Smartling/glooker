@@ -73,6 +73,18 @@ CREATE TABLE IF NOT EXISTS epic_summaries (
 );
 `;
 
+const UNTRACKED_SUMMARIES_SCHEMA = `
+CREATE TABLE IF NOT EXISTS untracked_summaries (
+  id              INT AUTO_INCREMENT PRIMARY KEY,
+  team_name       VARCHAR(255) NOT NULL,
+  org             VARCHAR(255) NOT NULL,
+  groups_json     TEXT         NOT NULL,
+  total_commits   INT          NOT NULL DEFAULT 0,
+  generated_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_team_org (team_name, org)
+);
+`;
+
 export function createMySQLDB(): DB {
   const pool = mysql.createPool({
     host:     process.env.DB_HOST     || 'localhost',
@@ -96,6 +108,9 @@ export function createMySQLDB(): DB {
   });
   pool.execute(EPIC_SUMMARIES_SCHEMA).catch((err) => {
     console.error('[db/mysql] Failed to create epic_summaries table:', err);
+  });
+  pool.execute(UNTRACKED_SUMMARIES_SCHEMA).catch((err) => {
+    console.error('[db/mysql] Failed to create untracked_summaries table:', err);
   });
 
   // Migrations

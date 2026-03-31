@@ -1,0 +1,27 @@
+Analyze these commits from team "{{TEAM_NAME}}" that are NOT part of any tracked Jira epic. Cluster them into 2-5 logical work groups.
+
+For each group, use this exact JSON format. Name groups descriptively using actual feature/product names from commit messages. Write the summary as ONE short sentence following this pattern:
+[What] — [N] commits across [repos] (~[net]K net lines).
+
+Rules:
+- Maximum 5 groups. Merge small efforts into an "Other maintenance" group.
+- Summary maximum 30 words, use approximate line counts (e.g., ~2.1K not 2,100)
+- Be specific in names — use actual feature/product names from commit messages
+- Return ONLY raw JSON, no markdown
+
+Return:
+{
+  "groups": [
+    {
+      "name": "Descriptive Group Name",
+      "summary": "One sentence following the pattern above.",
+      "commitCount": 10,
+      "repos": ["repo-a", "repo-b"],
+      "linesAdded": 5000,
+      "linesRemoved": 1000
+    }
+  ]
+}
+
+Commits (repo | author | message | +lines | -lines):
+{{COMMITS}}
