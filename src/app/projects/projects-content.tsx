@@ -319,9 +319,9 @@ export default function ProjectsContent() {
                             rowSpan={goalSpan}
                           >
                             {epic.goal ? (
-                              <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-accent-bg/30 text-accent-lighter">
+                              <a href={jiraHost ? `https://${jiraHost}/browse/${epic.goal.key}` : '#'} target="_blank" rel="noopener noreferrer" className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-accent-bg/30 text-accent-lighter hover:text-white transition-colors">
                                 {epic.goal.summary}
-                              </span>
+                              </a>
                             ) : (
                               <span className="text-gray-600">—</span>
                             )}
@@ -333,9 +333,9 @@ export default function ProjectsContent() {
                             rowSpan={initSpan}
                           >
                             {epic.initiative ? (
-                              <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-gray-800 text-gray-300">
+                              <a href={jiraHost ? `https://${jiraHost}/browse/${epic.initiative.key}` : '#'} target="_blank" rel="noopener noreferrer" className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-gray-800 text-gray-300 hover:text-white transition-colors">
                                 {epic.initiative.summary}
-                              </span>
+                              </a>
                             ) : (
                               <span className="text-gray-600">—</span>
                             )}
