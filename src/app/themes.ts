@@ -54,25 +54,25 @@ export const THEMES: ThemeColors[] = [
   {
     id: 'daylight-blue', name: 'Daylight Blue', mode: 'light',
     accent: '#2563EB', accentLight: '#1D4ED8', accentLighter: '#1E40AF',
-    accentDark: '#3B82F6', accentDarker: '#93C5FD', accentBg: '#EFF6FF',
+    accentDark: '#1D4ED8', accentDarker: '#1E3A8A', accentBg: '#DBEAFE',
     bodyBg: '#FFFFFF',
   },
   {
     id: 'warm-sand', name: 'Warm Sand', mode: 'light',
     accent: '#B45309', accentLight: '#92400E', accentLighter: '#78350F',
-    accentDark: '#D97706', accentDarker: '#FDE68A', accentBg: '#FFFBEB',
+    accentDark: '#92400E', accentDarker: '#78350F', accentBg: '#FEF3C7',
     bodyBg: '#FEFCE8',
   },
   {
     id: 'fresh-mint', name: 'Fresh Mint', mode: 'light',
     accent: '#059669', accentLight: '#047857', accentLighter: '#065F46',
-    accentDark: '#10B981', accentDarker: '#A7F3D0', accentBg: '#ECFDF5',
+    accentDark: '#047857', accentDarker: '#065F46', accentBg: '#D1FAE5',
     bodyBg: '#F0FDF4',
   },
   {
     id: 'clean-slate', name: 'Clean Slate', mode: 'light',
     accent: '#6366F1', accentLight: '#4F46E5', accentLighter: '#4338CA',
-    accentDark: '#818CF8', accentDarker: '#C7D2FE', accentBg: '#EEF2FF',
+    accentDark: '#4F46E5', accentDarker: '#3730A3', accentBg: '#E0E7FF',
     bodyBg: '#F8FAFC',
   },
 ];
