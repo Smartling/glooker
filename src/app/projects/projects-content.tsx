@@ -23,10 +23,20 @@ interface WorkGroup {
   linesRemoved: number;
 }
 
+interface UntrackedCommit {
+  sha: string;
+  repo: string;
+  author: string;
+  message: string;
+  linesAdded: number;
+  linesRemoved: number;
+}
+
 interface UntrackedTeam {
   name: string;
   color: string;
   groups: WorkGroup[];
+  commits: UntrackedCommit[];
   totalCommits: number;
 }
 
@@ -499,6 +509,48 @@ export default function ProjectsContent() {
                                   {expandedEpic === groupId && (
                                     <div className="mt-2 pt-2 border-t border-gray-800/50">
                                       <p className="text-gray-400 text-xs leading-relaxed">{group.summary}</p>
+                                      {team.commits?.length > 0 && (
+                                        <div className="mt-2">
+                                          <button
+                                            onClick={(e) => { e.stopPropagation(); setShowCommits(showCommits === groupId ? null : groupId); }}
+                                            className="text-xs text-gray-600 hover:text-gray-400 transition-colors"
+                                          >
+                                            {showCommits === groupId ? 'Hide' : 'Show'} {team.commits.filter((c: any) => group.repos.includes(c.repo)).length || team.commits.length} commits
+                                          </button>
+                                          {showCommits === groupId && (
+                                            <div className="mt-2 space-y-1.5 max-h-64 overflow-y-auto">
+                                              {team.commits
+                                                .filter((c: any) => group.repos.length === 0 || group.repos.includes(c.repo))
+                                                .map((c: any) => {
+                                                  const jiraMatch = c.message.match(/([A-Z]+-\d+)/);
+                                                  const shortSha = c.sha?.slice(0, 7) || '';
+                                                  return (
+                                                    <div key={c.sha || c.message} className="flex items-start gap-2 text-xs text-gray-500">
+                                                      {shortSha && org ? (
+                                                        <a
+                                                          href={`https://github.com/${org}/${c.repo}/commit/${c.sha}`}
+                                                          target="_blank" rel="noopener noreferrer"
+                                                          className="text-accent-light hover:text-accent-lighter shrink-0 font-mono"
+                                                          onClick={e => e.stopPropagation()}
+                                                        >{shortSha}</a>
+                                                      ) : <span className="font-mono shrink-0">•</span>}
+                                                      <span className="text-gray-600 shrink-0">{c.repo}</span>
+                                                      <span className="text-gray-500 truncate flex-1">
+                                                        {jiraMatch && jiraHost ? (
+                                                          <>
+                                                            <a href={`https://${jiraHost}/browse/${jiraMatch[1]}`} target="_blank" rel="noopener noreferrer" className="text-accent-light hover:text-accent-lighter" onClick={e => e.stopPropagation()}>{jiraMatch[1]}</a>
+                                                            {' '}{c.message.replace(jiraMatch[1], '').trim()}
+                                                          </>
+                                                        ) : c.message}
+                                                      </span>
+                                                      <span className="text-gray-700 shrink-0">+{c.linesAdded}/-{c.linesRemoved}</span>
+                                                    </div>
+                                                  );
+                                                })}
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
                                     </div>
                                   )}
                                 </div>

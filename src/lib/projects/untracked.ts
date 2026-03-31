@@ -3,6 +3,15 @@ import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit } from '@/lib/llm-p
 import { loadPrompt } from '@/lib/prompt-loader';
 import db from '@/lib/db';
 
+export interface UntrackedCommit {
+  sha: string;
+  repo: string;
+  author: string;
+  message: string;
+  linesAdded: number;
+  linesRemoved: number;
+}
+
 export interface WorkGroup {
   name: string;
   summary: string;
@@ -16,6 +25,7 @@ export interface UntrackedTeam {
   name: string;
   color: string;
   groups: WorkGroup[];
+  commits: UntrackedCommit[];
   totalCommits: number;
 }
 
@@ -55,7 +65,9 @@ export async function getUntrackedWork(org: string, forceRefresh: boolean): Prom
     if (!forceRefresh) {
       const cached = await getCachedUntracked(team.name, org);
       if (cached) {
-        results.push({ name: team.name, color: team.color, groups: cached.groups, totalCommits: cached.totalCommits });
+        // Re-fetch commits for cache hit (commits aren't cached, only LLM groups are)
+        const freshCommits = await getTeamUntrackedCommits(team.members, org, excludedPrefixes, excludedRepos);
+        results.push({ name: team.name, color: team.color, groups: cached.groups, commits: freshCommits, totalCommits: cached.totalCommits });
         continue;
       }
     }
@@ -65,7 +77,7 @@ export async function getUntrackedWork(org: string, forceRefresh: boolean): Prom
 
     const groups = await clusterCommits(team.name, commits);
     await storeUntracked(team.name, org, groups, commits.length);
-    results.push({ name: team.name, color: team.color, groups, totalCommits: commits.length });
+    results.push({ name: team.name, color: team.color, groups, commits: commits.map(c => ({ sha: c.sha, repo: c.repo, author: c.author, message: c.message, linesAdded: c.linesAdded, linesRemoved: c.linesRemoved })), totalCommits: commits.length });
   }
 
   return { teams: results.filter(t => t.groups.length > 0), cached: false };
@@ -116,6 +128,7 @@ async function getTrackedIssuePrefixes(): Promise<string[]> {
 }
 
 interface RawCommit {
+  sha: string;
   repo: string;
   author: string;
   message: string;
@@ -212,13 +225,22 @@ async function getTeamUntrackedCommits(members: string[], org: string, excludedP
     [org, ...members, ...prefixValues, ...repoValues],
   ) as [any[], any];
 
-  return rows.map((r: any) => ({
-    repo: r.repo,
-    author: r.github_login,
-    message: r.msg,
-    linesAdded: Number(r.lines_added),
-    linesRemoved: Number(r.lines_removed),
-  }));
+  // Deduplicate by commit_sha
+  const seen = new Set<string>();
+  const result: RawCommit[] = [];
+  for (const r of rows) {
+    if (seen.has(r.commit_sha)) continue;
+    seen.add(r.commit_sha);
+    result.push({
+      sha: r.commit_sha,
+      repo: r.repo,
+      author: r.github_login,
+      message: r.msg,
+      linesAdded: Number(r.lines_added),
+      linesRemoved: Number(r.lines_removed),
+    });
+  }
+  return result;
 }
 
 async function clusterCommits(teamName: string, commits: RawCommit[]): Promise<WorkGroup[]> {
