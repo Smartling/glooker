@@ -28,6 +28,7 @@ export default function ProjectsContent() {
   // Hover state for grouped rows
   const [hoveredGoal, setHoveredGoal] = useState<string | null>(null);
   const [hoveredInit, setHoveredInit] = useState<string | null>(null);
+  const [hoveredRow, setHoveredRow] = useState<string | null>(null);
 
   // Epic summary expand
   const [expandedEpic, setExpandedEpic] = useState<string | null>(null);
@@ -263,9 +264,9 @@ export default function ProjectsContent() {
                     return (
                       <tr
                         key={epic.key}
-                        className={`border-b border-gray-800/50 transition-colors ${isGoalHovered ? 'bg-gray-900/20' : ''}`}
-                        onMouseEnter={() => { setHoveredGoal(goalGroupId); setHoveredInit(initGroupId); }}
-                        onMouseLeave={() => { setHoveredGoal(null); setHoveredInit(null); }}
+                        className={`border-b border-gray-800/50 transition-colors ${hoveredRow === epic.key ? 'bg-gray-900/40' : isGoalHovered ? 'bg-gray-900/15' : ''}`}
+                        onMouseEnter={() => { setHoveredGoal(goalGroupId); setHoveredInit(initGroupId); setHoveredRow(epic.key); }}
+                        onMouseLeave={() => { setHoveredGoal(null); setHoveredInit(null); setHoveredRow(null); }}
                       >
                         {showGoal && (
                           <td
