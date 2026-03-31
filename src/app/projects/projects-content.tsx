@@ -53,7 +53,8 @@ export default function ProjectsContent() {
 
   // Epic summary expand
   const [expandedEpic, setExpandedEpic] = useState<string | null>(null);
-  const [summaryData, setSummaryData] = useState<Record<string, { summary: string; stats: any; generatedAt: string; cached: boolean } | null>>({});
+  const [showCommits, setShowCommits] = useState<string | null>(null);
+  const [summaryData, setSummaryData] = useState<Record<string, { summary: string; stats: any; commits: any[]; generatedAt: string; cached: boolean } | null>>({});
   const [summaryLoading, setSummaryLoading] = useState<Record<string, boolean>>({});
 
   const fetchSummary = (epicKey: string, epicSummaryText: string, refresh = false) => {
@@ -355,18 +356,60 @@ export default function ProjectsContent() {
                                   {summaryLoading[epic.key] ? (
                                     <div className="text-gray-500 text-xs animate-pulse">Generating summary...</div>
                                   ) : summaryData[epic.key] ? (
-                                    <div className="flex items-start gap-2">
-                                      <p className="text-gray-400 text-xs leading-relaxed flex-1">{summaryData[epic.key]!.summary}</p>
-                                      <button
-                                        onClick={(e) => { e.stopPropagation(); fetchSummary(epic.key, epic.summary, true); }}
-                                        className="text-gray-600 hover:text-gray-400 shrink-0 mt-0.5"
-                                        title="Refresh summary"
-                                      >
-                                        <svg className={`w-3 h-3 ${summaryLoading[epic.key] ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                        </svg>
-                                      </button>
-                                    </div>
+                                    <>
+                                      <div className="flex items-start gap-2">
+                                        <p className="text-gray-400 text-xs leading-relaxed flex-1">{summaryData[epic.key]!.summary}</p>
+                                        <button
+                                          onClick={(e) => { e.stopPropagation(); fetchSummary(epic.key, epic.summary, true); }}
+                                          className="text-gray-600 hover:text-gray-400 shrink-0 mt-0.5"
+                                          title="Refresh summary"
+                                        >
+                                          <svg className={`w-3 h-3 ${summaryLoading[epic.key] ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                          </svg>
+                                        </button>
+                                      </div>
+                                      {summaryData[epic.key]!.commits?.length > 0 && (
+                                        <div className="mt-2">
+                                          <button
+                                            onClick={(e) => { e.stopPropagation(); setShowCommits(showCommits === epic.key ? null : epic.key); }}
+                                            className="text-xs text-gray-600 hover:text-gray-400 transition-colors"
+                                          >
+                                            {showCommits === epic.key ? 'Hide' : 'Show'} {summaryData[epic.key]!.commits.length} commits
+                                          </button>
+                                          {showCommits === epic.key && (
+                                            <div className="mt-2 space-y-1.5 max-h-64 overflow-y-auto">
+                                              {summaryData[epic.key]!.commits.map((c: any) => {
+                                                const jiraMatch = c.message.match(/([A-Z]+-\d+)/);
+                                                const shortSha = c.sha.slice(0, 7);
+                                                return (
+                                                  <div key={c.sha} className="flex items-start gap-2 text-xs text-gray-500">
+                                                    <a
+                                                      href={c.prNumber ? `https://github.com/${org}/${c.repo}/pull/${c.prNumber}` : `https://github.com/${org}/${c.repo}/commit/${c.sha}`}
+                                                      target="_blank" rel="noopener noreferrer"
+                                                      className="text-accent-light hover:text-accent-lighter shrink-0 font-mono"
+                                                      onClick={e => e.stopPropagation()}
+                                                    >
+                                                      {c.prNumber ? `PR #${c.prNumber}` : shortSha}
+                                                    </a>
+                                                    <span className="text-gray-600 shrink-0">{c.repo}</span>
+                                                    <span className="text-gray-500 truncate flex-1">
+                                                      {jiraMatch && jiraHost ? (
+                                                        <>
+                                                          <a href={`https://${jiraHost}/browse/${jiraMatch[1]}`} target="_blank" rel="noopener noreferrer" className="text-accent-light hover:text-accent-lighter" onClick={e => e.stopPropagation()}>{jiraMatch[1]}</a>
+                                                          {' '}{c.message.replace(jiraMatch[1], '').trim()}
+                                                        </>
+                                                      ) : c.message}
+                                                    </span>
+                                                    <span className="text-gray-700 shrink-0">+{c.linesAdded}/-{c.linesRemoved}</span>
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                    </>
                                   ) : (
                                     <div className="text-gray-600 text-xs">Failed to load summary.</div>
                                   )}
