@@ -25,6 +25,10 @@ export default function ProjectsContent() {
   const [filterGoal, setFilterGoal] = useState<string>('');
   const [filterInitiative, setFilterInitiative] = useState<string>('');
 
+  // Hover state for grouped rows
+  const [hoveredGoal, setHoveredGoal] = useState<string | null>(null);
+  const [hoveredInit, setHoveredInit] = useState<string | null>(null);
+
   // Epic summary expand
   const [expandedEpic, setExpandedEpic] = useState<string | null>(null);
   const [summaryData, setSummaryData] = useState<Record<string, { summary: string; stats: any; generatedAt: string; cached: boolean } | null>>({});
@@ -124,7 +128,7 @@ export default function ProjectsContent() {
 
   // Precompute rowSpans for merged goal and initiative cells
   const spans = useMemo(() => {
-    const result: Array<{ goalSpan: number; initSpan: number; showGoal: boolean; showInit: boolean }> = [];
+    const result: Array<{ goalSpan: number; initSpan: number; showGoal: boolean; showInit: boolean; goalGroupId: string; initGroupId: string }> = [];
     for (let i = 0; i < filteredEpics.length; i++) {
       const goalKey = filteredEpics[i].goal?.summary || '—';
       const initKey = (filteredEpics[i].goal?.summary || '—') + '|' + (filteredEpics[i].initiative?.summary || '—');
@@ -150,7 +154,7 @@ export default function ProjectsContent() {
       const prevInitKey = i > 0 ? (filteredEpics[i - 1].goal?.summary || '—') + '|' + (filteredEpics[i - 1].initiative?.summary || '—') : '';
       const showInit = i === 0 || prevInitKey !== initKey;
 
-      result.push({ goalSpan, initSpan, showGoal, showInit });
+      result.push({ goalSpan, initSpan, showGoal, showInit, goalGroupId: `g-${goalKey}`, initGroupId: `i-${initKey}` });
     }
     return result;
   }, [filteredEpics]);
@@ -231,7 +235,15 @@ export default function ProjectsContent() {
             <div className="text-gray-500 py-8">No epics match the selected filters.</div>
           ) : (
             <div className="overflow-x-auto rounded-lg border border-gray-800">
-              <table className="w-full text-sm">
+              <table className="w-full text-sm table-fixed">
+                <colgroup>
+                  <col style={{ width: '15%' }} />
+                  <col style={{ width: '15%' }} />
+                  <col style={{ width: '35%' }} />
+                  <col style={{ width: '10%' }} />
+                  <col style={{ width: '13%' }} />
+                  <col style={{ width: '12%' }} />
+                </colgroup>
                 <thead>
                   <tr className="bg-gray-900/50 text-gray-400 text-left text-xs uppercase tracking-wider">
                     <th className="px-4 py-3 font-medium">Business Goal</th>
@@ -244,15 +256,24 @@ export default function ProjectsContent() {
                 </thead>
                 <tbody>
                   {filteredEpics.map((epic, i) => {
-                    const { goalSpan, initSpan, showGoal, showInit } = spans[i];
+                    const { goalSpan, initSpan, showGoal, showInit, goalGroupId, initGroupId } = spans[i];
+                    const isGoalHovered = hoveredGoal === goalGroupId;
+                    const isInitHovered = hoveredInit === initGroupId;
 
                     return (
                       <tr
                         key={epic.key}
-                        className={`border-b border-gray-800/50 hover:bg-gray-900/30 transition-colors`}
+                        className={`border-b border-gray-800/50 transition-colors ${isGoalHovered ? 'bg-gray-900/20' : ''}`}
+                        onMouseEnter={() => { setHoveredGoal(goalGroupId); setHoveredInit(initGroupId); }}
+                        onMouseLeave={() => { setHoveredGoal(null); setHoveredInit(null); }}
                       >
                         {showGoal && (
-                          <td className="px-4 py-3 align-top border-r border-gray-800/30" rowSpan={goalSpan}>
+                          <td
+                            className={`px-4 py-3 align-top border-r border-gray-800/30 transition-colors ${isGoalHovered ? 'bg-gray-900/20' : ''}`}
+                            rowSpan={goalSpan}
+                            onMouseEnter={() => setHoveredGoal(goalGroupId)}
+                            onMouseLeave={() => setHoveredGoal(null)}
+                          >
                             {epic.goal ? (
                               <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-accent-bg/30 text-accent-lighter">
                                 {epic.goal.summary}
@@ -263,7 +284,12 @@ export default function ProjectsContent() {
                           </td>
                         )}
                         {showInit && (
-                          <td className="px-4 py-3 align-top border-r border-gray-800/30" rowSpan={initSpan}>
+                          <td
+                            className={`px-4 py-3 align-top border-r border-gray-800/30 transition-colors ${isInitHovered ? 'bg-gray-900/30' : isGoalHovered ? 'bg-gray-900/20' : ''}`}
+                            rowSpan={initSpan}
+                            onMouseEnter={() => { setHoveredGoal(goalGroupId); setHoveredInit(initGroupId); }}
+                            onMouseLeave={() => { setHoveredGoal(null); setHoveredInit(null); }}
+                          >
                             {epic.initiative ? (
                               <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-gray-800 text-gray-300">
                                 {epic.initiative.summary}
