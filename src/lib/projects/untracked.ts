@@ -30,7 +30,7 @@ export async function getUntrackedWork(org: string, forceRefresh: boolean): Prom
   // 1. Get all child issue key prefixes from tracked epics (one batch Jira call)
   //    Also get repos from cached epic summaries for better exclusion
   const excludedPrefixes = await getTrackedIssuePrefixes();
-  const excludedRepos = await getTrackedEpicRepos(org);
+  const excludedRepos = await getTrackedEpicRepos(org, excludedPrefixes);
 
   // 2. Get all teams with members
   const [teamRows] = await db.execute(
@@ -124,18 +124,21 @@ interface RawCommit {
 }
 
 /**
- * Get repos from cached epic summaries. These are repos where tracked-epic
- * work was detected, so commits there are likely project-related.
- * Only use repos that appear in ≤3 epics (widely shared repos like "tms" are excluded).
+ * Get repos associated with tracked epics. Uses two sources:
+ * 1. Cached epic_summaries table (if populated from user expanding epics)
+ * 2. Commits that reference tracked issue prefixes (always available)
+ * Only excludes repos that appear in ≤3 epics (widely shared repos like "tms" are kept).
  */
-async function getTrackedEpicRepos(org: string): Promise<string[]> {
-  const [rows] = await db.execute(
+async function getTrackedEpicRepos(org: string, prefixes: string[]): Promise<string[]> {
+  const repoCounts = new Map<string, number>();
+
+  // Source 1: cached epic summaries
+  const [cacheRows] = await db.execute(
     `SELECT repos FROM epic_summaries WHERE org = ?`,
     [org],
   ) as [any[], any];
 
-  const repoCounts = new Map<string, number>();
-  for (const row of rows) {
+  for (const row of cacheRows) {
     const repos: string[] = row.repos
       ? (typeof row.repos === 'string' ? JSON.parse(row.repos) : row.repos)
       : [];
@@ -144,7 +147,31 @@ async function getTrackedEpicRepos(org: string): Promise<string[]> {
     }
   }
 
-  // Only exclude repos unique to ≤3 epics (avoid widely shared repos like tms, gdn-frontend-monorepo)
+  // Source 2: repos from commits that reference tracked issue prefixes
+  // This catches repos even when epic summaries haven't been generated yet
+  if (prefixes.length > 0) {
+    const likeClauses = prefixes.map(() => 'ca.commit_message LIKE ?').join(' OR ');
+    const likeValues = prefixes.map(p => `%${p}-%`);
+
+    const [repoRows] = await db.execute(
+      `SELECT ca.repo, COUNT(DISTINCT ca.commit_sha) as cnt
+       FROM commit_analyses ca
+       JOIN reports r ON r.id = ca.report_id
+       WHERE r.org = ? AND r.status = 'completed'
+       AND ca.committed_at >= DATE_SUB(NOW(), INTERVAL 14 DAY)
+       AND (${likeClauses})
+       GROUP BY ca.repo
+       HAVING cnt >= 3`,
+      [org, ...likeValues],
+    ) as [any[], any];
+
+    for (const row of repoRows) {
+      // Count as 1 "epic" since we don't know which epic it belongs to
+      repoCounts.set(row.repo, (repoCounts.get(row.repo) || 0) + 1);
+    }
+  }
+
+  // Only exclude repos that appear in ≤3 epics (avoid widely shared repos)
   const exclusiveRepos = Array.from(repoCounts.entries())
     .filter(([, count]) => count <= 3)
     .map(([repo]) => repo);
