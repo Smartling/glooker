@@ -173,6 +173,15 @@ CREATE TABLE IF NOT EXISTS untracked_summaries (
   UNIQUE (team_name, org)
 );
 
+CREATE TABLE IF NOT EXISTS release_notes (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  latest_commit_sha TEXT    NOT NULL,
+  summary         TEXT    NOT NULL,
+  commit_count    INTEGER NOT NULL DEFAULT 0,
+  generated_at    TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+  UNIQUE (latest_commit_sha)
+);
+
 CREATE INDEX IF NOT EXISTS idx_devstats_login ON developer_stats(github_login);
 CREATE INDEX IF NOT EXISTS idx_reports_org_status_created ON reports(org, status, created_at);
 `;
