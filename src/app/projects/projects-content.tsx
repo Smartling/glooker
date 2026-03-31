@@ -283,7 +283,7 @@ export default function ProjectsContent() {
                         )}
                         {showInit && (
                           <td
-                            className={`px-4 py-3 align-top border-r border-gray-800/30 transition-colors ${isInitHovered ? 'bg-gray-900/30' : ''}`}
+                            className={`px-4 py-3 align-top border-r border-gray-800/30 transition-colors ${isGoalHovered ? 'bg-gray-900/30' : ''}`}
                             rowSpan={initSpan}
                           >
                             {epic.initiative ? (
