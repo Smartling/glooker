@@ -140,5 +140,20 @@ CREATE TABLE IF NOT EXISTS release_notes (
   UNIQUE KEY uq_commit_sha (latest_commit_sha)
 );
 
+CREATE TABLE IF NOT EXISTS epic_summaries (
+  id              INT AUTO_INCREMENT PRIMARY KEY,
+  epic_key        VARCHAR(20)  NOT NULL,
+  org             VARCHAR(255) NOT NULL,
+  summary_text    TEXT         NOT NULL,
+  jira_resolved   INT          NOT NULL DEFAULT 0,
+  jira_remaining  INT          NOT NULL DEFAULT 0,
+  commit_count    INT          NOT NULL DEFAULT 0,
+  lines_added     INT          NOT NULL DEFAULT 0,
+  lines_removed   INT          NOT NULL DEFAULT 0,
+  repos           TEXT         NULL,
+  generated_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_epic_org (epic_key, org)
+);
+
 CREATE INDEX idx_devstats_login ON developer_stats(github_login);
 CREATE INDEX idx_reports_org_status_created ON reports(org, status, created_at);

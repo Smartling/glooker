@@ -1,0 +1,19 @@
+Summarize this epic's progress in ONE short sentence. Use this exact pattern:
+
+[What was done in 3-5 words] — [N] Jira tasks resolved, [N] commits across [repos] (~[net]K net lines), [N] tasks remaining ([brief list]).
+
+Rules:
+- Maximum 40 words total
+- Start with a short clause about WHAT was accomplished, not "Over the past 14 days"
+- Use approximate numbers for lines (e.g., ~7.3K not 7,248)
+- Remaining tasks: list 2-3 keywords only, not full titles
+- No filler words, no "significant progress", no "notable advancement"
+- Plain text only, no markdown
+
+Example output: "MDX v3 parser integration largely complete — 14 Jira tasks resolved, 19 commits across mdx-service and tms (~7.3K net lines), 5 tasks remaining (frontend UI, docs, manual testing)."
+
+Epic: {{EPIC_KEY}} — {{EPIC_SUMMARY}}
+Resolved tasks (14d): {{RESOLVED_TASKS}}
+Remaining tasks: {{REMAINING_COUNT}} ({{REMAINING_TITLES}})
+Commits (14d): {{COMMIT_COUNT}} across {{REPOS}}
+Lines: +{{LINES_ADDED}} / -{{LINES_REMOVED}} (net {{LINES_NET}})

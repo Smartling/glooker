@@ -25,6 +25,37 @@ export default function ProjectsContent() {
   const [filterGoal, setFilterGoal] = useState<string>('');
   const [filterInitiative, setFilterInitiative] = useState<string>('');
 
+  // Epic summary expand
+  const [expandedEpic, setExpandedEpic] = useState<string | null>(null);
+  const [summaryData, setSummaryData] = useState<Record<string, { summary: string; stats: any; generatedAt: string; cached: boolean } | null>>({});
+  const [summaryLoading, setSummaryLoading] = useState<Record<string, boolean>>({});
+
+  const fetchSummary = (epicKey: string, epicSummaryText: string, refresh = false) => {
+    if (!org) return;
+    setSummaryLoading(prev => ({ ...prev, [epicKey]: true }));
+    const params = new URLSearchParams({ org, summary: epicSummaryText });
+    if (refresh) params.set('refresh', 'true');
+    fetch(`/api/projects/${encodeURIComponent(epicKey)}/summary?${params}`)
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then(data => setSummaryData(prev => ({ ...prev, [epicKey]: data })))
+      .catch(() => setSummaryData(prev => ({ ...prev, [epicKey]: null })))
+      .finally(() => setSummaryLoading(prev => ({ ...prev, [epicKey]: false })));
+  };
+
+  const toggleExpand = (epicKey: string, epicSummaryText: string) => {
+    if (expandedEpic === epicKey) {
+      setExpandedEpic(null);
+    } else {
+      setExpandedEpic(epicKey);
+      if (!summaryData[epicKey] && !summaryLoading[epicKey]) {
+        fetchSummary(epicKey, epicSummaryText);
+      }
+    }
+  };
+
   useEffect(() => {
     fetch('/api/orgs')
       .then(r => r.json())
@@ -243,12 +274,49 @@ export default function ProjectsContent() {
                           </td>
                         )}
                         <td className="px-4 py-3 text-white font-medium">
-                          {jiraHost ? (
-                            <a href={`https://${jiraHost}/browse/${epic.key}`} target="_blank" rel="noopener noreferrer" className="text-accent-light hover:text-accent-lighter underline">{epic.key}</a>
-                          ) : (
-                            <span>{epic.key}</span>
-                          )}
-                          {' '}{epic.summary}
+                          <div className="flex items-start gap-1.5">
+                            <button
+                              onClick={() => toggleExpand(epic.key, epic.summary)}
+                              className="mt-0.5 text-gray-500 hover:text-gray-300 transition-transform shrink-0"
+                              style={{ transform: expandedEpic === epic.key ? 'rotate(90deg)' : 'rotate(0deg)' }}
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                              </svg>
+                            </button>
+                            <div className="flex-1 min-w-0">
+                              <div>
+                                {jiraHost ? (
+                                  <a href={`https://${jiraHost}/browse/${epic.key}`} target="_blank" rel="noopener noreferrer" className="text-accent-light hover:text-accent-lighter underline" onClick={e => e.stopPropagation()}>{epic.key}</a>
+                                ) : (
+                                  <span>{epic.key}</span>
+                                )}
+                                {' '}{epic.summary}
+                              </div>
+                              {expandedEpic === epic.key && (
+                                <div className="mt-2 pt-2 border-t border-gray-800/50">
+                                  {summaryLoading[epic.key] ? (
+                                    <div className="text-gray-500 text-xs animate-pulse">Generating summary...</div>
+                                  ) : summaryData[epic.key] ? (
+                                    <div className="flex items-start gap-2">
+                                      <p className="text-gray-400 text-xs leading-relaxed flex-1">{summaryData[epic.key]!.summary}</p>
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); fetchSummary(epic.key, epic.summary, true); }}
+                                        className="text-gray-600 hover:text-gray-400 shrink-0 mt-0.5"
+                                        title="Refresh summary"
+                                      >
+                                        <svg className={`w-3 h-3 ${summaryLoading[epic.key] ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                        </svg>
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div className="text-gray-600 text-xs">Failed to load summary.</div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </div>
                         </td>
                         <td className={`px-4 py-3 ${isOverdue(epic.dueDate) ? 'text-red-400' : 'text-gray-400'}`}>
                           {formatDate(epic.dueDate)}

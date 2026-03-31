@@ -228,6 +228,52 @@ export class JiraClient {
 
     return allIssues;
   }
+
+  async searchChildIssues(
+    epicKey: string,
+  ): Promise<Array<{
+    key: string;
+    summary: string;
+    status: string;
+    statusCategory: string;
+    resolvedAt: string | null;
+    assigneeEmail: string | null;
+  }>> {
+    const jql = `"Epic Link" = ${epicKey} OR parent = ${epicKey} ORDER BY resolutiondate DESC`;
+    const fields = ['summary', 'status', 'resolutiondate', 'assignee'];
+    const allIssues: Array<{
+      key: string;
+      summary: string;
+      status: string;
+      statusCategory: string;
+      resolvedAt: string | null;
+      assigneeEmail: string | null;
+    }> = [];
+    const maxResults = 50;
+    let nextPageToken: string | undefined;
+
+    while (true) {
+      const result = await this.searchJql(jql, fields, maxResults, nextPageToken);
+
+      for (const issue of result.issues) {
+        const f = issue.fields;
+        allIssues.push({
+          key: issue.key,
+          summary: f.summary || '',
+          status: f.status?.name || '',
+          statusCategory: f.status?.statusCategory?.name || '',
+          resolvedAt: f.resolutiondate || null,
+          assigneeEmail: f.assignee?.emailAddress || null,
+        });
+      }
+
+      if (!result.nextPageToken || result.issues.length < maxResults) break;
+      nextPageToken = result.nextPageToken;
+      await new Promise(r => setTimeout(r, 1000));
+    }
+
+    return allIssues;
+  }
 }
 
 let cachedClient: JiraClient | null = null;
