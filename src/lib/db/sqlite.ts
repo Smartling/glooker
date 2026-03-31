@@ -148,6 +148,21 @@ CREATE TABLE IF NOT EXISTS team_members (
   UNIQUE (team_id, github_login)
 );
 
+CREATE TABLE IF NOT EXISTS epic_summaries (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  epic_key        TEXT    NOT NULL,
+  org             TEXT    NOT NULL,
+  summary_text    TEXT    NOT NULL,
+  jira_resolved   INTEGER NOT NULL DEFAULT 0,
+  jira_remaining  INTEGER NOT NULL DEFAULT 0,
+  commit_count    INTEGER NOT NULL DEFAULT 0,
+  lines_added     INTEGER NOT NULL DEFAULT 0,
+  lines_removed   INTEGER NOT NULL DEFAULT 0,
+  repos           TEXT,
+  generated_at    TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+  UNIQUE (epic_key, org)
+);
+
 CREATE INDEX IF NOT EXISTS idx_devstats_login ON developer_stats(github_login);
 CREATE INDEX IF NOT EXISTS idx_reports_org_status_created ON reports(org, status, created_at);
 `;
