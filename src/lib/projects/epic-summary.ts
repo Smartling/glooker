@@ -4,6 +4,18 @@ import { loadPrompt } from '@/lib/prompt-loader';
 import { getAppConfig } from '@/lib/app-config/service';
 import db from '@/lib/db';
 
+export interface CommitDetail {
+  sha: string;
+  repo: string;
+  author: string;
+  message: string;
+  linesAdded: number;
+  linesRemoved: number;
+  prNumber: number | null;
+  prTitle: string | null;
+  committedAt: string;
+}
+
 export interface EpicSummaryResult {
   epicKey: string;
   summary: string;
@@ -15,6 +27,7 @@ export interface EpicSummaryResult {
     linesRemoved: number;
     repos: string[];
   };
+  commits: CommitDetail[];
   generatedAt: string;
   cached: boolean;
 }
@@ -27,15 +40,18 @@ export async function getEpicSummary(
   org: string,
   forceRefresh: boolean,
 ): Promise<EpicSummaryResult> {
-  // 1. Check cache (unless force refresh)
-  if (!forceRefresh) {
-    const cached = await getCachedSummary(epicKey, org);
-    if (cached) return cached;
-  }
-
-  // 2. Gather data
+  // 1. Gather Jira + commit data (always needed for commit details)
   const { resolved, remaining, allKeys, assigneeEmails } = await getJiraChildData(epicKey);
   const commitStats = await getCommitStats(epicKey, allKeys, assigneeEmails, org);
+
+  // 2. Check cache for the LLM summary (unless force refresh)
+  if (!forceRefresh) {
+    const cached = await getCachedSummary(epicKey, org);
+    if (cached) {
+      cached.commits = commitStats.commits;
+      return cached;
+    }
+  }
 
   // 3. Generate summary via LLM
   const summaryText = await generateSummary(epicKey, epicSummaryText, resolved, remaining, commitStats);
@@ -56,6 +72,7 @@ export async function getEpicSummary(
     epicKey,
     summary: summaryText,
     stats,
+    commits: commitStats.commits,
     generatedAt: new Date().toISOString(),
     cached: false,
   };
@@ -87,6 +104,7 @@ async function getCachedSummary(epicKey: string, org: string): Promise<EpicSumma
       linesRemoved: Number(row.lines_removed),
       repos: row.repos ? (typeof row.repos === 'string' ? JSON.parse(row.repos) : row.repos) : [],
     },
+    commits: [], // populated by caller from live DB query
     generatedAt: generatedAt.toISOString(),
     cached: true,
   };
@@ -119,6 +137,7 @@ interface CommitStats {
   linesAdded: number;
   linesRemoved: number;
   repos: string[];
+  commits: CommitDetail[];
 }
 
 async function getCommitStats(epicKey: string, childKeys: string[], assigneeEmails: string[], org: string): Promise<CommitStats> {
@@ -158,7 +177,7 @@ async function getCommitStats(epicKey: string, childKeys: string[], assigneeEmai
   // Phase 2: Get ALL commits by those developers in those repos in the 14-day window.
   // This catches commits that don't reference any Jira key.
   if (seedRepos.size === 0 && seedLogins.size === 0) {
-    return { commitCount: 0, linesAdded: 0, linesRemoved: 0, repos: [] };
+    return { commitCount: 0, linesAdded: 0, linesRemoved: 0, repos: [], commits: [] };
   }
 
   const conditions: string[] = [];
@@ -183,30 +202,47 @@ async function getCommitStats(epicKey: string, childKeys: string[], assigneeEmai
   }
 
   const [rows] = await db.execute(
-    `SELECT DISTINCT ca.commit_sha, ca.repo, ca.lines_added, ca.lines_removed
+    `SELECT ca.commit_sha, ca.repo, ca.github_login, ca.commit_message,
+            ca.lines_added, ca.lines_removed, ca.pr_number, ca.pr_title, ca.committed_at
      FROM commit_analyses ca
      JOIN reports r ON r.id = ca.report_id
      WHERE r.org = ? AND r.status = 'completed'
      AND ca.committed_at >= DATE_SUB(NOW(), INTERVAL 14 DAY)
-     AND (${conditions.join(' OR ')})`,
+     AND (${conditions.join(' OR ')})
+     GROUP BY ca.commit_sha, ca.repo, ca.github_login, ca.commit_message,
+              ca.lines_added, ca.lines_removed, ca.pr_number, ca.pr_title, ca.committed_at
+     ORDER BY ca.committed_at DESC`,
     params,
   ) as [any[], any];
 
   const repos = new Set<string>();
   let linesAdded = 0;
   let linesRemoved = 0;
+  const commits: CommitDetail[] = [];
 
   for (const row of rows) {
     repos.add(row.repo);
     linesAdded += Number(row.lines_added);
     linesRemoved += Number(row.lines_removed);
+    commits.push({
+      sha: row.commit_sha,
+      repo: row.repo,
+      author: row.github_login,
+      message: row.commit_message || '',
+      linesAdded: Number(row.lines_added),
+      linesRemoved: Number(row.lines_removed),
+      prNumber: row.pr_number || null,
+      prTitle: row.pr_title || null,
+      committedAt: row.committed_at ? new Date(row.committed_at).toISOString() : '',
+    });
   }
 
   return {
-    commitCount: rows.length,
+    commitCount: commits.length,
     linesAdded,
     linesRemoved,
     repos: Array.from(repos).sort(),
+    commits,
   };
 }
 
