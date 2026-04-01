@@ -251,6 +251,9 @@ function translateSQL(sql: string): string {
   // NOW() → datetime('now','localtime')
   s = s.replace(/NOW\(\)/gi, "datetime('now','localtime')");
 
+  // LEFT(col, N) → SUBSTR(col, 1, N)
+  s = s.replace(/LEFT\s*\(([^,]+),\s*(\d+)\)/gi, 'SUBSTR($1, 1, $2)');
+
   // DATE_SUB(NOW(), INTERVAL N DAY) → datetime('now', '-N days')
   s = s.replace(/DATE_SUB\s*\(\s*datetime\('now','localtime'\)\s*,\s*INTERVAL\s+(\d+)\s+DAY\s*\)/gi,
     (_match, days) => `datetime('now', '-${days} days')`);
