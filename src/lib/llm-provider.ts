@@ -114,7 +114,13 @@ export async function getLLMClient(): Promise<OpenAI> {
       return cachedClient;
     }
 
+    case 'mock': {
+      const { createMockLLMClient } = await import('./llm-mock');
+      cachedClient = createMockLLMClient() as unknown as OpenAI;
+      return cachedClient;
+    }
+
     default:
-      throw new Error(`Unknown LLM_PROVIDER: ${provider}. Use: openai, anthropic, smartling, openai-compatible, or bedrock`);
+      throw new Error(`Unknown LLM_PROVIDER: ${provider}. Use: openai, anthropic, smartling, openai-compatible, bedrock, or mock`);
   }
 }
