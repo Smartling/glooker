@@ -1,5 +1,5 @@
 import db from '@/lib/db';
-import { JiraClient, getJiraClient } from './client';
+import { getJiraClient } from './client';
 
 // ── Jira Issues for a report ──
 
@@ -32,16 +32,10 @@ export async function getJiraIssues(reportId: string, login?: string) {
 // ── Test Jira connection ──
 
 export async function testJiraConnection() {
-  const host = process.env.JIRA_HOST;
-  const username = process.env.JIRA_USERNAME;
-  const apiToken = process.env.JIRA_API_TOKEN;
-  const apiVersion = process.env.JIRA_API_VERSION || '3';
-
-  if (!host || !username || !apiToken) {
+  const client = getJiraClient();
+  if (!client) {
     throw new JiraNotConfiguredError();
   }
-
-  const client = new JiraClient(host, username, apiToken, apiVersion);
   const user = await client.testConnection();
   return { displayName: user.displayName, emailAddress: user.emailAddress };
 }

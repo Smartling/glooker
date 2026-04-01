@@ -47,7 +47,9 @@ export function buildDoneIssuesJql(
   return parts.join(' AND ') + ' ORDER BY resolved DESC';
 }
 
-export class JiraClient {
+import type { JiraClientInterface } from './types';
+
+export class JiraClient implements JiraClientInterface {
   private host: string;
   private protocol: string;
   private apiVersion: string;
@@ -276,10 +278,20 @@ export class JiraClient {
   }
 }
 
-let cachedClient: JiraClient | null = null;
+let cachedClient: JiraClientInterface | null = null;
 
-export function getJiraClient(): JiraClient | null {
+export function getJiraClient(): JiraClientInterface | null {
   if (process.env.JIRA_ENABLED !== 'true') return null;
+
+  // Mock provider — skip credential checks
+  if (process.env.JIRA_PROVIDER === 'mock') {
+    if (!cachedClient) {
+      const { MockJiraClient } = require('./mock-client');
+      cachedClient = new MockJiraClient();
+    }
+    return cachedClient;
+  }
+
   if (!process.env.JIRA_HOST || !process.env.JIRA_USERNAME || !process.env.JIRA_API_TOKEN) return null;
 
   if (!cachedClient) {
