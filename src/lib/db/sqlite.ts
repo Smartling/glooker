@@ -275,6 +275,8 @@ function translateSQL(sql: string): string {
       team_members: 'team_id, github_login',
       jira_issues: 'report_id, issue_key',
       user_mappings: 'org, github_login',
+      epic_summaries: 'epic_key, org',
+      untracked_summaries: 'team_name, org',
       release_notes: 'latest_commit_sha',
     };
     const conflict = conflictCols[table] || 'id';
