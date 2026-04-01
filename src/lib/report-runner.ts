@@ -1,6 +1,6 @@
 import pLimit from 'p-limit';
 import db from './db/index';
-import { listOrgMembers, fetchUserActivity, type CommitData } from './github';
+import { getGitHubProvider, type CommitData } from './github';
 import { analyzeCommit, type CommitAnalysis } from './analyzer';
 import { aggregate } from './aggregator';
 import { updateProgress, addLog } from './progress-store';
@@ -70,7 +70,8 @@ export async function runReport(
     }
 
     // 1. List org members
-    const members = await listOrgMembers(org, log);
+    const github = getGitHubProvider();
+    const members = await github.listOrgMembers(org, log);
     updateProgress(reportId, {
       totalRepos: members.length,
       step: `Fetching activity for ${members.length} members...`,
@@ -161,7 +162,7 @@ export async function runReport(
       });
 
       try {
-        const activity = await fetchUserActivity(org, member.login, since, log);
+        const activity = await github.fetchUserActivity(org, member.login, since, log);
 
         if (activity.commits.length > 0 || activity.prs.length > 0) {
           log(`@${member.login}: ${activity.commits.length} commits, ${activity.prs.length} merged PRs`);
