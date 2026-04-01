@@ -50,15 +50,20 @@ Triggered on-demand when user clicks the expand chevron on an epic row.
 
 **Source:** `src/app/api/projects/untracked/route.ts` → `src/lib/projects/untracked.ts`
 
-Loaded on-demand via "Show work outside projects" button (admin only).
+Loaded on-demand via "Show work outside projects" button.
 
-1. **Exclude tracked work — Jira prefixes:** Batch-fetches all child issues for all tracked epics via `parent in (SPS-574, SPS-125, ...)`. Extracts unique Jira project key prefixes (e.g., PARSER, DT, DELTA, DEVORTEX, TQCT). These prefixes are used as `NOT LIKE '%PREFIX-%'` exclusions in the commit query.
-2. **Exclude tracked work — repos:** Reads `epic_summaries` cache for repo lists. Repos appearing in ≤3 epics are considered "exclusive" and excluded. Widely shared repos (tms, gdn-frontend-monorepo) are NOT excluded to avoid false negatives.
-3. **Per-team processing:** For each team with members, queries their commits in the last 14 days excluding the above. Skips teams with 0 untracked commits.
-4. **LLM clustering:** Feeds each team's commits to LLM (`prompts/untracked-work-system.txt`) to cluster into 2-5 logical work groups with descriptive names and one-sentence summaries.
-5. **Cache:** Stores in `untracked_summaries` table per team (24h TTL).
+**Three-layer exclusion** determines which commits are "untracked":
 
-**Why prefix + repo exclusion:** Child issues use different Jira project keys (PARSER-*, DT-*, DELTA-*), not SPS-*. The prefix exclusion catches commits that reference child keys. The repo exclusion catches commits in epic-associated repos that don't reference any key.
+1. **Jira prefix exclusion:** Batch-fetches all child issues for all tracked epics via `parent in (SPS-574, SPS-125, ...)`. Extracts unique Jira project key prefixes (e.g., PARSER, DT, DELTA, DEVORTEX, TQCT). For each prefix, excludes commits matching both `PREFIX-NNN` and `PREFIX NNN` patterns (some commits use space instead of dash). MySQL `LIKE` is case-insensitive by default, so `aut-123`, `AUT-123`, `Aut 123` are all caught.
+2. **Repo exclusion (from cache):** Reads `epic_summaries` table for repo lists associated with each epic. Repos appearing in ≤3 epics are considered "exclusive" to those epics and excluded. Widely shared repos (tms, gdn-frontend-monorepo) are NOT excluded to avoid false negatives.
+3. **Repo exclusion (from commits):** Also queries `commit_analyses` for repos where commits reference any tracked prefix — so even if `epic_summaries` hasn't been populated (no one clicked an epic chevron), repos like `image-translation-poc` are still excluded because commits in that repo reference `DELTA-` keys. Repos must have ≥3 matching commits to be excluded (avoids false positives from incidental key mentions).
+
+After exclusion:
+4. **Per-team processing:** For each team with members, queries their commits in the last 14 days excluding the above. Skips teams with 0 untracked commits.
+5. **LLM clustering:** Feeds each team's commits to LLM (`prompts/untracked-work-system.txt`) to cluster into 2-5 logical work groups with descriptive names and one-sentence summaries.
+6. **Cache:** Stores in `untracked_summaries` table per team (24h TTL).
+
+**Why three layers:** Child issues use different Jira project keys (PARSER-*, DT-*, DELTA-*), not SPS-*. The prefix exclusion catches commits that reference child keys in any format. The repo exclusion catches commits in epic-associated repos that don't reference any Jira key at all (the common case — e.g., "Fix PR review findings"). The dual repo source (cache + live query) ensures exclusion works even on fresh deployments with no epic summaries cache.
 
 ## Frontend (`src/app/projects/projects-content.tsx`)
 
