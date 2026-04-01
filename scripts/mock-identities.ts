@@ -21,14 +21,14 @@ export interface MockDeveloper {
 }
 
 export const MOCK_DEVELOPERS: MockDeveloper[] = [
-  { githubLogin: 'alice-mock', githubName: 'Alice Chen', avatarUrl: 'https://i.pravatar.cc/150?u=alice', jiraEmail: 'alice@mockorg.dev', jiraAccountId: 'jira-alice-001', team: 'Platform' },
-  { githubLogin: 'bob-mock', githubName: 'Bob Martinez', avatarUrl: 'https://i.pravatar.cc/150?u=bob', jiraEmail: 'bob@mockorg.dev', jiraAccountId: 'jira-bob-002', team: 'Platform' },
-  { githubLogin: 'carol-mock', githubName: 'Carol Nguyen', avatarUrl: 'https://i.pravatar.cc/150?u=carol', jiraEmail: 'carol@mockorg.dev', jiraAccountId: 'jira-carol-003', team: 'Platform' },
-  { githubLogin: 'dave-mock', githubName: 'Dave Kim', avatarUrl: 'https://i.pravatar.cc/150?u=dave', jiraEmail: 'dave@mockorg.dev', jiraAccountId: 'jira-dave-004', team: 'Frontend' },
-  { githubLogin: 'eve-mock', githubName: 'Eve Patel', avatarUrl: 'https://i.pravatar.cc/150?u=eve', jiraEmail: 'eve@mockorg.dev', jiraAccountId: 'jira-eve-005', team: 'Frontend' },
-  { githubLogin: 'frank-mock', githubName: 'Frank Osei', avatarUrl: 'https://i.pravatar.cc/150?u=frank', jiraEmail: 'frank@mockorg.dev', jiraAccountId: 'jira-frank-006', team: 'Frontend' },
-  { githubLogin: 'grace-mock', githubName: 'Grace Liu', avatarUrl: 'https://i.pravatar.cc/150?u=grace', jiraEmail: 'grace@mockorg.dev', jiraAccountId: 'jira-grace-007', team: 'Data' },
-  { githubLogin: 'hank-mock', githubName: 'Hank Russo', avatarUrl: 'https://i.pravatar.cc/150?u=hank', jiraEmail: 'hank@mockorg.dev', jiraAccountId: 'jira-hank-008', team: 'Data' },
+  { githubLogin: 'alice-mock', githubName: 'Alice Chen', avatarUrl: 'https://avatars.githubusercontent.com/u/1?v=4', jiraEmail: 'alice@mockorg.dev', jiraAccountId: 'jira-alice-001', team: 'Platform' },
+  { githubLogin: 'bob-mock', githubName: 'Bob Martinez', avatarUrl: 'https://avatars.githubusercontent.com/u/2?v=4', jiraEmail: 'bob@mockorg.dev', jiraAccountId: 'jira-bob-002', team: 'Platform' },
+  { githubLogin: 'carol-mock', githubName: 'Carol Nguyen', avatarUrl: 'https://avatars.githubusercontent.com/u/3?v=4', jiraEmail: 'carol@mockorg.dev', jiraAccountId: 'jira-carol-003', team: 'Platform' },
+  { githubLogin: 'dave-mock', githubName: 'Dave Kim', avatarUrl: 'https://avatars.githubusercontent.com/u/4?v=4', jiraEmail: 'dave@mockorg.dev', jiraAccountId: 'jira-dave-004', team: 'Frontend' },
+  { githubLogin: 'eve-mock', githubName: 'Eve Patel', avatarUrl: 'https://avatars.githubusercontent.com/u/5?v=4', jiraEmail: 'eve@mockorg.dev', jiraAccountId: 'jira-eve-005', team: 'Frontend' },
+  { githubLogin: 'frank-mock', githubName: 'Frank Osei', avatarUrl: 'https://avatars.githubusercontent.com/u/6?v=4', jiraEmail: 'frank@mockorg.dev', jiraAccountId: 'jira-frank-006', team: 'Frontend' },
+  { githubLogin: 'grace-mock', githubName: 'Grace Liu', avatarUrl: 'https://avatars.githubusercontent.com/u/7?v=4', jiraEmail: 'grace@mockorg.dev', jiraAccountId: 'jira-grace-007', team: 'Data' },
+  { githubLogin: 'hank-mock', githubName: 'Hank Russo', avatarUrl: 'https://avatars.githubusercontent.com/u/8?v=4', jiraEmail: 'hank@mockorg.dev', jiraAccountId: 'jira-hank-008', team: 'Data' },
 ];
 
 export interface MockTeam {
