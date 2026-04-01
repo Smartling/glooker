@@ -18,7 +18,6 @@ export function createMockGitHubProvider(): GitHubProvider {
       log?.(`[mock] Returning ${MOCK_DEVELOPERS.length} mock members`);
       return MOCK_DEVELOPERS.map(d => ({
         login: d.githubLogin,
-        name: d.githubName,
         avatarUrl: d.avatarUrl,
       }));
     },

@@ -2,6 +2,11 @@
 // Populates the SQLite DB with mock data for local development.
 // Run: npm run seed  |  Reset: npm run seed:reset
 
+if (process.env.NODE_ENV === 'production') {
+  console.error('Refusing to seed in production. Unset NODE_ENV or set it to development.');
+  process.exit(1);
+}
+
 import * as data from './seed-data';
 
 async function main() {
@@ -16,16 +21,10 @@ async function main() {
     const placeholders = cols.map(() => '?').join(', ');
     const sql = `INSERT IGNORE INTO ${table} (${cols.join(', ')}) VALUES (${placeholders})`;
 
-    let inserted = 0;
     for (const row of rows) {
-      try {
-        await db.execute(sql, cols.map(c => row[c]));
-        inserted++;
-      } catch (e: any) {
-        if (!e.message?.includes('UNIQUE constraint')) throw e;
-      }
+      await db.execute(sql, cols.map(c => row[c]));
     }
-    console.log(`  ${table}: ${inserted} rows`);
+    console.log(`  ${table}: ${rows.length} rows`);
   }
 
   await seed('reports', data.seedReports);
