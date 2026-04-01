@@ -62,7 +62,7 @@ Update `getJiraClient()` return type from `JiraClient | null` to `JiraClientInte
 
 | Table | Records | Notes |
 |-------|---------|-------|
-| `reports` | 2 | Two completed reports (14d and 30d periods) |
+| `reports` | 3 | Two completed (14d and 30d periods), one with status `running` (for testing progress/log panel UI) |
 | `developer_stats` | 8 per report | Varied profiles: high/mid/low performers |
 | `commit_analyses` | 3-5 per developer | Mix of feature/bug/refactor/docs, varied complexity, some AI-flagged |
 | `jira_issues` | 2-3 per developer | Resolved issues with realistic summaries |
@@ -73,6 +73,8 @@ Update `getJiraClient()` return type from `JiraClient | null` to `JiraClientInte
 | `report_comparisons` | 1 | Links the two completed reports, with pre-generated `highlights_json` |
 | `epic_summaries` | 3-4 | Pre-cached, matching the mock Jira epic keys |
 | `untracked_summaries` | 1 per team | Pre-cached so "show untracked" works |
+| `schedules` | 1 | One weekly schedule (renders on settings Schedules tab) |
+| `release_notes` | 1 | Cached release notes (renders on dashboard) |
 
 **Behavior:**
 - Idempotent: uses `INSERT OR IGNORE` via the DB abstraction layer (SQLite translator handles this)
@@ -127,4 +129,4 @@ Note: `GITHUB_TOKEN` is not set in `dev:mock`. The env validation will log a war
 - Production data export/sanitization
 - Automated test suite using mock providers (future work)
 - Mock data for auth/user profile features (`AUTH_ENABLED`)
-- `schedules` and `release_notes` seeding (low-value for initial iteration, add later if needed)
+- Mock progress store for the "running" report (the log panel renders from the in-memory progress store; seed data puts the report in `running` status so the UI shows the panel, but live log entries require the report runner to actually execute)
