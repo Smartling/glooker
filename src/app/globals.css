@@ -65,6 +65,9 @@
 [data-theme-mode="light"] .bg-gray-900\/50 {
   background-color: rgba(255, 255, 255, 0.7) !important;
 }
+[data-theme-mode="light"] .bg-gray-900\/30 {
+  background-color: color-mix(in srgb, var(--accent) 6%, transparent) !important;
+}
 [data-theme-mode="light"] .bg-gray-800 {
   background-color: #f3f4f6 !important;
 }
@@ -73,6 +76,9 @@
 }
 [data-theme-mode="light"] .bg-gray-700 {
   background-color: #e5e7eb !important;
+}
+[data-theme-mode="light"] .bg-gray-700\/50 {
+  background-color: rgba(229, 231, 235, 0.5) !important;
 }
 [data-theme-mode="light"] .bg-black\/60 {
   background-color: rgba(255, 255, 255, 0.8) !important;
@@ -248,6 +254,12 @@
 }
 [data-theme-mode="light"] .border-gray-700\/50 {
   border-color: rgba(209, 213, 219, 0.5) !important;
+}
+[data-theme-mode="light"] .border-gray-800\/30 {
+  border-color: rgba(229, 231, 235, 0.5) !important;
+}
+[data-theme-mode="light"] .border-gray-700\/30 {
+  border-color: rgba(209, 213, 219, 0.4) !important;
 }
 [data-theme-mode="light"] .border-gray-600 {
   border-color: #d1d5db !important;
