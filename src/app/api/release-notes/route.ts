@@ -8,19 +8,6 @@ const DAYS = 14;
 
 export async function GET() {
   try {
-    // Ensure table exists (for existing deployments without schema migration)
-    await db.execute(
-      `CREATE TABLE IF NOT EXISTS release_notes (
-        id              INT AUTO_INCREMENT PRIMARY KEY,
-        latest_commit_sha VARCHAR(40) NOT NULL,
-        summary         TEXT         NOT NULL,
-        commit_count    INT          NOT NULL DEFAULT 0,
-        generated_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE KEY uq_commit_sha (latest_commit_sha)
-      )`,
-      [],
-    );
-
     // Fetch recent commits from GitHub
     const since = new Date(Date.now() - DAYS * 24 * 60 * 60 * 1000).toISOString();
     const ghToken = process.env.GITHUB_TOKEN;
