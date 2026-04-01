@@ -19,10 +19,12 @@ const FIXTURES: Record<string, string> = {
     maybe_ai: false,
   }),
   'epic-summary-system': 'This epic made strong progress with 5 issues resolved. The team completed the core auth migration and rate limiting middleware. Two issues remain for edge-case handling and documentation.',
-  'untracked-work-system': JSON.stringify([
-    { name: 'CI/CD Improvements', summary: 'Pipeline optimization and caching', commitCount: 3, repos: ['infra-config'], linesAdded: 120, linesRemoved: 45 },
-    { name: 'Bug Fixes', summary: 'Various production bug fixes', commitCount: 2, repos: ['api-service'], linesAdded: 30, linesRemoved: 15 },
-  ]),
+  'untracked-work-system': JSON.stringify({
+    groups: [
+      { name: 'CI/CD Improvements', summary: 'Pipeline optimization and caching', commitCount: 3, repos: ['infra-config'], linesAdded: 120, linesRemoved: 45 },
+      { name: 'Bug Fixes', summary: 'Various production bug fixes', commitCount: 2, repos: ['api-service'], linesAdded: 30, linesRemoved: 15 },
+    ],
+  }),
   'report-summary-system': JSON.stringify({
     summary: 'A productive period focused on platform stability and feature delivery. Contributed 15 commits across 3 repositories with an average complexity of 5.2. Demonstrated strong code review discipline with 90% of changes going through PRs.',
     badges: [
