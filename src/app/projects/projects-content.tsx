@@ -515,11 +515,13 @@ export default function ProjectsContent() {
                                             onClick={(e) => { e.stopPropagation(); setShowCommits(showCommits === groupId ? null : groupId); }}
                                             className="text-xs text-gray-600 hover:text-gray-400 transition-colors"
                                           >
-                                            {showCommits === groupId ? 'Hide' : 'Show'} {team.commits.length} commits
+                                            {showCommits === groupId ? 'Hide' : 'Show'} {team.commits.filter((c: any) => group.repos.includes(c.repo)).length || team.commits.length} commits
                                           </button>
                                           {showCommits === groupId && (
                                             <div className="mt-2 space-y-1.5 max-h-64 overflow-y-auto">
-                                              {team.commits.map((c: any) => {
+                                              {team.commits
+                                                .filter((c: any) => group.repos.length === 0 || group.repos.includes(c.repo))
+                                                .map((c: any) => {
                                                   const jiraMatch = c.message.match(/([A-Z]+-\d+)/);
                                                   const shortSha = c.sha?.slice(0, 7) || '';
                                                   return (
