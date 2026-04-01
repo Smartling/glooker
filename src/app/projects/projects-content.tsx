@@ -575,7 +575,7 @@ export default function ProjectsContent() {
                   {filteredEpics.length}{filteredEpics.length !== epics.length ? ` of ${epics.length}` : ''} epic{filteredEpics.length !== 1 ? 's' : ''}
                   {untrackedTeams.length > 0 && ` · ${untrackedTeams.length} team${untrackedTeams.length !== 1 ? 's' : ''} with untracked work`}
                 </span>
-                {untrackedTeams.length === 0 && !untrackedLoading && canAct && (
+                {untrackedTeams.length === 0 && !untrackedLoading && (
                   <button
                     onClick={loadUntracked}
                     className="text-xs text-gray-500 hover:text-gray-300 bg-gray-800 hover:bg-gray-700 px-2.5 py-1 rounded border border-gray-700 transition-colors"
