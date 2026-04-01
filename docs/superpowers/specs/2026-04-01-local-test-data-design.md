@@ -48,7 +48,7 @@ No network calls, instant responses. Static responses per prompt type — variat
 
 Update `getJiraClient()` return type from `JiraClient | null` to `JiraClientInterface | null`.
 
-**Selection:** When `LLM_PROVIDER=mock` and `JIRA_ENABLED=true`, the Jira client factory returns `MockJiraClient` — no new env var needed. The mock check runs *before* the `JIRA_HOST`/`JIRA_USERNAME`/`JIRA_API_TOKEN` guards so that mock mode doesn't require real credentials.
+**Selection:** `JIRA_PROVIDER=mock` env var — explicit and independent from `LLM_PROVIDER`, following the same per-service provider pattern. When `JIRA_ENABLED=true` and `JIRA_PROVIDER=mock`, the factory returns `MockJiraClient` and skips the `JIRA_HOST`/`JIRA_USERNAME`/`JIRA_API_TOKEN` credential guards. This lets you mock Jira independently of LLM (e.g., real LLM + mock Jira, or vice versa).
 
 ### 3. Seed Script
 
@@ -95,7 +95,7 @@ npm run dev:mock
 **Package.json scripts:**
 ```json
 "seed": "tsx scripts/seed.ts",
-"dev:mock": "JIRA_ENABLED=true JIRA_PROJECTS_JQL='project = MOCK AND issuetype = Epic' LLM_PROVIDER=mock next dev"
+"dev:mock": "LLM_PROVIDER=mock JIRA_ENABLED=true JIRA_PROVIDER=mock JIRA_PROJECTS_JQL='project = MOCK AND issuetype = Epic' next dev"
 ```
 
 Note: `GITHUB_TOKEN` is not set in `dev:mock`. The env validation will log a warning — this is expected in mock mode. The release-notes endpoint will return cached data from the seed; a cache miss returns empty gracefully.
@@ -120,8 +120,8 @@ Note: `GITHUB_TOKEN` is not set in `dev:mock`. The env validation will log a war
 | `scripts/seed-data.ts` (new) | All fixture data |
 | `package.json` | Add `tsx` to devDependencies, add `seed` and `dev:mock` scripts |
 | `CLAUDE.md` | Add maintenance instruction |
-| `.env.example` | Document `LLM_PROVIDER=mock` and mock-mode workflow |
-| `src/lib/env-validation.ts` | Accept `mock` as valid `LLM_PROVIDER` value |
+| `.env.example` | Document `LLM_PROVIDER=mock`, `JIRA_PROVIDER=mock`, and mock-mode workflow |
+| `src/lib/env-validation.ts` | Accept `mock` as valid `LLM_PROVIDER` and `JIRA_PROVIDER` values; skip Jira credential checks when `JIRA_PROVIDER=mock` |
 
 ## Out of Scope
 
