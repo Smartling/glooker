@@ -109,7 +109,8 @@ for (const rid of completedReportIds) {
 
 const commitTypes = ['feature', 'bug', 'refactor', 'docs', 'test'] as const;
 const riskLevels = ['low', 'medium', 'high'] as const;
-const repoPool = ['api-gateway', 'auth-service', 'shared-libs', 'rate-limiter', 'web-app', 'dashboard-ui', 'design-system', 'data-pipeline', 'etl-jobs'];
+// First 8 repos are tracked (referenced by epic_summaries). Last 3 are untracked.
+const repoPool = ['api-gateway', 'auth-service', 'shared-libs', 'rate-limiter', 'web-app', 'dashboard-ui', 'design-system', 'data-pipeline', 'internal-tools', 'ci-scripts', 'monitoring'];
 const commitMessages = [
   'Add OAuth 2.1 PKCE flow for public clients',
   'Fix race condition in token refresh logic',
