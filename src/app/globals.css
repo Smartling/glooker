@@ -92,6 +92,17 @@
   background-color: rgba(229, 231, 235, 0.5) !important;
 }
 
+/* Row highlights — accent-tinted for light mode */
+[data-theme-mode="light"] .hover\:bg-gray-800\/30:hover {
+  background-color: color-mix(in srgb, var(--accent) 8%, transparent) !important;
+}
+[data-theme-mode="light"] .hover\:bg-gray-800\/50:hover {
+  background-color: color-mix(in srgb, var(--accent) 10%, transparent) !important;
+}
+[data-theme-mode="light"] .bg-gray-800\/30 {
+  background-color: color-mix(in srgb, var(--accent) 6%, transparent) !important;
+}
+
 /* Text: light-on-dark → dark-on-light */
 [data-theme-mode="light"] .text-white {
   color: #111827 !important;
