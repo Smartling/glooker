@@ -7,6 +7,7 @@ Rules:
 - Maximum 5 groups. Merge small efforts into an "Other maintenance" group.
 - Summary maximum 30 words, use approximate line counts (e.g., ~2.1K not 2,100)
 - Be specific in names — use actual feature/product names from commit messages
+- IMPORTANT: Every commit SHA from the input MUST appear in exactly one group's commit_shas array
 - Return ONLY raw JSON, no markdown
 
 Return:
@@ -15,13 +16,10 @@ Return:
     {
       "name": "Descriptive Group Name",
       "summary": "One sentence following the pattern above.",
-      "commitCount": 10,
-      "repos": ["repo-a", "repo-b"],
-      "linesAdded": 5000,
-      "linesRemoved": 1000
+      "commit_shas": ["abc12345", "def67890"]
     }
   ]
 }
 
-Commits (repo | author | message | +lines | -lines):
+Commits (sha | repo | author | message | +lines | -lines):
 {{COMMITS}}

@@ -14,15 +14,6 @@ interface ProjectEpic {
   goal: { key: string; summary: string } | null;
 }
 
-interface WorkGroup {
-  name: string;
-  summary: string;
-  commitCount: number;
-  repos: string[];
-  linesAdded: number;
-  linesRemoved: number;
-}
-
 interface UntrackedCommit {
   sha: string;
   repo: string;
@@ -32,11 +23,16 @@ interface UntrackedCommit {
   linesRemoved: number;
 }
 
+interface WorkGroup {
+  name: string;
+  summary: string;
+  commits: UntrackedCommit[];
+}
+
 interface UntrackedTeam {
   name: string;
   color: string;
   groups: WorkGroup[];
-  commits: UntrackedCommit[];
   totalCommits: number;
 }
 
@@ -116,10 +112,12 @@ export default function ProjectsContent() {
       .finally(() => setLoading(false));
   }, [org]);
 
-  const loadUntracked = () => {
+  const loadUntracked = (refresh = false) => {
     if (!org || untrackedLoading) return;
     setUntrackedLoading(true);
-    fetch(`/api/projects/untracked?org=${encodeURIComponent(org)}`)
+    const params = new URLSearchParams({ org });
+    if (refresh) params.set('refresh', 'true');
+    fetch(`/api/projects/untracked?${params}`)
       .then(r => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
@@ -508,20 +506,29 @@ export default function ProjectsContent() {
                                   <div className="text-gray-300">{group.name}</div>
                                   {expandedEpic === groupId && (
                                     <div className="mt-2 pt-2 border-t border-gray-800/50">
-                                      <p className="text-gray-400 text-xs leading-relaxed">{group.summary}</p>
-                                      {team.commits?.length > 0 && (
+                                      <div className="flex items-start gap-2">
+                                        <p className="text-gray-400 text-xs leading-relaxed flex-1">{group.summary}</p>
+                                        <button
+                                          onClick={(e) => { e.stopPropagation(); loadUntracked(true); }}
+                                          className="text-gray-600 hover:text-gray-400 shrink-0 mt-0.5"
+                                          title="Refresh untracked work"
+                                        >
+                                          <svg className={`w-3 h-3 ${untrackedLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                          </svg>
+                                        </button>
+                                      </div>
+                                      {group.commits?.length > 0 && (
                                         <div className="mt-2">
                                           <button
                                             onClick={(e) => { e.stopPropagation(); setShowCommits(showCommits === groupId ? null : groupId); }}
                                             className="text-xs text-gray-600 hover:text-gray-400 transition-colors"
                                           >
-                                            {showCommits === groupId ? 'Hide' : 'Show'} {team.commits.filter((c: any) => group.repos.includes(c.repo)).length || team.commits.length} commits
+                                            {showCommits === groupId ? 'Hide' : 'Show'} {group.commits.length} commits
                                           </button>
                                           {showCommits === groupId && (
                                             <div className="mt-2 space-y-1.5 max-h-64 overflow-y-auto">
-                                              {team.commits
-                                                .filter((c: any) => group.repos.length === 0 || group.repos.includes(c.repo))
-                                                .map((c: any) => {
+                                              {group.commits.map((c: any) => {
                                                   const jiraMatch = c.message.match(/([A-Z]+-\d+)/);
                                                   const shortSha = c.sha?.slice(0, 7) || '';
                                                   return (
@@ -577,7 +584,7 @@ export default function ProjectsContent() {
                 </span>
                 {untrackedTeams.length === 0 && !untrackedLoading && (
                   <button
-                    onClick={loadUntracked}
+                    onClick={() => loadUntracked()}
                     className="text-xs text-gray-500 hover:text-gray-300 bg-gray-800 hover:bg-gray-700 px-2.5 py-1 rounded border border-gray-700 transition-colors"
                   >
                     Show work outside projects

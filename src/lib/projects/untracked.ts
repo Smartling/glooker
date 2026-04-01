@@ -15,17 +15,13 @@ export interface UntrackedCommit {
 export interface WorkGroup {
   name: string;
   summary: string;
-  commitCount: number;
-  repos: string[];
-  linesAdded: number;
-  linesRemoved: number;
+  commits: UntrackedCommit[];
 }
 
 export interface UntrackedTeam {
   name: string;
   color: string;
   groups: WorkGroup[];
-  commits: UntrackedCommit[];
   totalCommits: number;
 }
 
@@ -65,9 +61,7 @@ export async function getUntrackedWork(org: string, forceRefresh: boolean): Prom
     if (!forceRefresh) {
       const cached = await getCachedUntracked(team.name, org);
       if (cached) {
-        // Re-fetch commits for cache hit (commits aren't cached, only LLM groups are)
-        const freshCommits = await getTeamUntrackedCommits(team.members, org, excludedPrefixes, excludedRepos);
-        results.push({ name: team.name, color: team.color, groups: cached.groups, commits: freshCommits, totalCommits: cached.totalCommits });
+        results.push({ name: team.name, color: team.color, groups: cached.groups, totalCommits: cached.totalCommits });
         continue;
       }
     }
@@ -77,7 +71,7 @@ export async function getUntrackedWork(org: string, forceRefresh: boolean): Prom
 
     const groups = await clusterCommits(team.name, commits);
     await storeUntracked(team.name, org, groups, commits.length);
-    results.push({ name: team.name, color: team.color, groups, commits: commits.map(c => ({ sha: c.sha, repo: c.repo, author: c.author, message: c.message, linesAdded: c.linesAdded, linesRemoved: c.linesRemoved })), totalCommits: commits.length });
+    results.push({ name: team.name, color: team.color, groups, totalCommits: commits.length });
   }
 
   return { teams: results.filter(t => t.groups.length > 0), cached: false };
@@ -163,8 +157,8 @@ async function getTrackedEpicRepos(org: string, prefixes: string[]): Promise<str
   // Source 2: repos from commits that reference tracked issue prefixes
   // This catches repos even when epic summaries haven't been generated yet
   if (prefixes.length > 0) {
-    const likeClauses = prefixes.map(() => 'ca.commit_message LIKE ?').join(' OR ');
-    const likeValues = prefixes.map(p => `%${p}-%`);
+    const likeClauses = prefixes.flatMap(() => ['ca.commit_message LIKE ?', 'ca.commit_message LIKE ?']).join(' OR ');
+    const likeValues = prefixes.flatMap(p => [`%${p}-%`, `%${p} %`]);
 
     const [repoRows] = await db.execute(
       `SELECT ca.repo, COUNT(DISTINCT ca.commit_sha) as cnt
@@ -198,9 +192,12 @@ async function getTrackedEpicRepos(org: string, prefixes: string[]): Promise<str
 async function getTeamUntrackedCommits(members: string[], org: string, excludedPrefixes: string[], excludedRepos: string[]): Promise<RawCommit[]> {
   const memberPlaceholders = members.map(() => '?').join(',');
 
-  // Build exclusion: NOT LIKE '%PREFIX-%' for each tracked Jira project prefix
-  const prefixClauses = excludedPrefixes.map(() => 'ca.commit_message NOT LIKE ?').join(' AND ');
-  const prefixValues = excludedPrefixes.map(p => `%${p}-%`);
+  // Build exclusion: NOT LIKE '%PREFIX-%' AND NOT LIKE '%PREFIX %' for each prefix
+  // Covers both "SPS-123" and "SPS 123" patterns. MySQL LIKE is case-insensitive by default.
+  const prefixClauses = excludedPrefixes
+    .flatMap(() => ['ca.commit_message NOT LIKE ?', 'ca.commit_message NOT LIKE ?'])
+    .join(' AND ');
+  const prefixValues = excludedPrefixes.flatMap(p => [`%${p}-%`, `%${p} %`]);
 
   // Build repo exclusion
   let repoClause = '';
@@ -244,8 +241,10 @@ async function getTeamUntrackedCommits(members: string[], org: string, excludedP
 }
 
 async function clusterCommits(teamName: string, commits: RawCommit[]): Promise<WorkGroup[]> {
+  // Include short SHA in prompt so LLM can reference specific commits
+  const shortShaLen = 8;
   const commitLines = commits.map(c =>
-    `${c.repo} | ${c.author} | ${c.message} | +${c.linesAdded} | -${c.linesRemoved}`
+    `${c.sha.slice(0, shortShaLen)} | ${c.repo} | ${c.author} | ${c.message} | +${c.linesAdded} | -${c.linesRemoved}`
   ).join('\n');
 
   const prompt = loadPrompt('untracked-work-system.txt', {
@@ -269,18 +268,50 @@ async function clusterCommits(teamName: string, commits: RawCommit[]): Promise<W
   const raw = response.choices[0]?.message?.content || '{}';
   const cleaned = raw.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
 
+  // Build SHA lookup for mapping LLM groups back to actual commits
+  const commitBySha = new Map<string, UntrackedCommit>();
+  for (const c of commits) {
+    commitBySha.set(c.sha.slice(0, shortShaLen), c);
+    commitBySha.set(c.sha, c); // also full SHA in case LLM returns it
+  }
+
   try {
     const parsed = JSON.parse(cleaned);
-    return (parsed.groups || []).map((g: any) => ({
-      name: String(g.name || 'Unknown'),
-      summary: String(g.summary || ''),
-      commitCount: Number(g.commitCount || 0),
-      repos: Array.isArray(g.repos) ? g.repos : [],
-      linesAdded: Number(g.linesAdded || 0),
-      linesRemoved: Number(g.linesRemoved || 0),
-    }));
+    const claimed = new Set<string>();
+    const groups: WorkGroup[] = [];
+
+    for (const g of (parsed.groups || [])) {
+      const groupCommits: UntrackedCommit[] = [];
+      for (const sha of (g.commit_shas || [])) {
+        const commit = commitBySha.get(sha);
+        if (commit && !claimed.has(commit.sha)) {
+          claimed.add(commit.sha);
+          groupCommits.push(commit);
+        }
+      }
+      groups.push({
+        name: String(g.name || 'Unknown'),
+        summary: String(g.summary || ''),
+        commits: groupCommits,
+      });
+    }
+
+    // Any unclaimed commits go into an "Other" group
+    const unclaimed = commits.filter(c => !claimed.has(c.sha));
+    if (unclaimed.length > 0) {
+      const lastGroup = groups.find(g => g.name.toLowerCase().includes('other') || g.name.toLowerCase().includes('maintenance'));
+      if (lastGroup) {
+        lastGroup.commits.push(...unclaimed);
+      } else {
+        groups.push({ name: 'Other', summary: `${unclaimed.length} additional commits.`, commits: unclaimed });
+      }
+    }
+
+    // Remove empty groups
+    return groups.filter(g => g.commits.length > 0);
   } catch {
-    return [];
+    // LLM failed to return valid JSON — put all commits in one group
+    return [{ name: 'All work', summary: `${commits.length} commits.`, commits }];
   }
 }
 
