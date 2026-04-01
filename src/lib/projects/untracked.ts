@@ -163,8 +163,8 @@ async function getTrackedEpicRepos(org: string, prefixes: string[]): Promise<str
   // Source 2: repos from commits that reference tracked issue prefixes
   // This catches repos even when epic summaries haven't been generated yet
   if (prefixes.length > 0) {
-    const likeClauses = prefixes.map(() => 'ca.commit_message LIKE ?').join(' OR ');
-    const likeValues = prefixes.map(p => `%${p}-%`);
+    const likeClauses = prefixes.flatMap(() => ['ca.commit_message LIKE ?', 'ca.commit_message LIKE ?']).join(' OR ');
+    const likeValues = prefixes.flatMap(p => [`%${p}-%`, `%${p} %`]);
 
     const [repoRows] = await db.execute(
       `SELECT ca.repo, COUNT(DISTINCT ca.commit_sha) as cnt
@@ -198,9 +198,12 @@ async function getTrackedEpicRepos(org: string, prefixes: string[]): Promise<str
 async function getTeamUntrackedCommits(members: string[], org: string, excludedPrefixes: string[], excludedRepos: string[]): Promise<RawCommit[]> {
   const memberPlaceholders = members.map(() => '?').join(',');
 
-  // Build exclusion: NOT LIKE '%PREFIX-%' for each tracked Jira project prefix
-  const prefixClauses = excludedPrefixes.map(() => 'ca.commit_message NOT LIKE ?').join(' AND ');
-  const prefixValues = excludedPrefixes.map(p => `%${p}-%`);
+  // Build exclusion: NOT LIKE '%PREFIX-%' AND NOT LIKE '%PREFIX %' for each prefix
+  // Covers both "SPS-123" and "SPS 123" patterns. MySQL LIKE is case-insensitive by default.
+  const prefixClauses = excludedPrefixes
+    .flatMap(() => ['ca.commit_message NOT LIKE ?', 'ca.commit_message NOT LIKE ?'])
+    .join(' AND ');
+  const prefixValues = excludedPrefixes.flatMap(p => [`%${p}-%`, `%${p} %`]);
 
   // Build repo exclusion
   let repoClause = '';
