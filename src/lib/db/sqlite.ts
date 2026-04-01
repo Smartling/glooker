@@ -251,6 +251,13 @@ function translateSQL(sql: string): string {
   // NOW() → datetime('now','localtime')
   s = s.replace(/NOW\(\)/gi, "datetime('now','localtime')");
 
+  // DATE_SUB(NOW(), INTERVAL N DAY) → datetime('now', '-N days')
+  s = s.replace(/DATE_SUB\s*\(\s*datetime\('now','localtime'\)\s*,\s*INTERVAL\s+(\d+)\s+DAY\s*\)/gi,
+    (_match, days) => `datetime('now', '-${days} days')`);
+  // Also handle case where NOW() hasn't been translated yet
+  s = s.replace(/DATE_SUB\s*\(\s*NOW\(\)\s*,\s*INTERVAL\s+(\d+)\s+DAY\s*\)/gi,
+    (_match, days) => `datetime('now', '-${days} days')`);
+
   // ON DUPLICATE KEY UPDATE ... VALUES(col) → ON CONFLICT(...) DO UPDATE SET col = excluded.col
   const odkuMatch = s.match(/ON\s+DUPLICATE\s+KEY\s+UPDATE\s+([\s\S]+)$/i);
   if (odkuMatch) {
