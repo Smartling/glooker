@@ -52,6 +52,7 @@ export default function ProjectsContent() {
   // Hover state for grouped rows
   const [hoveredGoal, setHoveredGoal] = useState<string | null>(null);
   const [hoveredInit, setHoveredInit] = useState<string | null>(null);
+  const [hoveredEpic, setHoveredEpic] = useState<string | null>(null);
 
   // Untracked work
   const [untrackedTeams, setUntrackedTeams] = useState<UntrackedTeam[]>([]);
@@ -307,9 +308,9 @@ export default function ProjectsContent() {
                     return (
                       <tr
                         key={epic.key}
-                        className={`border-b border-gray-800/50 transition-colors ${isGoalHovered ? 'bg-gray-900/30' : ''}`}
-                        onMouseEnter={() => { setHoveredGoal(goalGroupId); setHoveredInit(initGroupId); }}
-                        onMouseLeave={() => { setHoveredGoal(null); setHoveredInit(null); }}
+                        className={`border-b border-gray-800/50 transition-colors ${hoveredEpic === epic.key ? 'bg-gray-800/30' : isGoalHovered ? 'bg-gray-900/30' : ''}`}
+                        onMouseEnter={() => { setHoveredGoal(goalGroupId); setHoveredInit(initGroupId); setHoveredEpic(epic.key); }}
+                        onMouseLeave={() => { setHoveredGoal(null); setHoveredInit(null); setHoveredEpic(null); }}
                       >
                         {showGoal && (
                           <td
@@ -469,9 +470,9 @@ export default function ProjectsContent() {
                         return (
                           <tr
                             key={groupId}
-                            className={`border-b border-gray-800/50 transition-colors ${isHovered ? 'bg-gray-900/30' : ''}`}
-                            onMouseEnter={() => { setHoveredGoal(untrackedGoalId); setHoveredInit(null); }}
-                            onMouseLeave={() => { setHoveredGoal(null); setHoveredInit(null); }}
+                            className={`border-b border-gray-800/50 transition-colors ${hoveredEpic === groupId ? 'bg-gray-800/30' : isHovered ? 'bg-gray-900/30' : ''}`}
+                            onMouseEnter={() => { setHoveredGoal(untrackedGoalId); setHoveredInit(null); setHoveredEpic(groupId); }}
+                            onMouseLeave={() => { setHoveredGoal(null); setHoveredInit(null); setHoveredEpic(null); }}
                           >
                             {isFirstRow && (
                               <td
