@@ -21,8 +21,8 @@ const FIXTURES: Record<string, string> = {
   'epic-summary-system': 'This epic made strong progress with 5 issues resolved. The team completed the core auth migration and rate limiting middleware. Two issues remain for edge-case handling and documentation.',
   'untracked-work-system': JSON.stringify({
     groups: [
-      { name: 'CI/CD Improvements', summary: 'Pipeline optimization and caching', commitCount: 3, repos: ['infra-config'], linesAdded: 120, linesRemoved: 45 },
-      { name: 'Bug Fixes', summary: 'Various production bug fixes', commitCount: 2, repos: ['api-service'], linesAdded: 30, linesRemoved: 15 },
+      { name: 'CI/CD Improvements', summary: 'Pipeline optimization and caching', commitCount: 3, repos: [], linesAdded: 120, linesRemoved: 45 },
+      { name: 'Bug Fixes', summary: 'Various production bug fixes', commitCount: 2, repos: [], linesAdded: 30, linesRemoved: 15 },
     ],
   }),
   'report-summary-system': JSON.stringify({
