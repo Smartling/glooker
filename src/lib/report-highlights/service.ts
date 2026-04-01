@@ -1,5 +1,5 @@
 import db from '../db/index';
-import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit } from '../llm-provider';
+import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, promptTag } from '../llm-provider';
 import { loadPrompt } from '../prompt-loader';
 import { getAppConfig } from '../app-config/service';
 
@@ -139,6 +139,7 @@ export async function getReportHighlights() {
       { role: 'user', content: userMessage },
     ],
     ...extraBodyProps(),
+    ...promptTag('report-highlights-system'),
   } as any);
 
   const raw = response.choices[0].message.content || '{}';

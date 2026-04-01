@@ -13,7 +13,7 @@ import OpenAI from 'openai';
  *   bedrock            — AWS Bedrock (Anthropic models via InvokeModel)
  */
 
-type Provider = 'openai' | 'anthropic' | 'smartling' | 'openai-compatible' | 'bedrock';
+type Provider = 'openai' | 'anthropic' | 'smartling' | 'openai-compatible' | 'bedrock' | 'mock';
 
 const provider = (process.env.LLM_PROVIDER || 'openai') as Provider;
 
@@ -56,6 +56,16 @@ export function tokenLimit(maxTokens: number): { max_tokens?: number; max_comple
   }
   // Other providers (Anthropic, Smartling, Bedrock, etc.) use max_tokens
   return { max_tokens: maxTokens };
+}
+
+/**
+ * Tag an LLM request with the prompt template name.
+ * The mock provider uses this to select fixture responses.
+ * Real providers ignore unknown keys.
+ */
+export function promptTag(name: string): Record<string, unknown> {
+  if (!name) return {};
+  return { __prompt_id: name };
 }
 
 export async function getLLMClient(): Promise<OpenAI> {

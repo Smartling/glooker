@@ -1,4 +1,4 @@
-import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit } from './llm-provider';
+import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, promptTag } from './llm-provider';
 import { loadPrompt } from './prompt-loader';
 import { getAppConfig } from './app-config/service';
 import type { CommitData } from './github';
@@ -39,6 +39,7 @@ ${commit.diff || '(no diff available)'}`;
       { role: 'user',   content: userMessage },
     ],
     ...extraBodyProps(),
+    ...promptTag(commit.aiCoAuthored ? 'analyzer-system-ai-confirmed' : 'analyzer-system'),
   } as any);
 
   const content = response.choices[0].message.content;

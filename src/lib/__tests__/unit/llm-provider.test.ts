@@ -208,4 +208,16 @@ describe('llm-provider', () => {
       await expect(mod.getLLMClient()).rejects.toThrow('Unknown LLM_PROVIDER');
     });
   });
+
+  describe('promptTag', () => {
+    it('returns an object with __prompt_id', () => {
+      const mod = require('@/lib/llm-provider');
+      expect(mod.promptTag('analyzer-system')).toEqual({ __prompt_id: 'analyzer-system' });
+    });
+
+    it('returns empty object when no name given', () => {
+      const mod = require('@/lib/llm-provider');
+      expect(mod.promptTag('')).toEqual({});
+    });
+  });
 });

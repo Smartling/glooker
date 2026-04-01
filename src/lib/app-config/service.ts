@@ -1,4 +1,4 @@
-import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit } from '@/lib/llm-provider';
+import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, promptTag } from '@/lib/llm-provider';
 import { loadPrompt } from '@/lib/prompt-loader';
 
 export interface AppConfig {
@@ -134,6 +134,7 @@ export async function testLLMConnection(): Promise<LLMConnectionResult> {
         { role: 'user', content: 'Test connection' },
       ],
       ...extraBodyProps(),
+      ...promptTag('llm-config-test-system'),
     } as any);
 
     const content = response.choices[0]?.message?.content || '';

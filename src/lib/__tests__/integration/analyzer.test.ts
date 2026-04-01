@@ -6,6 +6,7 @@ jest.mock('@/lib/llm-provider', () => ({
   extraBodyProps: () => ({}),
   getLLMClient: jest.fn(),
   tokenLimit: (n: number) => ({ max_completion_tokens: n }),
+  promptTag: (name: string) => name ? { __prompt_id: name } : {},
 }));
 
 import { analyzeCommit } from '@/lib/analyzer';
