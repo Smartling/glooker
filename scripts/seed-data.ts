@@ -337,7 +337,7 @@ export const seedEpicSummaries = MOCK_EPICS.map((epic, i) => ({
   commit_count: 8 + i * 3,
   lines_added: 500 + i * 200,
   lines_removed: 150 + i * 60,
-  repos: [repoPool[i * 2 % repoPool.length], repoPool[(i * 2 + 1) % repoPool.length]].join(','),
+  repos: JSON.stringify([repoPool[i * 2 % repoPool.length], repoPool[(i * 2 + 1) % repoPool.length]]),
   generated_at: daysAgo(1),
 }));
 
