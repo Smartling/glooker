@@ -257,7 +257,7 @@ async function clusterCommits(teamName: string, commits: RawCommit[]): Promise<W
   const response = await client.chat.completions.create({
     model: LLM_MODEL,
     temperature: 0.3,
-    ...tokenLimit(2048),
+    ...tokenLimit(4096),
     response_format: { type: 'json_object' },
     messages: [
       { role: 'user', content: prompt },
@@ -301,14 +301,34 @@ async function clusterCommits(teamName: string, commits: RawCommit[]): Promise<W
       });
     }
 
-    // Any unclaimed commits go into an "Other" group
+    // Assign unclaimed commits — first try matching by repo to existing groups, then "Other"
     const unclaimed = commits.filter(c => !claimed.has(c.sha));
     if (unclaimed.length > 0) {
-      const lastGroup = groups.find(g => g.name.toLowerCase().includes('other') || g.name.toLowerCase().includes('maintenance'));
-      if (lastGroup) {
-        lastGroup.commits.push(...unclaimed);
-      } else {
-        groups.push({ name: 'Other', summary: `${unclaimed.length} additional commits.`, commits: unclaimed });
+      // Build repo→group mapping from claimed commits
+      const repoToGroup = new Map<string, WorkGroup>();
+      for (const g of groups) {
+        for (const c of g.commits) {
+          if (!repoToGroup.has(c.repo)) repoToGroup.set(c.repo, g);
+        }
+      }
+
+      const stillUnclaimed: UntrackedCommit[] = [];
+      for (const c of unclaimed) {
+        const group = repoToGroup.get(c.repo);
+        if (group) {
+          group.commits.push(c);
+        } else {
+          stillUnclaimed.push(c);
+        }
+      }
+
+      if (stillUnclaimed.length > 0) {
+        const otherGroup = groups.find(g => g.name.toLowerCase().includes('other') || g.name.toLowerCase().includes('maintenance'));
+        if (otherGroup) {
+          otherGroup.commits.push(...stillUnclaimed);
+        } else {
+          groups.push({ name: 'Other', summary: `${stillUnclaimed.length} additional commits.`, commits: stillUnclaimed });
+        }
       }
     }
 

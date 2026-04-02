@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS untracked_summaries (
   id              INT AUTO_INCREMENT PRIMARY KEY,
   team_name       VARCHAR(255) NOT NULL,
   org             VARCHAR(255) NOT NULL,
-  groups_json     TEXT         NOT NULL,
+  groups_json     MEDIUMTEXT   NOT NULL,
   total_commits   INT          NOT NULL DEFAULT 0,
   generated_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_team_org (team_name, org)
@@ -141,6 +141,7 @@ export function createMySQLDB(): DB {
   pool.execute('ALTER TABLE commit_analyses ADD COLUMN author_email VARCHAR(255) NULL AFTER github_login').catch((err) => {
     if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add author_email:', err);
   });
+  pool.execute('ALTER TABLE untracked_summaries MODIFY COLUMN groups_json MEDIUMTEXT NOT NULL').catch(() => {});
 
   return {
     execute: <T = any>(sql: string, params?: any[]): Promise<[T[], any]> =>

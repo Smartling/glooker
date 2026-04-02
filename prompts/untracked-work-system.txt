@@ -7,7 +7,7 @@ Rules:
 - Maximum 5 groups. Merge small efforts into an "Other maintenance" group.
 - Summary maximum 30 words, use approximate line counts (e.g., ~2.1K not 2,100)
 - Be specific in names — use actual feature/product names from commit messages
-- IMPORTANT: Every commit SHA from the input MUST appear in exactly one group's commit_shas array
+- Include commit_shas for each group — list up to 150 SHAs total across all groups. If there are more than 150 commits, include the most representative SHAs and the rest will be assigned automatically.
 - Return ONLY raw JSON, no markdown
 
 Return:
