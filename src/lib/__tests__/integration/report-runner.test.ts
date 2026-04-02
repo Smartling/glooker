@@ -17,13 +17,19 @@ jest.mock('p-limit', () => ({
 }));
 
 import { runReport, requestStop } from '@/lib/report-runner';
-import { listOrgMembers, fetchUserActivity } from '@/lib/github';
+import { getGitHubProvider } from '@/lib/github';
 import { analyzeCommit } from '@/lib/analyzer';
 import db from '@/lib/db/index';
 import { updateProgress, addLog } from '@/lib/progress-store';
 
-const mockListOrgMembers = listOrgMembers as jest.Mock;
-const mockFetchUserActivity = fetchUserActivity as jest.Mock;
+const mockListOrgMembers = jest.fn();
+const mockFetchUserActivity = jest.fn();
+const mockGetGitHubProvider = getGitHubProvider as jest.Mock;
+mockGetGitHubProvider.mockReturnValue({
+  listOrgMembers: mockListOrgMembers,
+  fetchUserActivity: mockFetchUserActivity,
+  listOrgs: jest.fn(),
+});
 const mockAnalyzeCommit = analyzeCommit as jest.Mock;
 const mockDbExecute = db.execute as jest.Mock;
 

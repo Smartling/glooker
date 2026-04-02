@@ -36,7 +36,19 @@ export interface UserActivity {
   prs:     PRInfo[];
 }
 
-const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
+export interface GitHubProvider {
+  listOrgMembers(org: string, log?: (msg: string) => void): Promise<OrgMember[]>;
+  fetchUserActivity(org: string, user: string, since: Date, log?: (msg: string) => void): Promise<UserActivity>;
+  listOrgs(): Promise<Array<{ login: string; avatar_url: string }>>;
+}
+
+let octokit: InstanceType<typeof Octokit> | null = null;
+function getOctokit() {
+  if (!octokit) {
+    octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
+  }
+  return octokit;
+}
 
 // ---------- Rate limit helpers ----------
 
@@ -108,7 +120,8 @@ export async function listOrgMembers(
   log?: (msg: string) => void,
 ): Promise<OrgMember[]> {
   const members: OrgMember[] = [];
-  for await (const res of octokit.paginate.iterator(octokit.orgs.listMembers, {
+  const kit = getOctokit();
+  for await (const res of kit.paginate.iterator(kit.orgs.listMembers, {
     org, per_page: 100,
   })) {
     members.push(...res.data.map((m) => ({
@@ -153,7 +166,7 @@ async function searchUserCommits(
   while (true) {
     await sleep(2500);
     const res = await withRetry(
-      () => octokit.search.commits({
+      () => getOctokit().search.commits({
         q: query, sort: 'committer-date', order: 'desc', per_page: 100, page,
       }),
       log,
@@ -195,7 +208,7 @@ async function searchUserMergedPRs(
   while (true) {
     await sleep(2500);
     const res = await withRetry(
-      () => octokit.search.issuesAndPullRequests({
+      () => getOctokit().search.issuesAndPullRequests({
         q: query, sort: 'updated', order: 'desc', per_page: 100, page,
       }),
       log,
@@ -227,7 +240,7 @@ async function getCommitDetail(
   log?: (msg: string) => void,
 ): Promise<{ additions: number; deletions: number; diff: string }> {
   const { data } = await withRetry(
-    () => octokit.repos.getCommit({ owner: org, repo, ref: sha }),
+    () => getOctokit().repos.getCommit({ owner: org, repo, ref: sha }),
     log,
   );
   const additions = data.stats?.additions || 0;
@@ -295,7 +308,7 @@ export async function fetchUserActivity(
       if (prBody === undefined) {
         try {
           const { data: prData } = await withRetry(
-            () => octokit.pulls.get({ owner: org, repo: raw.repo, pull_number: prNumber! }),
+            () => getOctokit().pulls.get({ owner: org, repo: raw.repo, pull_number: prNumber! }),
             log,
           );
           prBody = prData.body || '';
@@ -313,7 +326,7 @@ export async function fetchUserActivity(
       if (!ai.detected) {
         try {
           const { data: prCommits } = await withRetry(
-            () => octokit.pulls.listCommits({ owner: org, repo: raw.repo, pull_number: prNumber!, per_page: 50 }),
+            () => getOctokit().pulls.listCommits({ owner: org, repo: raw.repo, pull_number: prNumber!, per_page: 50 }),
             log,
           );
           for (const pc of prCommits) {
@@ -370,7 +383,7 @@ export async function fetchUserActivity(
       try {
         await sleep(1000); // lighter rate limiting for this secondary lookup
         const response: any = await withRetry(
-          () => (octokit as any).repos.listPullRequestsAssociatedWithCommit({
+          () => (getOctokit() as any).repos.listPullRequestsAssociatedWithCommit({
             owner: org,
             repo: commit.repo,
             commit_sha: commit.sha,
@@ -396,4 +409,32 @@ export async function fetchUserActivity(
   }
 
   return { commits, prs };
+}
+
+// ---------- Org listing ----------
+
+export async function listOrgs(): Promise<Array<{ login: string; avatar_url: string }>> {
+  const kit = getOctokit();
+  const orgs: Array<{ login: string; avatar_url: string }> = [];
+  for await (const res of kit.paginate.iterator(kit.orgs.listForAuthenticatedUser, { per_page: 100 })) {
+    orgs.push(...res.data.map((o: any) => ({ login: o.login, avatar_url: o.avatar_url || '' })));
+  }
+  return orgs;
+}
+
+// ---------- Provider factory ----------
+
+let cachedProvider: GitHubProvider | null = null;
+
+export function getGitHubProvider(): GitHubProvider {
+  if (cachedProvider) return cachedProvider;
+
+  if (process.env.GITHUB_PROVIDER === 'mock') {
+    const { createMockGitHubProvider } = require('./github-mock');
+    cachedProvider = createMockGitHubProvider();
+    return cachedProvider!;
+  }
+
+  cachedProvider = { listOrgMembers, fetchUserActivity, listOrgs };
+  return cachedProvider;
 }

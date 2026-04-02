@@ -644,7 +644,7 @@ function TimelineChart({
   const areaPath = `${linePath} L${points[points.length - 1].x},${padT + chartH} L${points[0].x},${padT + chartH} Z`;
 
   // X-axis labels: first, middle, last week
-  const labelIndices = [0, Math.floor(filtered.length / 2), filtered.length - 1];
+  const labelIndices = [...new Set([0, Math.floor(filtered.length / 2), filtered.length - 1])];
   const formatWeek = (w: string) => {
     const d = new Date(w + 'T00:00:00');
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });

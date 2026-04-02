@@ -2,20 +2,14 @@ jest.mock('@octokit/rest', () => ({
   Octokit: jest.fn(),
 }));
 
+jest.mock('@/lib/github', () => ({
+  getGitHubProvider: jest.fn(),
+}));
+
 import { listOrgs } from '@/lib/orgs/service';
-import { Octokit } from '@octokit/rest';
+import { getGitHubProvider } from '@/lib/github';
 
-const MockOctokit = Octokit as jest.MockedClass<typeof Octokit>;
-
-function makeAsyncIterable<T>(pages: T[]): AsyncIterable<T> {
-  return {
-    [Symbol.asyncIterator]: async function* () {
-      for (const page of pages) {
-        yield page;
-      }
-    },
-  };
-}
+const mockGetGitHubProvider = getGitHubProvider as jest.MockedFunction<typeof getGitHubProvider>;
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -23,19 +17,14 @@ beforeEach(() => {
 
 describe('listOrgs', () => {
   it('returns mapped org objects with login and avatar_url', async () => {
-    const mockIterator = makeAsyncIterable([
-      {
-        data: [
-          { login: 'acme', avatar_url: 'https://avatars.example.com/acme' },
-          { login: 'widgets-inc', avatar_url: 'https://avatars.example.com/widgets' },
-        ],
-      },
-    ]);
-
-    MockOctokit.mockImplementation(() => ({
-      orgs: { listForAuthenticatedUser: jest.fn() },
-      paginate: { iterator: jest.fn().mockReturnValue(mockIterator) },
-    }) as unknown as InstanceType<typeof Octokit>);
+    mockGetGitHubProvider.mockReturnValue({
+      listOrgs: jest.fn().mockResolvedValue([
+        { login: 'acme', avatar_url: 'https://avatars.example.com/acme' },
+        { login: 'widgets-inc', avatar_url: 'https://avatars.example.com/widgets' },
+      ]),
+      listOrgMembers: jest.fn(),
+      fetchUserActivity: jest.fn(),
+    });
 
     const orgs = await listOrgs();
 
@@ -46,19 +35,14 @@ describe('listOrgs', () => {
   });
 
   it('defaults avatar_url to empty string when missing or undefined', async () => {
-    const mockIterator = makeAsyncIterable([
-      {
-        data: [
-          { login: 'no-avatar', avatar_url: undefined },
-          { login: 'null-avatar', avatar_url: null },
-        ],
-      },
-    ]);
-
-    MockOctokit.mockImplementation(() => ({
-      orgs: { listForAuthenticatedUser: jest.fn() },
-      paginate: { iterator: jest.fn().mockReturnValue(mockIterator) },
-    }) as unknown as InstanceType<typeof Octokit>);
+    mockGetGitHubProvider.mockReturnValue({
+      listOrgs: jest.fn().mockResolvedValue([
+        { login: 'no-avatar', avatar_url: '' },
+        { login: 'null-avatar', avatar_url: '' },
+      ]),
+      listOrgMembers: jest.fn(),
+      fetchUserActivity: jest.fn(),
+    });
 
     const orgs = await listOrgs();
 
@@ -69,24 +53,15 @@ describe('listOrgs', () => {
   });
 
   it('handles pagination by collecting results from multiple pages', async () => {
-    const mockIterator = makeAsyncIterable([
-      {
-        data: [
-          { login: 'org-page1-a', avatar_url: 'https://avatars.example.com/a' },
-          { login: 'org-page1-b', avatar_url: 'https://avatars.example.com/b' },
-        ],
-      },
-      {
-        data: [
-          { login: 'org-page2-a', avatar_url: 'https://avatars.example.com/c' },
-        ],
-      },
-    ]);
-
-    MockOctokit.mockImplementation(() => ({
-      orgs: { listForAuthenticatedUser: jest.fn() },
-      paginate: { iterator: jest.fn().mockReturnValue(mockIterator) },
-    }) as unknown as InstanceType<typeof Octokit>);
+    mockGetGitHubProvider.mockReturnValue({
+      listOrgs: jest.fn().mockResolvedValue([
+        { login: 'org-page1-a', avatar_url: 'https://avatars.example.com/a' },
+        { login: 'org-page1-b', avatar_url: 'https://avatars.example.com/b' },
+        { login: 'org-page2-a', avatar_url: 'https://avatars.example.com/c' },
+      ]),
+      listOrgMembers: jest.fn(),
+      fetchUserActivity: jest.fn(),
+    });
 
     const orgs = await listOrgs();
 
@@ -99,12 +74,11 @@ describe('listOrgs', () => {
   });
 
   it('returns an empty array when there are no orgs', async () => {
-    const mockIterator = makeAsyncIterable([{ data: [] }]);
-
-    MockOctokit.mockImplementation(() => ({
-      orgs: { listForAuthenticatedUser: jest.fn() },
-      paginate: { iterator: jest.fn().mockReturnValue(mockIterator) },
-    }) as unknown as InstanceType<typeof Octokit>);
+    mockGetGitHubProvider.mockReturnValue({
+      listOrgs: jest.fn().mockResolvedValue([]),
+      listOrgMembers: jest.fn(),
+      fetchUserActivity: jest.fn(),
+    });
 
     const orgs = await listOrgs();
 

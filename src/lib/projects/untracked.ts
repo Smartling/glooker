@@ -1,5 +1,5 @@
 import { getJiraClient } from '@/lib/jira/client';
-import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit } from '@/lib/llm-provider';
+import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, promptTag } from '@/lib/llm-provider';
 import { loadPrompt } from '@/lib/prompt-loader';
 import db from '@/lib/db';
 
@@ -263,6 +263,7 @@ async function clusterCommits(teamName: string, commits: RawCommit[]): Promise<W
       { role: 'user', content: prompt },
     ],
     ...extraBodyProps(),
+    ...promptTag('untracked-work-system'),
   } as any);
 
   const raw = response.choices[0]?.message?.content || '{}';

@@ -251,6 +251,16 @@ function translateSQL(sql: string): string {
   // NOW() → datetime('now','localtime')
   s = s.replace(/NOW\(\)/gi, "datetime('now','localtime')");
 
+  // LEFT(col, N) → SUBSTR(col, 1, N)
+  s = s.replace(/LEFT\s*\(([^,]+),\s*(\d+)\)/gi, 'SUBSTR($1, 1, $2)');
+
+  // DATE_SUB(NOW(), INTERVAL N DAY) → datetime('now', '-N days')
+  s = s.replace(/DATE_SUB\s*\(\s*datetime\('now','localtime'\)\s*,\s*INTERVAL\s+(\d+)\s+DAY\s*\)/gi,
+    (_match, days) => `datetime('now', '-${days} days')`);
+  // Also handle case where NOW() hasn't been translated yet
+  s = s.replace(/DATE_SUB\s*\(\s*NOW\(\)\s*,\s*INTERVAL\s+(\d+)\s+DAY\s*\)/gi,
+    (_match, days) => `datetime('now', '-${days} days')`);
+
   // ON DUPLICATE KEY UPDATE ... VALUES(col) → ON CONFLICT(...) DO UPDATE SET col = excluded.col
   const odkuMatch = s.match(/ON\s+DUPLICATE\s+KEY\s+UPDATE\s+([\s\S]+)$/i);
   if (odkuMatch) {
@@ -268,6 +278,8 @@ function translateSQL(sql: string): string {
       team_members: 'team_id, github_login',
       jira_issues: 'report_id, issue_key',
       user_mappings: 'org, github_login',
+      epic_summaries: 'epic_key, org',
+      untracked_summaries: 'team_name, org',
       release_notes: 'latest_commit_sha',
     };
     const conflict = conflictCols[table] || 'id';

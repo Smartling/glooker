@@ -14,6 +14,7 @@ jest.mock('@/lib/llm-provider', () => ({
   LLM_MODEL: 'test-model',
   extraBodyProps: jest.fn().mockReturnValue({}),
   tokenLimit: (n: number) => ({ max_completion_tokens: n }),
+  promptTag: (name: string) => name ? { __prompt_id: name } : {},
 }));
 jest.mock('@/lib/prompt-loader', () => ({
   loadPrompt: jest.fn().mockReturnValue('test prompt'),

@@ -14,8 +14,15 @@ interface EnvRule {
   validate?: (value: string) => string | null;
 }
 
-const VALID_LLM_PROVIDERS = ['openai', 'anthropic', 'openai-compatible', 'smartling', 'bedrock'];
+const VALID_LLM_PROVIDERS = ['openai', 'anthropic', 'openai-compatible', 'smartling', 'bedrock', 'mock'];
 const VALID_DB_TYPES = ['sqlite', 'mysql'];
+const VALID_JIRA_PROVIDERS = ['mock'];
+const VALID_GITHUB_PROVIDERS = ['mock'];
+
+function isMockProvider(service: 'llm' | 'jira' | 'github'): boolean {
+  const envMap = { llm: 'LLM_PROVIDER', jira: 'JIRA_PROVIDER', github: 'GITHUB_PROVIDER' };
+  return process.env[envMap[service]] === 'mock';
+}
 
 const rules: EnvRule[] = [
   // ---- Required ----
@@ -64,6 +71,20 @@ const rules: EnvRule[] = [
         ? null
         : 'must be true or false',
   },
+  {
+    name: 'JIRA_PROVIDER',
+    required: false,
+    description: `Jira provider (${VALID_JIRA_PROVIDERS.join(', ')})`,
+    validate: (v) =>
+      VALID_JIRA_PROVIDERS.includes(v) ? null : `must be one of: ${VALID_JIRA_PROVIDERS.join(', ')}`,
+  },
+  {
+    name: 'GITHUB_PROVIDER',
+    required: false,
+    description: `GitHub provider (${VALID_GITHUB_PROVIDERS.join(', ')})`,
+    validate: (v) =>
+      VALID_GITHUB_PROVIDERS.includes(v) ? null : `must be one of: ${VALID_GITHUB_PROVIDERS.join(', ')}`,
+  },
 ];
 
 /**
@@ -94,7 +115,7 @@ const conditionalRules: {
     ],
   },
   {
-    when: () => process.env.JIRA_ENABLED === 'true',
+    when: () => process.env.JIRA_ENABLED === 'true' && !isMockProvider('jira'),
     featureLabel: 'JIRA_ENABLED=true',
     vars: [
       { name: 'JIRA_HOST', description: 'Jira Cloud hostname (e.g. mycompany.atlassian.net)' },
@@ -120,8 +141,11 @@ export function validateEnv(): void {
   for (const rule of rules) {
     const value = process.env[rule.name];
 
+    // Skip required check for GITHUB_TOKEN when using mock GitHub
+    const isRequired = rule.name === 'GITHUB_TOKEN' ? !isMockProvider('github') : rule.required;
+
     if (!value || value.trim() === '') {
-      if (rule.required) {
+      if (isRequired) {
         errors.push(`  - ${rule.name}: missing (${rule.description})`);
       }
       continue;

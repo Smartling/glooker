@@ -63,3 +63,12 @@ Glooker is a Next.js 15 web app that generates developer impact reports for a Gi
 - `AUTH_ENABLED=true` enables user profile feature — extracts identity from ALB OIDC JWT header (`x-amzn-oidc-data` by default). Requires `user_mappings` table populated (via Jira auto-discovery) for full GitHub profile linking. Off by default — zero impact when disabled.
 - `AUTH_ADMIN_GROUP` defines which Okta group grants admin role. When `AUTH_ENABLED=true` but `AUTH_ADMIN_GROUP` is empty, all users are viewers and all mutating APIs return 403. This is a safe default but will block report generation — always set `AUTH_ADMIN_GROUP` alongside `AUTH_ENABLED`.
 - Admin/viewer role is derived from JWT `groups` claim on every request — no DB storage. Changing a user's Okta groups takes effect on their next page load.
+
+## Local Development (Mock Mode)
+
+- `npm run seed` populates SQLite with test data; `npm run seed:reset` wipes and re-seeds
+- `npm run dev:mock` starts the server with all external services mocked (GitHub, Jira, LLM)
+- Mock providers: `GITHUB_PROVIDER=mock`, `JIRA_PROVIDER=mock`, `LLM_PROVIDER=mock` — each independent
+- When adding or modifying database tables, API response shapes, or page data requirements: update `scripts/seed-data.ts` and `scripts/mock-identities.ts` if new entities are introduced
+- When adding a new LLM prompt template, add a `promptTag()` call at the call site and a corresponding fixture response in `src/lib/llm-mock.ts`
+- Mock entities (developers, teams, epics) are defined in `scripts/mock-identities.ts` — single source of truth for both seed and mock providers

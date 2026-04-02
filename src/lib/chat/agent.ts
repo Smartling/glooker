@@ -1,4 +1,4 @@
-import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit } from '@/lib/llm-provider';
+import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, promptTag } from '@/lib/llm-provider';
 import { loadPrompt } from '@/lib/prompt-loader';
 import { getAppConfig } from '@/lib/app-config/service';
 import { TOOL_DEFINITIONS, executeTool } from './tools';
@@ -38,6 +38,7 @@ export async function runChatAgent(
       ...tokenLimit(getAppConfig().chatAgent.maxTokens),
       messages: conversation,
       ...extraBodyProps(),
+      ...promptTag('chat-agent-system'),
     } as any);
 
     const content = response.choices[0]?.message?.content || '';
