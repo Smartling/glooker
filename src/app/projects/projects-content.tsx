@@ -49,8 +49,11 @@ interface UntrackedTeam {
   totalCommits: number;
 }
 
+type StatusTab = 'In Progress' | 'Rollout' | 'Done';
+
 export default function ProjectsContent() {
   const { canAct } = useAuth();
+  const [activeTab, setActiveTab] = useState<StatusTab>('In Progress');
   const [epics, setEpics] = useState<ProjectEpic[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -118,7 +121,12 @@ export default function ProjectsContent() {
   useEffect(() => {
     if (!org) return;
     setLoading(true);
-    fetch(`/api/projects?org=${encodeURIComponent(org)}`)
+    setEpics([]);
+    setRingStats({});
+    setUntrackedTeams([]);
+    const params = new URLSearchParams({ org });
+    if (activeTab !== 'In Progress') params.set('status', activeTab);
+    fetch(`/api/projects?${params}`)
       .then(r => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
@@ -126,7 +134,7 @@ export default function ProjectsContent() {
       .then(data => { setEpics(data.epics); setJiraHost(data.jiraHost); })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
-  }, [org]);
+  }, [org, activeTab]);
 
   useEffect(() => {
     if (!org || epics.length === 0) return;
@@ -298,7 +306,7 @@ export default function ProjectsContent() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-white">Projects</h1>
-          <p className="text-gray-400 text-sm mt-1">In-progress epics from Jira</p>
+          <p className="text-gray-400 text-sm mt-1">Epics from Jira</p>
         </div>
         <a
           href="/"
@@ -308,8 +316,28 @@ export default function ProjectsContent() {
         </a>
       </div>
 
-      {loading && <div className="text-gray-500 py-8">Loading projects from Jira...</div>}
       {error && <div className="text-red-400 py-8">Error: {error}</div>}
+
+      {/* Status tabs — always visible once org is loaded */}
+      {!error && org && (
+        <div className="flex items-center gap-1 mb-4">
+          {(['In Progress', 'Rollout', 'Done'] as StatusTab[]).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                activeTab === tab
+                  ? 'bg-accent/20 text-accent-lighter border border-accent/30'
+                  : 'text-gray-500 hover:text-gray-300 bg-gray-900 hover:bg-gray-800 border border-gray-800'
+              }`}
+            >
+              {tab}{tab === 'Done' ? ' (30d)' : ''}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {loading && <div className="text-gray-500 py-8">Loading projects from Jira...</div>}
 
       {!loading && !error && epics.length > 0 && (
         <>
@@ -542,8 +570,8 @@ export default function ProjectsContent() {
                       </tr>
                     );
                   })}
-                  {/* Not in Project rows */}
-                  {(() => {
+                  {/* Not in Project rows — only on In Progress tab */}
+                  {activeTab === 'In Progress' && (() => {
                     const filtered = untrackedTeams.filter(t => {
                       if (filterGoal && filterGoal !== 'Not in Project') return false;
                       if (filterTeam && filterTeam !== '__none__' && filterTeam !== t.name) return false;
@@ -681,7 +709,7 @@ export default function ProjectsContent() {
                   {filteredEpics.length}{filteredEpics.length !== epics.length ? ` of ${epics.length}` : ''} epic{filteredEpics.length !== 1 ? 's' : ''}
                   {untrackedTeams.length > 0 && ` · ${untrackedTeams.length} team${untrackedTeams.length !== 1 ? 's' : ''} with untracked work`}
                 </span>
-                {untrackedTeams.length === 0 && !untrackedLoading && (
+                {activeTab === 'In Progress' && untrackedTeams.length === 0 && !untrackedLoading && (
                   <button
                     onClick={() => loadUntracked()}
                     className="text-xs text-gray-500 hover:text-gray-300 bg-gray-800 hover:bg-gray-700 px-2.5 py-1 rounded border border-gray-700 transition-colors"
@@ -699,7 +727,7 @@ export default function ProjectsContent() {
       )}
 
       {!loading && !error && epics.length === 0 && (
-        <div className="text-gray-500 py-8">No epics found matching the configured JQL.</div>
+        <div className="text-gray-500 py-8">No epics with status &ldquo;{activeTab}&rdquo;{activeTab === 'Done' ? ' in the last 30 days' : ''}.</div>
       )}
     </div>
   );
