@@ -51,7 +51,7 @@ export async function getEpicRingStats(epicKey: string, org: string): Promise<Ep
   const children = await client.searchChildIssues(epicKey);
 
   const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - 14);
+  cutoff.setDate(cutoff.getDate() - 90);
   const cutoffStr = cutoff.toISOString().slice(0, 10);
 
   const resolved = children.filter(
@@ -129,7 +129,7 @@ async function getCommitCounts(
      FROM commit_analyses ca
      JOIN reports r ON r.id = ca.report_id
      WHERE r.org = ? AND r.status = 'completed'
-     AND ca.committed_at >= DATE_SUB(NOW(), INTERVAL 14 DAY)
+     AND ca.committed_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
      AND (${likeClauses})`,
     [org, ...likeValues],
   ) as [any[], any];
@@ -181,7 +181,7 @@ async function getCommitCounts(
      FROM commit_analyses ca
      JOIN reports r ON r.id = ca.report_id
      WHERE r.org = ? AND r.status = 'completed'
-     AND ca.committed_at >= DATE_SUB(NOW(), INTERVAL 14 DAY)
+     AND ca.committed_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
      AND (${conditions.join(' OR ')})`,
     params,
   ) as [any[], any];

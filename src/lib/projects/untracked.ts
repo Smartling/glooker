@@ -165,7 +165,7 @@ async function getTrackedEpicRepos(org: string, prefixes: string[]): Promise<str
        FROM commit_analyses ca
        JOIN reports r ON r.id = ca.report_id
        WHERE r.org = ? AND r.status = 'completed'
-       AND ca.committed_at >= DATE_SUB(NOW(), INTERVAL 14 DAY)
+       AND ca.committed_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
        AND (${likeClauses})
        GROUP BY ca.repo
        HAVING cnt >= 3`,
@@ -215,7 +215,7 @@ async function getTeamUntrackedCommits(members: string[], org: string, excludedP
      JOIN reports r ON r.id = ca.report_id
      WHERE r.org = ? AND r.status = 'completed'
      AND ca.github_login IN (${memberPlaceholders})
-     AND ca.committed_at >= DATE_SUB(NOW(), INTERVAL 14 DAY)
+     AND ca.committed_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
      AND ${prefixClauses}
      ${repoClause}
      GROUP BY ca.commit_sha, ca.repo, ca.github_login, ca.commit_message, ca.lines_added, ca.lines_removed`,

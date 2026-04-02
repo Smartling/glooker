@@ -4,7 +4,7 @@ Summarize this epic's progress in ONE short sentence. Use this exact pattern:
 
 Rules:
 - Maximum 40 words total
-- Start with a short clause about WHAT was accomplished, not "Over the past 14 days"
+- Start with a short clause about WHAT was accomplished, not "Over the past 90 days"
 - Use approximate numbers for lines (e.g., ~7.3K not 7,248)
 - Remaining tasks: list 2-3 keywords only, not full titles
 - No filler words, no "significant progress", no "notable advancement"
