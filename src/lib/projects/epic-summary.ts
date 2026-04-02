@@ -3,6 +3,7 @@ import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit } from '@/lib/llm-p
 import { loadPrompt } from '@/lib/prompt-loader';
 import { getAppConfig } from '@/lib/app-config/service';
 import db from '@/lib/db';
+import { getEpicRingStats, evictEpicStats } from './epic-stats';
 
 export interface CommitDetail {
   sha: string;
@@ -40,39 +41,59 @@ export async function getEpicSummary(
   org: string,
   forceRefresh: boolean,
 ): Promise<EpicSummaryResult> {
-  // 1. Gather Jira + commit data (always needed for commit details)
-  const { resolved, remaining, allKeys, assigneeEmails } = await getJiraChildData(epicKey);
-  const commitStats = await getCommitStats(epicKey, allKeys, assigneeEmails, org);
+  // 1. On force refresh, evict both caches before recomputing
+  if (forceRefresh) {
+    await evictEpicStats(epicKey, org);
+    await db.execute(
+      `DELETE FROM epic_summaries WHERE epic_key = ? AND org = ?`,
+      [epicKey, org],
+    );
+  }
 
-  // 2. Check cache for the LLM summary (unless force refresh)
+  // 2. Get stats from the stats service (cached or fresh)
+  const ringStats = await getEpicRingStats(epicKey, org);
+
+  const stats = {
+    jiraResolved: ringStats.resolvedJiras,
+    jiraRemaining: ringStats.remainingJiras,
+    commitCount: ringStats.commitCount,
+    linesAdded: ringStats.linesAdded,
+    linesRemoved: ringStats.linesRemoved,
+    repos: ringStats.repos,
+  };
+
+  // 3. Fetch Jira child data (task titles needed for the LLM prompt)
+  const { resolved, remaining, allKeys, assigneeEmails } = await getJiraChildData(epicKey);
+
+  // 4. Fetch commit details for the expand view
+  const commits = await getCommitDetails(epicKey, allKeys, assigneeEmails, org);
+
+  // 5. Check epic_summaries cache for LLM summary (unless force refresh)
   if (!forceRefresh) {
     const cached = await getCachedSummary(epicKey, org);
     if (cached) {
-      cached.commits = commitStats.commits;
+      cached.commits = commits;
+      cached.stats = stats; // use fresh stats from stats service
       return cached;
     }
   }
 
-  // 3. Generate summary via LLM
-  const summaryText = await generateSummary(epicKey, epicSummaryText, resolved, remaining, commitStats);
+  // 6. Generate summary via LLM
+  const summaryText = await generateSummary(epicKey, epicSummaryText, resolved, remaining, {
+    commitCount: ringStats.commitCount,
+    linesAdded: ringStats.linesAdded,
+    linesRemoved: ringStats.linesRemoved,
+    repos: ringStats.repos,
+  });
 
-  // 4. Store in cache
-  const stats = {
-    jiraResolved: resolved.length,
-    jiraRemaining: remaining.length,
-    commitCount: commitStats.commitCount,
-    linesAdded: commitStats.linesAdded,
-    linesRemoved: commitStats.linesRemoved,
-    repos: commitStats.repos,
-  };
-
+  // 7. Store in epic_summaries cache
   await storeSummary(epicKey, org, summaryText, stats);
 
   return {
     epicKey,
     summary: summaryText,
     stats,
-    commits: commitStats.commits,
+    commits,
     generatedAt: new Date().toISOString(),
     cached: false,
   };
@@ -110,7 +131,7 @@ async function getCachedSummary(epicKey: string, org: string): Promise<EpicSumma
   };
 }
 
-async function getJiraChildData(epicKey: string) {
+export async function getJiraChildData(epicKey: string) {
   const client = getJiraClient();
   if (!client) throw new Error('Jira is not configured');
 
@@ -132,17 +153,13 @@ async function getJiraChildData(epicKey: string) {
   return { resolved, remaining, allKeys, assigneeEmails };
 }
 
-interface CommitStats {
-  commitCount: number;
-  linesAdded: number;
-  linesRemoved: number;
-  repos: string[];
-  commits: CommitDetail[];
-}
-
-async function getCommitStats(epicKey: string, childKeys: string[], assigneeEmails: string[], org: string): Promise<CommitStats> {
+export async function getCommitDetails(
+  epicKey: string,
+  childKeys: string[],
+  assigneeEmails: string[],
+  org: string,
+): Promise<CommitDetail[]> {
   // Phase 1: Find repos and developers from commits that reference any issue key.
-  // This seeds the search — many commits won't reference a Jira key at all.
   const allKeys = [epicKey, ...childKeys];
   const likeClauses = allKeys.map(() => 'ca.commit_message LIKE ?').join(' OR ');
   const likeValues = allKeys.map(k => `%${k}%`);
@@ -175,9 +192,8 @@ async function getCommitStats(epicKey: string, childKeys: string[], assigneeEmai
   }
 
   // Phase 2: Get ALL commits by those developers in those repos in the 14-day window.
-  // This catches commits that don't reference any Jira key.
   if (seedRepos.size === 0 && seedLogins.size === 0) {
-    return { commitCount: 0, linesAdded: 0, linesRemoved: 0, repos: [], commits: [] };
+    return [];
   }
 
   const conditions: string[] = [];
@@ -215,17 +231,11 @@ async function getCommitStats(epicKey: string, childKeys: string[], assigneeEmai
 
   // Deduplicate by commit_sha (same commit appears in multiple reports)
   const seen = new Set<string>();
-  const repos = new Set<string>();
-  let linesAdded = 0;
-  let linesRemoved = 0;
   const commits: CommitDetail[] = [];
 
   for (const row of rows) {
     if (seen.has(row.commit_sha)) continue;
     seen.add(row.commit_sha);
-    repos.add(row.repo);
-    linesAdded += Number(row.lines_added);
-    linesRemoved += Number(row.lines_removed);
     commits.push({
       sha: row.commit_sha,
       repo: row.repo,
@@ -239,13 +249,7 @@ async function getCommitStats(epicKey: string, childKeys: string[], assigneeEmai
     });
   }
 
-  return {
-    commitCount: commits.length,
-    linesAdded,
-    linesRemoved,
-    repos: Array.from(repos).sort(),
-    commits,
-  };
+  return commits;
 }
 
 async function generateSummary(
@@ -253,7 +257,7 @@ async function generateSummary(
   epicSummaryText: string,
   resolved: Array<{ key: string; summary: string }>,
   remaining: Array<{ key: string; summary: string }>,
-  stats: CommitStats,
+  stats: { commitCount: number; linesAdded: number; linesRemoved: number; repos: string[] },
 ): Promise<string> {
   const resolvedList = resolved.length > 0
     ? resolved.map(r => `${r.key}: ${r.summary}`).join('\n')

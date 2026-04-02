@@ -18,15 +18,22 @@ jest.mock('@/lib/app-config/service', () => ({
     summary: { temperature: 0.7, maxTokens: 512 },
   }),
 }));
+jest.mock('@/lib/projects/epic-stats', () => ({
+  getEpicRingStats: jest.fn(),
+  evictEpicStats: jest.fn(),
+}));
 
 import { getEpicSummary } from '@/lib/projects/epic-summary';
 import { getJiraClient } from '@/lib/jira/client';
 import db from '@/lib/db/index';
 import { getLLMClient } from '@/lib/llm-provider';
+import { getEpicRingStats, evictEpicStats } from '@/lib/projects/epic-stats';
 
 const mockGetJiraClient = getJiraClient as jest.Mock;
 const mockDbExecute = db.execute as jest.Mock;
 const mockGetLLMClient = getLLMClient as jest.Mock;
+const mockGetEpicRingStats = getEpicRingStats as jest.Mock;
+const mockEvictEpicStats = evictEpicStats as jest.Mock;
 
 // Helper to build a mock Jira client with configurable children
 function makeMockJiraClient(children: Array<{
@@ -88,6 +95,19 @@ function makeMockLLMClient() {
 beforeEach(() => {
   jest.clearAllMocks();
   mockDbExecute.mockResolvedValue([[], null]);
+  mockGetEpicRingStats.mockResolvedValue({
+    epicKey: 'SPS-1',
+    totalJiras: 5,
+    resolvedJiras: 3,
+    remainingJiras: 2,
+    commitCount: 10,
+    devCount: 2,
+    linesAdded: 500,
+    linesRemoved: 100,
+    repos: ['repo-a'],
+    cached: false,
+  });
+  mockEvictEpicStats.mockResolvedValue(undefined);
 });
 
 // Helper: build a cache row with generated_at as a MySQL-style datetime string
@@ -246,6 +266,8 @@ describe('getEpicSummary — force refresh', () => {
     mockGetLLMClient.mockResolvedValue(mockLLMClient);
 
     mockDbExecute
+      // DELETE FROM epic_summaries (forceRefresh=true evicts DB cache)
+      .mockResolvedValueOnce([{ affectedRows: 0 }, null])
       // Phase 1 seed → no key-matching commits
       .mockResolvedValueOnce([[], null])
       // user_mappings for dev@acme.com → returns a login to seed phase 2
@@ -261,6 +283,8 @@ describe('getEpicSummary — force refresh', () => {
     expect(result.cached).toBe(false);
     expect(result.summary).toBe('Test summary sentence.');
     expect(mockGetLLMClient).toHaveBeenCalledTimes(1);
+    // evictEpicStats should have been called
+    expect(mockEvictEpicStats).toHaveBeenCalledWith('EPIC-1', 'acme');
 
     // Verify no SELECT from epic_summaries was issued
     const cacheSelectCall = mockDbExecute.mock.calls.find(
@@ -319,6 +343,20 @@ describe('getEpicSummary — commit deduplication', () => {
       .mockResolvedValueOnce([[], null])
       // INSERT
       .mockResolvedValueOnce([{ affectedRows: 1 }, null]);
+
+    // Override stats mock for this test to match expected values
+    mockGetEpicRingStats.mockResolvedValueOnce({
+      epicKey: 'EPIC-1',
+      totalJiras: 0,
+      resolvedJiras: 0,
+      remainingJiras: 0,
+      commitCount: 1,
+      devCount: 1,
+      linesAdded: 200,
+      linesRemoved: 40,
+      repos: ['acme/my-repo'],
+      cached: false,
+    });
 
     const result = await getEpicSummary('EPIC-1', 'Epic title', 'acme', false);
 
@@ -417,6 +455,20 @@ describe('getEpicSummary — empty Jira children', () => {
 
     const mockLLMClient = makeMockLLMClient();
     mockGetLLMClient.mockResolvedValue(mockLLMClient);
+
+    // Override stats mock to return zero values for this empty-state test
+    mockGetEpicRingStats.mockResolvedValueOnce({
+      epicKey: 'EPIC-1',
+      totalJiras: 0,
+      resolvedJiras: 0,
+      remainingJiras: 0,
+      commitCount: 0,
+      devCount: 0,
+      linesAdded: 0,
+      linesRemoved: 0,
+      repos: [],
+      cached: false,
+    });
 
     mockDbExecute
       // Phase 1 seed: EPIC-1 key only, no matching commits

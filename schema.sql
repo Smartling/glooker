@@ -165,5 +165,21 @@ CREATE TABLE IF NOT EXISTS untracked_summaries (
   UNIQUE KEY uq_team_org (team_name, org)
 );
 
+CREATE TABLE IF NOT EXISTS epic_stats (
+  id              INT AUTO_INCREMENT PRIMARY KEY,
+  epic_key        VARCHAR(20)  NOT NULL,
+  org             VARCHAR(255) NOT NULL,
+  total_jiras     INT          NOT NULL DEFAULT 0,
+  resolved_jiras  INT          NOT NULL DEFAULT 0,
+  remaining_jiras INT          NOT NULL DEFAULT 0,
+  commit_count    INT          NOT NULL DEFAULT 0,
+  dev_count       INT          NOT NULL DEFAULT 0,
+  lines_added     INT          NOT NULL DEFAULT 0,
+  lines_removed   INT          NOT NULL DEFAULT 0,
+  repos           TEXT         NULL,
+  generated_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_epic_stats_org (epic_key, org)
+);
+
 CREATE INDEX idx_devstats_login ON developer_stats(github_login);
 CREATE INDEX idx_reports_org_status_created ON reports(org, status, created_at);

@@ -85,32 +85,78 @@ Loaded on-demand via "Show work outside projects" button (admin only).
 - Active filters shown as accent-colored pills with × dismiss
 - Filters apply to both epic rows and untracked rows
 
+### 4. Epic stats / Progress rings (`GET /api/projects/[key]/stats?org=<org>`)
+
+**Source:** `src/app/api/projects/[key]/stats/route.ts` → `src/lib/projects/epic-stats.ts`
+
+Loaded in parallel on page load — frontend fires one fetch per epic simultaneously. Rings appear progressively as each resolves.
+
+1. **Cache check:** Reads `epic_stats` table. Returns cached if < 24h old.
+2. **On cache miss:** Calls `client.searchChildIssues(epicKey)` for Jira child counts, then runs two-phase commit query (same logic as epic summaries) for commit/dev counts.
+3. **Upserts** into `epic_stats` table.
+
+**What the rings show:**
+- **Ring size** = overall volume (`totalJiras + commitCount + devCount`, normalized to the largest epic on the page)
+- **Outer ring (amber)** = % of Jira child tasks closed (`resolvedJiras / totalJiras`)
+- **Inner ring (green)** = commit progress (`actualCommits / expectedCommits`, where `expected = totalJiras × avgCommitsPerJira`, capped at 100%)
+- **Center number** = developer count
+- **Hover tooltip** = exact numbers
+
+**`avgCommitsPerJira`** is computed client-side from the aggregate of all loaded stats across epics. Updates as more stats arrive.
+
+**Relationship to epic summaries:** The epic summary service (`getEpicSummary`) calls `getEpicRingStats()` for its stats instead of computing them independently. On summary refresh (`forceRefresh=true`), both `epic_stats` and `epic_summaries` caches are evicted and recomputed.
+
 ## Database tables
 
+### `epic_stats`
+Caches lightweight ring metrics per epic. Key: `(epic_key, org)`. TTL: 24h. Fields: `total_jiras`, `resolved_jiras`, `remaining_jiras`, `commit_count`, `dev_count`, `lines_added`, `lines_removed`, `repos`.
+
 ### `epic_summaries`
-Caches LLM-generated epic summaries. Key: `(epic_key, org)`. TTL: 24h.
+Caches LLM-generated epic summaries. Key: `(epic_key, org)`. TTL: 24h. Uses stats from `epic_stats` — not independent.
 
 ### `untracked_summaries`
 Caches LLM-clustered work groups per team. Key: `(team_name, org)`. TTL: 24h.
 
-Both tables auto-create on startup via `src/lib/db/mysql.ts` and `src/lib/db/sqlite.ts`.
+All tables auto-create on startup via `src/lib/db/mysql.ts` and `src/lib/db/sqlite.ts`.
+
+## Cache architecture
+
+```
+epic_stats (lightweight, fast)          epic_summaries (LLM-generated)
+┌─────────────────────────────┐        ┌────────────────────────────┐
+│ total_jiras, resolved_jiras │        │ summary_text               │
+│ commit_count, dev_count     │◄───────│ (calls getEpicRingStats)   │
+│ lines_added, lines_removed  │        │ jira_resolved, commit_count│
+│ repos, generated_at         │        │ lines_added, repos         │
+└─────────────────────────────┘        └────────────────────────────┘
+        ▲                                       ▲
+        │ cache hit: 1 DB read                  │ cache hit: 1 DB read + stats
+        │ cache miss: 1 Jira + 2-3 DB          │ cache miss: stats + 1 LLM call
+        │                                       │
+  /api/projects/[key]/stats          /api/projects/[key]/summary
+  (rings, page load)                 (chevron click)
+
+  On refresh (summary): evict BOTH tables → recompute stats → LLM → cache both
+```
 
 ## Prompt templates
 
 - `prompts/epic-summary-system.txt` — strict pattern: `[What] — [N] tasks resolved, [N] commits across [repos] (~[net]K lines), [N] remaining ([list]).`
-- `prompts/untracked-work-system.txt` — clusters commits into 2-5 named groups, returns JSON with name, summary, commitCount, repos, linesAdded, linesRemoved.
+- `prompts/untracked-work-system.txt` — clusters commits into 2-5 named groups, returns JSON with name, summary, commit_shas per group.
 
 ## Key files
 
 | File | Purpose |
 |------|---------|
 | `src/app/projects/page.tsx` | Server component, feature gate |
-| `src/app/projects/projects-content.tsx` | Client component, table + filters + expand |
+| `src/app/projects/projects-content.tsx` | Client component, table + filters + rings + expand |
 | `src/app/api/projects/route.ts` | Epic list endpoint |
-| `src/app/api/projects/[key]/summary/route.ts` | Epic summary endpoint |
+| `src/app/api/projects/[key]/stats/route.ts` | Epic ring stats endpoint (no LLM) |
+| `src/app/api/projects/[key]/summary/route.ts` | Epic summary endpoint (LLM) |
 | `src/app/api/projects/untracked/route.ts` | Untracked work endpoint |
 | `src/lib/projects/service.ts` | Epic list service (Jira + team mapping) |
-| `src/lib/projects/epic-summary.ts` | Epic summary service (Jira + commits + LLM) |
+| `src/lib/projects/epic-stats.ts` | Epic stats service (Jira counts + commit/dev counts, cached) |
+| `src/lib/projects/epic-summary.ts` | Epic summary service (uses stats + LLM) |
 | `src/lib/projects/untracked.ts` | Untracked work service (commits + LLM clustering) |
 | `src/lib/jira/client.ts` | `searchEpics()`, `searchChildIssues()` methods |
 

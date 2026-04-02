@@ -173,6 +173,22 @@ CREATE TABLE IF NOT EXISTS untracked_summaries (
   UNIQUE (team_name, org)
 );
 
+CREATE TABLE IF NOT EXISTS epic_stats (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  epic_key        TEXT    NOT NULL,
+  org             TEXT    NOT NULL,
+  total_jiras     INTEGER NOT NULL DEFAULT 0,
+  resolved_jiras  INTEGER NOT NULL DEFAULT 0,
+  remaining_jiras INTEGER NOT NULL DEFAULT 0,
+  commit_count    INTEGER NOT NULL DEFAULT 0,
+  dev_count       INTEGER NOT NULL DEFAULT 0,
+  lines_added     INTEGER NOT NULL DEFAULT 0,
+  lines_removed   INTEGER NOT NULL DEFAULT 0,
+  repos           TEXT,
+  generated_at    TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+  UNIQUE (epic_key, org)
+);
+
 CREATE TABLE IF NOT EXISTS release_notes (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   latest_commit_sha TEXT    NOT NULL,
