@@ -247,17 +247,17 @@ describe('getEpicRingStats — cache miss', () => {
 // ─── 3. Resolved vs remaining Jira counting ──────────────────────────────────
 
 describe('getEpicRingStats — Jira counting', () => {
-  // The cutoff date is NOW() - 14 days. We use a recent date to ensure
+  // The cutoff date is NOW() - 90 days. We use a recent date to ensure
   // resolved issues within the window are counted as resolvedJiras.
   function recentDate() {
     const d = new Date();
-    d.setDate(d.getDate() - 7); // 7 days ago — within the 14-day window
+    d.setDate(d.getDate() - 7); // 7 days ago — within the 90-day window
     return d.toISOString().slice(0, 10);
   }
 
   function oldDate() {
     const d = new Date();
-    d.setDate(d.getDate() - 30); // 30 days ago — outside the 14-day window
+    d.setDate(d.getDate() - 120); // 120 days ago — outside the 90-day window
     return d.toISOString().slice(0, 10);
   }
 
@@ -287,7 +287,7 @@ describe('getEpicRingStats — Jira counting', () => {
     expect(result.remainingJiras).toBe(1);
   });
 
-  it('does not count resolved issues outside 14-day window as resolved', async () => {
+  it('does not count resolved issues outside 90-day window as resolved', async () => {
     setupForCounting([
       makeChild('EPIC-1-01', { statusCategory: 'Done', resolvedAt: oldDate() }),
       makeChild('EPIC-1-02', { statusCategory: 'In Progress' }),
@@ -295,7 +295,7 @@ describe('getEpicRingStats — Jira counting', () => {
 
     const result = await getEpicRingStats('EPIC-1', 'acme');
 
-    // EPIC-1-01 was resolved but outside the window → resolvedJiras = 0
+    // EPIC-1-01 was resolved but outside the 90-day window → resolvedJiras = 0
     expect(result.totalJiras).toBe(2);
     expect(result.resolvedJiras).toBe(0);
     expect(result.remainingJiras).toBe(1);
