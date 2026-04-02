@@ -318,28 +318,9 @@ export default function ProjectsContent() {
 
       {error && <div className="text-red-400 py-8">Error: {error}</div>}
 
-      {/* Status tabs — always visible once org is loaded */}
-      {!error && org && (
-        <div className="flex items-center gap-1 mb-4">
-          {(['In Progress', 'Rollout', 'Done'] as StatusTab[]).map(tab => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                activeTab === tab
-                  ? 'bg-accent/20 text-accent-lighter border border-accent/30'
-                  : 'text-gray-500 hover:text-gray-300 bg-gray-900 hover:bg-gray-800 border border-gray-800'
-              }`}
-            >
-              {tab}{tab === 'Done' ? ' (30d)' : ''}
-            </button>
-          ))}
-        </div>
-      )}
-
       {loading && <div className="text-gray-500 py-8">Loading projects from Jira...</div>}
 
-      {!loading && !error && epics.length > 0 && (
+      {!loading && !error && org && (
         <>
           {/* Filters */}
           <div className="flex items-center gap-3 mb-4 flex-wrap">
@@ -392,7 +373,29 @@ export default function ProjectsContent() {
             )}
           </div>
 
-          {filteredEpics.length === 0 ? (
+          {/* Status tabs — below filters */}
+          <div className="flex border-b border-gray-800 mb-4">
+            {(['In Progress', 'Rollout', 'Done'] as StatusTab[]).map(tab => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`px-4 py-2 text-xs font-medium transition-colors relative ${
+                  activeTab === tab
+                    ? 'text-accent-lighter'
+                    : 'text-gray-500 hover:text-gray-300'
+                }`}
+              >
+                {tab}{tab === 'Done' ? ' (30d)' : ''}
+                {activeTab === tab && (
+                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-accent-light rounded-t" />
+                )}
+              </button>
+            ))}
+          </div>
+
+          {epics.length === 0 ? (
+            <div className="text-gray-500 py-8">No epics with status &ldquo;{activeTab}&rdquo;{activeTab === 'Done' ? ' in the last 30 days' : ''}.</div>
+          ) : filteredEpics.length === 0 ? (
             <div className="text-gray-500 py-8">No epics match the selected filters.</div>
           ) : (
             <div className="overflow-x-auto rounded-lg border border-gray-800">
@@ -726,9 +729,6 @@ export default function ProjectsContent() {
         </>
       )}
 
-      {!loading && !error && epics.length === 0 && (
-        <div className="text-gray-500 py-8">No epics with status &ldquo;{activeTab}&rdquo;{activeTab === 'Done' ? ' in the last 30 days' : ''}.</div>
-      )}
     </div>
   );
 }
