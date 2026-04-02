@@ -65,9 +65,7 @@ export default function ProjectsContent() {
   const [filterGoal, setFilterGoal] = useState<string>('');
   const [filterInitiative, setFilterInitiative] = useState<string>('');
 
-  // Hover state for grouped rows
-  const [hoveredGoal, setHoveredGoal] = useState<string | null>(null);
-  const [hoveredInit, setHoveredInit] = useState<string | null>(null);
+  // Hover state for row highlight
   const [hoveredEpic, setHoveredEpic] = useState<string | null>(null);
 
   // Untracked work
@@ -250,6 +248,15 @@ export default function ProjectsContent() {
     return result;
   }, [filteredEpics]);
 
+  // Map epic key → group IDs so merged cells can highlight when any sibling row is hovered
+  const epicGroupMap = useMemo(() => {
+    const map = new Map<string, { goalGroupId: string; initGroupId: string }>();
+    for (let i = 0; i < filteredEpics.length; i++) {
+      map.set(filteredEpics[i].key, { goalGroupId: spans[i].goalGroupId, initGroupId: spans[i].initGroupId });
+    }
+    return map;
+  }, [filteredEpics, spans]);
+
   const ProgressRing = ({ stats }: { stats: EpicRingStats }) => {
     const volume = Math.log(stats.commitCount + 1);
     const sizePct = maxVolume > 0 ? volume / maxVolume : 0;
@@ -423,19 +430,20 @@ export default function ProjectsContent() {
                 <tbody>
                   {filteredEpics.map((epic, i) => {
                     const { goalSpan, initSpan, showGoal, showInit, goalGroupId, initGroupId } = spans[i];
-                    const isGoalHovered = hoveredGoal === goalGroupId;
-                    const isInitHovered = hoveredInit === initGroupId;
+                    const hoveredGroups = hoveredEpic ? epicGroupMap.get(hoveredEpic) : null;
+                    const isGoalHovered = hoveredGroups?.goalGroupId === goalGroupId;
+                    const isInitHovered = hoveredGroups?.initGroupId === initGroupId;
 
                     return (
                       <tr
                         key={epic.key}
-                        className={`border-b border-gray-800/50 transition-colors ${hoveredEpic === epic.key ? 'bg-gray-800/30' : isGoalHovered ? 'bg-gray-900/30' : ''}`}
-                        onMouseEnter={() => { setHoveredGoal(goalGroupId); setHoveredInit(initGroupId); setHoveredEpic(epic.key); }}
-                        onMouseLeave={() => { setHoveredGoal(null); setHoveredInit(null); setHoveredEpic(null); }}
+                        className={`border-b border-gray-800/50 transition-colors ${hoveredEpic === epic.key ? 'bg-gray-800/30' : ''}`}
+                        onMouseEnter={() => setHoveredEpic(epic.key)}
+                        onMouseLeave={() => setHoveredEpic(null)}
                       >
                         {showGoal && (
                           <td
-                            className={`px-4 py-3 align-top border-r border-gray-800/30 transition-colors ${isGoalHovered ? 'bg-gray-900/30' : ''}`}
+                            className={`px-4 py-3 align-top border-r border-gray-800/30 transition-colors ${isGoalHovered && hoveredEpic !== epic.key ? 'bg-gray-800/30' : ''}`}
                             rowSpan={goalSpan}
                           >
                             {epic.goal ? (
@@ -449,7 +457,7 @@ export default function ProjectsContent() {
                         )}
                         {showInit && (
                           <td
-                            className={`px-4 py-3 align-top border-r border-gray-800/30 transition-colors ${isGoalHovered ? 'bg-gray-900/30' : ''}`}
+                            className={`px-4 py-3 align-top border-r border-gray-800/30 transition-colors ${isInitHovered && hoveredEpic !== epic.key ? 'bg-gray-800/30' : ''}`}
                             rowSpan={initSpan}
                           >
                             {epic.initiative ? (
@@ -585,26 +593,26 @@ export default function ProjectsContent() {
                     const totalRows = filtered.reduce((sum, t) => sum + t.groups.length, 0);
                     if (totalRows === 0) return null;
                     let rowIdx = 0;
-                    const untrackedGoalId = 'g-Not in Project';
 
                     return filtered.map((team, teamIdx) =>
                       team.groups.map((group, groupIdx) => {
                         const isFirstRow = rowIdx === 0;
                         const isFirstGroup = groupIdx === 0;
                         const groupId = `untracked-${team.name}-${group.name}`;
-                        const isHovered = hoveredGoal === untrackedGoalId;
+                        const isUntrackedHovered = hoveredEpic?.startsWith('untracked-') ?? false;
+                        const isTeamHovered = hoveredEpic?.startsWith(`untracked-${team.name}-`) ?? false;
                         rowIdx++;
 
                         return (
                           <tr
                             key={groupId}
-                            className={`border-b border-gray-800/50 transition-colors ${hoveredEpic === groupId ? 'bg-gray-800/30' : isHovered ? 'bg-gray-900/30' : ''}`}
-                            onMouseEnter={() => { setHoveredGoal(untrackedGoalId); setHoveredInit(null); setHoveredEpic(groupId); }}
-                            onMouseLeave={() => { setHoveredGoal(null); setHoveredInit(null); setHoveredEpic(null); }}
+                            className={`border-b border-gray-800/50 transition-colors ${hoveredEpic === groupId ? 'bg-gray-800/30' : ''}`}
+                            onMouseEnter={() => setHoveredEpic(groupId)}
+                            onMouseLeave={() => setHoveredEpic(null)}
                           >
                             {isFirstRow && (
                               <td
-                                className={`px-4 py-3 align-top border-r border-gray-800/30 transition-colors ${isHovered ? 'bg-gray-900/30' : ''}`}
+                                className={`px-4 py-3 align-top border-r border-gray-800/30 transition-colors ${isUntrackedHovered && hoveredEpic !== groupId ? 'bg-gray-800/30' : ''}`}
                                 rowSpan={totalRows}
                               >
                                 <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-gray-700/50 text-gray-400">
@@ -614,7 +622,7 @@ export default function ProjectsContent() {
                             )}
                             {isFirstGroup && (
                               <td
-                                className={`px-4 py-3 align-top border-r border-gray-800/30 transition-colors ${isHovered ? 'bg-gray-900/30' : ''}`}
+                                className={`px-4 py-3 align-top border-r border-gray-800/30 transition-colors ${isTeamHovered && hoveredEpic !== groupId ? 'bg-gray-800/30' : ''}`}
                                 rowSpan={team.groups.length}
                               >
                                 <span className="text-gray-600">—</span>
