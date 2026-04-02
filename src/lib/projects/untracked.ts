@@ -266,6 +266,11 @@ async function clusterCommits(teamName: string, commits: RawCommit[]): Promise<W
   } as any);
 
   const raw = response.choices[0]?.message?.content || '{}';
+  const finishReason = response.choices[0]?.finish_reason || 'unknown';
+  console.log(`[untracked] LLM response for ${teamName}: ${raw.length} chars, finish_reason=${finishReason}, prompt=${prompt.length} chars, commits=${commits.length}`);
+  if (finishReason === 'length') {
+    console.warn(`[untracked] LLM output truncated for ${teamName} — response cut off at ${raw.length} chars`);
+  }
   const cleaned = raw.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
 
   // Build SHA lookup for mapping LLM groups back to actual commits
@@ -309,8 +314,9 @@ async function clusterCommits(teamName: string, commits: RawCommit[]): Promise<W
 
     // Remove empty groups
     return groups.filter(g => g.commits.length > 0);
-  } catch {
+  } catch (err) {
     // LLM failed to return valid JSON — put all commits in one group
+    console.error(`[untracked] JSON parse failed for ${teamName}: ${err}. Raw (last 200 chars): ...${raw.slice(-200)}`);
     return [{ name: 'All work', summary: `${commits.length} commits.`, commits }];
   }
 }
