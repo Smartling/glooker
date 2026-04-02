@@ -257,7 +257,7 @@ async function clusterCommits(teamName: string, commits: RawCommit[]): Promise<W
   const response = await client.chat.completions.create({
     model: LLM_MODEL,
     temperature: 0.3,
-    ...tokenLimit(1024),
+    ...tokenLimit(2048),
     response_format: { type: 'json_object' },
     messages: [
       { role: 'user', content: prompt },
