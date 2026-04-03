@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAuth } from '../auth-context';
 
 interface ProjectEpic {
@@ -85,10 +85,12 @@ export default function ProjectsContent() {
   const [transitionsLoading, setTransitionsLoading] = useState(false);
   const [savingStatus, setSavingStatus] = useState<string | null>(null);
 
+  const fetchingTransitions = useRef(new Set<string>());
   const openStatusEditor = async (epicKey: string) => {
     if (editingStatus === epicKey) { setEditingStatus(null); return; }
     setEditingStatus(epicKey);
-    if (transitionsCache[epicKey]) return; // already cached
+    if (transitionsCache[epicKey] || fetchingTransitions.current.has(epicKey)) return;
+    fetchingTransitions.current.add(epicKey);
     setTransitionsLoading(true);
     try {
       const res = await fetch(`/api/projects/${encodeURIComponent(epicKey)}/status`);
@@ -96,7 +98,7 @@ export default function ProjectsContent() {
       const data = await res.json();
       setTransitionsCache(prev => ({ ...prev, [epicKey]: data.transitions || [] }));
     } catch { setTransitionsCache(prev => ({ ...prev, [epicKey]: [] })); }
-    finally { setTransitionsLoading(false); }
+    finally { fetchingTransitions.current.delete(epicKey); setTransitionsLoading(false); }
   };
 
   const executeTransition = async (epicKey: string, transitionId: string, toStatus: string) => {
