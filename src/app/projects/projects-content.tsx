@@ -549,7 +549,7 @@ export default function ProjectsContent() {
           ) : filteredEpics.length === 0 ? (
             <div className="text-gray-500 py-8">No epics match the selected filters.</div>
           ) : (
-            <div className="overflow-x-auto rounded-lg border border-gray-800">
+            <div className="rounded-lg border border-gray-800">
               <table className="w-full text-sm table-fixed">
                 <colgroup>
                   <col style={{ width: '14%' }} />
