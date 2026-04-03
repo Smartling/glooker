@@ -92,3 +92,49 @@ describe('JiraClient.searchDoneIssues — story points mapping', () => {
     expect(issues[0].storyPoints).toBeNull();
   });
 });
+
+describe('JiraClient.updateDueDate', () => {
+  const mockFetch = jest.fn();
+
+  beforeAll(() => {
+    global.fetch = mockFetch as any;
+  });
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+  });
+
+  const client = new JiraClient('mycompany.atlassian.net', 'user@example.com', 'token');
+
+  it('calls PUT /issue/{key} with correct body for a date string', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true });
+    await client.updateDueDate('PROJ-42', '2026-04-15');
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toBe('https://mycompany.atlassian.net/rest/api/3/issue/PROJ-42');
+    expect(options.method).toBe('PUT');
+    expect(JSON.parse(options.body)).toEqual({ fields: { duedate: '2026-04-15' } });
+  });
+
+  it('calls PUT /issue/{key} with null duedate to clear the date', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true });
+    await client.updateDueDate('PROJ-42', null);
+
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toBe('https://mycompany.atlassian.net/rest/api/3/issue/PROJ-42');
+    expect(options.method).toBe('PUT');
+    expect(JSON.parse(options.body)).toEqual({ fields: { duedate: null } });
+  });
+
+  it('throws on non-ok response', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      text: () => Promise.resolve('Forbidden'),
+    });
+    await expect(client.updateDueDate('PROJ-42', '2026-04-15')).rejects.toThrow(
+      'Jira API error (403): Forbidden',
+    );
+  });
+});
