@@ -147,7 +147,6 @@ export default function ProjectsContent() {
     } else {
       fetchTab(activeTab);
     }
-    setUntrackedTeams([]);
   }, [org, activeTab]);
 
   // Prefetch other tabs in background after default tab loads
