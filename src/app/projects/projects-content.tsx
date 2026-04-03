@@ -1,7 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { createPortal } from 'react-dom';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '../auth-context';
 
 interface ProjectEpic {
@@ -79,7 +78,6 @@ export default function ProjectsContent() {
   const [editingDue, setEditingDue] = useState<string | null>(null);
   const [savingDue, setSavingDue] = useState<string | null>(null);
   const [calMonth, setCalMonth] = useState<Date>(new Date());
-  const calAnchorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!editingDue) return;
@@ -337,8 +335,8 @@ export default function ProjectsContent() {
     return d.toISOString().split('T')[0];
   };
 
-  const CalendarPopover = ({ currentDate, onSelect, onClose }: {
-    currentDate: string | null;
+  const CalendarPopover = ({ epicKey, currentDate, onSelect, onClose }: {
+    epicKey: string; currentDate: string | null;
     onSelect: (date: string | null) => void; onClose: () => void;
   }) => {
     const today = new Date().toISOString().split('T')[0];
@@ -369,18 +367,8 @@ export default function ProjectsContent() {
 
     const monthLabel = new Date(year, month).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
-    const rect = calAnchorRef.current?.getBoundingClientRect();
-    const top = rect ? rect.bottom + 6 : 0;
-    const left = rect ? rect.left : 0;
-    const spaceBelow = typeof window !== 'undefined' ? window.innerHeight - (rect?.bottom || 0) : 999;
-    const openUpward = spaceBelow < 340;
-
-    return createPortal(
-      <div
-        className="fixed z-50 bg-gray-800 border border-gray-700 rounded-xl p-3 shadow-2xl w-56"
-        style={{ top: openUpward ? (rect ? rect.top - 310 : 0) : top, left }}
-        onClick={e => e.stopPropagation()}
-      >
+    return (
+      <div className="absolute top-full left-0 mt-1.5 z-30 bg-gray-800 border border-gray-700 rounded-xl p-3 shadow-2xl w-56" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-2">
           <button onClick={() => setCalMonth(new Date(year, month - 1))} className="text-gray-500 hover:text-white px-1.5 py-0.5 rounded hover:bg-gray-700 text-sm">&larr;</button>
           <span className="text-xs font-semibold text-gray-200">{monthLabel}</span>
@@ -409,8 +397,7 @@ export default function ProjectsContent() {
           )}
           <button onClick={() => { onSelect(getNextMonday()); onClose(); }} className="text-[11px] px-2.5 py-1 rounded-md bg-accent/10 text-accent-lighter hover:bg-accent/20">Next Monday</button>
         </div>
-      </div>,
-      document.body,
+      </div>
     );
   };
 
@@ -722,7 +709,6 @@ export default function ProjectsContent() {
                         </td>
                         <td className={`px-4 py-3 relative ${activeTab === 'In Progress' && isOverdue(epic.dueDate) ? 'text-red-400' : 'text-gray-400'}`}>
                           <div
-                            ref={editingDue === epic.key ? calAnchorRef : undefined}
                             className={`group/due inline-flex items-center gap-1.5 cursor-pointer px-1.5 py-0.5 rounded-md transition-colors ${
                               editingDue === epic.key ? 'bg-accent/10 border border-accent/30' : 'hover:bg-white/5'
                             } ${canAct ? '' : 'cursor-default'}`}
@@ -748,8 +734,9 @@ export default function ProjectsContent() {
                           </div>
                           {editingDue === epic.key && (
                             <>
-                              <div className="fixed inset-0 z-40" onClick={() => setEditingDue(null)} />
+                              <div className="fixed inset-0 z-20" onClick={() => setEditingDue(null)} />
                               <CalendarPopover
+                                epicKey={epic.key}
                                 currentDate={epic.dueDate}
                                 onSelect={(date) => saveDueDate(epic.key, date)}
                                 onClose={() => setEditingDue(null)}
