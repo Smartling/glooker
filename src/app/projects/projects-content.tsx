@@ -728,7 +728,7 @@ export default function ProjectsContent() {
                                             (transitionsCache[epic.key] || []).map(t => (
                                               <button
                                                 key={t.id}
-                                                onClick={(e) => { e.stopPropagation(); executeTransition(epic.key, t.id, t.to.name); }}
+                                                onClick={(e) => { e.stopPropagation(); if (t.to.name === epic.status) { setEditingStatus(null); } else { executeTransition(epic.key, t.id, t.to.name); } }}
                                                 className="w-full text-left px-3 py-2 text-xs text-gray-300 hover:bg-gray-700 transition-colors flex items-center gap-2"
                                               >
                                                 <span className="text-gray-500">&rarr;</span> {t.to.name}
