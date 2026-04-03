@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '../auth-context';
 
 interface ProjectEpic {
@@ -54,7 +54,7 @@ type StatusTab = 'In Progress' | 'Rollout' | 'Done';
 export default function ProjectsContent() {
   const { canAct } = useAuth();
   const [activeTab, setActiveTab] = useState<StatusTab>('In Progress');
-  const [epics, setEpics] = useState<ProjectEpic[]>([]);
+  const [tabCache, setTabCache] = useState<Partial<Record<StatusTab, { epics: ProjectEpic[]; jiraHost: string | null }>>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [org, setOrg] = useState<string | null>(null);
@@ -116,23 +116,51 @@ export default function ProjectsContent() {
       .catch(() => setError('Failed to load org'));
   }, []);
 
-  useEffect(() => {
+  // Fetch epics for a tab, with client-side caching
+  const fetchTab = useCallback((tab: StatusTab, background = false) => {
     if (!org) return;
-    setLoading(true);
-    setEpics([]);
-    setRingStats({});
-    setUntrackedTeams([]);
     const params = new URLSearchParams({ org });
-    if (activeTab !== 'In Progress') params.set('status', activeTab);
+    if (tab !== 'In Progress') params.set('status', tab);
+    if (!background) setLoading(true);
     fetch(`/api/projects?${params}`)
       .then(r => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       })
-      .then(data => { setEpics(data.epics); setJiraHost(data.jiraHost); })
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false));
+      .then(data => {
+        setTabCache(prev => ({ ...prev, [tab]: { epics: data.epics, jiraHost: data.jiraHost } }));
+        if (tab === activeTab || !background) {
+          setJiraHost(data.jiraHost);
+        }
+      })
+      .catch(e => { if (!background) setError(e.message); })
+      .finally(() => { if (!background) setLoading(false); });
   }, [org, activeTab]);
+
+  // On tab switch: use cache if available, otherwise fetch
+  useEffect(() => {
+    if (!org) return;
+    const cached = tabCache[activeTab];
+    if (cached) {
+      setJiraHost(cached.jiraHost);
+      setLoading(false);
+    } else {
+      fetchTab(activeTab);
+    }
+    setUntrackedTeams([]);
+  }, [org, activeTab]);
+
+  // Prefetch other tabs in background after default tab loads
+  useEffect(() => {
+    if (!org || loading) return;
+    const otherTabs: StatusTab[] = (['In Progress', 'Rollout', 'Done'] as StatusTab[]).filter(t => t !== activeTab && !tabCache[t]);
+    for (const tab of otherTabs) {
+      fetchTab(tab, true);
+    }
+  }, [org, loading]);
+
+  // Derive epics from tab cache
+  const epics = useMemo(() => tabCache[activeTab]?.epics || [], [tabCache, activeTab]);
 
   useEffect(() => {
     if (!org || epics.length === 0) return;
