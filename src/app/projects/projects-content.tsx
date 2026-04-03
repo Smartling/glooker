@@ -77,6 +77,7 @@ export default function ProjectsContent() {
   // Due date editing
   const [editingDue, setEditingDue] = useState<string | null>(null);
   const [savingDue, setSavingDue] = useState<string | null>(null);
+  const [calMonth, setCalMonth] = useState<Date>(new Date());
 
   const saveDueDate = async (epicKey: string, newDate: string | null) => {
     setSavingDue(epicKey);
@@ -318,6 +319,80 @@ export default function ProjectsContent() {
     }
     return map;
   }, [filteredEpics, spans]);
+
+  const getNextMonday = () => {
+    const d = new Date();
+    const day = d.getDay();
+    const diff = day === 0 ? 1 : 8 - day;
+    d.setDate(d.getDate() + diff);
+    return d.toISOString().split('T')[0];
+  };
+
+  const CalendarPopover = ({ epicKey, currentDate, onSelect, onClose }: {
+    epicKey: string; currentDate: string | null;
+    onSelect: (date: string | null) => void; onClose: () => void;
+  }) => {
+    const today = new Date().toISOString().split('T')[0];
+    const selected = currentDate || '';
+
+    const year = calMonth.getFullYear();
+    const month = calMonth.getMonth();
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const prevMonthDays = new Date(year, month, 0).getDate();
+
+    const days: Array<{ day: number; current: boolean; dateStr: string }> = [];
+    for (let i = firstDay - 1; i >= 0; i--) {
+      const d = prevMonthDays - i;
+      const m = month === 0 ? 12 : month;
+      const y = month === 0 ? year - 1 : year;
+      days.push({ day: d, current: false, dateStr: `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}` });
+    }
+    for (let d = 1; d <= daysInMonth; d++) {
+      days.push({ day: d, current: true, dateStr: `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}` });
+    }
+    const remaining = 42 - days.length;
+    for (let d = 1; d <= remaining; d++) {
+      const m = month + 2 > 12 ? 1 : month + 2;
+      const y = month + 2 > 12 ? year + 1 : year;
+      days.push({ day: d, current: false, dateStr: `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}` });
+    }
+
+    const monthLabel = new Date(year, month).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+    return (
+      <div className="absolute top-full left-0 mt-1.5 z-30 bg-gray-800 border border-gray-700 rounded-xl p-3 shadow-2xl w-56" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-2">
+          <button onClick={() => setCalMonth(new Date(year, month - 1))} className="text-gray-500 hover:text-white px-1.5 py-0.5 rounded hover:bg-gray-700 text-sm">&larr;</button>
+          <span className="text-xs font-semibold text-gray-200">{monthLabel}</span>
+          <button onClick={() => setCalMonth(new Date(year, month + 1))} className="text-gray-500 hover:text-white px-1.5 py-0.5 rounded hover:bg-gray-700 text-sm">&rarr;</button>
+        </div>
+        <div className="grid grid-cols-7 gap-0.5">
+          {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(d => (
+            <span key={d} className="text-center text-[9px] text-gray-600 py-1">{d}</span>
+          ))}
+          {days.map((d, i) => (
+            <button
+              key={i}
+              onClick={() => { onSelect(d.dateStr); onClose(); }}
+              className={`text-center text-[11px] py-1.5 rounded-md transition-colors ${
+                d.dateStr === selected ? 'bg-accent text-white font-semibold' :
+                d.dateStr === today ? 'border border-accent/50 text-gray-300' :
+                d.current ? 'text-gray-300 hover:bg-gray-700' :
+                'text-gray-600 hover:bg-gray-700/50'
+              }`}
+            >{d.day}</button>
+          ))}
+        </div>
+        <div className="flex gap-2 mt-2.5 pt-2 border-t border-gray-700">
+          {currentDate && (
+            <button onClick={() => { onSelect(null); onClose(); }} className="text-[11px] px-2.5 py-1 rounded-md bg-red-500/10 text-red-400 hover:bg-red-500/20">Clear</button>
+          )}
+          <button onClick={() => { onSelect(getNextMonday()); onClose(); }} className="text-[11px] px-2.5 py-1 rounded-md bg-accent/10 text-accent-lighter hover:bg-accent/20">Next Monday</button>
+        </div>
+      </div>
+    );
+  };
 
   const ProgressRing = ({ stats }: { stats: EpicRingStats }) => {
     const volume = Math.log(stats.commitCount + 1);
@@ -625,43 +700,41 @@ export default function ProjectsContent() {
                             </div>
                           </div>
                         </td>
-                        <td className={`px-4 py-3 ${activeTab === 'In Progress' && isOverdue(epic.dueDate) ? 'text-red-400' : 'text-gray-400'}`}>
-                          {editingDue === epic.key ? (
-                            <div className="flex items-center gap-1">
-                              <input
-                                type="date"
-                                defaultValue={epic.dueDate || ''}
-                                autoFocus
-                                className="bg-gray-800 border border-gray-600 rounded px-1.5 py-0.5 text-xs text-white focus:outline-none focus:border-accent w-28"
-                                onKeyDown={e => {
-                                  if (e.key === 'Enter') saveDueDate(epic.key, (e.target as HTMLInputElement).value || null);
-                                  if (e.key === 'Escape') setEditingDue(null);
-                                }}
-                                onBlur={e => saveDueDate(epic.key, e.target.value || null)}
-                              />
-                              {epic.dueDate && (
-                                <button onClick={() => saveDueDate(epic.key, null)} className="text-gray-600 hover:text-red-400 text-xs" title="Clear date">&times;</button>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="group/due inline-flex items-center gap-1">
-                              {formatDate(epic.dueDate)}
-                              {canAct && (
-                                <button
-                                  onClick={() => setEditingDue(epic.key)}
-                                  className="opacity-0 group-hover/due:opacity-100 text-gray-600 hover:text-gray-400 transition-opacity"
-                                  title="Edit due date"
-                                >
-                                  <svg className={`w-3 h-3 ${savingDue === epic.key ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    {savingDue === epic.key ? (
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                    ) : (
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                                    )}
-                                  </svg>
-                                </button>
-                              )}
+                        <td className={`px-4 py-3 relative ${activeTab === 'In Progress' && isOverdue(epic.dueDate) ? 'text-red-400' : 'text-gray-400'}`}>
+                          <div
+                            className={`group/due inline-flex items-center gap-1.5 cursor-pointer px-1.5 py-0.5 rounded-md transition-colors ${
+                              editingDue === epic.key ? 'bg-accent/10 border border-accent/30' : 'hover:bg-white/5'
+                            } ${canAct ? '' : 'cursor-default'}`}
+                            onClick={() => {
+                              if (!canAct) return;
+                              if (editingDue === epic.key) {
+                                setEditingDue(null);
+                              } else {
+                                const d = epic.dueDate ? new Date(epic.dueDate + 'T00:00:00') : new Date();
+                                setCalMonth(new Date(d.getFullYear(), d.getMonth()));
+                                setEditingDue(epic.key);
+                              }
+                            }}
+                          >
+                            <span className={editingDue === epic.key ? 'text-accent-lighter' : ''}>
+                              {savingDue === epic.key ? 'Saving...' : formatDate(epic.dueDate)}
                             </span>
+                            {canAct && (
+                              <svg className={`w-3 h-3 opacity-0 group-hover/due:opacity-100 transition-opacity ${editingDue === epic.key ? 'opacity-100 text-accent' : 'text-gray-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                              </svg>
+                            )}
+                          </div>
+                          {editingDue === epic.key && (
+                            <>
+                              <div className="fixed inset-0 z-20" onClick={() => setEditingDue(null)} />
+                              <CalendarPopover
+                                epicKey={epic.key}
+                                currentDate={epic.dueDate}
+                                onSelect={(date) => saveDueDate(epic.key, date)}
+                                onClose={() => setEditingDue(null)}
+                              />
+                            </>
                           )}
                         </td>
                         <td className="px-4 py-3 text-gray-300">
