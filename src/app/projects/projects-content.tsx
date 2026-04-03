@@ -330,9 +330,9 @@ export default function ProjectsContent() {
   const getNextMonday = () => {
     const d = new Date();
     const day = d.getDay();
-    const diff = day === 0 ? 1 : 8 - day;
+    const diff = day === 0 ? 1 : day === 1 ? 7 : 8 - day;
     d.setDate(d.getDate() + diff);
-    return d.toISOString().split('T')[0];
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   };
 
   const CalendarPopover = ({ epicKey, currentDate, onSelect, onClose }: {
