@@ -89,7 +89,7 @@ describe('getUntrackedWork — Jira client is null', () => {
     const result = await getUntrackedWork('acme', false);
 
     expect(result.teams).toEqual([]);
-    expect(result.cached).toBe(false);
+    expect(result.cached).toBe(true);
   });
 });
 
@@ -101,14 +101,15 @@ describe('getUntrackedWork — prefix exclusion', () => {
     const jiraClient = makeJiraClient(['SPS-1'], ['PARSER-10']);
     mockGetJiraClient.mockReturnValue(jiraClient);
 
-    // DB call sequence (non-cached run):
-    // 1. epic_summaries => []
-    // 2. commit_analyses repo discovery => []
-    // 3. teams => 1 team
-    // 4. team_members => 1 member
-    // 5. untracked_summaries cache check => [] (cache miss)
-    // 6. commit_analyses untracked query => 2 commits
-    // 7. storeUntracked upsert => success
+    // DB call sequence (new cache-first flow, cache miss):
+    // 1. teams => 1 team
+    // 2. team_members => 1 member
+    // 3. untracked_summaries cache check (early) => [] (cache miss)
+    // 4. epic_summaries => []
+    // 5. commit_analyses repo discovery => []
+    // 6. untracked_summaries cache check (second, in parallel loop) => [] (miss)
+    // 7. commit_analyses untracked query => 2 commits
+    // 8. storeUntracked upsert => success
 
     const team = { id: 'team-1', name: 'Alpha', color: '#ff0000' };
     const commits = [
@@ -117,11 +118,12 @@ describe('getUntrackedWork — prefix exclusion', () => {
     ];
 
     mockDbExecute
+      .mockResolvedValueOnce([[team], null])                // teams
+      .mockResolvedValueOnce([[{ github_login: 'alice' }], null]) // team_members
+      .mockResolvedValueOnce([[], null])                   // cache miss (early check)
       .mockResolvedValueOnce([[], null])                   // epic_summaries
       .mockResolvedValueOnce([[], null])                   // commit_analyses repo discovery
-      .mockResolvedValueOnce([[team], null])               // teams
-      .mockResolvedValueOnce([[{ github_login: 'alice' }], null]) // team_members
-      .mockResolvedValueOnce([[], null])                   // cache miss
+      .mockResolvedValueOnce([[], null])                   // cache miss (second check in parallel)
       .mockResolvedValueOnce([commits, null])              // untracked commits
       .mockResolvedValueOnce([[], null]);                  // storeUntracked
 
@@ -134,8 +136,8 @@ describe('getUntrackedWork — prefix exclusion', () => {
 
     await getUntrackedWork('acme', false);
 
-    // Find the commit_analyses query call (index 5 = the 6th call)
-    const commitQueryCall = mockDbExecute.mock.calls[5];
+    // Find the commit_analyses untracked query call (index 6 = the 7th call)
+    const commitQueryCall = mockDbExecute.mock.calls[6];
     const sql: string = commitQueryCall[0];
     const values: any[] = commitQueryCall[1];
 
@@ -164,11 +166,12 @@ describe('getUntrackedWork — repo exclusion', () => {
     const commits = [makeCommitRow('sha-1abc1234567890', 'other-repo', 'feat: new thing')];
 
     mockDbExecute
-      .mockResolvedValueOnce([epicSummaryRows, null])      // epic_summaries
-      .mockResolvedValueOnce([[], null])                   // commit_analyses repo discovery
       .mockResolvedValueOnce([[team], null])               // teams
       .mockResolvedValueOnce([[{ github_login: 'alice' }], null]) // team_members
-      .mockResolvedValueOnce([[], null])                   // cache miss
+      .mockResolvedValueOnce([[], null])                   // cache miss (early check)
+      .mockResolvedValueOnce([epicSummaryRows, null])      // epic_summaries
+      .mockResolvedValueOnce([[], null])                   // commit_analyses repo discovery
+      .mockResolvedValueOnce([[], null])                   // cache miss (second check in parallel)
       .mockResolvedValueOnce([commits, null])              // untracked commits
       .mockResolvedValueOnce([[], null]);                  // storeUntracked
 
@@ -182,7 +185,7 @@ describe('getUntrackedWork — repo exclusion', () => {
     await getUntrackedWork('acme', false);
 
     // Commit query should include NOT IN clause with tracked-repo
-    const commitQueryCall = mockDbExecute.mock.calls[5];
+    const commitQueryCall = mockDbExecute.mock.calls[6];
     const sql: string = commitQueryCall[0];
     const values: any[] = commitQueryCall[1];
 
@@ -200,13 +203,14 @@ describe('getUntrackedWork — repo exclusion', () => {
     const commits = [makeCommitRow('sha-1abc1234567890', 'other-repo', 'feat: unrelated')];
 
     mockDbExecute
-      .mockResolvedValueOnce([[], null])                        // epic_summaries
-      .mockResolvedValueOnce([repoDiscoveryRows, null])         // commit_analyses repo discovery
-      .mockResolvedValueOnce([[team], null])                    // teams
+      .mockResolvedValueOnce([[team], null])               // teams
       .mockResolvedValueOnce([[{ github_login: 'alice' }], null]) // team_members
-      .mockResolvedValueOnce([[], null])                        // cache miss
-      .mockResolvedValueOnce([commits, null])                   // untracked commits
-      .mockResolvedValueOnce([[], null]);                       // storeUntracked
+      .mockResolvedValueOnce([[], null])                   // cache miss (early check)
+      .mockResolvedValueOnce([[], null])                   // epic_summaries
+      .mockResolvedValueOnce([repoDiscoveryRows, null])    // commit_analyses repo discovery
+      .mockResolvedValueOnce([[], null])                   // cache miss (second check in parallel)
+      .mockResolvedValueOnce([commits, null])              // untracked commits
+      .mockResolvedValueOnce([[], null]);                  // storeUntracked
 
     const mockCreate = jest.fn().mockResolvedValue({
       choices: [{ message: { content: JSON.stringify({ groups: [
@@ -217,7 +221,7 @@ describe('getUntrackedWork — repo exclusion', () => {
 
     await getUntrackedWork('acme', false);
 
-    const commitQueryCall = mockDbExecute.mock.calls[5];
+    const commitQueryCall = mockDbExecute.mock.calls[6];
     const values: any[] = commitQueryCall[1];
 
     expect(values).toContain('sps-service');
@@ -238,13 +242,14 @@ describe('getUntrackedWork — repo exclusion', () => {
     const commits = [makeCommitRow('sha-1abc1234567890', 'shared-repo', 'feat: something')];
 
     mockDbExecute
-      .mockResolvedValueOnce([epicSummaryRows, null])
-      .mockResolvedValueOnce([[], null])
-      .mockResolvedValueOnce([[team], null])
-      .mockResolvedValueOnce([[{ github_login: 'alice' }], null])
-      .mockResolvedValueOnce([[], null])
-      .mockResolvedValueOnce([commits, null])
-      .mockResolvedValueOnce([[], null]);
+      .mockResolvedValueOnce([[team], null])               // teams
+      .mockResolvedValueOnce([[{ github_login: 'alice' }], null]) // team_members
+      .mockResolvedValueOnce([[], null])                   // cache miss (early check)
+      .mockResolvedValueOnce([epicSummaryRows, null])      // epic_summaries
+      .mockResolvedValueOnce([[], null])                   // commit_analyses repo discovery
+      .mockResolvedValueOnce([[], null])                   // cache miss (second check in parallel)
+      .mockResolvedValueOnce([commits, null])              // untracked commits
+      .mockResolvedValueOnce([[], null]);                  // storeUntracked
 
     const mockCreate = jest.fn().mockResolvedValue({
       choices: [{ message: { content: JSON.stringify({ groups: [
@@ -255,7 +260,7 @@ describe('getUntrackedWork — repo exclusion', () => {
 
     await getUntrackedWork('acme', false);
 
-    const commitQueryCall = mockDbExecute.mock.calls[5];
+    const commitQueryCall = mockDbExecute.mock.calls[6];
     const sql: string = commitQueryCall[0];
     const values: any[] = commitQueryCall[1];
 
@@ -294,12 +299,14 @@ describe('getUntrackedWork — caching', () => {
       generated_at: new Date(Date.now() - 1000 * 60).toISOString(), // 1 minute ago
     };
 
+    // Cache-first flow for a cache HIT:
+    // 1. teams => 1 team
+    // 2. team_members => 1 member
+    // 3. untracked_summaries cache check => hit → return immediately
     mockDbExecute
-      .mockResolvedValueOnce([[], null])                          // epic_summaries
-      .mockResolvedValueOnce([[], null])                          // commit_analyses repo discovery
       .mockResolvedValueOnce([[team], null])                      // teams
       .mockResolvedValueOnce([[{ github_login: 'alice' }], null]) // team_members
-      .mockResolvedValueOnce([[freshCacheRow], null]);            // cache hit
+      .mockResolvedValueOnce([[freshCacheRow], null]);            // cache hit → early return
 
     const mockCreate = makeMockLLMClient();
 
@@ -308,8 +315,8 @@ describe('getUntrackedWork — caching', () => {
     // LLM should NOT be called on a cache hit
     expect(mockCreate).not.toHaveBeenCalled();
 
-    // DB should only have been called 5 times (no commit re-fetch after cache hit)
-    expect(mockDbExecute).toHaveBeenCalledTimes(5);
+    // DB should only have been called 3 times (teams + members + cache hit → done)
+    expect(mockDbExecute).toHaveBeenCalledTimes(3);
 
     // Should return the cached groups with commits embedded
     expect(result.teams).toHaveLength(1);
@@ -325,12 +332,20 @@ describe('getUntrackedWork — caching', () => {
     const team = { id: 'team-1', name: 'Alpha', color: '#ff0000' };
     const freshCommits = [makeCommitRow('sha-1abc1234567890', 'repo-a', 'feat: new thing')];
 
+    // forceRefresh=true skips BOTH cache checks:
+    // 1. teams
+    // 2. team_members
+    // (no early cache check — forceRefresh skips it)
+    // 3. epic_summaries
+    // 4. commit_analyses repo discovery
+    // (no second cache check in parallel loop — forceRefresh skips it)
+    // 5. untracked commits
+    // 6. storeUntracked
     mockDbExecute
-      .mockResolvedValueOnce([[], null])                          // epic_summaries
-      .mockResolvedValueOnce([[], null])                          // commit_analyses repo discovery
       .mockResolvedValueOnce([[team], null])                      // teams
       .mockResolvedValueOnce([[{ github_login: 'alice' }], null]) // team_members
-      // No cache check call when forceRefresh=true
+      .mockResolvedValueOnce([[], null])                          // epic_summaries
+      .mockResolvedValueOnce([[], null])                          // commit_analyses repo discovery
       .mockResolvedValueOnce([freshCommits, null])                // untracked commits
       .mockResolvedValueOnce([[], null]);                         // storeUntracked
 
@@ -359,12 +374,22 @@ describe('getUntrackedWork — caching', () => {
     };
     const freshCommits = [makeCommitRow('sha-1abc1234567890', 'repo-a', 'feat: something new')];
 
+    // Stale cache counts as a miss — falls through to expensive path:
+    // 1. teams
+    // 2. team_members
+    // 3. untracked_summaries (early check) → stale → treated as miss
+    // 4. epic_summaries
+    // 5. commit_analyses repo discovery
+    // 6. untracked_summaries (second check in parallel) → stale again
+    // 7. untracked commits
+    // 8. storeUntracked
     mockDbExecute
-      .mockResolvedValueOnce([[], null])
-      .mockResolvedValueOnce([[], null])
-      .mockResolvedValueOnce([[team], null])
-      .mockResolvedValueOnce([[{ github_login: 'alice' }], null])
-      .mockResolvedValueOnce([[staleCacheRow], null])             // stale cache
+      .mockResolvedValueOnce([[team], null])                      // teams
+      .mockResolvedValueOnce([[{ github_login: 'alice' }], null]) // team_members
+      .mockResolvedValueOnce([[staleCacheRow], null])             // stale cache (early check → miss)
+      .mockResolvedValueOnce([[], null])                          // epic_summaries
+      .mockResolvedValueOnce([[], null])                          // commit_analyses repo discovery
+      .mockResolvedValueOnce([[staleCacheRow], null])             // stale cache (second check → miss)
       .mockResolvedValueOnce([freshCommits, null])                // untracked commits
       .mockResolvedValueOnce([[], null]);                         // storeUntracked
 
@@ -391,12 +416,21 @@ describe('getUntrackedWork — empty commits', () => {
 
     const team = { id: 'team-1', name: 'Alpha', color: '#ff0000' };
 
+    // Cache miss → expensive path → 0 commits → team skipped
+    // 1. teams
+    // 2. team_members
+    // 3. untracked_summaries (early check) → miss
+    // 4. epic_summaries
+    // 5. commit_analyses repo discovery
+    // 6. untracked_summaries (second check in parallel) → miss
+    // 7. 0 untracked commits → null returned (no storeUntracked)
     mockDbExecute
-      .mockResolvedValueOnce([[], null])                          // epic_summaries
-      .mockResolvedValueOnce([[], null])                          // commit_analyses repo discovery
       .mockResolvedValueOnce([[team], null])                      // teams
       .mockResolvedValueOnce([[{ github_login: 'alice' }], null]) // team_members
-      .mockResolvedValueOnce([[], null])                          // cache miss
+      .mockResolvedValueOnce([[], null])                          // cache miss (early check)
+      .mockResolvedValueOnce([[], null])                          // epic_summaries
+      .mockResolvedValueOnce([[], null])                          // commit_analyses repo discovery
+      .mockResolvedValueOnce([[], null])                          // cache miss (second check)
       .mockResolvedValueOnce([[], null]);                         // 0 untracked commits
 
     const mockCreate = makeMockLLMClient();
@@ -414,11 +448,14 @@ describe('getUntrackedWork — empty commits', () => {
 
     const team = { id: 'team-1', name: 'Alpha', color: '#ff0000' };
 
+    // Team has no members → not added to teams array → early-exit loop has no items
+    // → allCached = true → returns immediately with empty cached result
+    // 1. teams
+    // 2. team_members → empty → team not pushed to array
+    // (early cache loop has nothing to iterate → allCached stays true → return)
     mockDbExecute
-      .mockResolvedValueOnce([[], null])    // epic_summaries
-      .mockResolvedValueOnce([[], null])    // commit_analyses repo discovery
-      .mockResolvedValueOnce([[team], null]) // teams
-      .mockResolvedValueOnce([[], null]);   // team_members → empty → team skipped
+      .mockResolvedValueOnce([[team], null])  // teams
+      .mockResolvedValueOnce([[], null]);     // team_members → empty → team skipped
 
     const mockCreate = makeMockLLMClient();
 
@@ -441,11 +478,12 @@ describe('getUntrackedWork — LLM commit_shas mapping', () => {
     const commits = [makeCommitRow('sha1abc0efgh1234567890abcdef123456789012', 'repo-a', 'feat: new feature')];
 
     mockDbExecute
-      .mockResolvedValueOnce([[], null])
-      .mockResolvedValueOnce([[], null])
       .mockResolvedValueOnce([[team], null])
       .mockResolvedValueOnce([[{ github_login: 'alice' }], null])
-      .mockResolvedValueOnce([[], null])
+      .mockResolvedValueOnce([[], null])                   // cache miss (early check)
+      .mockResolvedValueOnce([[], null])                   // epic_summaries
+      .mockResolvedValueOnce([[], null])                   // commit_analyses repo discovery
+      .mockResolvedValueOnce([[], null])                   // cache miss (second check)
       .mockResolvedValueOnce([commits, null])
       .mockResolvedValueOnce([[], null]);
 
@@ -483,11 +521,12 @@ describe('getUntrackedWork — LLM commit_shas mapping', () => {
     const commits = [makeCommitRow('sha1abc0efgh1234567890abcdef123456789012', 'repo-a', 'feat: feature')];
 
     mockDbExecute
-      .mockResolvedValueOnce([[], null])
-      .mockResolvedValueOnce([[], null])
       .mockResolvedValueOnce([[team], null])
       .mockResolvedValueOnce([[{ github_login: 'alice' }], null])
-      .mockResolvedValueOnce([[], null])
+      .mockResolvedValueOnce([[], null])                   // cache miss (early check)
+      .mockResolvedValueOnce([[], null])                   // epic_summaries
+      .mockResolvedValueOnce([[], null])                   // commit_analyses repo discovery
+      .mockResolvedValueOnce([[], null])                   // cache miss (second check)
       .mockResolvedValueOnce([commits, null])
       .mockResolvedValueOnce([[], null]);
 
@@ -524,11 +563,12 @@ describe('getUntrackedWork — LLM commit_shas mapping', () => {
     mockGetLLMClient.mockResolvedValue({ chat: { completions: { create: mockCreate } } });
 
     mockDbExecute
-      .mockResolvedValueOnce([[], null])
-      .mockResolvedValueOnce([[], null])
       .mockResolvedValueOnce([[team], null])
       .mockResolvedValueOnce([[{ github_login: 'alice' }], null])
-      .mockResolvedValueOnce([[], null])
+      .mockResolvedValueOnce([[], null])                   // cache miss (early check)
+      .mockResolvedValueOnce([[], null])                   // epic_summaries
+      .mockResolvedValueOnce([[], null])                   // commit_analyses repo discovery
+      .mockResolvedValueOnce([[], null])                   // cache miss (second check)
       .mockResolvedValueOnce([commits, null])
       .mockResolvedValueOnce([[], null]);
 
@@ -554,11 +594,12 @@ describe('getUntrackedWork — unclaimed commits → Other group', () => {
     ];
 
     mockDbExecute
-      .mockResolvedValueOnce([[], null])
-      .mockResolvedValueOnce([[], null])
       .mockResolvedValueOnce([[team], null])
       .mockResolvedValueOnce([[{ github_login: 'alice' }], null])
-      .mockResolvedValueOnce([[], null])
+      .mockResolvedValueOnce([[], null])                   // cache miss (early check)
+      .mockResolvedValueOnce([[], null])                   // epic_summaries
+      .mockResolvedValueOnce([[], null])                   // commit_analyses repo discovery
+      .mockResolvedValueOnce([[], null])                   // cache miss (second check)
       .mockResolvedValueOnce([commits, null])
       .mockResolvedValueOnce([[], null]);
 
@@ -598,11 +639,12 @@ describe('getUntrackedWork — unclaimed commits → Other group', () => {
     ];
 
     mockDbExecute
-      .mockResolvedValueOnce([[], null])
-      .mockResolvedValueOnce([[], null])
       .mockResolvedValueOnce([[team], null])
       .mockResolvedValueOnce([[{ github_login: 'alice' }], null])
-      .mockResolvedValueOnce([[], null])
+      .mockResolvedValueOnce([[], null])                   // cache miss (early check)
+      .mockResolvedValueOnce([[], null])                   // epic_summaries
+      .mockResolvedValueOnce([[], null])                   // commit_analyses repo discovery
+      .mockResolvedValueOnce([[], null])                   // cache miss (second check)
       .mockResolvedValueOnce([commits, null])
       .mockResolvedValueOnce([[], null]);
 
@@ -643,11 +685,12 @@ describe('getUntrackedWork — invalid LLM JSON', () => {
     mockGetLLMClient.mockResolvedValue({ chat: { completions: { create: mockCreate } } });
 
     mockDbExecute
-      .mockResolvedValueOnce([[], null])
-      .mockResolvedValueOnce([[], null])
       .mockResolvedValueOnce([[team], null])
       .mockResolvedValueOnce([[{ github_login: 'alice' }], null])
-      .mockResolvedValueOnce([[], null])
+      .mockResolvedValueOnce([[], null])                   // cache miss (early check)
+      .mockResolvedValueOnce([[], null])                   // epic_summaries
+      .mockResolvedValueOnce([[], null])                   // commit_analyses repo discovery
+      .mockResolvedValueOnce([[], null])                   // cache miss (second check)
       .mockResolvedValueOnce([commits, null])
       .mockResolvedValueOnce([[], null]);
 
@@ -678,11 +721,12 @@ describe('getUntrackedWork — dedup by commit_sha', () => {
     ];
 
     mockDbExecute
-      .mockResolvedValueOnce([[], null])
-      .mockResolvedValueOnce([[], null])
       .mockResolvedValueOnce([[team], null])
       .mockResolvedValueOnce([[{ github_login: 'alice' }], null])
-      .mockResolvedValueOnce([[], null])
+      .mockResolvedValueOnce([[], null])                   // cache miss (early check)
+      .mockResolvedValueOnce([[], null])                   // epic_summaries
+      .mockResolvedValueOnce([[], null])                   // commit_analyses repo discovery
+      .mockResolvedValueOnce([[], null])                   // cache miss (second check)
       .mockResolvedValueOnce([duplicateCommits, null])
       .mockResolvedValueOnce([[], null]);
 
@@ -722,13 +766,14 @@ describe('getUntrackedWork — missing JIRA_PROJECTS_JQL', () => {
     const commits = [makeCommitRow('sha-1abc1234567890', 'repo-a', 'feat: something')];
 
     mockDbExecute
-      .mockResolvedValueOnce([[], null])
-      .mockResolvedValueOnce([[], null])
-      .mockResolvedValueOnce([[team], null])
-      .mockResolvedValueOnce([[{ github_login: 'alice' }], null])
-      .mockResolvedValueOnce([[], null])
-      .mockResolvedValueOnce([commits, null])
-      .mockResolvedValueOnce([[], null]);
+      .mockResolvedValueOnce([[team], null])               // teams
+      .mockResolvedValueOnce([[{ github_login: 'alice' }], null]) // team_members
+      .mockResolvedValueOnce([[], null])                   // cache miss (early check)
+      .mockResolvedValueOnce([[], null])                   // epic_summaries
+      .mockResolvedValueOnce([[], null])                   // commit_analyses repo discovery
+      .mockResolvedValueOnce([[], null])                   // cache miss (second check)
+      .mockResolvedValueOnce([commits, null])              // untracked commits
+      .mockResolvedValueOnce([[], null]);                  // storeUntracked
 
     const mockCreate = jest.fn().mockResolvedValue({
       choices: [{ message: { content: JSON.stringify({ groups: [
@@ -743,7 +788,7 @@ describe('getUntrackedWork — missing JIRA_PROJECTS_JQL', () => {
     expect(jiraClient.searchEpics).not.toHaveBeenCalled();
 
     // Should still run with SPS as fallback prefix
-    const commitQueryCall = mockDbExecute.mock.calls[5];
+    const commitQueryCall = mockDbExecute.mock.calls[6];
     const values: any[] = commitQueryCall[1];
     expect(values).toContain('%SPS-%');
     expect(values).toContain('%SPS %');
