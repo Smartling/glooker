@@ -695,47 +695,6 @@ export default function ProjectsContent() {
                             </button>
                             <div className="flex-1 min-w-0">
                               <div>
-                                {canAct ? (
-                                  <span className="relative inline-block align-middle mr-1.5">
-                                    <span
-                                      onClick={(e) => { e.stopPropagation(); openStatusEditor(epic.key); }}
-                                      className={`inline-block w-[7px] h-[7px] rounded-full cursor-pointer transition-all ${
-                                        editingStatus === epic.key ? 'ring-2 ring-accent/40 ring-offset-1 ring-offset-gray-900' : 'hover:ring-2 hover:ring-gray-600 hover:ring-offset-1 hover:ring-offset-gray-900'
-                                      }`}
-                                      style={{ background: savingStatus === epic.key ? '#6B7280' : '#D97706' }}
-                                      title={epic.status}
-                                    />
-                                    {editingStatus === epic.key && (
-                                      <>
-                                        <div className="fixed inset-0 z-20" onClick={() => setEditingStatus(null)} />
-                                        <div className="absolute top-full left-0 mt-2 z-30 bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden min-w-[140px]">
-                                          {transitionsLoading && !transitionsCache[epic.key] ? (
-                                            <div className="px-3 py-2 text-xs text-gray-500 animate-pulse">Loading...</div>
-                                          ) : (transitionsCache[epic.key] || []).length === 0 ? (
-                                            <div className="px-3 py-2 text-xs text-gray-600">No transitions</div>
-                                          ) : (
-                                            (transitionsCache[epic.key] || []).map(t => (
-                                              <button
-                                                key={t.id}
-                                                onClick={(e) => { e.stopPropagation(); if (t.to.name === epic.status) { setEditingStatus(null); } else { executeTransition(epic.key, t.id, t.to.name); } }}
-                                                className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center gap-2 ${
-                                                  t.to.name === epic.status ? 'text-accent-lighter font-medium' : 'text-gray-300 hover:bg-gray-700'
-                                                }`}
-                                              >
-                                                <span className="w-[6px] h-[6px] rounded-full shrink-0" style={{
-                                                  background: t.to.name === 'Done' ? '#10B981' : t.to.name === 'Rollout' ? '#3B82F6' : t.to.name === 'In Progress' ? '#D97706' : '#6B7280'
-                                                }} />
-                                                {t.to.name}
-                                              </button>
-                                            ))
-                                          )}
-                                        </div>
-                                      </>
-                                    )}
-                                  </span>
-                                ) : (
-                                  <span className="inline-block w-[7px] h-[7px] rounded-full mr-1.5 align-middle" style={{ background: '#D97706' }} title={epic.status} />
-                                )}
                                 {jiraHost ? (
                                   <a href={`https://${jiraHost}/browse/${epic.key}`} target="_blank" rel="noopener noreferrer" className="text-accent-light hover:text-accent-lighter underline" onClick={e => e.stopPropagation()}>{epic.key}</a>
                                 ) : (
@@ -847,8 +806,59 @@ export default function ProjectsContent() {
                             </>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-gray-300">
-                          {epic.assignee || '—'}
+                        <td className="px-4 py-3 text-gray-300 relative">
+                          <div>{epic.assignee || '—'}</div>
+                          {canAct ? (
+                            <div
+                              onClick={(e) => { e.stopPropagation(); openStatusEditor(epic.key); }}
+                              className={`flex items-center gap-1 mt-0.5 cursor-pointer text-[10px] transition-colors ${
+                                editingStatus === epic.key ? 'text-accent-lighter' : 'text-gray-500 hover:text-gray-300'
+                              }`}
+                            >
+                              <span className="w-[6px] h-[6px] rounded-full shrink-0" style={{
+                                background: savingStatus === epic.key ? '#6B7280' :
+                                  epic.status === 'Done' ? '#10B981' : epic.status === 'Rollout' ? '#3B82F6' :
+                                  epic.status === 'In Progress' ? '#D97706' : '#6B7280'
+                              }} />
+                              {savingStatus === epic.key ? 'Saving...' : epic.status}
+                              <svg className="w-2 h-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" /></svg>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1 mt-0.5 text-[10px] text-gray-600">
+                              <span className="w-[6px] h-[6px] rounded-full shrink-0" style={{
+                                background: epic.status === 'Done' ? '#10B981' : epic.status === 'Rollout' ? '#3B82F6' :
+                                  epic.status === 'In Progress' ? '#D97706' : '#6B7280'
+                              }} />
+                              {epic.status}
+                            </div>
+                          )}
+                          {editingStatus === epic.key && (
+                            <>
+                              <div className="fixed inset-0 z-20" onClick={() => setEditingStatus(null)} />
+                              <div className="absolute top-full left-2 mt-0 z-30 bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden min-w-[140px]">
+                                {transitionsLoading && !transitionsCache[epic.key] ? (
+                                  <div className="px-3 py-2 text-xs text-gray-500 animate-pulse">Loading...</div>
+                                ) : (transitionsCache[epic.key] || []).length === 0 ? (
+                                  <div className="px-3 py-2 text-xs text-gray-600">No transitions</div>
+                                ) : (
+                                  (transitionsCache[epic.key] || []).map(t => (
+                                    <button
+                                      key={t.id}
+                                      onClick={(e) => { e.stopPropagation(); if (t.to.name === epic.status) { setEditingStatus(null); } else { executeTransition(epic.key, t.id, t.to.name); } }}
+                                      className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center gap-2 ${
+                                        t.to.name === epic.status ? 'text-accent-lighter font-medium' : 'text-gray-300 hover:bg-gray-700'
+                                      }`}
+                                    >
+                                      <span className="w-[6px] h-[6px] rounded-full shrink-0" style={{
+                                        background: t.to.name === 'Done' ? '#10B981' : t.to.name === 'Rollout' ? '#3B82F6' : t.to.name === 'In Progress' ? '#D97706' : '#6B7280'
+                                      }} />
+                                      {t.to.name}
+                                    </button>
+                                  ))
+                                )}
+                              </div>
+                            </>
+                          )}
                         </td>
                         <td className="px-4 py-3">
                           {epic.team ? (
