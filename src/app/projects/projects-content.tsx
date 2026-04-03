@@ -79,6 +79,13 @@ export default function ProjectsContent() {
   const [savingDue, setSavingDue] = useState<string | null>(null);
   const [calMonth, setCalMonth] = useState<Date>(new Date());
 
+  useEffect(() => {
+    if (!editingDue) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setEditingDue(null); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [editingDue]);
+
   const saveDueDate = async (epicKey: string, newDate: string | null) => {
     setSavingDue(epicKey);
     try {
