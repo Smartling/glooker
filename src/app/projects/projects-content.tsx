@@ -81,20 +81,21 @@ export default function ProjectsContent() {
 
   // Status editing
   const [editingStatus, setEditingStatus] = useState<string | null>(null);
-  const [transitions, setTransitions] = useState<Array<{ id: string; name: string; to: { name: string } }>>([]);
+  const [transitionsCache, setTransitionsCache] = useState<Record<string, Array<{ id: string; name: string; to: { name: string } }>>>({});
   const [transitionsLoading, setTransitionsLoading] = useState(false);
   const [savingStatus, setSavingStatus] = useState<string | null>(null);
 
   const openStatusEditor = async (epicKey: string) => {
     if (editingStatus === epicKey) { setEditingStatus(null); return; }
     setEditingStatus(epicKey);
+    if (transitionsCache[epicKey]) return; // already cached
     setTransitionsLoading(true);
     try {
       const res = await fetch(`/api/projects/${encodeURIComponent(epicKey)}/status`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      setTransitions(data.transitions || []);
-    } catch { setTransitions([]); }
+      setTransitionsCache(prev => ({ ...prev, [epicKey]: data.transitions || [] }));
+    } catch { setTransitionsCache(prev => ({ ...prev, [epicKey]: [] })); }
     finally { setTransitionsLoading(false); }
   };
 
@@ -128,6 +129,8 @@ export default function ProjectsContent() {
     } finally {
       setSavingStatus(null);
       setEditingStatus(null);
+      // Invalidate transitions cache for this epic (status changed, transitions differ)
+      setTransitionsCache(prev => { const n = { ...prev }; delete n[epicKey]; return n; });
     }
   };
 
@@ -717,12 +720,12 @@ export default function ProjectsContent() {
                                       <>
                                         <div className="fixed inset-0 z-20" onClick={() => setEditingStatus(null)} />
                                         <div className="absolute top-full left-0 mt-1 z-30 bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden min-w-[160px]">
-                                          {transitionsLoading ? (
+                                          {transitionsLoading && !transitionsCache[epic.key] ? (
                                             <div className="px-3 py-2 text-xs text-gray-500 animate-pulse">Loading...</div>
-                                          ) : transitions.length === 0 ? (
+                                          ) : (transitionsCache[epic.key] || []).length === 0 ? (
                                             <div className="px-3 py-2 text-xs text-gray-600">No transitions available</div>
                                           ) : (
-                                            transitions.map(t => (
+                                            (transitionsCache[epic.key] || []).map(t => (
                                               <button
                                                 key={t.id}
                                                 onClick={(e) => { e.stopPropagation(); executeTransition(epic.key, t.id, t.to.name); }}
