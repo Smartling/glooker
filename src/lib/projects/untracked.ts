@@ -33,12 +33,7 @@ export interface UntrackedResult {
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 export async function getUntrackedWork(org: string, forceRefresh: boolean): Promise<UntrackedResult> {
-  // 1. Get all child issue key prefixes from tracked epics (one batch Jira call)
-  //    Also get repos from cached epic summaries for better exclusion
-  const excludedPrefixes = await getTrackedIssuePrefixes();
-  const excludedRepos = await getTrackedEpicRepos(org, excludedPrefixes);
-
-  // 2. Get all teams with members
+  // 1. Get all teams with members
   const [teamRows] = await db.execute(
     `SELECT t.id, t.name, t.color FROM teams t WHERE t.org = ? ORDER BY t.name`,
     [org],
@@ -55,9 +50,33 @@ export async function getUntrackedWork(org: string, forceRefresh: boolean): Prom
     }
   }
 
+  // 2. Check if all teams have fresh cache — if so, skip expensive Jira/prefix discovery
+  if (!forceRefresh) {
+    const cachedResults: UntrackedTeam[] = [];
+    let allCached = true;
+    for (const team of teams) {
+      const cached = await getCachedUntracked(team.name, org);
+      if (cached) {
+        if (cached.groups.length > 0) {
+          cachedResults.push({ name: team.name, color: team.color, groups: cached.groups, totalCommits: cached.totalCommits });
+        }
+      } else {
+        allCached = false;
+        break;
+      }
+    }
+    if (allCached) {
+      return { teams: cachedResults, cached: true };
+    }
+  }
+
+  // 3. Get child issue key prefixes + repo exclusions (expensive — Jira calls)
+  const excludedPrefixes = await getTrackedIssuePrefixes();
+  const excludedRepos = await getTrackedEpicRepos(org, excludedPrefixes);
+
   const results: UntrackedTeam[] = [];
 
-  // Process all teams in parallel
+  // 4. Process all teams in parallel
   const teamResults = await Promise.allSettled(teams.map(async (team) => {
     if (!forceRefresh) {
       const cached = await getCachedUntracked(team.name, org);
