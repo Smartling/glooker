@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '../auth-context';
+import { findFirstJiraKey } from '@/lib/jira-key-utils';
 
 interface ProjectEpic {
   key: string;
@@ -731,7 +732,7 @@ export default function ProjectsContent() {
                                           {showCommits === epic.key && (
                                             <div className="mt-2 space-y-1.5 max-h-64 overflow-y-auto">
                                               {summaryData[epic.key]!.commits.map((c: any) => {
-                                                const jiraMatch = c.message.match(/([A-Z]+-\d+)/);
+                                                const jiraMatch = findFirstJiraKey(c.message);
                                                 const shortSha = c.sha.slice(0, 7);
                                                 return (
                                                   <div key={c.sha} className="flex items-start gap-2 text-xs text-gray-500">
@@ -747,8 +748,8 @@ export default function ProjectsContent() {
                                                     <span className="text-gray-500 truncate flex-1">
                                                       {jiraMatch && jiraHost ? (
                                                         <>
-                                                          <a href={`https://${jiraHost}/browse/${jiraMatch[1]}`} target="_blank" rel="noopener noreferrer" className="text-accent-light hover:text-accent-lighter" onClick={e => e.stopPropagation()}>{jiraMatch[1]}</a>
-                                                          {' '}{c.message.replace(jiraMatch[1], '').trim()}
+                                                          <a href={`https://${jiraHost}/browse/${jiraMatch.key}`} target="_blank" rel="noopener noreferrer" className="text-accent-light hover:text-accent-lighter" onClick={e => e.stopPropagation()}>{jiraMatch.key}</a>
+                                                          {' '}{(c.message.slice(0, jiraMatch.start) + c.message.slice(jiraMatch.end)).trim()}
                                                         </>
                                                       ) : c.message}
                                                     </span>
@@ -969,7 +970,7 @@ export default function ProjectsContent() {
                                           {showCommits === groupId && (
                                             <div className="mt-2 space-y-1.5 max-h-64 overflow-y-auto">
                                               {group.commits.map((c: any) => {
-                                                  const jiraMatch = c.message.match(/([A-Z]+-\d+)/);
+                                                  const jiraMatch = findFirstJiraKey(c.message);
                                                   const shortSha = c.sha?.slice(0, 7) || '';
                                                   return (
                                                     <div key={c.sha || c.message} className="flex items-start gap-2 text-xs text-gray-500">
@@ -985,8 +986,8 @@ export default function ProjectsContent() {
                                                       <span className="text-gray-500 truncate flex-1">
                                                         {jiraMatch && jiraHost ? (
                                                           <>
-                                                            <a href={`https://${jiraHost}/browse/${jiraMatch[1]}`} target="_blank" rel="noopener noreferrer" className="text-accent-light hover:text-accent-lighter" onClick={e => e.stopPropagation()}>{jiraMatch[1]}</a>
-                                                            {' '}{c.message.replace(jiraMatch[1], '').trim()}
+                                                            <a href={`https://${jiraHost}/browse/${jiraMatch.key}`} target="_blank" rel="noopener noreferrer" className="text-accent-light hover:text-accent-lighter" onClick={e => e.stopPropagation()}>{jiraMatch.key}</a>
+                                                            {' '}{(c.message.slice(0, jiraMatch.start) + c.message.slice(jiraMatch.end)).trim()}
                                                           </>
                                                         ) : c.message}
                                                       </span>

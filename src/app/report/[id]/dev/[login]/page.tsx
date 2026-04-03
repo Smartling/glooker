@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { findFirstJiraKey } from '@/lib/jira-key-utils';
 
 const TYPE_COLORS: Record<string, string> = {
   feature: 'bg-blue-500', bug: 'bg-red-500', refactor: 'bg-purple-500',
@@ -95,6 +96,11 @@ export default function DevDetailPage() {
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [jiraIssues, setJiraIssues] = useState<JiraIssue[]>([]);
+  const [jiraHost, setJiraHost] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('/api/llm-config').then(r => r.json()).then(d => { if (d.jira?.host) setJiraHost(d.jira.host); }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     fetch(`/api/report/${params.id}/dev/${params.login}`)
@@ -437,7 +443,18 @@ export default function DevDetailPage() {
                     </td>
                     <td className="px-4 py-2.5 text-gray-300 max-w-[240px]">
                       <div className="truncate" title={c.commit_message}>
-                        {c.commit_message?.split('\n')[0] || '—'}
+                        {(() => {
+                          const msg = c.commit_message?.split('\n')[0] || '—';
+                          const jira = findFirstJiraKey(msg);
+                          if (!jira || !jiraHost) return msg;
+                          return (
+                            <>
+                              {msg.slice(0, jira.start)}
+                              <a href={`https://${jiraHost}/browse/${jira.key}`} target="_blank" rel="noopener noreferrer" className="text-accent-light hover:text-accent-lighter">{jira.key}</a>
+                              {msg.slice(jira.end)}
+                            </>
+                          );
+                        })()}
                       </div>
                       {isExpanded && c.impact_summary && (
                         <p className="text-xs text-gray-500 mt-1 whitespace-normal">{c.impact_summary}</p>
