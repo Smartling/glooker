@@ -269,12 +269,12 @@ export default function ProjectsContent() {
 
   const isOverdue = (dateStr: string | null) => {
     if (!dateStr) return false;
-    return new Date(dateStr) < new Date();
+    return new Date(dateStr + 'T00:00:00') < new Date();
   };
 
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return '—';
-    const d = new Date(dateStr);
+    const d = new Date(dateStr + 'T00:00:00');
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
