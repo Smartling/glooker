@@ -695,43 +695,37 @@ export default function ProjectsContent() {
                             </button>
                             <div className="flex-1 min-w-0">
                               <div>
-                                {jiraHost ? (
-                                  <a href={`https://${jiraHost}/browse/${epic.key}`} target="_blank" rel="noopener noreferrer" className="text-accent-light hover:text-accent-lighter underline" onClick={e => e.stopPropagation()}>{epic.key}</a>
-                                ) : (
-                                  <span>{epic.key}</span>
-                                )}
-                                {' '}{epic.summary}
-                                {canAct && (
-                                  <span className="relative inline-block ml-1.5 align-middle">
-                                    <button
+                                {canAct ? (
+                                  <span className="relative inline-block align-middle mr-1.5">
+                                    <span
                                       onClick={(e) => { e.stopPropagation(); openStatusEditor(epic.key); }}
-                                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
-                                        editingStatus === epic.key
-                                          ? 'bg-accent/15 text-accent-lighter border border-accent/30'
-                                          : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'
+                                      className={`inline-block w-[7px] h-[7px] rounded-full cursor-pointer transition-all ${
+                                        editingStatus === epic.key ? 'ring-2 ring-accent/40 ring-offset-1 ring-offset-gray-900' : 'hover:ring-2 hover:ring-gray-600 hover:ring-offset-1 hover:ring-offset-gray-900'
                                       }`}
-                                    >
-                                      {savingStatus === epic.key ? 'Saving...' : epic.status}
-                                      <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                      </svg>
-                                    </button>
+                                      style={{ background: savingStatus === epic.key ? '#6B7280' : '#D97706' }}
+                                      title={epic.status}
+                                    />
                                     {editingStatus === epic.key && (
                                       <>
                                         <div className="fixed inset-0 z-20" onClick={() => setEditingStatus(null)} />
-                                        <div className="absolute top-full left-0 mt-1 z-30 bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden min-w-[160px]">
+                                        <div className="absolute top-full left-0 mt-2 z-30 bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden min-w-[140px]">
                                           {transitionsLoading && !transitionsCache[epic.key] ? (
                                             <div className="px-3 py-2 text-xs text-gray-500 animate-pulse">Loading...</div>
                                           ) : (transitionsCache[epic.key] || []).length === 0 ? (
-                                            <div className="px-3 py-2 text-xs text-gray-600">No transitions available</div>
+                                            <div className="px-3 py-2 text-xs text-gray-600">No transitions</div>
                                           ) : (
                                             (transitionsCache[epic.key] || []).map(t => (
                                               <button
                                                 key={t.id}
                                                 onClick={(e) => { e.stopPropagation(); if (t.to.name === epic.status) { setEditingStatus(null); } else { executeTransition(epic.key, t.id, t.to.name); } }}
-                                                className="w-full text-left px-3 py-2 text-xs text-gray-300 hover:bg-gray-700 transition-colors flex items-center gap-2"
+                                                className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center gap-2 ${
+                                                  t.to.name === epic.status ? 'text-accent-lighter font-medium' : 'text-gray-300 hover:bg-gray-700'
+                                                }`}
                                               >
-                                                <span className="text-gray-500">&rarr;</span> {t.to.name}
+                                                <span className="w-[6px] h-[6px] rounded-full shrink-0" style={{
+                                                  background: t.to.name === 'Done' ? '#10B981' : t.to.name === 'Rollout' ? '#3B82F6' : t.to.name === 'In Progress' ? '#D97706' : '#6B7280'
+                                                }} />
+                                                {t.to.name}
                                               </button>
                                             ))
                                           )}
@@ -739,7 +733,15 @@ export default function ProjectsContent() {
                                       </>
                                     )}
                                   </span>
+                                ) : (
+                                  <span className="inline-block w-[7px] h-[7px] rounded-full mr-1.5 align-middle" style={{ background: '#D97706' }} title={epic.status} />
                                 )}
+                                {jiraHost ? (
+                                  <a href={`https://${jiraHost}/browse/${epic.key}`} target="_blank" rel="noopener noreferrer" className="text-accent-light hover:text-accent-lighter underline" onClick={e => e.stopPropagation()}>{epic.key}</a>
+                                ) : (
+                                  <span>{epic.key}</span>
+                                )}
+                                {' '}{epic.summary}
                               </div>
                               {expandedEpic === epic.key && (
                                 <div className="mt-2 pt-2 border-t border-gray-800/50">
