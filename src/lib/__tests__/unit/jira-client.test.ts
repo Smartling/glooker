@@ -93,6 +93,102 @@ describe('JiraClient.searchDoneIssues — story points mapping', () => {
   });
 });
 
+describe('JiraClient.getTransitions', () => {
+  const mockFetch = jest.fn();
+
+  beforeAll(() => {
+    global.fetch = mockFetch as any;
+  });
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+  });
+
+  const client = new JiraClient('mycompany.atlassian.net', 'user@example.com', 'token');
+
+  it('calls GET /issue/{key}/transitions', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ transitions: [] }),
+    });
+    await client.getTransitions('PROJ-1');
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toBe('https://mycompany.atlassian.net/rest/api/3/issue/PROJ-1/transitions');
+    expect(options?.method).toBeUndefined(); // GET is the default
+  });
+
+  it('returns the transitions array from the response', async () => {
+    const transitions = [
+      { id: '11', name: 'To Do', to: { name: 'To Do' } },
+      { id: '21', name: 'In Progress', to: { name: 'In Progress' } },
+      { id: '31', name: 'Done', to: { name: 'Done' } },
+    ];
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ transitions }),
+    });
+
+    const result = await client.getTransitions('PROJ-42');
+    expect(result).toEqual(transitions);
+  });
+
+  it('throws on non-ok response', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      text: () => Promise.resolve('Issue Not Found'),
+    });
+
+    await expect(client.getTransitions('PROJ-99')).rejects.toThrow(
+      'Jira API error (404): Issue Not Found',
+    );
+  });
+});
+
+describe('JiraClient.transitionIssue', () => {
+  const mockFetch = jest.fn();
+
+  beforeAll(() => {
+    global.fetch = mockFetch as any;
+  });
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+  });
+
+  const client = new JiraClient('mycompany.atlassian.net', 'user@example.com', 'token');
+
+  it('calls POST /issue/{key}/transitions with correct body', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true });
+    await client.transitionIssue('PROJ-42', '21');
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toBe('https://mycompany.atlassian.net/rest/api/3/issue/PROJ-42/transitions');
+    expect(options.method).toBe('POST');
+    expect(JSON.parse(options.body)).toEqual({ transition: { id: '21' } });
+  });
+
+  it('resolves on 204 no content (ok: true, no .json())', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true });
+    await expect(client.transitionIssue('PROJ-42', '31')).resolves.toBeUndefined();
+  });
+
+  it('throws on non-ok response', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      text: () => Promise.resolve('Transition not available'),
+    });
+
+    await expect(client.transitionIssue('PROJ-42', '99')).rejects.toThrow(
+      'Jira API error (400): Transition not available',
+    );
+  });
+});
+
 describe('JiraClient.updateDueDate', () => {
   const mockFetch = jest.fn();
 
