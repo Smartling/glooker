@@ -231,6 +231,28 @@ export class JiraClient implements JiraClientInterface {
     return allIssues;
   }
 
+  async getTransitions(issueKey: string): Promise<Array<{ id: string; name: string; to: { name: string } }>> {
+    const result = await this.jiraFetch<{ transitions: Array<{ id: string; name: string; to: { name: string } }> }>(
+      `/issue/${issueKey}/transitions`,
+    );
+    return result.transitions || [];
+  }
+
+  async transitionIssue(issueKey: string, transitionId: string): Promise<void> {
+    const res = await fetch(`${this.baseUrl}/issue/${issueKey}/transitions`, {
+      method: 'POST',
+      headers: {
+        'Authorization': this.authHeader,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ transition: { id: transitionId } }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Jira API error (${res.status}): ${text}`);
+    }
+  }
+
   async updateDueDate(issueKey: string, dueDate: string | null): Promise<void> {
     const res = await fetch(`${this.baseUrl}/issue/${issueKey}`, {
       method: 'PUT',

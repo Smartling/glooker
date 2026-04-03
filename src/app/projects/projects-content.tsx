@@ -79,6 +79,65 @@ export default function ProjectsContent() {
   const [savingDue, setSavingDue] = useState<string | null>(null);
   const [calMonth, setCalMonth] = useState<Date>(new Date());
 
+  // Status editing
+  const [editingStatus, setEditingStatus] = useState<string | null>(null);
+  const [transitions, setTransitions] = useState<Array<{ id: string; name: string; to: { name: string } }>>([]);
+  const [transitionsLoading, setTransitionsLoading] = useState(false);
+  const [savingStatus, setSavingStatus] = useState<string | null>(null);
+
+  const openStatusEditor = async (epicKey: string) => {
+    if (editingStatus === epicKey) { setEditingStatus(null); return; }
+    setEditingStatus(epicKey);
+    setTransitionsLoading(true);
+    try {
+      const res = await fetch(`/api/projects/${encodeURIComponent(epicKey)}/status`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setTransitions(data.transitions || []);
+    } catch { setTransitions([]); }
+    finally { setTransitionsLoading(false); }
+  };
+
+  const executeTransition = async (epicKey: string, transitionId: string, toStatus: string) => {
+    setSavingStatus(epicKey);
+    try {
+      const res = await fetch(`/api/projects/${encodeURIComponent(epicKey)}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transitionId }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // Remove from current tab cache, invalidate target tab
+      setTabCache(prev => {
+        const updated = { ...prev };
+        for (const tab of Object.keys(updated) as StatusTab[]) {
+          const entry = updated[tab];
+          if (entry) {
+            updated[tab] = { ...entry, epics: entry.epics.filter(e => e.key !== epicKey) };
+          }
+        }
+        // Invalidate the target tab so it re-fetches
+        const targetTab = (['In Progress', 'Rollout', 'Done'] as StatusTab[]).find(t => t === toStatus);
+        if (targetTab && updated[targetTab]) {
+          delete updated[targetTab];
+        }
+        return updated;
+      });
+    } catch (err) {
+      console.error('Failed to transition:', err);
+    } finally {
+      setSavingStatus(null);
+      setEditingStatus(null);
+    }
+  };
+
+  useEffect(() => {
+    if (!editingStatus) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setEditingStatus(null); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [editingStatus]);
+
   useEffect(() => {
     if (!editingDue) return;
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setEditingDue(null); };
@@ -639,6 +698,45 @@ export default function ProjectsContent() {
                                   <span>{epic.key}</span>
                                 )}
                                 {' '}{epic.summary}
+                                {canAct && (
+                                  <span className="relative inline-block ml-1.5 align-middle">
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); openStatusEditor(epic.key); }}
+                                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                                        editingStatus === epic.key
+                                          ? 'bg-accent/15 text-accent-lighter border border-accent/30'
+                                          : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'
+                                      }`}
+                                    >
+                                      {savingStatus === epic.key ? 'Saving...' : epic.status}
+                                      <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                      </svg>
+                                    </button>
+                                    {editingStatus === epic.key && (
+                                      <>
+                                        <div className="fixed inset-0 z-20" onClick={() => setEditingStatus(null)} />
+                                        <div className="absolute top-full left-0 mt-1 z-30 bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden min-w-[160px]">
+                                          {transitionsLoading ? (
+                                            <div className="px-3 py-2 text-xs text-gray-500 animate-pulse">Loading...</div>
+                                          ) : transitions.length === 0 ? (
+                                            <div className="px-3 py-2 text-xs text-gray-600">No transitions available</div>
+                                          ) : (
+                                            transitions.map(t => (
+                                              <button
+                                                key={t.id}
+                                                onClick={(e) => { e.stopPropagation(); executeTransition(epic.key, t.id, t.to.name); }}
+                                                className="w-full text-left px-3 py-2 text-xs text-gray-300 hover:bg-gray-700 transition-colors flex items-center gap-2"
+                                              >
+                                                <span className="text-gray-500">&rarr;</span> {t.to.name}
+                                              </button>
+                                            ))
+                                          )}
+                                        </div>
+                                      </>
+                                    )}
+                                  </span>
+                                )}
                               </div>
                               {expandedEpic === epic.key && (
                                 <div className="mt-2 pt-2 border-t border-gray-800/50">

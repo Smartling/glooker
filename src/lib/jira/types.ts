@@ -17,4 +17,6 @@ export interface JiraClientInterface {
     projects?: string[], storyPointsFields?: string[],
   ): Promise<JiraIssueData[]>;
   updateDueDate(issueKey: string, dueDate: string | null): Promise<void>;
+  getTransitions(issueKey: string): Promise<Array<{ id: string; name: string; to: { name: string } }>>;
+  transitionIssue(issueKey: string, transitionId: string): Promise<void>;
 }

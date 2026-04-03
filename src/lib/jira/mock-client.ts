@@ -93,7 +93,14 @@ export class MockJiraClient implements JiraClientInterface {
     ];
   }
 
-  async updateDueDate(_issueKey: string, _dueDate: string | null): Promise<void> {
-    // no-op in mock
+  async updateDueDate(_issueKey: string, _dueDate: string | null): Promise<void> {}
+
+  async getTransitions(_issueKey: string): Promise<Array<{ id: string; name: string; to: { name: string } }>> {
+    return [
+      { id: '21', name: 'Start Rollout', to: { name: 'Rollout' } },
+      { id: '31', name: 'Done', to: { name: 'Done' } },
+    ];
   }
+
+  async transitionIssue(_issueKey: string, _transitionId: string): Promise<void> {}
 }
