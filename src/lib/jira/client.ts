@@ -231,6 +231,21 @@ export class JiraClient implements JiraClientInterface {
     return allIssues;
   }
 
+  async updateDueDate(issueKey: string, dueDate: string | null): Promise<void> {
+    const res = await fetch(`${this.baseUrl}/issue/${issueKey}`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': this.authHeader,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ fields: { duedate: dueDate } }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Jira API error (${res.status}): ${text}`);
+    }
+  }
+
   async searchChildIssues(
     epicKey: string,
   ): Promise<Array<{

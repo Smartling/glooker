@@ -74,6 +74,41 @@ export default function ProjectsContent() {
 
   const [ringStats, setRingStats] = useState<Record<string, EpicRingStats>>({});
 
+  // Due date editing
+  const [editingDue, setEditingDue] = useState<string | null>(null);
+  const [savingDue, setSavingDue] = useState<string | null>(null);
+
+  const saveDueDate = async (epicKey: string, newDate: string | null) => {
+    setSavingDue(epicKey);
+    try {
+      const res = await fetch(`/api/projects/${encodeURIComponent(epicKey)}/due`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dueDate: newDate }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // Optimistic update in tab cache
+      setTabCache(prev => {
+        const updated = { ...prev };
+        for (const tab of Object.keys(updated) as StatusTab[]) {
+          const entry = updated[tab];
+          if (entry) {
+            updated[tab] = {
+              ...entry,
+              epics: entry.epics.map(e => e.key === epicKey ? { ...e, dueDate: newDate } : e),
+            };
+          }
+        }
+        return updated;
+      });
+    } catch (err) {
+      console.error('Failed to update due date:', err);
+    } finally {
+      setSavingDue(null);
+      setEditingDue(null);
+    }
+  };
+
   // Epic summary expand
   const [expandedEpic, setExpandedEpic] = useState<string | null>(null);
   const [showCommits, setShowCommits] = useState<string | null>(null);
@@ -591,7 +626,43 @@ export default function ProjectsContent() {
                           </div>
                         </td>
                         <td className={`px-4 py-3 ${activeTab === 'In Progress' && isOverdue(epic.dueDate) ? 'text-red-400' : 'text-gray-400'}`}>
-                          {formatDate(epic.dueDate)}
+                          {editingDue === epic.key ? (
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="date"
+                                defaultValue={epic.dueDate || ''}
+                                autoFocus
+                                className="bg-gray-800 border border-gray-600 rounded px-1.5 py-0.5 text-xs text-white focus:outline-none focus:border-accent w-28"
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') saveDueDate(epic.key, (e.target as HTMLInputElement).value || null);
+                                  if (e.key === 'Escape') setEditingDue(null);
+                                }}
+                                onBlur={e => saveDueDate(epic.key, e.target.value || null)}
+                              />
+                              {epic.dueDate && (
+                                <button onClick={() => saveDueDate(epic.key, null)} className="text-gray-600 hover:text-red-400 text-xs" title="Clear date">&times;</button>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="group/due inline-flex items-center gap-1">
+                              {formatDate(epic.dueDate)}
+                              {canAct && (
+                                <button
+                                  onClick={() => setEditingDue(epic.key)}
+                                  className="opacity-0 group-hover/due:opacity-100 text-gray-600 hover:text-gray-400 transition-opacity"
+                                  title="Edit due date"
+                                >
+                                  <svg className={`w-3 h-3 ${savingDue === epic.key ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    {savingDue === epic.key ? (
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                    ) : (
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                    )}
+                                  </svg>
+                                </button>
+                              )}
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-gray-300">
                           {epic.assignee || '—'}

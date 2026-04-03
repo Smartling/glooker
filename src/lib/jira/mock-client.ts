@@ -92,4 +92,8 @@ export class MockJiraClient implements JiraClientInterface {
       },
     ];
   }
+
+  async updateDueDate(_issueKey: string, _dueDate: string | null): Promise<void> {
+    // no-op in mock
+  }
 }

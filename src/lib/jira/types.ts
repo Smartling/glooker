@@ -16,4 +16,5 @@ export interface JiraClientInterface {
     accountId: string, periodDays: number,
     projects?: string[], storyPointsFields?: string[],
   ): Promise<JiraIssueData[]>;
+  updateDueDate(issueKey: string, dueDate: string | null): Promise<void>;
 }
