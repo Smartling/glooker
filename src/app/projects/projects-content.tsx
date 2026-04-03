@@ -590,7 +590,7 @@ export default function ProjectsContent() {
                             </div>
                           </div>
                         </td>
-                        <td className={`px-4 py-3 ${isOverdue(epic.dueDate) ? 'text-red-400' : 'text-gray-400'}`}>
+                        <td className={`px-4 py-3 ${activeTab === 'In Progress' && isOverdue(epic.dueDate) ? 'text-red-400' : 'text-gray-400'}`}>
                           {formatDate(epic.dueDate)}
                         </td>
                         <td className="px-4 py-3 text-gray-300">
