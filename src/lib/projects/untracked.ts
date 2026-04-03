@@ -57,24 +57,32 @@ export async function getUntrackedWork(org: string, forceRefresh: boolean): Prom
 
   const results: UntrackedTeam[] = [];
 
-  for (const team of teams) {
+  // Process all teams in parallel
+  const teamResults = await Promise.allSettled(teams.map(async (team) => {
     if (!forceRefresh) {
       const cached = await getCachedUntracked(team.name, org);
       if (cached) {
-        results.push({ name: team.name, color: team.color, groups: cached.groups, totalCommits: cached.totalCommits });
-        continue;
+        return { name: team.name, color: team.color, groups: cached.groups, totalCommits: cached.totalCommits };
       }
     }
 
     const commits = await getTeamUntrackedCommits(team.members, org, excludedPrefixes, excludedRepos);
-    if (commits.length === 0) continue;
+    if (commits.length === 0) return null;
 
     const groups = await clusterCommits(team.name, commits);
     await storeUntracked(team.name, org, groups, commits.length);
-    results.push({ name: team.name, color: team.color, groups, totalCommits: commits.length });
+    return { name: team.name, color: team.color, groups, totalCommits: commits.length };
+  }));
+
+  for (const result of teamResults) {
+    if (result.status === 'fulfilled' && result.value && result.value.groups.length > 0) {
+      results.push(result.value);
+    } else if (result.status === 'rejected') {
+      console.error('[untracked] Team processing failed:', result.reason);
+    }
   }
 
-  return { teams: results.filter(t => t.groups.length > 0), cached: false };
+  return { teams: results, cached: false };
 }
 
 /**
