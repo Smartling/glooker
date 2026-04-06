@@ -1,4 +1,4 @@
-import { aggregate } from '@/lib/aggregator';
+import { aggregate, computeImpactScore } from '@/lib/aggregator';
 import type { CommitAnalysis } from '@/lib/analyzer';
 import { makeCommit, makeAnalysis } from '../fixtures';
 
@@ -83,7 +83,7 @@ describe('aggregate', () => {
     );
     const prCounts = new Map([['dev', 10]]);
     const result = aggregate(commits, analyses, prCounts);
-    expect(result[0].impactScore).toBe(9.6);
+    expect(result[0].impactScore).toBe(9.3); // PR weight 2.7 (was 3.0), no Jira data at aggregate time
   });
 
   it('weights complexity higher than volume in impact score', () => {
@@ -175,5 +175,46 @@ describe('aggregate', () => {
     expect(result[0].totalCommits).toBe(2);
     // avgComplexity based only on the one analyzed commit
     expect(result[0].avgComplexity).toBe(8);
+  });
+});
+
+describe('computeImpactScore', () => {
+  const base = { totalCommits: 20, totalPRs: 10, avgComplexity: 5, prPercentage: 100, totalStoryPoints: 0, totalJiraIssues: 0 };
+
+  it('returns max score with all metrics maxed', () => {
+    const score = computeImpactScore({ ...base, totalStoryPoints: 15 });
+    // 2.0 + 2.7 + 1.75 + 1.1 + 0.5 = 8.05 → 8.1
+    expect(score).toBe(8.1);
+  });
+
+  it('uses story points when available', () => {
+    const withSP = computeImpactScore({ ...base, totalStoryPoints: 15, totalJiraIssues: 2 });
+    const withoutSP = computeImpactScore({ ...base, totalStoryPoints: 0, totalJiraIssues: 2 });
+    // SP gives full 0.5 (15/15=1), jira count gives 0.1 (2/10=0.2*0.5)
+    expect(withSP).toBeGreaterThan(withoutSP);
+  });
+
+  it('falls back to jira count when story points are 0', () => {
+    const noSP = computeImpactScore({ ...base, totalStoryPoints: 0, totalJiraIssues: 10 });
+    const noJira = computeImpactScore({ ...base, totalStoryPoints: 0, totalJiraIssues: 0 });
+    expect(noSP).toBeGreaterThan(noJira);
+  });
+
+  it('caps story points factor at 1.0 (15+ SP)', () => {
+    const sp15 = computeImpactScore({ ...base, totalStoryPoints: 15 });
+    const sp30 = computeImpactScore({ ...base, totalStoryPoints: 30 });
+    expect(sp15).toBe(sp30);
+  });
+
+  it('caps jira count factor at 1.0 (10+ jiras)', () => {
+    const j10 = computeImpactScore({ ...base, totalStoryPoints: 0, totalJiraIssues: 10 });
+    const j20 = computeImpactScore({ ...base, totalStoryPoints: 0, totalJiraIssues: 20 });
+    expect(j10).toBe(j20);
+  });
+
+  it('gives 0 jira contribution when both SP and jiras are 0', () => {
+    const withJira = computeImpactScore({ ...base, totalStoryPoints: 10, totalJiraIssues: 5 });
+    const without = computeImpactScore({ ...base });
+    expect(withJira - without).toBeCloseTo(0.3, 1); // 10/15*0.5 ≈ 0.33
   });
 });

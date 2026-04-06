@@ -206,7 +206,7 @@ export default function OrgDetailPage() {
               <th className="px-4 py-3 text-right">PR%</th>
               <th className="px-4 py-3 text-right">AI%</th>
               {hasJira && <th className="px-4 py-3 text-right">Jira</th>}
-              <th className="px-4 py-3 text-right">Impact</th>
+              <th className="px-4 py-3 text-right" title="Impact = Commits (2.0) + PRs (2.7) + Complexity (3.5) + PR% (1.1) + Jira work (0.5). Jira: uses story points when available, falls back to issue count.">Impact ⓘ</th>
             </tr>
           </thead>
           <tbody>

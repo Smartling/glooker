@@ -14,8 +14,29 @@ export interface DeveloperStats {
   prPercentage:   number;  // % of commits that went through a PR
   aiPercentage:   number;  // % of commits with confirmed or suspected AI assistance
   totalJiraIssues: number;
+  totalStoryPoints: number;
   typeBreakdown:  Record<string, number>;
   activeRepos:    string[];
+}
+
+/**
+ * Compute impact score from developer metrics.
+ * Exported so report-runner can recalculate after Jira data is attached.
+ */
+export function computeImpactScore(s: {
+  totalCommits: number; totalPRs: number; avgComplexity: number;
+  prPercentage: number; totalStoryPoints: number; totalJiraIssues: number;
+}): number {
+  const jiraFactor = s.totalStoryPoints > 0
+    ? Math.min(s.totalStoryPoints / 15, 1)
+    : Math.min(s.totalJiraIssues / 10, 1);
+  const raw =
+    Math.min(s.totalCommits / 20, 1) * 2 +
+    Math.min(s.totalPRs / 10, 1)     * 2.7 +
+    (s.avgComplexity / 10)            * 3.5 +
+    (s.prPercentage / 100)            * 1.1 +
+    jiraFactor                        * 0.5;
+  return Math.round(raw * 10) / 10;
 }
 
 export function aggregate(
@@ -79,13 +100,11 @@ export function aggregate(
       ? Math.round((dev.aiCommits / dev.commits.length) * 100)
       : 0;
 
-    // Impact score: weighted blend of volume + complexity + PR discipline
-    const rawImpact =
-      Math.min(dev.commits.length / 20, 1) * 2 +
-      Math.min(totalPRs / 10, 1)            * 3 +
-      (avgComplexity / 10)                   * 3.5 +
-      (prPercentage / 100)                   * 1.1;
-    const impactScore = Math.round(rawImpact * 10) / 10;
+    // Impact score: initial calculation without Jira data (recalculated in report-runner after Jira fetch)
+    const impactScore = computeImpactScore({
+      totalCommits: dev.commits.length, totalPRs, avgComplexity,
+      prPercentage, totalStoryPoints: 0, totalJiraIssues: 0,
+    });
 
     const typeBreakdown: Record<string, number> = {};
     for (const a of dev.analyses) {
@@ -105,6 +124,7 @@ export function aggregate(
       prPercentage,
       aiPercentage,
       totalJiraIssues: 0,  // Set by report-runner after Jira fetch
+      totalStoryPoints: 0, // Set by report-runner after Jira fetch
       typeBreakdown,
       activeRepos:   [...dev.repos],
     });

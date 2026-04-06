@@ -24,7 +24,7 @@ Glooker is a Next.js 15 web app that generates developer impact reports for a Gi
 - **In-memory progress store** (globalThis Map) — survives Next.js HMR, acceptable for single-user local use
 - **AI detection** has two layers: trailer parsing (confirmed) and LLM heuristic (maybe_ai)
 - **Prompt template system** — LLM prompts live in `prompts/` dir (configurable via `PROMPTS_DIR`), loaded by `prompt-loader.ts` with in-memory caching. Templates use `{{PLACEHOLDER}}` syntax. All LLM settings (temperature, max_tokens, max_iterations) are configurable via env vars with hardcoded defaults.
-- **Jira integration** (`src/lib/jira/`) — optional, enabled via `JIRA_ENABLED=true`. Uses direct `fetch` calls to Jira REST API (no external SDK). Auto-discovers GitHub→Jira user mappings via commit author emails, persists to `user_mappings` table. Fetches resolved issues via JQL (`statusCategory = "Done"`) using the new `/search/jql` endpoint. Jira data is gathered but does **not** influence the impact score formula yet.
+- **Jira integration** (`src/lib/jira/`) — optional, enabled via `JIRA_ENABLED=true`. Uses direct `fetch` calls to Jira REST API (no external SDK). Auto-discovers GitHub→Jira user mappings via commit author emails, persists to `user_mappings` table. Fetches resolved issues via JQL (`statusCategory = "Done"`) using the new `/search/jql` endpoint. Jira data (story points or issue count) contributes to the impact score via a `jiraFactor` (weight 0.5). Uses story points when available (`min(SP/15, 1)`), falls back to issue count (`min(count/10, 1)`).
 
 ## Environment
 

@@ -2,7 +2,7 @@ import pLimit from 'p-limit';
 import db from './db/index';
 import { getGitHubProvider, type CommitData } from './github';
 import { analyzeCommit, type CommitAnalysis } from './analyzer';
-import { aggregate } from './aggregator';
+import { aggregate, computeImpactScore } from './aggregator';
 import { updateProgress, addLog } from './progress-store';
 import { getJiraClient } from './jira';
 import { resolveJiraUser } from './jira';
@@ -348,7 +348,7 @@ export async function runReport(
     }
     const stats = aggregate(allCommits, analyses, prCounts);
 
-    // Attach Jira issue counts to aggregated stats (fall back to DB count for resumed data)
+    // Attach Jira issue counts + story points, then recalculate impact score
     for (const s of stats) {
       if (jiraIssueCountByLogin.has(s.githubLogin)) {
         s.totalJiraIssues = jiraIssueCountByLogin.get(s.githubLogin)!;
@@ -359,6 +359,16 @@ export async function runReport(
         ) as [any[], any];
         s.totalJiraIssues = jiraRows[0]?.cnt || 0;
       }
+
+      // Sum story points for this developer
+      const [spRows] = await db.execute(
+        `SELECT COALESCE(SUM(story_points), 0) as sp FROM jira_issues WHERE report_id = ? AND github_login = ?`,
+        [reportId, s.githubLogin],
+      ) as [any[], any];
+      s.totalStoryPoints = Number(spRows[0]?.sp || 0);
+
+      // Recalculate impact score with Jira data
+      s.impactScore = computeImpactScore(s);
     }
 
     for (const s of stats) {
