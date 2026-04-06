@@ -217,9 +217,18 @@ export default function ProjectsContent() {
       .then(r => r.json())
       .then(data => {
         if (data.length > 0) setOrg(data[0].login);
-        else setError('No GitHub org configured');
+        else throw new Error('empty');
       })
-      .catch(() => setError('Failed to load org'));
+      .catch(() => {
+        // Fallback: get org from latest report
+        fetch('/api/report')
+          .then(r => r.json())
+          .then(reports => {
+            if (reports.length > 0) setOrg(reports[0].org);
+            else setError('No org found — run a report or check GitHub token');
+          })
+          .catch(() => setError('Failed to load org'));
+      });
   }, []);
 
   // Fetch epics for a tab, with client-side caching
