@@ -99,7 +99,8 @@ export async function getDevSummary(reportId: string, login: string) {
   // Build prompt
   const formatDev = (d: any, anonymous = false) => {
     const prefix = anonymous ? `rank #${d.rank || '?'}` : `@${d.github_login}`;
-    return `${prefix}: commits=${d.total_commits}, PRs=${d.total_prs}, lines=${d.lines_added}+/${d.lines_removed}-, complexity=${Number(d.avg_complexity).toFixed(1)}, impact=${Number(d.impact_score).toFixed(1)}, PR%=${d.pr_percentage}, AI%=${d.ai_percentage}`;
+    const jiraStr = (d.total_jira_issues ?? 0) > 0 ? `, jiras=${d.total_jira_issues}` : '';
+    return `${prefix}: commits=${d.total_commits}, PRs=${d.total_prs}, lines=${d.lines_added}+/${d.lines_removed}-, complexity=${Number(d.avg_complexity).toFixed(1)}, impact=${Number(d.impact_score).toFixed(1)}, PR%=${d.pr_percentage}, AI%=${d.ai_percentage}${jiraStr}`;
   };
 
   const rankLabel = rank === 1 ? '1st (top of leaderboard)' : rank === 2 ? '2nd' : rank === 3 ? '3rd' : `#${rank} of ${totalDevs}`;
