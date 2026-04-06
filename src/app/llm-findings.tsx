@@ -243,8 +243,8 @@ export default function LlmFindings() {
           <span className="text-xs font-bold tracking-widest uppercase text-white/40">How Impact Score Works</span>
         </div>
         <p className="text-sm text-white/50 mb-4 leading-relaxed">
-          Each developer&apos;s impact score (0–9.6) is a weighted blend of four signals, designed to reward
-          complex, high-quality contributions over raw volume alone.
+          Each developer&apos;s impact score (0–8.8) is a weighted blend of five signals, designed to reward
+          complex, high-quality contributions tracked through PRs and Jira.
         </p>
 
         {/* Formula */}
@@ -258,6 +258,8 @@ export default function LlmFindings() {
           <span className="text-blue-400">Volume</span>
           <span className="text-white/25 mx-1">+</span>
           <span className="text-cyan-400">Discipline</span>
+          <span className="text-white/25 mx-1">+</span>
+          <span className="text-orange-400">Jira</span>
         </div>
 
         {/* Components */}
@@ -266,23 +268,23 @@ export default function LlmFindings() {
             color="purple"
             label="Avg Complexity"
             weight="3.5"
-            maxWeight="9.6"
+            maxWeight="8.8"
             formula="(avgComplexity / 10) × 3.5"
             description="LLM-assessed complexity (1-10) of each commit. The heaviest weight — rewards tackling harder problems over trivial changes."
           />
           <ScoreComponent
             color="emerald"
             label="PR Volume"
-            weight="3.0"
-            maxWeight="9.6"
-            formula="min(PRs / 10, 1) × 3"
+            weight="2.7"
+            maxWeight="8.8"
+            formula="min(PRs / 10, 1) × 2.7"
             description="Scales linearly up to 10 merged PRs, then caps. Values shipping complete work units."
           />
           <ScoreComponent
             color="blue"
             label="Commit Volume"
             weight="2.0"
-            maxWeight="9.6"
+            maxWeight="8.8"
             formula="min(commits / 20, 1) × 2"
             description="Scales linearly up to 20 commits, then caps. Intentionally lower weight — quantity matters less than quality."
           />
@@ -290,9 +292,17 @@ export default function LlmFindings() {
             color="cyan"
             label="PR Discipline"
             weight="1.1"
-            maxWeight="9.6"
+            maxWeight="8.8"
             formula="(prPercentage / 100) × 1.1"
             description="What percentage of commits went through a PR. Encourages code review culture over direct pushes."
+          />
+          <ScoreComponent
+            color="orange"
+            label="Jira Work"
+            weight="0.5"
+            maxWeight="8.8"
+            formula="min(SP/15, 1) × 0.5 — or min(issues/10, 1) × 0.5"
+            description="Uses story points when available, falls back to resolved Jira issue count. Rewards work tracked through project management."
           />
         </div>
 
@@ -302,20 +312,20 @@ export default function LlmFindings() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <ScoreExample
               label="Senior IC"
-              score="8.4"
-              detail="25 commits, 12 PRs, complexity 6.2, 95% PR rate"
+              score="8.1"
+              detail="25 commits, 12 PRs, complexity 6.2, 95% PR rate, 15 SP"
               color="green"
             />
             <ScoreExample
               label="Steady contributor"
-              score="5.4"
-              detail="10 commits, 5 PRs, complexity 4.0, 80% PR rate"
+              score="5.6"
+              detail="10 commits, 5 PRs, complexity 4.0, 80% PR rate, 8 jiras"
               color="yellow"
             />
             <ScoreExample
               label="Light period"
-              score="2.4"
-              detail="3 commits, 1 PR, complexity 3.0, 60% PR rate"
+              score="2.5"
+              detail="3 commits, 1 PR, complexity 3.0, 60% PR rate, 2 jiras"
               color="gray"
             />
           </div>
@@ -333,6 +343,7 @@ function ScoreComponent({ color, label, weight, maxWeight, formula, description 
     emerald: { bar: 'bg-emerald-500', text: 'text-emerald-400', bg: 'bg-emerald-500/10' },
     purple:  { bar: 'bg-purple-500',  text: 'text-purple-400',  bg: 'bg-purple-500/10' },
     cyan:    { bar: 'bg-cyan-500',    text: 'text-cyan-400',    bg: 'bg-cyan-500/10' },
+    orange:  { bar: 'bg-orange-500',  text: 'text-orange-400',  bg: 'bg-orange-500/10' },
   };
   const c = colors[color];
   const pct = (parseFloat(weight) / parseFloat(maxWeight)) * 100;
