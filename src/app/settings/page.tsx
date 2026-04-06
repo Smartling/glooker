@@ -802,6 +802,23 @@ function AppSettingsTab({ org }: { org: string }) {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<any>(null);
 
+  // GitHub state
+  const [githubTesting, setGithubTesting] = useState(false);
+  const [githubTestResult, setGithubTestResult] = useState<{ success: boolean; error?: string; orgs?: string[]; latencyMs?: number } | null>(null);
+
+  async function testGithubConnection() {
+    setGithubTesting(true);
+    setGithubTestResult(null);
+    try {
+      const res = await fetch('/api/settings/github/test-connection', { method: 'POST' });
+      const data = await res.json();
+      setGithubTestResult(data);
+    } catch {
+      setGithubTestResult({ success: false, error: 'Network error' });
+    }
+    setGithubTesting(false);
+  }
+
   // Jira state
   const [jiraTesting, setJiraTesting] = useState(false);
   const [jiraTestResult, setJiraTestResult] = useState<{ success: boolean; error?: string; user?: { displayName: string; emailAddress: string } } | null>(null);
@@ -1027,6 +1044,46 @@ function AppSettingsTab({ org }: { org: string }) {
           )}
         </div>
       )}
+
+      {/* GitHub Connection */}
+      <div className="bg-gray-900 rounded-xl p-5 mb-6 mt-6">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">GitHub Connection</p>
+          <button
+            onClick={testGithubConnection}
+            disabled={githubTesting}
+            className="px-3 py-1.5 text-xs font-medium bg-accent hover:bg-accent-dark disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg transition-colors flex items-center gap-2"
+          >
+            {githubTesting && (
+              <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+            )}
+            {githubTesting ? 'Testing...' : 'Test Connection'}
+          </button>
+        </div>
+        <ConfigRow label="Token" value={config.githubToken || '(not set)'} />
+        {githubTestResult && (
+          <div className={`rounded-lg p-3 text-sm mt-3 ${githubTestResult.success ? 'bg-green-500/10 border border-green-500/20' : 'bg-red-500/10 border border-red-500/20'}`}>
+            {githubTestResult.success ? (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-green-400 font-semibold">Success</span>
+                <span className="text-gray-500">·</span>
+                <span className="text-gray-400">{githubTestResult.latencyMs}ms</span>
+                <span className="text-gray-500">·</span>
+                <span className="text-gray-400">Orgs: {githubTestResult.orgs?.join(', ')}</span>
+              </div>
+            ) : (
+              <div>
+                <span className="text-red-400 font-semibold">Failed</span>
+                {githubTestResult.latencyMs && <span className="text-gray-500 ml-2">({githubTestResult.latencyMs}ms)</span>}
+                <p className="text-xs text-red-300/70 mt-1">{githubTestResult.error}</p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Jira Configuration */}
       <div className="bg-gray-900 rounded-xl p-5 mb-6 mt-6">
