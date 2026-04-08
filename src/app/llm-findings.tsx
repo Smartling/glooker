@@ -98,7 +98,7 @@ export default function LlmFindings() {
     <div className="space-y-6">
       {/* Highlights */}
       {highlightsLoading && (
-        <div className="bg-white/[0.03] border border-white/[0.07] rounded-2xl p-5">
+        <div className="bg-white/[0.03] border border-white/[0.07] rounded-lg p-5">
           <div className="flex items-center gap-2 mb-3">
             <span className="text-lg">📊</span>
             <span className="text-xs font-bold tracking-widest uppercase text-white/40">Highlights</span>
@@ -113,7 +113,7 @@ export default function LlmFindings() {
         </div>
       )}
       {!highlightsLoading && highlights && highlightsMeta && (
-        <div className="bg-white/[0.03] border border-white/[0.07] rounded-2xl p-5">
+        <div className="bg-white/[0.03] border border-white/[0.07] rounded-lg p-5">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <span className="text-lg">📊</span>
@@ -136,7 +136,7 @@ export default function LlmFindings() {
 
       {/* Project Insights */}
       {projectsLoading && (
-        <div className="bg-white/[0.03] border border-white/[0.07] rounded-2xl p-5">
+        <div className="bg-white/[0.03] border border-white/[0.07] rounded-lg p-5">
           <div className="flex items-center gap-2 mb-3">
             <span className="text-lg">🏗️</span>
             <span className="text-xs font-bold tracking-widest uppercase text-white/40">Top Projects</span>
@@ -151,7 +151,7 @@ export default function LlmFindings() {
         </div>
       )}
       {!projectsLoading && projects.length > 0 && projectsMeta && (
-        <div className="bg-white/[0.03] border border-white/[0.07] rounded-2xl p-5">
+        <div className="bg-white/[0.03] border border-white/[0.07] rounded-lg p-5">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <span className="text-lg">🏗️</span>
@@ -212,7 +212,7 @@ export default function LlmFindings() {
 
       {/* Release Notes */}
       {releaseNotes && !releaseNotesDismissed && (
-        <div className="bg-white/[0.03] border border-white/[0.07] rounded-2xl p-5 mb-4">
+        <div className="bg-white/[0.03] border border-white/[0.07] rounded-lg p-5 mb-4">
           <div className="flex items-center gap-2 mb-3">
             <span className="text-lg">🚀</span>
             <span className="text-xs font-bold tracking-widest uppercase text-white/40">What&apos;s New in Glooker</span>
@@ -237,7 +237,7 @@ export default function LlmFindings() {
       )}
 
       {/* How Impact Score Works */}
-      <div className="bg-white/[0.03] border border-white/[0.07] rounded-2xl p-5">
+      <div className="bg-white/[0.03] border border-white/[0.07] rounded-lg p-5">
         <div className="flex items-center gap-2 mb-4">
           <span className="text-lg">📊</span>
           <span className="text-xs font-bold tracking-widest uppercase text-white/40">How Impact Score Works</span>

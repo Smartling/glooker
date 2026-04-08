@@ -18,37 +18,37 @@ export const THEMES: ThemeColors[] = [
     id: 'amber-glow', name: 'Amber Glow', mode: 'dark',
     accent: '#D97706', accentLight: '#F59E0B', accentLighter: '#FBBF24',
     accentDark: '#B45309', accentDarker: '#92400E', accentBg: '#78350F',
-    bodyBg: '#0F0F0F',
+    bodyBg: '#111827',
   },
   {
     id: 'electric-violet', name: 'Electric Violet', mode: 'dark',
     accent: '#7C3AED', accentLight: '#8B5CF6', accentLighter: '#A78BFA',
     accentDark: '#6D28D9', accentDarker: '#5B21B6', accentBg: '#4C1D95',
-    bodyBg: '#09090B',
+    bodyBg: '#111827',
   },
   {
     id: 'coral-spark', name: 'Coral Spark', mode: 'dark',
     accent: '#E11D48', accentLight: '#F43F5E', accentLighter: '#FB7185',
     accentDark: '#BE123C', accentDarker: '#9F1239', accentBg: '#881337',
-    bodyBg: '#0A0A0A',
+    bodyBg: '#111827',
   },
   {
     id: 'soft-lavender', name: 'Soft Lavender', mode: 'dark',
     accent: '#6366F1', accentLight: '#818CF8', accentLighter: '#A5B4FC',
     accentDark: '#4F46E5', accentDarker: '#4338CA', accentBg: '#3730A3',
-    bodyBg: '#0C0A14',
+    bodyBg: '#111827',
   },
   {
     id: 'midnight-teal', name: 'Midnight Teal', mode: 'dark',
     accent: '#0D9488', accentLight: '#14B8A6', accentLighter: '#2DD4BF',
     accentDark: '#0F766E', accentDarker: '#115E59', accentBg: '#134E4A',
-    bodyBg: '#0A0A0A',
+    bodyBg: '#111827',
   },
   {
     id: 'classic-blue', name: 'Classic Blue', mode: 'dark',
     accent: '#2563EB', accentLight: '#3B82F6', accentLighter: '#60A5FA',
     accentDark: '#1D4ED8', accentDarker: '#1E40AF', accentBg: '#1E3A5F',
-    bodyBg: '#030712',
+    bodyBg: '#111827',
   },
   // ── Light themes ──
   {
