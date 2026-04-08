@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getGitHubProvider } from '@/lib/github';
+import { withRequestLog } from '@/lib/logger';
 
-export async function POST() {
+async function postHandler() {
   const start = Date.now();
   try {
     const provider = getGitHubProvider();
@@ -21,3 +22,5 @@ export async function POST() {
     });
   }
 }
+
+export const POST = withRequestLog(postHandler);

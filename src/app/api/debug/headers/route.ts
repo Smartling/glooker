@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
+import { withRequestLog } from '@/lib/logger';
 
-export async function GET(req: Request) {
+async function getHandler(req: Request) {
   const headers: Record<string, string> = {};
   req.headers.forEach((value, key) => {
     headers[key] = value;
@@ -25,3 +26,5 @@ export async function GET(req: Request) {
 
   return NextResponse.json({ headers, decoded, timestamp: new Date().toISOString() });
 }
+
+export const GET = withRequestLog(getHandler);

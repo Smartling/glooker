@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { validateScheduleBody } from '@/lib/schedule/validation';
 import { listSchedules, createSchedule } from '@/lib/schedule/service';
 import { requireAdmin } from '@/lib/auth';
+import { withRequestLog } from '@/lib/logger';
 
-export async function GET() {
+async function getHandler() {
   try {
     return NextResponse.json(await listSchedules());
   } catch (err) {
@@ -12,7 +13,7 @@ export async function GET() {
   }
 }
 
-export async function POST(req: NextRequest) {
+async function postHandler(req: NextRequest) {
   const denied = await requireAdmin(req);
   if (denied) return denied;
   try {
@@ -27,3 +28,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to create schedule' }, { status: 500 });
   }
 }
+
+export const GET = withRequestLog(getHandler);
+export const POST = withRequestLog(postHandler);

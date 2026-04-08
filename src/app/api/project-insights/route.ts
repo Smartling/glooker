@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import db from '@/lib/db';
 import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit } from '@/lib/llm-provider';
+import { withRequestLog } from '@/lib/logger';
 
-export async function GET() {
+async function getHandler() {
   // Find latest completed report
   const [latestRows] = await db.execute(
     `SELECT id, org, period_days, created_at FROM reports
@@ -166,3 +167,5 @@ ${noJiraData}`;
     return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 });
   }
 }
+
+export const GET = withRequestLog(getHandler);

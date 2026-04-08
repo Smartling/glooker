@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runChatAgent, type ChatMessage } from '@/lib/chat/agent';
+import { withRequestLog } from '@/lib/logger';
 
-export async function POST(req: NextRequest) {
+async function postHandler(req: NextRequest) {
   const body = await req.json();
   const { messages, org } = body as { messages: ChatMessage[]; org: string };
 
@@ -18,3 +19,5 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+
+export const POST = withRequestLog(postHandler);

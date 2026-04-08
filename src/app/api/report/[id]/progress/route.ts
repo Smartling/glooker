@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getReportProgress, ReportNotFoundError } from '@/lib/report/service';
+import { withRequestLog } from '@/lib/logger';
 
-export async function GET(
+async function getHandler(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -17,3 +18,5 @@ export async function GET(
     throw err;
   }
 }
+
+export const GET = withRequestLog(getHandler);

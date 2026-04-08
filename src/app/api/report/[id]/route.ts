@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getReport, deleteReport, ReportNotFoundError } from '@/lib/report/service';
 import { requireAdmin } from '@/lib/auth';
+import { withRequestLog } from '@/lib/logger';
 
-export async function GET(
+async function getHandler(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -19,7 +20,7 @@ export async function GET(
   }
 }
 
-export async function DELETE(
+async function deleteHandler(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -37,3 +38,6 @@ export async function DELETE(
     throw err;
   }
 }
+
+export const GET = withRequestLog(getHandler);
+export const DELETE = withRequestLog(deleteHandler);

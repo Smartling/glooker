@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getUserMappings, updateUserMapping, JiraNotConfiguredError, JiraUserNotFoundError } from '@/lib/jira';
 import { requireAdmin } from '@/lib/auth';
+import { withRequestLog } from '@/lib/logger';
 
-export async function GET(req: NextRequest) {
+async function getHandler(req: NextRequest) {
   const org = req.nextUrl.searchParams.get('org');
   if (!org) return NextResponse.json({ error: 'org required' }, { status: 400 });
   return NextResponse.json(await getUserMappings(org));
 }
 
-export async function PUT(req: Request) {
+async function putHandler(req: Request) {
   const denied = await requireAdmin(req);
   if (denied) return denied;
   const { org, github_login, jira_email } = await req.json();
@@ -29,3 +30,6 @@ export async function PUT(req: Request) {
     throw err;
   }
 }
+
+export const GET = withRequestLog(getHandler);
+export const PUT = withRequestLog(putHandler);

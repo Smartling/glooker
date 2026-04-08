@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
+import { withRequestLog } from '@/lib/logger';
 
-export async function GET() {
+async function getHandler() {
   const checks: Record<string, { status: string; latencyMs?: number; error?: string }> = {};
 
   // GitHub check (non-blocking — failure doesn't affect overall status)
@@ -30,3 +31,5 @@ export async function GET() {
     checks,
   });
 }
+
+export const GET = withRequestLog(getHandler);

@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDevSummary } from '@/lib/report/summary';
 import { ReportNotFoundError } from '@/lib/report/service';
 import { DeveloperNotFoundError } from '@/lib/report/dev';
+import { withRequestLog } from '@/lib/logger';
 
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string; login: string }> }) {
+async function getHandler(_req: NextRequest, { params }: { params: Promise<{ id: string; login: string }> }) {
   const { id, login } = await params;
   try {
     return NextResponse.json(await getDevSummary(id, login));
@@ -13,3 +14,5 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: `LLM error: ${err instanceof Error ? err.message : String(err)}` }, { status: 500 });
   }
 }
+
+export const GET = withRequestLog(getHandler);

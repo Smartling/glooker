@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import { extractUser, isAuthEnabled } from '@/lib/auth';
 import db from '@/lib/db';
+import { withRequestLog } from '@/lib/logger';
 
-export async function GET(req: Request) {
+async function getHandler(req: Request) {
   if (!isAuthEnabled()) {
     return NextResponse.json({ enabled: false });
   }
@@ -63,3 +64,5 @@ export async function GET(req: Request) {
     },
   });
 }
+
+export const GET = withRequestLog(getHandler);

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchProjectEpics } from '@/lib/projects/service';
+import { withRequestLog } from '@/lib/logger';
 
-export async function GET(req: NextRequest) {
+async function getHandler(req: NextRequest) {
   const org = req.nextUrl.searchParams.get('org');
   if (!org) {
     return NextResponse.json({ error: 'org query parameter is required' }, { status: 400 });
@@ -37,3 +38,5 @@ export async function GET(req: NextRequest) {
     );
   }
 }
+
+export const GET = withRequestLog(getHandler);

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { listReports, createReport } from '@/lib/report/service';
 import { requireAdmin } from '@/lib/auth';
+import { withRequestLog } from '@/lib/logger';
 
-export async function POST(req: NextRequest) {
+async function postHandler(req: NextRequest) {
   const denied = await requireAdmin(req);
   if (denied) return denied;
   const { org, periodDays, testMode } = await req.json();
@@ -19,7 +20,10 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ reportId: id });
 }
 
-export async function GET() {
+async function getHandler() {
   const rows = await listReports();
   return NextResponse.json(rows);
 }
+
+export const POST = withRequestLog(postHandler);
+export const GET = withRequestLog(getHandler);
