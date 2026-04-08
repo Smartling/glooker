@@ -91,3 +91,99 @@ describe('no-op when LOG_DIR is unset', () => {
     expect(fs.readdirSync(testLogDir)).toHaveLength(0);
   });
 });
+
+describe('withRequestLog', () => {
+  it('calls the original handler and returns its response', async () => {
+    const { withRequestLog } = await import('@/lib/logger');
+    const handler = jest.fn(async () => new Response('ok', { status: 200 }));
+    const wrapped = withRequestLog(handler);
+
+    const req = new Request('http://localhost/api/test?org=acme');
+    const response = await wrapped(req);
+
+    expect(handler).toHaveBeenCalledWith(req);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('ok');
+  });
+
+  it('writes request log entry for successful request', async () => {
+    const { withRequestLog } = await import('@/lib/logger');
+    const handler = async () => new Response('ok', { status: 200 });
+    const wrapped = withRequestLog(handler);
+
+    await wrapped(new Request('http://localhost/api/report?org=acme'));
+
+    const content = fs.readFileSync(path.join(testLogDir, 'requests.log'), 'utf-8');
+    const entry = JSON.parse(content.trim());
+    expect(entry.method).toBe('GET');
+    expect(entry.uri).toBe('/api/report');
+    expect(entry.query).toBe('org=acme');
+    expect(entry.statusCode).toBe(200);
+    expect(entry.durationMs).toBeGreaterThanOrEqual(0);
+    expect(entry.userEmail).toBeNull();
+    expect(entry.requestId).toBeDefined();
+    expect(entry.timestamp).toBeDefined();
+  });
+
+  it('writes to errors.log for 4xx status with null error/stack', async () => {
+    const { withRequestLog } = await import('@/lib/logger');
+    const handler = async () => new Response(JSON.stringify({ error: 'not found' }), { status: 404 });
+    const wrapped = withRequestLog(handler);
+
+    await wrapped(new Request('http://localhost/api/report/999'));
+
+    const errContent = fs.readFileSync(path.join(testLogDir, 'errors.log'), 'utf-8');
+    const entry = JSON.parse(errContent.trim());
+    expect(entry.statusCode).toBe(404);
+    expect(entry.error).toBeNull();
+    expect(entry.stack).toBeNull();
+  });
+
+  it('catches thrown errors, logs with stack, returns 500 JSON', async () => {
+    const { withRequestLog } = await import('@/lib/logger');
+    const handler = async () => { throw new Error('boom'); };
+    const wrapped = withRequestLog(handler);
+
+    const response = await wrapped(new Request('http://localhost/api/fail'));
+
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body).toEqual({ error: 'Internal Server Error' });
+
+    const reqContent = fs.readFileSync(path.join(testLogDir, 'requests.log'), 'utf-8');
+    expect(JSON.parse(reqContent.trim()).statusCode).toBe(500);
+
+    const errContent = fs.readFileSync(path.join(testLogDir, 'errors.log'), 'utf-8');
+    const errEntry = JSON.parse(errContent.trim());
+    expect(errEntry.error).toBe('boom');
+    expect(errEntry.stack).toContain('Error: boom');
+  });
+
+  it('forwards all arguments to the handler (context params)', async () => {
+    const { withRequestLog } = await import('@/lib/logger');
+    const handler = jest.fn(async (_req: Request, ctx: { params: Promise<{ id: string }> }) => {
+      const { id } = await ctx.params;
+      return new Response(id, { status: 200 });
+    });
+    const wrapped = withRequestLog(handler);
+
+    const req = new Request('http://localhost/api/report/abc');
+    const ctx = { params: Promise.resolve({ id: 'abc' }) };
+    const response = await wrapped(req, ctx);
+
+    expect(handler).toHaveBeenCalledWith(req, ctx);
+    expect(await response.text()).toBe('abc');
+  });
+
+  it('does not write logs when LOG_DIR is unset', async () => {
+    delete process.env.LOG_DIR;
+    jest.resetModules();
+    const { withRequestLog } = await import('@/lib/logger');
+    const handler = async () => new Response('ok', { status: 200 });
+    const wrapped = withRequestLog(handler);
+
+    await wrapped(new Request('http://localhost/api/health'));
+
+    expect(fs.readdirSync(testLogDir)).toHaveLength(0);
+  });
+});
