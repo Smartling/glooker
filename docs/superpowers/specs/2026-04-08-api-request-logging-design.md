@@ -58,8 +58,8 @@ Only written for responses with status >= 400 or uncaught exceptions. Same field
 | `statusCode` | number | HTTP response status code |
 | `durationMs` | number | Time from handler start to response |
 | `userEmail` | string \| null | From ALB OIDC JWT when `AUTH_ENABLED=true`, otherwise `null` |
-| `error` | string | Error message (errors.log only) |
-| `stack` | string | Error stack trace (errors.log only) |
+| `error` | string \| null | Error message (errors.log only). `null` for non-exception 4xx/5xx. |
+| `stack` | string \| null | Error stack trace (errors.log only). `null` for non-exception 4xx/5xx. |
 
 ## Architecture
 
@@ -73,7 +73,7 @@ Single module that owns all logging logic:
 
 When `LOG_DIR` is not set, all functions are no-ops.
 
-On first write, creates `LOG_DIR` with `mkdirSync({ recursive: true })` if it doesn't exist. This is intentionally synchronous — it runs at most once and simplifies initialization. The `recursive: true` flag safely handles concurrent first-write races.
+On first write, creates `LOG_DIR` with `mkdirSync({ recursive: true })` if it doesn't exist. Gated by a module-level `let dirEnsured = false` flag — checked before each write, set to `true` after the first successful `mkdirSync`. Concurrent first-writes may both call `mkdirSync`, which is safe due to `recursive: true`. This is intentionally synchronous — it runs at most once and simplifies initialization.
 
 Uses `fs.appendFile` (async) for writes. No rotation — the infrastructure (logrotate, Splunk sidecar, etc.) handles that. If a write fails, the error is caught and logged to `console.error` — logging failures must never affect request handling.
 
@@ -85,17 +85,28 @@ Applied to every exported route handler. The wrapper uses a generic signature to
 - Single-arg handlers: `GET(req: NextRequest)` or `GET(req: Request)`
 - Two-arg handlers: `GET(req: NextRequest, context: { params: Promise<{ id: string }> })`
 
+**Next.js runtime behavior:** Next.js always passes the `Request` object as the first argument to route handlers at the framework level, regardless of the handler's declared TypeScript parameter count. A handler declared as `GET()` still receives the request as `args[0]` at runtime. The wrapper relies on this: it always accesses `args[0]` for request metadata extraction, with a type guard (`args[0] && 'headers' in args[0]`) as a defensive fallback.
+
 ```typescript
 // Generic signature — preserves the original handler's type
 function withRequestLog<T extends (...args: any[]) => Promise<Response>>(handler: T): T
 ```
 
+**Request metadata extraction:**
+- `uri`: `new URL(args[0].url).pathname` — works for both `Request` and `NextRequest`
+- `query`: `new URL(args[0].url).search.slice(1)` — raw query string without the `?` prefix, empty string if none
+- `method`: `args[0].method`
+- `userEmail`: guarded extraction (see below)
+
 **Usage examples:**
+
+This changes the export pattern from named function declarations to const exports wrapping private inner functions. All 33 route files (42 handler exports) need this mechanical refactoring:
 
 ```typescript
 import { withRequestLog } from '@/lib/logger';
 
-// Standard handler
+// Before: export async function GET(req: NextRequest) { /* ... */ }
+// After:
 async function getHandler(req: NextRequest) { /* ... */ }
 export const GET = withRequestLog(getHandler);
 
@@ -103,7 +114,7 @@ export const GET = withRequestLog(getHandler);
 async function getById(req: NextRequest, ctx: { params: Promise<{ id: string }> }) { /* ... */ }
 export const GET = withRequestLog(getById);
 
-// Zero-arg handler
+// Zero-arg handler (Next.js still passes Request at runtime)
 async function healthCheck() { /* ... */ }
 export const GET = withRequestLog(healthCheck);
 ```
@@ -111,11 +122,11 @@ export const GET = withRequestLog(healthCheck);
 The wrapper:
 
 1. Generates `requestId` via `crypto.randomUUID()`
-2. Extracts `userEmail` via `extractUser(args[0]?.headers)?.email ?? null` — returns `null` if auth disabled, no JWT, or handler has no `req` argument
+2. Extracts `userEmail` via a guarded call: `args[0] && 'headers' in args[0] ? extractUser(args[0].headers)?.email ?? null : null` — returns `null` if auth disabled, no JWT, or headers unavailable
 3. Records `startTime` via `Date.now()`
 4. Calls the original handler with all arguments forwarded (`handler(...args)`) in a try/catch
 5. On success: writes to `requests.log`. If status >= 400, also writes to `errors.log` with `error: null, stack: null` (no exception was thrown)
-6. On uncaught exception: writes to both logs with `error` (message) and `stack` (trace), returns `NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })`
+6. On uncaught exception: writes to both logs with `error` (message) and `stack` (trace), returns `NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })`. **This is an intentional behavioral change** — handlers that currently re-throw errors (letting Next.js produce its own 500) will now get a consistent JSON 500 response from the wrapper instead.
 7. Returns the original response
 
 **Error field semantics:**
@@ -155,7 +166,7 @@ Add documentation that all API route handlers must be wrapped with `withRequestL
 
 | Var | Required | Default | Description |
 |-----|----------|---------|-------------|
-| `LOG_DIR` | No | (unset) | Directory for log files. When set, logging is active. When unset, logging is disabled. |
+| `LOG_DIR` | No | (unset) | Directory for log files. When set, logging is active. When unset, logging is disabled. Normalized via `path.resolve()` at startup — relative paths resolve against CWD, trailing slashes are stripped. |
 
 ### env-validation.ts
 
