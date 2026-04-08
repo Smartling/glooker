@@ -6,6 +6,9 @@
  * because some vars are only needed for specific features.
  */
 
+import fs from 'fs';
+import path from 'path';
+
 interface EnvRule {
   name: string;
   required: boolean;
@@ -167,6 +170,18 @@ export function validateEnv(): void {
       if (!value || value.trim() === '') {
         warnings.push(`  - ${v.name}: missing (needed when ${group.featureLabel}) — ${v.description}`);
       }
+    }
+  }
+
+  // Special-case: LOG_DIR writability check (requires filesystem I/O)
+  const logDir = process.env.LOG_DIR;
+  if (logDir) {
+    const resolved = path.resolve(logDir);
+    try {
+      fs.mkdirSync(resolved, { recursive: true });
+      fs.accessSync(resolved, fs.constants.W_OK);
+    } catch (err) {
+      warnings.push(`  - LOG_DIR: directory "${resolved}" is not writable — ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
