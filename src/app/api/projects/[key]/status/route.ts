@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getJiraClient } from '@/lib/jira/client';
 import { requireAdmin } from '@/lib/auth';
+import { withRequestLog } from '@/lib/logger';
 
 // GET: fetch available transitions for an epic
-export async function GET(
+async function getHandler(
   _req: NextRequest,
   { params }: { params: Promise<{ key: string }> },
 ) {
@@ -26,7 +27,7 @@ export async function GET(
 }
 
 // PATCH: execute a transition
-export async function PATCH(
+async function patchHandler(
   req: NextRequest,
   { params }: { params: Promise<{ key: string }> },
 ) {
@@ -57,3 +58,6 @@ export async function PATCH(
     );
   }
 }
+
+export const GET = withRequestLog(getHandler);
+export const PATCH = withRequestLog(patchHandler);

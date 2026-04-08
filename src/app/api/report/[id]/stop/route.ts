@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { stopReport, ReportNotFoundError, ReportNotRunningError } from '@/lib/report/service';
 import { requireAdmin } from '@/lib/auth';
+import { withRequestLog } from '@/lib/logger';
 
-export async function POST(
+async function postHandler(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -23,3 +24,5 @@ export async function POST(
     throw err;
   }
 }
+
+export const POST = withRequestLog(postHandler);

@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import { testJiraConnection, JiraNotConfiguredError } from '@/lib/jira';
 import { requireAdmin } from '@/lib/auth';
+import { withRequestLog } from '@/lib/logger';
 
-export async function POST(req: Request) {
+async function postHandler(req: Request) {
   const denied = await requireAdmin(req);
   if (denied) return denied;
   try {
@@ -18,3 +19,5 @@ export async function POST(req: Request) {
     }, { status: 500 });
   }
 }
+
+export const POST = withRequestLog(postHandler);

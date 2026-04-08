@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getJiraClient } from '@/lib/jira/client';
 import { requireAdmin } from '@/lib/auth';
+import { withRequestLog } from '@/lib/logger';
 
-export async function PATCH(
+async function patchHandler(
   req: NextRequest,
   { params }: { params: Promise<{ key: string }> },
 ) {
@@ -33,3 +34,5 @@ export async function PATCH(
     );
   }
 }
+
+export const PATCH = withRequestLog(patchHandler);

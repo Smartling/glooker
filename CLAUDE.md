@@ -24,6 +24,7 @@ Glooker is a Next.js 15 web app that generates developer impact reports for a Gi
 - **In-memory progress store** (globalThis Map) — survives Next.js HMR, acceptable for single-user local use
 - **AI detection** has two layers: trailer parsing (confirmed) and LLM heuristic (maybe_ai)
 - **Prompt template system** — LLM prompts live in `prompts/` dir (configurable via `PROMPTS_DIR`), loaded by `prompt-loader.ts` with in-memory caching. Templates use `{{PLACEHOLDER}}` syntax. All LLM settings (temperature, max_tokens, max_iterations) are configurable via env vars with hardcoded defaults.
+- **API request logging** (`logger.ts`) — opt-in via `LOG_DIR` env var. All API route handlers must be wrapped with `withRequestLog()` from `src/lib/logger.ts`. Writes structured JSON to `requests.log` (all requests) and `errors.log` (4xx/5xx + exceptions). A Jest enforcement test verifies all route files import the wrapper. When `LOG_DIR` is unset, logging is a no-op.
 - **Jira integration** (`src/lib/jira/`) — optional, enabled via `JIRA_ENABLED=true`. Uses direct `fetch` calls to Jira REST API (no external SDK). Auto-discovers GitHub→Jira user mappings via commit author emails, persists to `user_mappings` table. Fetches resolved issues via JQL (`statusCategory = "Done"`) using the new `/search/jql` endpoint. Jira data (story points or issue count) contributes to the impact score via a `jiraFactor` (weight 0.5). Uses story points when available (`min(SP/15, 1)`), falls back to issue count (`min(count/10, 1)`).
 
 ## Environment
@@ -63,6 +64,8 @@ Glooker is a Next.js 15 web app that generates developer impact reports for a Gi
 - `AUTH_ENABLED=true` enables user profile feature — extracts identity from ALB OIDC JWT header (`x-amzn-oidc-data` by default). Requires `user_mappings` table populated (via Jira auto-discovery) for full GitHub profile linking. Off by default — zero impact when disabled.
 - `AUTH_ADMIN_GROUP` defines which Okta group grants admin role. When `AUTH_ENABLED=true` but `AUTH_ADMIN_GROUP` is empty, all users are viewers and all mutating APIs return 403. This is a safe default but will block report generation — always set `AUTH_ADMIN_GROUP` alongside `AUTH_ENABLED`.
 - Admin/viewer role is derived from JWT `groups` claim on every request — no DB storage. Changing a user's Okta groups takes effect on their next page load.
+- All API route handlers must be wrapped with `withRequestLog()` — a Jest enforcement test (`logger-enforcement.test.ts`) checks for the import in every `src/app/api/**/route.ts` file. When adding a new API route, wrap every exported handler (GET, POST, PUT, PATCH, DELETE).
+- `LOG_DIR` env var enables API request logging — when unset, `withRequestLog` is a no-op. When set, creates the directory on first write. Log rotation is handled by infrastructure, not the app.
 
 ## Local Development (Mock Mode)
 

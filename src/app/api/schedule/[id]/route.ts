@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { validateScheduleBody } from '@/lib/schedule/validation';
 import { updateSchedule, deleteSchedule, ScheduleNotFoundError } from '@/lib/schedule/service';
 import { requireAdmin } from '@/lib/auth';
+import { withRequestLog } from '@/lib/logger';
 
-export async function PUT(
+async function putHandler(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -26,7 +27,7 @@ export async function PUT(
   }
 }
 
-export async function DELETE(
+async function deleteHandler(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -41,3 +42,6 @@ export async function DELETE(
     return NextResponse.json({ error: 'Failed to delete schedule' }, { status: 500 });
   }
 }
+
+export const PUT = withRequestLog(putHandler);
+export const DELETE = withRequestLog(deleteHandler);

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getEpicRingStats } from '@/lib/projects/epic-stats';
+import { withRequestLog } from '@/lib/logger';
 
-export async function GET(
+async function getHandler(
   req: NextRequest,
   { params }: { params: Promise<{ key: string }> },
 ) {
@@ -27,3 +28,5 @@ export async function GET(
     );
   }
 }
+
+export const GET = withRequestLog(getHandler);

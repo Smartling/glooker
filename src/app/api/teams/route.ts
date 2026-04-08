@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { listTeams, createTeam, TeamDuplicateError } from '@/lib/teams/service';
 import { requireAdmin } from '@/lib/auth';
+import { withRequestLog } from '@/lib/logger';
 
-export async function GET(req: NextRequest) {
+async function getHandler(req: NextRequest) {
   const org = req.nextUrl.searchParams.get('org');
   if (!org) return NextResponse.json({ error: 'org is required' }, { status: 400 });
 
   return NextResponse.json(await listTeams(org));
 }
 
-export async function POST(req: NextRequest) {
+async function postHandler(req: NextRequest) {
   const denied = await requireAdmin(req);
   if (denied) return denied;
   const body = await req.json();
@@ -27,3 +28,6 @@ export async function POST(req: NextRequest) {
     throw err;
   }
 }
+
+export const GET = withRequestLog(getHandler);
+export const POST = withRequestLog(postHandler);

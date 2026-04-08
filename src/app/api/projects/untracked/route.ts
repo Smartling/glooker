@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getUntrackedWork } from '@/lib/projects/untracked';
+import { withRequestLog } from '@/lib/logger';
 
-export async function GET(req: NextRequest) {
+async function getHandler(req: NextRequest) {
   const org = req.nextUrl.searchParams.get('org');
   const refresh = req.nextUrl.searchParams.get('refresh') === 'true';
 
@@ -20,3 +21,5 @@ export async function GET(req: NextRequest) {
     );
   }
 }
+
+export const GET = withRequestLog(getHandler);

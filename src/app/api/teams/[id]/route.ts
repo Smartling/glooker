@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { updateTeam, deleteTeam, TeamNotFoundError } from '@/lib/teams/service';
 import { requireAdmin } from '@/lib/auth';
+import { withRequestLog } from '@/lib/logger';
 
-export async function PUT(
+async function putHandler(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -22,7 +23,7 @@ export async function PUT(
   }
 }
 
-export async function DELETE(
+async function deleteHandler(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -32,3 +33,6 @@ export async function DELETE(
   await deleteTeam(id);
   return NextResponse.json({ deleted: true });
 }
+
+export const PUT = withRequestLog(putHandler);
+export const DELETE = withRequestLog(deleteHandler);

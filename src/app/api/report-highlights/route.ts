@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getReportHighlights } from '@/lib/report-highlights/service';
+import { withRequestLog } from '@/lib/logger';
 
-export async function GET() {
+async function getHandler() {
   try {
     return NextResponse.json(await getReportHighlights());
   } catch (err) {
@@ -11,3 +12,5 @@ export async function GET() {
     );
   }
 }
+
+export const GET = withRequestLog(getHandler);

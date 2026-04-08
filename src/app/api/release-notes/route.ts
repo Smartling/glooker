@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server';
 import db from '@/lib/db';
 import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit } from '@/lib/llm-provider';
+import { withRequestLog } from '@/lib/logger';
 
 const REPO_OWNER = 'Smartling';
 const REPO_NAME = 'glooker';
 const DAYS = 14;
 
-export async function GET() {
+async function getHandler() {
   try {
     // Fetch recent commits from GitHub
     const since = new Date(Date.now() - DAYS * 24 * 60 * 60 * 1000).toISOString();
@@ -90,3 +91,5 @@ export async function GET() {
     return NextResponse.json({ available: false });
   }
 }
+
+export const GET = withRequestLog(getHandler);
