@@ -32,6 +32,17 @@ function ensureDir(): void {
   dirEnsured = true;
 }
 
+// --- Pending writes (for flush) ---
+
+const pendingWrites: Promise<void>[] = [];
+
+/** Await all in-flight log writes. Useful for tests and graceful shutdown. */
+export function flushLogs(): Promise<void> {
+  const all = Promise.all(pendingWrites).then(() => {});
+  pendingWrites.length = 0;
+  return all;
+}
+
 // --- Write functions ---
 
 export async function writeRequestLog(entry: RequestLogEntry): Promise<void> {
@@ -92,10 +103,10 @@ export function withRequestLog<T extends (...args: any[]) => Promise<Response>>(
         userEmail,
       };
 
-      await writeRequestLog(logEntry);
+      pendingWrites.push(writeRequestLog(logEntry));
 
       if (statusCode >= 400) {
-        await writeErrorLog({ ...logEntry, error: null, stack: null });
+        pendingWrites.push(writeErrorLog({ ...logEntry, error: null, stack: null }));
       }
 
       return response;
@@ -103,9 +114,10 @@ export function withRequestLog<T extends (...args: any[]) => Promise<Response>>(
       const durationMs = Date.now() - startTime;
       const error = err instanceof Error ? err.message : String(err);
       const stack = err instanceof Error ? (err.stack ?? null) : null;
+      const timestamp = new Date().toISOString();
 
-      const logEntry: ErrorLogEntry = {
-        timestamp: new Date().toISOString(),
+      const requestEntry: RequestLogEntry = {
+        timestamp,
         requestId,
         method,
         uri,
@@ -113,12 +125,10 @@ export function withRequestLog<T extends (...args: any[]) => Promise<Response>>(
         statusCode: 500,
         durationMs,
         userEmail,
-        error,
-        stack,
       };
 
-      await writeRequestLog(logEntry);
-      await writeErrorLog(logEntry);
+      pendingWrites.push(writeRequestLog(requestEntry));
+      pendingWrites.push(writeErrorLog({ ...requestEntry, error, stack }));
 
       return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
     }

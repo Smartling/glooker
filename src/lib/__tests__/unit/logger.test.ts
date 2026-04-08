@@ -107,11 +107,12 @@ describe('withRequestLog', () => {
   });
 
   it('writes request log entry for successful request', async () => {
-    const { withRequestLog } = await import('@/lib/logger');
+    const { withRequestLog, flushLogs } = await import('@/lib/logger');
     const handler = async () => new Response('ok', { status: 200 });
     const wrapped = withRequestLog(handler);
 
     await wrapped(new Request('http://localhost/api/report?org=acme'));
+    await flushLogs();
 
     const content = fs.readFileSync(path.join(testLogDir, 'requests.log'), 'utf-8');
     const entry = JSON.parse(content.trim());
@@ -126,11 +127,12 @@ describe('withRequestLog', () => {
   });
 
   it('writes to errors.log for 4xx status with null error/stack', async () => {
-    const { withRequestLog } = await import('@/lib/logger');
+    const { withRequestLog, flushLogs } = await import('@/lib/logger');
     const handler = async () => new Response(JSON.stringify({ error: 'not found' }), { status: 404 });
     const wrapped = withRequestLog(handler);
 
     await wrapped(new Request('http://localhost/api/report/999'));
+    await flushLogs();
 
     const errContent = fs.readFileSync(path.join(testLogDir, 'errors.log'), 'utf-8');
     const entry = JSON.parse(errContent.trim());
@@ -140,11 +142,12 @@ describe('withRequestLog', () => {
   });
 
   it('catches thrown errors, logs with stack, returns 500 JSON', async () => {
-    const { withRequestLog } = await import('@/lib/logger');
+    const { withRequestLog, flushLogs } = await import('@/lib/logger');
     const handler = async () => { throw new Error('boom'); };
     const wrapped = withRequestLog(handler);
 
     const response = await wrapped(new Request('http://localhost/api/fail'));
+    await flushLogs();
 
     expect(response.status).toBe(500);
     const body = await response.json();
@@ -178,11 +181,12 @@ describe('withRequestLog', () => {
   it('does not write logs when LOG_DIR is unset', async () => {
     delete process.env.LOG_DIR;
     jest.resetModules();
-    const { withRequestLog } = await import('@/lib/logger');
+    const { withRequestLog, flushLogs } = await import('@/lib/logger');
     const handler = async () => new Response('ok', { status: 200 });
     const wrapped = withRequestLog(handler);
 
     await wrapped(new Request('http://localhost/api/health'));
+    await flushLogs();
 
     expect(fs.readdirSync(testLogDir)).toHaveLength(0);
   });
