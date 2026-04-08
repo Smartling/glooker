@@ -95,7 +95,7 @@ describe('no-op when LOG_DIR is unset', () => {
 describe('withRequestLog', () => {
   it('calls the original handler and returns its response', async () => {
     const { withRequestLog } = await import('@/lib/logger');
-    const handler = jest.fn(async () => new Response('ok', { status: 200 }));
+    const handler = jest.fn(async (_req: Request) => new Response('ok', { status: 200 }));
     const wrapped = withRequestLog(handler);
 
     const req = new Request('http://localhost/api/test?org=acme');
@@ -108,7 +108,7 @@ describe('withRequestLog', () => {
 
   it('writes request log entry for successful request', async () => {
     const { withRequestLog } = await import('@/lib/logger');
-    const handler = async () => new Response('ok', { status: 200 });
+    const handler = async (_req: Request) => new Response('ok', { status: 200 });
     const wrapped = withRequestLog(handler);
 
     await wrapped(new Request('http://localhost/api/report?org=acme'));
@@ -127,7 +127,7 @@ describe('withRequestLog', () => {
 
   it('writes to errors.log for 4xx status with null error/stack', async () => {
     const { withRequestLog } = await import('@/lib/logger');
-    const handler = async () => new Response(JSON.stringify({ error: 'not found' }), { status: 404 });
+    const handler = async (_req: Request) => new Response(JSON.stringify({ error: 'not found' }), { status: 404 });
     const wrapped = withRequestLog(handler);
 
     await wrapped(new Request('http://localhost/api/report/999'));
@@ -141,7 +141,7 @@ describe('withRequestLog', () => {
 
   it('catches thrown errors, logs with stack, returns 500 JSON', async () => {
     const { withRequestLog } = await import('@/lib/logger');
-    const handler = async () => { throw new Error('boom'); };
+    const handler = async (_req: Request): Promise<Response> => { throw new Error('boom'); };
     const wrapped = withRequestLog(handler);
 
     const response = await wrapped(new Request('http://localhost/api/fail'));
@@ -179,7 +179,7 @@ describe('withRequestLog', () => {
     delete process.env.LOG_DIR;
     jest.resetModules();
     const { withRequestLog } = await import('@/lib/logger');
-    const handler = async () => new Response('ok', { status: 200 });
+    const handler = async (_req: Request) => new Response('ok', { status: 200 });
     const wrapped = withRequestLog(handler);
 
     await wrapped(new Request('http://localhost/api/health'));
