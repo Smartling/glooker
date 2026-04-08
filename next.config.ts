@@ -11,6 +11,7 @@ try {
 }
 
 const nextConfig: NextConfig = {
+  output: 'standalone',
   serverExternalPackages: ['mysql2', 'better-sqlite3', 'croner'],
   outputFileTracingIncludes: {
     '/**': ['./prompts/**'],
