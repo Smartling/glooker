@@ -73,9 +73,7 @@ export function withRequestLog<T extends (...args: any[]) => Promise<Response>>(
       uri = url.pathname;
       query = url.search.slice(1); // remove leading '?'
       method = req.method;
-      if ('headers' in req) {
-        userEmail = extractUser(req.headers)?.email ?? null;
-      }
+      userEmail = extractUser(req.headers)?.email ?? null;
     }
 
     try {
@@ -104,7 +102,7 @@ export function withRequestLog<T extends (...args: any[]) => Promise<Response>>(
     } catch (err) {
       const durationMs = Date.now() - startTime;
       const error = err instanceof Error ? err.message : String(err);
-      const stack = err instanceof Error ? err.stack ?? '' : '';
+      const stack = err instanceof Error ? (err.stack ?? null) : null;
 
       const logEntry: ErrorLogEntry = {
         timestamp: new Date().toISOString(),
@@ -119,16 +117,7 @@ export function withRequestLog<T extends (...args: any[]) => Promise<Response>>(
         stack,
       };
 
-      await writeRequestLog({
-        timestamp: logEntry.timestamp,
-        requestId,
-        method,
-        uri,
-        query,
-        statusCode: 500,
-        durationMs,
-        userEmail,
-      });
+      await writeRequestLog(logEntry);
       await writeErrorLog(logEntry);
 
       return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
