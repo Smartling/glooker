@@ -32,20 +32,6 @@ function ensureDir(): void {
   dirEnsured = true;
 }
 
-// --- Pending writes (for flush) ---
-
-const pendingWrites = new Set<Promise<void>>();
-
-function trackWrite(p: Promise<void>): void {
-  pendingWrites.add(p);
-  p.finally(() => pendingWrites.delete(p));
-}
-
-/** Await all in-flight log writes. Useful for tests and graceful shutdown. */
-export function flushLogs(): Promise<void> {
-  return Promise.all(pendingWrites).then(() => {});
-}
-
 // --- Write functions ---
 
 export async function writeRequestLog(entry: RequestLogEntry): Promise<void> {
@@ -106,10 +92,10 @@ export function withRequestLog<T extends (...args: any[]) => Promise<Response>>(
         userEmail,
       };
 
-      trackWrite(writeRequestLog(logEntry));
+      await writeRequestLog(logEntry);
 
       if (statusCode >= 400) {
-        trackWrite(writeErrorLog({ ...logEntry, error: null, stack: null }));
+        await writeErrorLog({ ...logEntry, error: null, stack: null });
       }
 
       return response;
@@ -130,8 +116,8 @@ export function withRequestLog<T extends (...args: any[]) => Promise<Response>>(
         userEmail,
       };
 
-      trackWrite(writeRequestLog(requestEntry));
-      trackWrite(writeErrorLog({ ...requestEntry, error, stack }));
+      await writeRequestLog(requestEntry);
+      await writeErrorLog({ ...requestEntry, error, stack });
 
       return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
     }
