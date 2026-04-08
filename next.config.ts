@@ -3,11 +3,13 @@ import { execSync } from 'child_process';
 
 const pkg = require('./package.json');
 
-let commitSha = '';
-try {
-  commitSha = execSync('git rev-parse --short HEAD').toString().trim();
-} catch {
-  // git not available (e.g., Docker build without .git)
+let commitSha = process.env.COMMIT_SHA || '';
+if (!commitSha) {
+  try {
+    commitSha = execSync('git rev-parse --short HEAD').toString().trim();
+  } catch {
+    // git not available (e.g., Docker build without .git)
+  }
 }
 
 const nextConfig: NextConfig = {

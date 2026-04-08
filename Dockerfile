@@ -15,6 +15,10 @@ COPY . .
 # Ensure public dir exists (may not in all setups)
 RUN mkdir -p public
 
+# Pass commit SHA for version footer (git is unavailable in container)
+ARG COMMIT_SHA
+ENV COMMIT_SHA=$COMMIT_SHA
+
 # Build (standalone output — includes only required node_modules)
 RUN npm run build
 
