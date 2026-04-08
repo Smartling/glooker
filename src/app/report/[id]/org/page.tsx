@@ -23,6 +23,7 @@ interface Developer {
 
 interface WeeklyData {
   week: string; commits: number; linesAdded: number; linesRemoved: number;
+  linesP95Added?: number; linesP95Removed?: number;
   avgComplexity: number; aiPercent: number; types: Record<string, number>; activeDevs: number;
 }
 
@@ -178,8 +179,7 @@ export default function OrgDetailPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <TimelineChart data={timeline} valueKey="commits" label="Commits / Week" color="#3B82F6" />
             <TimelineChart data={timeline} valueKey="activeDevs" label="Active Developers / Week" color="#10B981" />
-            <TimelineChart data={timeline} valueKey="linesChanged" label="Lines Changed / Week" color="#F59E0B"
-              computeValue={d => d.linesAdded + d.linesRemoved} />
+            <LinesChangedChart data={timeline} />
             <TimelineChart data={timeline} valueKey="aiPercent" label="AI Assisted %" color="#A855F7" suffix="%" />
           </div>
         </div>
@@ -448,6 +448,110 @@ function StackedTypesChart({ data }: { data: WeeklyData[] }) {
           </text>
         ))}
       </svg>
+    </div>
+  );
+}
+
+function LinesChangedChart({ data }: { data: WeeklyData[] }) {
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 90);
+  const cutoffStr = cutoff.toISOString().split('T')[0];
+  const filtered = data.filter(d => d.week >= cutoffStr);
+  if (filtered.length < 2) return null;
+
+  const maxTotal = Math.max(...filtered.map(d => (d.linesP95Added || 0) + (d.linesP95Removed || 0)), 1);
+
+  const W = 800;
+  const H = 180;
+  const padL = 50;
+  const padR = 12;
+  const padT = 12;
+  const padB = 24;
+  const chartW = W - padL - padR;
+  const chartH = H - padT - padB;
+
+  const barW = Math.max(4, (chartW / filtered.length) * 0.75);
+  const barGap = (chartW / filtered.length) - barW;
+  const xFor = (i: number) => padL + i * (barW + barGap) + barGap / 2;
+  const yFor = (val: number) => padT + chartH - (val / maxTotal) * chartH;
+
+  const yTicks: number[] = [];
+  const step = maxTotal <= 1000 ? 200 : maxTotal <= 5000 ? 1000 : maxTotal <= 20000 ? 5000 : maxTotal <= 100000 ? 20000 : 50000;
+  for (let v = 0; v <= maxTotal; v += step) yTicks.push(v);
+
+  const formatVal = (v: number) => v >= 1000000 ? (v / 1000000).toFixed(1) + 'M' : v >= 1000 ? (v / 1000).toFixed(0) + 'K' : String(v);
+  const formatWeek = (w: string) => {
+    const d = new Date(w + 'T00:00:00');
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+  const labelStep = Math.max(1, Math.floor(filtered.length / 6));
+  const labelIndices = filtered.map((_, i) => i).filter(i => i % labelStep === 0 || i === filtered.length - 1);
+
+  return (
+    <div className="bg-gray-900 rounded-xl p-4">
+      <p className="text-xs text-gray-500 font-medium mb-2">Lines Changed / Week <span className="text-gray-600 font-normal">(outlier commits excluded)</span></p>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto">
+        {yTicks.map(v => (
+          <g key={v}>
+            <line x1={padL} y1={yFor(v)} x2={W - padR} y2={yFor(v)} stroke="#1F2937" strokeWidth="1" />
+            <text x={padL - 6} y={yFor(v) + 3.5} textAnchor="end" className="fill-gray-600" fontSize="9">{formatVal(v)}</text>
+          </g>
+        ))}
+        {filtered.map((d, i) => {
+          const a = d.linesP95Added || 0;
+          const r = d.linesP95Removed || 0;
+          const total = a + r;
+          const addedH = total > 0 ? (a / maxTotal) * chartH : 0;
+          const removedH = total > 0 ? (r / maxTotal) * chartH : 0;
+          const addedY = padT + chartH - addedH - removedH;
+          const removedY = padT + chartH - removedH;
+          return (
+            <g key={i}>
+              <rect x={xFor(i)} y={addedY} width={barW} height={addedH} rx={1.5}
+                fill="#10B981" opacity={hoverIdx === i ? 0.8 : 0.55} />
+              <rect x={xFor(i)} y={removedY} width={barW} height={removedH} rx={1.5}
+                fill="#EF4444" opacity={hoverIdx === i ? 0.6 : 0.35} />
+              <rect x={xFor(i) - barGap / 2} y={padT} width={barW + barGap} height={chartH}
+                fill="transparent" onMouseEnter={() => setHoverIdx(i)} onMouseLeave={() => setHoverIdx(null)} />
+            </g>
+          );
+        })}
+        {hoverIdx !== null && (() => {
+          const d = filtered[hoverIdx];
+          const x = xFor(hoverIdx) + barW / 2;
+          const a = d.linesP95Added || 0;
+          const r = d.linesP95Removed || 0;
+          const lines = [`${formatWeek(d.week)}`, `+${formatVal(a)} added`, `-${formatVal(r)} removed`, `${formatVal(a + r)} total`];
+          const textW = 110;
+          const tooltipX = Math.min(Math.max(x - textW / 2, 2), W - textW - 2);
+          return (
+            <g>
+              <line x1={x} y1={padT} x2={x} y2={padT + chartH} stroke="white" strokeWidth="1" opacity="0.1" />
+              <rect x={tooltipX} y={2} width={textW} height={lines.length * 13 + 8} rx="4" fill="#1F2937" stroke="#374151" strokeWidth="1" />
+              {lines.map((line, li) => (
+                <text key={li} x={tooltipX + 8} y={15 + li * 13} className={li === 0 ? 'fill-gray-200' : 'fill-gray-400'} fontSize="9.5" fontWeight={li === 0 ? '600' : '400'}>
+                  {line}
+                </text>
+              ))}
+            </g>
+          );
+        })()}
+        {labelIndices.map(idx => (
+          <text key={idx} x={xFor(idx) + barW / 2} y={H - 4} textAnchor="middle" className="fill-gray-600" fontSize="9">
+            {formatWeek(filtered[idx].week)}
+          </text>
+        ))}
+      </svg>
+      <div className="flex gap-4 mt-2 justify-end">
+        <span className="flex items-center gap-1.5 text-[11px] text-white/40">
+          <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500/60" /> Added
+        </span>
+        <span className="flex items-center gap-1.5 text-[11px] text-white/40">
+          <span className="w-2.5 h-2.5 rounded-sm bg-red-500/40" /> Removed
+        </span>
+      </div>
     </div>
   );
 }
