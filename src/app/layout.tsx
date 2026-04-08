@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { ThemeProvider } from './theme-context';
 import { AuthProvider } from './auth-context';
+import Footer from '@/components/Footer';
 
 export const metadata: Metadata = {
   title: 'Glooker — GitHub Analytics',
@@ -15,6 +16,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ThemeProvider>
           <AuthProvider>
             {children}
+            <Footer />
           </AuthProvider>
         </ThemeProvider>
       </body>
