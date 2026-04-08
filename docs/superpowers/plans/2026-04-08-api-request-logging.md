@@ -463,13 +463,7 @@ describe('logger enforcement', () => {
       }
     }
 
-    if (missing.length > 0) {
-      fail(
-        `These route files do not import withRequestLog:\n` +
-        missing.map((f) => `  - ${f}`).join('\n') +
-        `\n\nAll API route handlers must be wrapped with withRequestLog() from @/lib/logger.`
-      );
-    }
+    expect(missing).toEqual([]);
   });
 });
 ```
@@ -539,9 +533,9 @@ logs/
 
 - [ ] **Step 4: Run existing tests to verify nothing broke**
 
-Run: `cd /Users/maes/Documents/1macmount/code/glooker/api-request-logging && npm test`
+Run: `cd /Users/maes/Documents/1macmount/code/glooker/api-request-logging && npx jest --testPathIgnorePatterns="logger-enforcement"`
 
-Expected: All existing tests pass (446 tests). The enforcement test will still fail (expected — routes aren't wrapped yet).
+Expected: All tests pass (excluding the enforcement test, which is in RED — routes aren't wrapped yet).
 
 - [ ] **Step 5: Commit**
 
