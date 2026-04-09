@@ -40,20 +40,34 @@ function useIdleAwarePolling(
 ): void
 ```
 
+**Refs:**
+
+- `callbackRef` — stores the latest callback (updated on every render, avoids stale closures)
+- `lastActiveRef` — timestamp of last user activity, initialized to `Date.now()` on mount (so the user is considered active until proven idle)
+- `lastFiredRef` — timestamp of last callback invocation, initialized to `Date.now()` on mount (prevents double-fire on mount and on simultaneous resume triggers)
+
 **Behavior:**
 
-1. On mount, registers debounced listeners (1s debounce) for `mousemove`, `keydown`, `scroll`, `touchstart`, `click` — updates a `lastActiveRef` timestamp.
-2. On mount, registers a `visibilitychange` listener.
+1. On mount, registers activity listeners for `mousemove`, `keydown`, `scroll`, `touchstart`, `click`. The handler logic on each raw event:
+   - **First**, check if the user was idle: `Date.now() - lastActiveRef.current > idleTimeoutMs`.
+   - **If idle AND** `Date.now() - lastFiredRef.current > intervalMs / 2`: invoke `callback()` immediately, update `lastFiredRef`.
+   - **Then**, debounced (1s trailing): update `lastActiveRef` to `Date.now()`.
+   
+   The idle check reads `lastActiveRef` *before* the debounced update writes to it. This ensures the "was idle" detection works correctly. The `lastFiredRef` guard prevents burst duplicate invocations when multiple events fire in rapid succession (e.g., mousemove + keydown within 100ms).
+2. On mount, registers a `visibilitychange` listener. When `!document.hidden` (tab becomes visible): if `Date.now() - lastFiredRef.current > intervalMs / 2`, invoke `callback()` immediately and update `lastFiredRef`. This guard also prevents double-fire when visibility-resume and activity-resume coincide.
 3. Runs a `setInterval` at `intervalMs`. On each tick:
    - If `document.hidden` → skip.
-   - If `Date.now() - lastActive > idleTimeoutMs` → skip.
-   - Otherwise → invoke `callback()`.
-4. When tab becomes visible again (`visibilitychange` event with `!document.hidden`), or when a user-activity event fires and the previous state was idle (`Date.now() - lastActive > idleTimeoutMs` before updating the timestamp): invoke `callback()` immediately. The regular interval continues ticking on its own cadence — no restart needed.
-5. On unmount: clear interval, remove all listeners.
+   - If `Date.now() - lastActiveRef.current > idleTimeoutMs` → skip.
+   - Otherwise → invoke `callback()`, update `lastFiredRef`.
+4. On unmount: clear interval, cancel any pending debounce timer, remove all listeners.
+
+**Error handling:** The hook does not catch errors from `callback()`. The caller is responsible for its own error handling (the extracted fetch function will retain its existing `.catch()` chain). The hook does not guard against overlapping async invocations — at 30-second intervals this is not a practical concern.
 
 **Design rationale — skip-on-tick vs. pause/resume:** The interval always ticks; the tick handler just checks two conditions before invoking the callback. This avoids complex state management around clearing and recreating intervals when idle/visibility toggles rapidly. The cost of a no-op tick (one timestamp comparison) is negligible.
 
-**Callback stability:** The hook stores the callback in a ref internally, so the caller does not need to memoize it. The hook itself never re-creates the interval.
+**Callback stability:** The hook stores the callback in `callbackRef` (updated on every render), so the caller does not need to memoize it. The hook itself never re-creates the interval.
+
+**Client-only:** All DOM access (`document.hidden`, `addEventListener`) occurs inside `useEffect`, so the hook is safe in Next.js SSR. The hook must only be used in `'use client'` components.
 
 ### Polling state matrix
 
@@ -66,7 +80,11 @@ function useIdleAwarePolling(
 
 ### Changes to `page.tsx`
 
-1. Extract the inline report-list-fetch + status-sync logic (lines 126-146) into a standalone function. Use functional state updaters (`setActiveReport(prev => ...)`) and refs to avoid stale closures — the function must not close over `activeReport` directly.
+1. Extract the inline report-list-fetch + status-sync logic (lines 126-146) into a standalone function. To avoid stale closures:
+   - Use an `activeReportRef` (a `useRef` kept in sync with `activeReport` state) to read the current active report inside the callback.
+   - Use functional state updaters for `setPastReports` and `setActiveReport`.
+   - The status-transition check (`running` → `completed`) reads from `activeReportRef.current` and the fetched report list. If a report's status is `completed` and `activeReportRef.current?.status` is `running`, fetch the full report data. This handles the case where a transition is detected at 30-second granularity.
+   - The function must not close over `activeReport` directly.
 2. Replace the `useEffect`/`setInterval` block (lines 125-150) with:
    ```ts
    useIdleAwarePolling(fetchReportList, 30_000, 120_000);
@@ -82,5 +100,23 @@ function useIdleAwarePolling(
 
 ## Testing
 
-- Unit test for `useIdleAwarePolling`: mock timers and DOM events, verify callback is called/skipped based on visibility and idle state
-- Manual verification: open the page, confirm network tab shows 30s interval; switch to different desktop, confirm requests stop; move mouse, confirm immediate fetch + resumed polling
+### Unit tests for `useIdleAwarePolling`
+
+Using fake timers and DOM event simulation:
+
+- **Regular polling:** callback fires every 30s when tab is visible and user is active
+- **Hidden tab:** callback is skipped when `document.hidden` is true
+- **Idle user:** callback is skipped when no activity for > 2 minutes
+- **Visibility resume:** immediate callback when tab becomes visible, no double-fire with next interval tick (lastFiredRef guard)
+- **Activity resume from idle:** immediate callback on first user event after idle period
+- **Simultaneous resume:** visibility + activity fire together — callback invoked only once (lastFiredRef guard)
+- **Burst events:** multiple activity events within 100ms after idle — callback invoked only once
+- **Initial state:** callback does not fire immediately on mount (lastFiredRef initialized to Date.now())
+- **Cleanup:** interval cleared, listeners removed, pending debounce cancelled on unmount
+
+### Manual verification
+
+- Open the page, confirm network tab shows ~30s interval between `/api/report` calls
+- Switch to different virtual desktop, confirm requests stop
+- Move mouse after being idle, confirm immediate fetch + resumed 30s polling
+- Hide tab, wait, switch back — confirm single immediate fetch on return
