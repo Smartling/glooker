@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 
 const COOLDOWN = 5_000;
+const ACTIVITY_DEBOUNCE = 1_000;
 
 export function useIdleAwarePolling(
   callback: () => void,
@@ -10,7 +11,7 @@ export function useIdleAwarePolling(
   const callbackRef = useRef(callback);
   const lastActiveRef = useRef(Date.now());
   const lastFiredRef = useRef(Date.now());
-  const debounceTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // Keep callback ref current
   callbackRef.current = callback;
@@ -30,7 +31,7 @@ export function useIdleAwarePolling(
       clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = setTimeout(() => {
         lastActiveRef.current = Date.now();
-      }, 1_000);
+      }, ACTIVITY_DEBOUNCE);
     };
 
     const onVisibility = () => {
