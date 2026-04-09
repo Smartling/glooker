@@ -266,9 +266,9 @@ Add these tests to the existing `describe` block:
     act(() => { document.dispatchEvent(new Event('visibilitychange')); });
     expect(cb).toHaveBeenCalledTimes(1); // immediate fire on visible
 
-    // Advance to next interval tick — lastFiredRef guard prevents double-fire
+    // Advance to next interval tick — verify no spurious extra fire
     act(() => { jest.advanceTimersByTime(24_000); }); // 6s + 24s = 30s total
-    expect(cb).toHaveBeenCalledTimes(2); // normal tick at 30s, not a double-fire
+    expect(cb).toHaveBeenCalledTimes(2); // 1 visibility resume + 1 normal interval tick
   });
 
   it('fires immediately on activity after idle period (past cooldown)', () => {
@@ -528,7 +528,7 @@ Delete the entire `useEffect` block at lines 124-150 (the one with the comment `
 
 ```ts
 // Poll reports list to pick up scheduled reports (idle-aware, 30s)
-useIdleAwarePolling(() => {
+function fetchReportList() {
   fetch('/api/report')
     .then((r) => r.json())
     .then((reports: Report[]) => {
@@ -548,10 +548,12 @@ useIdleAwarePolling(() => {
       }
     })
     .catch((err) => console.error('[glooker]', err));
-}, 30_000, 120_000);
+}
+useIdleAwarePolling(fetchReportList, 30_000, 120_000);
 ```
 
 Key differences from the old code:
+- Extracted into a named `fetchReportList` function (greppable in stack traces, matches spec)
 - `activeReport` → `activeReportRef.current` (reads from ref, not closure)
 - No `setInterval` / `clearInterval` / dependency array — the hook handles all of it
 - Interval changed from 5s to 30s, with visibility + idle awareness
