@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import LlmFindings from './llm-findings';
 import ChatPanel from './chat-panel';
 import { useAuth } from './auth-context';
+import { useIdleAwarePolling } from '@/hooks/use-idle-aware-polling';
 
 interface Developer {
   github_login:       string;
@@ -80,6 +81,7 @@ export default function Home() {
   const [jiraProjectsEnabled, setJiraProjectsEnabled] = useState(false);
   const generationRef = useRef(0);
   const lastCompletedDevsRef = useRef(0);
+  const activeReportRef = useRef<Report | null>(null);
 
   const [showReportForm, setShowReportForm] = useState(false);
 
@@ -121,33 +123,31 @@ export default function Home() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Poll reports list to pick up scheduled reports
-  useEffect(() => {
-    const interval = setInterval(() => {
-      fetch('/api/report')
-        .then((r) => r.json())
-        .then((reports: Report[]) => {
-          setPastReports(reports);
-          // If viewing a report that changed status, update it
-          if (activeReport) {
-            const updated = reports.find((r: Report) => r.id === activeReport.id);
-            if (updated && updated.status !== activeReport.status) {
-              setActiveReport((prev) => prev ? { ...prev, status: updated.status, completed_at: updated.completed_at } : prev);
-              // If a report just completed and we're viewing it, load the full data
-              if (updated.status === 'completed' && activeReport.status === 'running') {
-                fetch(`/api/report/${updated.id}`).then((r) => r.json()).then((data) => {
-                  setDevelopers(data.developers || []);
-                  setActiveReport(data.report);
-                }).catch((err) => console.error('[glooker] Failed to load completed report:', err));
-              }
+  useEffect(() => { activeReportRef.current = activeReport; }, [activeReport]);
+
+  // Poll reports list to pick up scheduled reports (idle-aware, 30s)
+  function fetchReportList() {
+    fetch('/api/report')
+      .then((r) => r.json())
+      .then((reports: Report[]) => {
+        setPastReports(reports);
+        const current = activeReportRef.current;
+        if (current) {
+          const updated = reports.find((r: Report) => r.id === current.id);
+          if (updated && updated.status !== current.status) {
+            setActiveReport((prev) => prev ? { ...prev, status: updated.status, completed_at: updated.completed_at } : prev);
+            if (updated.status === 'completed' && current.status === 'running') {
+              fetch(`/api/report/${updated.id}`).then((r) => r.json()).then((data) => {
+                setDevelopers(data.developers || []);
+                setActiveReport(data.report);
+              }).catch((err) => console.error('[glooker] Failed to load completed report:', err));
             }
           }
-        })
-        .catch((err) => console.error('[glooker]', err));
-    }, 5000);
-    return () => clearInterval(interval);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeReport?.id, activeReport?.status]);
+        }
+      })
+      .catch((err) => console.error('[glooker]', err));
+  }
+  useIdleAwarePolling(fetchReportList, 30_000, 120_000);
 
   function stopPolling() {
     if (pollRef.current) {
