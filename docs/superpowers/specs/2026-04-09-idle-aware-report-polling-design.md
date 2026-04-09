@@ -48,18 +48,18 @@ function useIdleAwarePolling(
 
 **Behavior:**
 
-1. On mount, registers activity listeners for `mousemove`, `keydown`, `scroll`, `touchstart`, `click`. The handler logic on each raw event:
+1. On mount, registers activity listeners for `mousemove`, `keydown`, `scroll`, `touchstart`, `click` with `{ passive: true }` (handlers never call `preventDefault()`). The handler logic on each raw event:
    - **First**, check if the user was idle: `Date.now() - lastActiveRef.current > idleTimeoutMs`.
-   - **If idle AND** `Date.now() - lastFiredRef.current > intervalMs / 2`: invoke `callback()` immediately, update `lastFiredRef`.
-   - **Then**, debounced (1s trailing): update `lastActiveRef` to `Date.now()`.
+   - **If idle AND** `Date.now() - lastFiredRef.current > COOLDOWN` (where `COOLDOWN = 5_000`): invoke `callback()` immediately, update `lastFiredRef`.
+   - **Then**, debounced (1s trailing, via inline `setTimeout`/`clearTimeout` with a `debounceTimerRef`): update `lastActiveRef` to `Date.now()`.
    
-   The idle check reads `lastActiveRef` *before* the debounced update writes to it. This ensures the "was idle" detection works correctly. The `lastFiredRef` guard prevents burst duplicate invocations when multiple events fire in rapid succession (e.g., mousemove + keydown within 100ms).
-2. On mount, registers a `visibilitychange` listener. When `!document.hidden` (tab becomes visible): if `Date.now() - lastFiredRef.current > intervalMs / 2`, invoke `callback()` immediately and update `lastFiredRef`. This guard also prevents double-fire when visibility-resume and activity-resume coincide.
+   The idle check reads `lastActiveRef` *before* the debounced update writes to it. This ensures the "was idle" detection works correctly. The `lastFiredRef` guard with a 5-second cooldown prevents burst duplicate invocations when multiple events fire in rapid succession (e.g., mousemove + keydown within 100ms), while keeping the suppression window short enough that a tab-show within seconds of the last poll still triggers an immediate fetch.
+2. On mount, registers a `visibilitychange` listener. When `!document.hidden` (tab becomes visible): if `Date.now() - lastFiredRef.current > COOLDOWN`, invoke `callback()` immediately and update `lastFiredRef`. This guard also prevents double-fire when visibility-resume and activity-resume coincide.
 3. Runs a `setInterval` at `intervalMs`. On each tick:
    - If `document.hidden` → skip.
    - If `Date.now() - lastActiveRef.current > idleTimeoutMs` → skip.
    - Otherwise → invoke `callback()`, update `lastFiredRef`.
-4. On unmount: clear interval, cancel any pending debounce timer, remove all listeners.
+4. On unmount: clear interval, cancel any pending debounce timer (`clearTimeout(debounceTimerRef.current)`), remove all listeners.
 
 **Error handling:** The hook does not catch errors from `callback()`. The caller is responsible for its own error handling (the extracted fetch function will retain its existing `.catch()` chain). The hook does not guard against overlapping async invocations — at 30-second intervals this is not a practical concern.
 
@@ -80,16 +80,18 @@ function useIdleAwarePolling(
 
 ### Changes to `page.tsx`
 
-1. Extract the inline report-list-fetch + status-sync logic (lines 126-146) into a standalone function. To avoid stale closures:
-   - Use an `activeReportRef` (a `useRef` kept in sync with `activeReport` state) to read the current active report inside the callback.
+1. Add an `activeReportRef` kept in sync via `useEffect(() => { activeReportRef.current = activeReport }, [activeReport])`. This ref lags by one render, but at 30-second polling granularity, the race window is negligible — the progress poller (1.5s) is the primary completion detector for user-initiated reports; this list poll is a backstop for background-scheduled reports.
+2. Extract the inline report-list-fetch + status-sync logic (lines 126-146) into a standalone function. To avoid stale closures:
+   - Read current active report from `activeReportRef.current` (not `activeReport` directly).
    - Use functional state updaters for `setPastReports` and `setActiveReport`.
-   - The status-transition check (`running` → `completed`) reads from `activeReportRef.current` and the fetched report list. If a report's status is `completed` and `activeReportRef.current?.status` is `running`, fetch the full report data. This handles the case where a transition is detected at 30-second granularity.
+   - The callback also calls `setDevelopers` and the nested `fetch(/api/report/${id})` on `running` → `completed` transitions. All React state setters (`setPastReports`, `setActiveReport`, `setDevelopers`) are referentially stable and safe to close over.
+   - The status-transition check reads from `activeReportRef.current` and the fetched report list. If a report's status is `completed` and `activeReportRef.current?.status` is `running`, fetch the full report data.
    - The function must not close over `activeReport` directly.
-2. Replace the `useEffect`/`setInterval` block (lines 125-150) with:
+3. Replace the `useEffect`/`setInterval` block (lines 125-150) with:
    ```ts
    useIdleAwarePolling(fetchReportList, 30_000, 120_000);
    ```
-3. The `[activeReport?.id, activeReport?.status]` dependency array is eliminated entirely — the hook manages its own lifecycle.
+4. The `[activeReport?.id, activeReport?.status]` dependency array is eliminated entirely — the hook manages its own lifecycle.
 
 ### What stays the same
 
@@ -111,7 +113,7 @@ Using fake timers and DOM event simulation:
 - **Activity resume from idle:** immediate callback on first user event after idle period
 - **Simultaneous resume:** visibility + activity fire together — callback invoked only once (lastFiredRef guard)
 - **Burst events:** multiple activity events within 100ms after idle — callback invoked only once
-- **Initial state:** callback does not fire immediately on mount (lastFiredRef initialized to Date.now())
+- **Initial state:** callback does not fire immediately on mount (`setInterval` fires at T+intervalMs, not T=0; `lastFiredRef` initialized to `Date.now()` prevents the resume paths from firing early)
 - **Cleanup:** interval cleared, listeners removed, pending debounce cancelled on unmount
 
 ### Manual verification
