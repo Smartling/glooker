@@ -106,4 +106,42 @@ describe('useIdleAwarePolling', () => {
     });
     expect(cb).toHaveBeenCalledTimes(1);
   });
+
+  it('clears interval and removes listeners on unmount', () => {
+    const cb = jest.fn();
+    const { unmount } = renderHook(() => useIdleAwarePolling(cb, 30_000, 120_000));
+    unmount();
+    act(() => { jest.advanceTimersByTime(60_000); });
+    expect(cb).not.toHaveBeenCalled();
+    act(() => { document.dispatchEvent(new MouseEvent('mousemove')); });
+    expect(cb).not.toHaveBeenCalled();
+    Object.defineProperty(document, 'hidden', { value: false, configurable: true });
+    act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+    expect(cb).not.toHaveBeenCalled();
+  });
+
+  it('cancels pending debounce timer on unmount', () => {
+    const cb = jest.fn();
+    const { unmount } = renderHook(() => useIdleAwarePolling(cb, 30_000, 120_000));
+    act(() => { document.dispatchEvent(new MouseEvent('mousemove')); });
+    unmount();
+    act(() => { jest.advanceTimersByTime(2_000); });
+    expect(cb).not.toHaveBeenCalled();
+  });
+
+  it('does not re-create interval when callback reference changes', () => {
+    const cb1 = jest.fn();
+    const cb2 = jest.fn();
+    const { rerender } = renderHook(
+      ({ fn }) => useIdleAwarePolling(fn, 30_000, 120_000),
+      { initialProps: { fn: cb1 } },
+    );
+    act(() => { jest.advanceTimersByTime(30_000); });
+    expect(cb1).toHaveBeenCalledTimes(1);
+    expect(cb2).not.toHaveBeenCalled();
+    rerender({ fn: cb2 });
+    act(() => { jest.advanceTimersByTime(30_000); });
+    expect(cb1).toHaveBeenCalledTimes(1);
+    expect(cb2).toHaveBeenCalledTimes(1);
+  });
 });
