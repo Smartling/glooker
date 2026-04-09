@@ -497,6 +497,10 @@ export default function ProjectsContent() {
     const jiraPctDisplay = Math.round(jiraPct * 100);
     const commitPctDisplay = Math.round(commitPct * 100);
 
+    const totalLines = stats.linesAdded + stats.linesRemoved;
+    const linesPerDev = stats.devCount > 0 ? totalLines / stats.devCount : 0;
+    const isAiSpeed = linesPerDev >= 20000;
+
     return (
       <div className="relative group" style={{ width: px, height: px }}>
         <svg width={px} height={px} viewBox="0 0 48 48" style={{ transform: 'rotate(-90deg)' }}>
@@ -511,6 +515,9 @@ export default function ProjectsContent() {
           style={{ fontSize: Math.max(7, Math.round(px * 0.28)) }}>
           {stats.devCount}
         </span>
+        {isAiSpeed && (
+          <span className="absolute -top-1 -left-1 text-[10px] leading-none" title="AI speed">⚡</span>
+        )}
         {/* Tooltip */}
         <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-20
           bg-gray-800 border border-gray-700 rounded-md px-3 py-2 text-xs text-gray-300 whitespace-nowrap shadow-lg">
