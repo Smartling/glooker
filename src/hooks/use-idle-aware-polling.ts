@@ -21,14 +21,43 @@ export function useIdleAwarePolling(
       lastFiredRef.current = Date.now();
     };
 
+    const onActivity = () => {
+      const now = Date.now();
+      const wasIdle = now - lastActiveRef.current > idleTimeoutMs;
+      if (wasIdle && now - lastFiredRef.current > COOLDOWN) {
+        fire();
+      }
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = setTimeout(() => {
+        lastActiveRef.current = Date.now();
+      }, 1_000);
+    };
+
+    const onVisibility = () => {
+      if (!document.hidden && Date.now() - lastFiredRef.current > COOLDOWN) {
+        fire();
+      }
+    };
+
     const intervalId = setInterval(() => {
       if (document.hidden) return;
       if (Date.now() - lastActiveRef.current > idleTimeoutMs) return;
       fire();
     }, intervalMs);
 
+    const activityEvents = ['mousemove', 'keydown', 'scroll', 'touchstart', 'click'] as const;
+    activityEvents.forEach(evt =>
+      document.addEventListener(evt, onActivity, { passive: true }),
+    );
+    document.addEventListener('visibilitychange', onVisibility);
+
     return () => {
       clearInterval(intervalId);
+      clearTimeout(debounceTimerRef.current);
+      activityEvents.forEach(evt =>
+        document.removeEventListener(evt, onActivity),
+      );
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [intervalMs, idleTimeoutMs]);
 }
