@@ -13,6 +13,7 @@ const config: Config = {
   ],
   collectCoverageFrom: [
     'src/lib/**/*.ts',
+    'src/hooks/**/*.ts',
     '!src/lib/__tests__/**',
     '!src/lib/db/**',
   ],
