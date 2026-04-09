@@ -25,7 +25,7 @@ Run:
 npm install --save-dev jest-environment-jsdom @testing-library/react
 ```
 
-Expected: packages install without errors. `@testing-library/react` v16+ (supports React 19).
+Expected: packages install without errors. `@testing-library/react` v16+ (supports React 19). Verify `jest-environment-jsdom` major version matches Jest (v30): run `npm ls jest-environment-jsdom` and confirm `^30.x`. If only v29 is available, try `npm install --save-dev jest-environment-jsdom@next`.
 
 - [ ] **Step 2: Add `src/hooks` to Jest coverage config**
 
@@ -74,7 +74,7 @@ import { useIdleAwarePolling } from '@/hooks/use-idle-aware-polling';
 
 describe('useIdleAwarePolling', () => {
   beforeEach(() => {
-    jest.useFakeTimers();
+    jest.useFakeTimers({ now: 0 });
     // Ensure document is visible and user is "active" by default
     Object.defineProperty(document, 'hidden', { value: false, writable: true, configurable: true });
   });
@@ -265,6 +265,10 @@ Add these tests to the existing `describe` block:
     Object.defineProperty(document, 'hidden', { value: false, configurable: true });
     act(() => { document.dispatchEvent(new Event('visibilitychange')); });
     expect(cb).toHaveBeenCalledTimes(1); // immediate fire on visible
+
+    // Advance to next interval tick — lastFiredRef guard prevents double-fire
+    act(() => { jest.advanceTimersByTime(24_000); }); // 6s + 24s = 30s total
+    expect(cb).toHaveBeenCalledTimes(2); // normal tick at 30s, not a double-fire
   });
 
   it('fires immediately on activity after idle period (past cooldown)', () => {
@@ -391,7 +395,7 @@ Replace the `useEffect` in `src/hooks/use-idle-aware-polling.ts` with:
 
 Run: `npm test -- --testPathPattern="use-idle-aware-polling"`
 
-Expected: all 8 tests PASS.
+Expected: all 8 tests PASS (2 from Task 2, 2 from Task 3, 4 from this task).
 
 - [ ] **Step 5: Commit**
 
@@ -431,13 +435,50 @@ Add to the `describe` block:
     act(() => { document.dispatchEvent(new Event('visibilitychange')); });
     expect(cb).not.toHaveBeenCalled();
   });
+
+  it('cancels pending debounce timer on unmount', () => {
+    const cb = jest.fn();
+    const { unmount } = renderHook(() => useIdleAwarePolling(cb, 30_000, 120_000));
+
+    // Trigger activity to create a pending debounce timer
+    act(() => { document.dispatchEvent(new MouseEvent('mousemove')); });
+
+    // Unmount before debounce fires (within 1s)
+    unmount();
+
+    // Advance past debounce delay — timer should have been cancelled, no errors
+    act(() => { jest.advanceTimersByTime(2_000); });
+    expect(cb).not.toHaveBeenCalled();
+  });
+
+  it('does not re-create interval when callback reference changes', () => {
+    const cb1 = jest.fn();
+    const cb2 = jest.fn();
+    const { rerender } = renderHook(
+      ({ fn }) => useIdleAwarePolling(fn, 30_000, 120_000),
+      { initialProps: { fn: cb1 } },
+    );
+
+    // First tick at 30s fires cb1
+    act(() => { jest.advanceTimersByTime(30_000); });
+    expect(cb1).toHaveBeenCalledTimes(1);
+    expect(cb2).not.toHaveBeenCalled();
+
+    // Change callback at 30s — should NOT reset the interval
+    rerender({ fn: cb2 });
+
+    // Next tick at 60s should fire cb2, not cb1 — and should be at 60s, not 30s+30s
+    act(() => { jest.advanceTimersByTime(30_000); });
+    expect(cb1).toHaveBeenCalledTimes(1); // unchanged
+    expect(cb2).toHaveBeenCalledTimes(1); // new callback fired
+  });
 ```
 
-- [ ] **Step 2: Run tests to verify all 9 pass**
+- [ ] **Step 2: Run tests to verify all 11 pass**
 
 Run: `npm test -- --testPathPattern="use-idle-aware-polling"`
 
-Expected: 9 tests PASS (cleanup behavior already implemented in Task 4).
+Expected: 11 tests PASS (cleanup and callback-ref behavior already implemented in Tasks 2-4).
 
 - [ ] **Step 3: Run full test suite to check for regressions**
 
@@ -449,7 +490,7 @@ Expected: all tests pass.
 
 ```bash
 git add src/lib/__tests__/unit/use-idle-aware-polling.test.ts
-git commit -m "test: add cleanup test for useIdleAwarePolling — all 9 cases pass"
+git commit -m "test: add cleanup, debounce cancel, and callback stability tests — all 11 cases pass"
 ```
 
 ---
