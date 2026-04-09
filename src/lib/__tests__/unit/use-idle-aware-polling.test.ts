@@ -32,4 +32,25 @@ describe('useIdleAwarePolling', () => {
     act(() => { jest.advanceTimersByTime(30_000); });
     expect(cb).toHaveBeenCalledTimes(3);
   });
+
+  it('skips callback when document is hidden', () => {
+    const cb = jest.fn();
+    renderHook(() => useIdleAwarePolling(cb, 30_000, 120_000));
+    Object.defineProperty(document, 'hidden', { value: true, configurable: true });
+    act(() => { jest.advanceTimersByTime(30_000); });
+    expect(cb).not.toHaveBeenCalled();
+    act(() => { jest.advanceTimersByTime(30_000); });
+    expect(cb).not.toHaveBeenCalled();
+    Object.defineProperty(document, 'hidden', { value: false, configurable: true });
+  });
+
+  it('skips callback when user has been idle beyond the threshold', () => {
+    const cb = jest.fn();
+    renderHook(() => useIdleAwarePolling(cb, 30_000, 120_000));
+    act(() => { jest.advanceTimersByTime(120_000); });
+    expect(cb).toHaveBeenCalledTimes(4);
+    cb.mockClear();
+    act(() => { jest.advanceTimersByTime(30_000); });
+    expect(cb).not.toHaveBeenCalled();
+  });
 });
