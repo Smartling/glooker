@@ -36,6 +36,7 @@ export function useIdleAwarePolling(
 
     const onVisibility = () => {
       if (!document.hidden && Date.now() - lastFiredRef.current > COOLDOWN) {
+        lastActiveRef.current = Date.now();
         fire();
       }
     };

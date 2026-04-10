@@ -69,6 +69,24 @@ describe('useIdleAwarePolling', () => {
     expect(cb).toHaveBeenCalledTimes(2);
   });
 
+  it('does not fire on visibility resume within cooldown window', () => {
+    const cb = jest.fn();
+    renderHook(() => useIdleAwarePolling(cb, 30_000, 120_000));
+
+    // Let the first interval tick fire at 30s
+    act(() => { jest.advanceTimersByTime(30_000); });
+    expect(cb).toHaveBeenCalledTimes(1);
+
+    // Immediately hide and show tab (within 5s cooldown of the tick at 30s)
+    Object.defineProperty(document, 'hidden', { value: true, configurable: true });
+    act(() => { jest.advanceTimersByTime(1_000); }); // T=31s
+    Object.defineProperty(document, 'hidden', { value: false, configurable: true });
+    act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+
+    // Cooldown: 31000 - 30000 = 1000 > 5000? No. Should NOT fire.
+    expect(cb).toHaveBeenCalledTimes(1); // still 1, no extra fire
+  });
+
   it('fires immediately on activity after idle period (past cooldown)', () => {
     const cb = jest.fn();
     renderHook(() => useIdleAwarePolling(cb, 30_000, 120_000));
