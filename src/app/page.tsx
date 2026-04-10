@@ -964,7 +964,7 @@ export default function Home() {
                     <th className="px-4 py-3 text-right w-[5%]">AI%</th>
                     {hasJira && <th className="px-4 py-3 text-right w-[5%]">Jira</th>}
                     <th className="px-4 py-3 w-[24%]">Types</th>
-                    <th className="px-4 py-3 text-right w-[7%]" title="Impact = Commits (2.0) + PRs (2.7) + Complexity (3.5) + PR% (1.1) + Jira work (0.5). Jira: uses story points when available, falls back to issue count.">Impact ⓘ</th>
+                    <th className="px-4 py-3 text-right w-[7%]" title="Impact = Commits (2.0) + PRs (2.7) + Complexity (3.5) + PR% (1.1) + Jira (0.5) + Reviews (0.5). Max: 9.3">Impact ⓘ</th>
                   </tr>
                 </thead>
                 <tbody>

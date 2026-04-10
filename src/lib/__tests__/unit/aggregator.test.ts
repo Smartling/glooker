@@ -69,12 +69,13 @@ describe('aggregate', () => {
     expect(result[0].impactScore).toBeGreaterThan(result[1].impactScore);
   });
 
-  it('verifies impact score formula with known inputs (max score)', () => {
-    // 20 commits → min(20/20,1)=1 → *2 = 2
-    // 10 PRs    → min(10/10,1)=1 → *3 = 3
+  it('verifies impact score formula with known inputs (max without Jira/reviews)', () => {
+    // 20 commits → min(20/20,1)=1 → *2.0 = 2.0
+    // 10 PRs    → min(10/10,1)=1 → *2.7 = 2.7
     // complexity=10 → (10/10)*3.5 = 3.5
     // prPercentage=100 → (100/100)*1.1 = 1.1
-    // rawImpact = 2+3+3.5+1.1 = 9.6
+    // jira=0, reviews=0
+    // rawImpact = 2.0+2.7+3.5+1.1 = 9.3
     const commits = Array.from({ length: 20 }, (_, i) =>
       makeCommit({ sha: `s${i}`, author: 'dev', prNumber: i + 1, repo: 'r' }),
     );
@@ -83,7 +84,7 @@ describe('aggregate', () => {
     );
     const prCounts = new Map([['dev', 10]]);
     const result = aggregate(commits, analyses, prCounts);
-    expect(result[0].impactScore).toBe(9.3); // PR weight 2.7 (was 3.0), no Jira data at aggregate time
+    expect(result[0].impactScore).toBe(9.3); // No Jira/reviews at aggregate time
   });
 
   it('weights complexity higher than volume in impact score', () => {
@@ -179,11 +180,11 @@ describe('aggregate', () => {
 });
 
 describe('computeImpactScore', () => {
-  const base = { totalCommits: 20, totalPRs: 10, avgComplexity: 5, prPercentage: 100, totalStoryPoints: 0, totalJiraIssues: 0 };
+  const base = { totalCommits: 20, totalPRs: 10, avgComplexity: 5, prPercentage: 100, totalStoryPoints: 0, totalJiraIssues: 0, totalReviews: 0 };
 
-  it('returns max score with all metrics maxed', () => {
+  it('computes correct score with base metrics + story points', () => {
     const score = computeImpactScore({ ...base, totalStoryPoints: 15 });
-    // 2.0 + 2.7 + 1.75 + 1.1 + 0.5 = 8.05 → 8.1
+    // 2.0 + 2.7 + 1.75 + 1.1 + 0.5 + 0 (reviews) = 8.05 → 8.1
     expect(score).toBe(8.1);
   });
 
@@ -216,5 +217,34 @@ describe('computeImpactScore', () => {
     const withJira = computeImpactScore({ ...base, totalStoryPoints: 10, totalJiraIssues: 5 });
     const without = computeImpactScore({ ...base });
     expect(withJira - without).toBeCloseTo(0.3, 1); // 10/15*0.5 ≈ 0.33
+  });
+
+  it('includes reviews in impact score', () => {
+    const withReviews = computeImpactScore({ ...base, totalReviews: 10 });
+    const without = computeImpactScore({ ...base, totalReviews: 0 });
+    expect(withReviews).toBeGreaterThan(without);
+    // 10/15 * 0.5 ≈ 0.33
+    expect(withReviews - without).toBeCloseTo(0.3, 1);
+  });
+
+  it('caps reviews factor at 15 reviews', () => {
+    const r15 = computeImpactScore({ ...base, totalReviews: 15 });
+    const r30 = computeImpactScore({ ...base, totalReviews: 30 });
+    expect(r15).toBe(r30);
+  });
+
+  it('reviews contribute max 0.5 to impact', () => {
+    const maxReviews = computeImpactScore({ ...base, totalReviews: 15 });
+    const noReviews = computeImpactScore({ ...base, totalReviews: 0 });
+    expect(maxReviews - noReviews).toBeCloseTo(0.5, 1);
+  });
+
+  it('returns max possible score with all factors maxed', () => {
+    const max = computeImpactScore({
+      totalCommits: 20, totalPRs: 10, avgComplexity: 10, prPercentage: 100,
+      totalStoryPoints: 15, totalJiraIssues: 10, totalReviews: 15,
+    });
+    // 2.0 + 2.7 + 3.5 + 1.1 + 0.5 + 0.5 = 10.3
+    expect(max).toBe(10.3);
   });
 });

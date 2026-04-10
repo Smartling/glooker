@@ -215,6 +215,7 @@ export function createSQLiteDB(): DB {
   // Migrations: safe for existing DBs (ignore "duplicate column" errors)
   try { db.exec('ALTER TABLE developer_stats ADD COLUMN total_jira_issues INTEGER NOT NULL DEFAULT 0'); } catch (_) {}
   try { db.exec('ALTER TABLE commit_analyses ADD COLUMN author_email TEXT'); } catch (_) {}
+  try { db.exec('ALTER TABLE developer_stats ADD COLUMN total_reviews INTEGER NOT NULL DEFAULT 0'); } catch (_) {}
 
   return {
     execute: <T = any>(sql: string, params?: any[]): Promise<[T[], any]> => {

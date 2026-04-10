@@ -40,6 +40,7 @@ export interface GitHubProvider {
   listOrgMembers(org: string, log?: (msg: string) => void): Promise<OrgMember[]>;
   fetchUserActivity(org: string, user: string, since: Date, log?: (msg: string) => void): Promise<UserActivity>;
   listOrgs(): Promise<Array<{ login: string; avatar_url: string }>>;
+  countReviewedPRs(org: string, user: string, since: Date): Promise<number>;
 }
 
 let octokit: InstanceType<typeof Octokit> | null = null;
@@ -422,6 +423,18 @@ export async function listOrgs(): Promise<Array<{ login: string; avatar_url: str
   return orgs;
 }
 
+// ---------- PR review count ----------
+
+async function countReviewedPRs(org: string, user: string, since: Date): Promise<number> {
+  const sinceStr = since.toISOString().split('T')[0];
+  const q = `org:${org} is:pr is:merged reviewed-by:${user} merged:>${sinceStr}`;
+  await sleep(2500);
+  const res = await withRetry(
+    () => getOctokit().search.issuesAndPullRequests({ q, per_page: 1 }),
+  );
+  return res.data.total_count;
+}
+
 // ---------- Provider factory ----------
 
 let cachedProvider: GitHubProvider | null = null;
@@ -435,6 +448,6 @@ export function getGitHubProvider(): GitHubProvider {
     return cachedProvider!;
   }
 
-  cachedProvider = { listOrgMembers, fetchUserActivity, listOrgs };
+  cachedProvider = { listOrgMembers, fetchUserActivity, listOrgs, countReviewedPRs };
   return cachedProvider;
 }

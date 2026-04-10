@@ -45,7 +45,8 @@ That's it. Glooker uses SQLite by default — no database setup needed.
 | PR% | Percentage of commits that went through a PR |
 | AI% | Percentage of commits with AI assistance (confirmed + suspected) |
 | Jira Issues | Resolved Jira tickets in period (optional, requires Jira config) |
-| Impact | Weighted score: complexity (3.5) + PRs (3.0) + volume (2.0) + PR discipline (1.1) |
+| Reviews | Merged PRs reviewed by this developer |
+| Impact | Weighted score: complexity (3.5) + PRs (2.7) + volume (2.0) + PR discipline (1.1) + Jira (0.5) + reviews (0.5) — max 10.3 |
 | Types | Commit categorization: feature, bug, refactor, infra, docs, test |
 
 ## Configuration

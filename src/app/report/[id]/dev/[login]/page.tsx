@@ -20,6 +20,7 @@ interface DevStats {
   avg_complexity: number; impact_score: number; pr_percentage: number; ai_percentage: number;
   type_breakdown: Record<string, number>; active_repos: string[];
   total_jira_issues: number;
+  total_reviews?: number;
 }
 
 interface JiraIssue {
@@ -34,6 +35,7 @@ interface CompactDev {
   lines_added: number; lines_removed: number;
   avg_complexity: number; impact_score: number; pr_percentage: number; ai_percentage: number;
   total_jira_issues: number;
+  total_reviews?: number;
 }
 
 interface Commit {
@@ -153,6 +155,7 @@ export default function DevDetailPage() {
     { label: 'Complexity', value: Number(dev.avg_complexity), values: allDevs.map(d => Number(d.avg_complexity)), higherIsBetter: true },
     { label: 'PR %', value: dev.pr_percentage, values: allDevs.map(d => d.pr_percentage), higherIsBetter: true },
     ...(hasJiraData ? [{ label: 'Jira Issues', value: dev.total_jira_issues, values: allDevs.map(d => d.total_jira_issues ?? 0), higherIsBetter: true }] : []),
+    { label: 'Reviews', value: dev.total_reviews ?? 0, values: allDevs.map(d => d.total_reviews ?? 0), higherIsBetter: true },
     { label: 'Impact', value: Number(dev.impact_score), values: allDevs.map(d => Number(d.impact_score)), higherIsBetter: true },
   ];
 

@@ -24,11 +24,13 @@ import { updateProgress, addLog } from '@/lib/progress-store';
 
 const mockListOrgMembers = jest.fn();
 const mockFetchUserActivity = jest.fn();
+const mockCountReviewedPRs = jest.fn().mockResolvedValue(0);
 const mockGetGitHubProvider = getGitHubProvider as jest.Mock;
 mockGetGitHubProvider.mockReturnValue({
   listOrgMembers: mockListOrgMembers,
   fetchUserActivity: mockFetchUserActivity,
   listOrgs: jest.fn(),
+  countReviewedPRs: mockCountReviewedPRs,
 });
 const mockAnalyzeCommit = analyzeCommit as jest.Mock;
 const mockDbExecute = db.execute as jest.Mock;

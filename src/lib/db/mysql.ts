@@ -142,6 +142,9 @@ export function createMySQLDB(): DB {
     if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add author_email:', err);
   });
   pool.execute('ALTER TABLE untracked_summaries MODIFY COLUMN groups_json MEDIUMTEXT NOT NULL').catch(() => {});
+  pool.execute('ALTER TABLE developer_stats ADD COLUMN total_reviews INT NOT NULL DEFAULT 0').catch((err) => {
+    if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add total_reviews:', err);
+  });
 
   return {
     execute: <T = any>(sql: string, params?: any[]): Promise<[T[], any]> =>

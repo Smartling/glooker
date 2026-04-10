@@ -82,6 +82,7 @@ export async function runReport(
     const memberPending   = new Map<string, number>();          // login → in-flight LLM count
     const completedMembers = new Set<string>();                 // fully done members
     const prCounts         = new Map<string, number>();
+    const reviewCounts     = new Map<string, number>();
     const analyses         = new Map<string, CommitAnalysis>(existingAnalyses);
     const seen             = new Set<string>();                 // global dedup
     const pendingLLM: Promise<void>[] = [];
@@ -102,17 +103,23 @@ export async function runReport(
       memPrCounts.set(login, prCounts.get(login) || 0);
       const memStats = aggregate(memCommits, analyses, memPrCounts);
 
+      // Attach review counts (already fetched during per-member loop)
+      for (const s of memStats) {
+        s.totalReviews = reviewCounts.get(s.githubLogin) || 0;
+        s.impactScore = computeImpactScore(s);
+      }
+
       // Save developer_stats to DB immediately (progressive)
       for (const s of memStats) {
-        log(`DEV @${s.githubLogin}: ${s.totalCommits} commits, ${s.totalPRs} PRs, PR%=${s.prPercentage}%, AI%=${s.aiPercentage}%, complexity=${s.avgComplexity}, impact=${s.impactScore}`);
+        log(`DEV @${s.githubLogin}: ${s.totalCommits} commits, ${s.totalPRs} PRs, ${s.totalReviews} reviews, PR%=${s.prPercentage}%, AI%=${s.aiPercentage}%, complexity=${s.avgComplexity}, impact=${s.impactScore}`);
         db.execute(
           `INSERT INTO developer_stats
              (report_id, github_login, github_name, avatar_url,
               total_prs, total_commits, lines_added, lines_removed,
               avg_complexity, impact_score, pr_percentage, ai_percentage,
-              total_jira_issues,
+              total_jira_issues, total_reviews,
               type_breakdown, active_repos)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON DUPLICATE KEY UPDATE
              total_prs        = VALUES(total_prs),
              total_commits    = VALUES(total_commits),
@@ -123,6 +130,7 @@ export async function runReport(
              pr_percentage    = VALUES(pr_percentage),
              ai_percentage    = VALUES(ai_percentage),
              total_jira_issues = VALUES(total_jira_issues),
+             total_reviews    = VALUES(total_reviews),
              type_breakdown   = VALUES(type_breakdown),
              active_repos     = VALUES(active_repos)`,
           [
@@ -139,6 +147,7 @@ export async function runReport(
             s.prPercentage,
             s.aiPercentage,
             s.totalJiraIssues,
+            s.totalReviews,
             JSON.stringify(s.typeBreakdown),
             JSON.stringify(s.activeRepos),
           ],
@@ -170,6 +179,15 @@ export async function runReport(
         }
 
         prCounts.set(member.login, activity.prs.length);
+
+        // Fetch PR review count (overlaps with LLM work from previous members)
+        try {
+          const reviews = await github.countReviewedPRs(org, member.login, since);
+          reviewCounts.set(member.login, reviews);
+          if (reviews > 0) log(`@${member.login}: ${reviews} PRs reviewed`);
+        } catch {
+          reviewCounts.set(member.login, 0);
+        }
 
         // Dedup commits against global seen set
         const thisMemCommits: CommitData[] = [];
@@ -367,7 +385,10 @@ export async function runReport(
       ) as [any[], any];
       s.totalStoryPoints = Number(spRows[0]?.sp || 0);
 
-      // Recalculate impact score with Jira data
+      // Attach review counts (already fetched during per-member loop)
+      s.totalReviews = reviewCounts.get(s.githubLogin) || 0;
+
+      // Recalculate impact score with Jira + reviews
       s.impactScore = computeImpactScore(s);
     }
 
@@ -377,9 +398,9 @@ export async function runReport(
            (report_id, github_login, github_name, avatar_url,
             total_prs, total_commits, lines_added, lines_removed,
             avg_complexity, impact_score, pr_percentage, ai_percentage,
-            total_jira_issues,
+            total_jira_issues, total_reviews,
             type_breakdown, active_repos)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            total_prs         = VALUES(total_prs),
            total_commits     = VALUES(total_commits),
@@ -390,6 +411,7 @@ export async function runReport(
            pr_percentage     = VALUES(pr_percentage),
            ai_percentage     = VALUES(ai_percentage),
            total_jira_issues = VALUES(total_jira_issues),
+           total_reviews     = VALUES(total_reviews),
            type_breakdown    = VALUES(type_breakdown),
            active_repos      = VALUES(active_repos)`,
         [
@@ -406,6 +428,7 @@ export async function runReport(
           s.prPercentage,
           s.aiPercentage,
           s.totalJiraIssues,
+          s.totalReviews,
           JSON.stringify(s.typeBreakdown),
           JSON.stringify(s.activeRepos),
         ],

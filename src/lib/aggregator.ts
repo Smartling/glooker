@@ -15,6 +15,7 @@ export interface DeveloperStats {
   aiPercentage:   number;  // % of commits with confirmed or suspected AI assistance
   totalJiraIssues: number;
   totalStoryPoints: number;
+  totalReviews: number;
   typeBreakdown:  Record<string, number>;
   activeRepos:    string[];
 }
@@ -26,6 +27,7 @@ export interface DeveloperStats {
 export function computeImpactScore(s: {
   totalCommits: number; totalPRs: number; avgComplexity: number;
   prPercentage: number; totalStoryPoints: number; totalJiraIssues: number;
+  totalReviews: number;
 }): number {
   const jiraFactor = s.totalStoryPoints > 0
     ? Math.min(s.totalStoryPoints / 15, 1)
@@ -35,7 +37,8 @@ export function computeImpactScore(s: {
     Math.min(s.totalPRs / 10, 1)     * 2.7 +
     (s.avgComplexity / 10)            * 3.5 +
     (s.prPercentage / 100)            * 1.1 +
-    jiraFactor                        * 0.5;
+    jiraFactor                        * 0.5 +
+    Math.min(s.totalReviews / 15, 1)  * 0.5;
   return Math.round(raw * 10) / 10;
 }
 
@@ -103,7 +106,7 @@ export function aggregate(
     // Impact score: initial calculation without Jira data (recalculated in report-runner after Jira fetch)
     const impactScore = computeImpactScore({
       totalCommits: dev.commits.length, totalPRs, avgComplexity,
-      prPercentage, totalStoryPoints: 0, totalJiraIssues: 0,
+      prPercentage, totalStoryPoints: 0, totalJiraIssues: 0, totalReviews: 0,
     });
 
     const typeBreakdown: Record<string, number> = {};
@@ -125,6 +128,7 @@ export function aggregate(
       aiPercentage,
       totalJiraIssues: 0,  // Set by report-runner after Jira fetch
       totalStoryPoints: 0, // Set by report-runner after Jira fetch
+      totalReviews: 0, // Set by report-runner after GitHub review count fetch
       typeBreakdown,
       activeRepos:   [...dev.repos],
     });

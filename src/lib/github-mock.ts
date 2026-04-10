@@ -67,5 +67,9 @@ export function createMockGitHubProvider(): GitHubProvider {
         })),
       };
     },
+
+    async countReviewedPRs() {
+      return Math.floor(Math.random() * 15);
+    },
   };
 }
