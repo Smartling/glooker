@@ -46,6 +46,7 @@ That's it. Glooker uses SQLite by default — no database setup needed.
 | AI% | Percentage of commits with AI assistance (confirmed + suspected) |
 | Jira Issues | Resolved Jira tickets in period (optional, requires Jira config) |
 | Reviews | Merged PRs reviewed by this developer |
+| CC Spend | Claude Code estimated cost for the period (optional, requires Anthropic Admin API key) |
 | Impact | Weighted score: complexity (3.5) + PRs (2.7) + volume (2.0) + PR discipline (1.1) + Jira (0.5) + reviews (0.5) — max 10.3 |
 | Types | Commit categorization: feature, bug, refactor, infra, docs, test |
 
@@ -133,6 +134,18 @@ JIRA_API_VERSION=3          # 3 for Cloud, 2 for Server
 GitHub→Jira user mappings are auto-discovered via commit author emails and cached in the `user_mappings` table. Editable in Settings > App Settings.
 
 To find story points field IDs for your instance: `GET https://<JIRA_HOST>/rest/api/3/field` — look for fields with "story" or "point" in the name and use the `id` value (e.g. `customfield_10016`). If unset, story points are not collected.
+
+### Claude Code Analytics (optional)
+
+Track per-developer Claude Code spend. Requires an [Anthropic Admin API key](https://console.anthropic.com/settings/admin-keys):
+
+```env
+CLAUDE_CODE_ENABLED=true
+ANTHROPIC_ADMIN_API_KEY=sk-ant-admin-...
+AUTH_ENABLED=true  # Required — spend visibility is role-gated
+```
+
+Spend data is collected during report runs from the [Claude Code Analytics API](https://docs.anthropic.com/en/api/admin-api). Users are matched to GitHub developers by email address. Admins see a Spend tab on the org report page with Pareto analysis; developers see their own spend on their detail page.
 
 ### Database
 

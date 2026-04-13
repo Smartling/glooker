@@ -26,6 +26,7 @@ Glooker is a Next.js 15 web app that generates developer impact reports for a Gi
 - **Prompt template system** — LLM prompts live in `prompts/` dir (configurable via `PROMPTS_DIR`), loaded by `prompt-loader.ts` with in-memory caching. Templates use `{{PLACEHOLDER}}` syntax. All LLM settings (temperature, max_tokens, max_iterations) are configurable via env vars with hardcoded defaults.
 - **API request logging** (`logger.ts`) — opt-in via `LOG_DIR` env var. All API route handlers must be wrapped with `withRequestLog()` from `src/lib/logger.ts`. Writes structured JSON to `requests.log` (all requests) and `errors.log` (4xx/5xx + exceptions). A Jest enforcement test verifies all route files import the wrapper. When `LOG_DIR` is unset, logging is a no-op.
 - **Jira integration** (`src/lib/jira/`) — optional, enabled via `JIRA_ENABLED=true`. Uses direct `fetch` calls to Jira REST API (no external SDK). Auto-discovers GitHub→Jira user mappings via commit author emails, persists to `user_mappings` table. Fetches resolved issues via JQL (`statusCategory = "Done"`) using the new `/search/jql` endpoint. Jira data (story points or issue count) contributes to the impact score via a `jiraFactor` (weight 0.5). Uses story points when available (`min(SP/15, 1)`), falls back to issue count (`min(count/10, 1)`). PR review count also contributes (weight 0.5, `min(reviews/15, 1)`) — counted via GitHub search API `reviewed-by:` filter.
+- **Claude Code spend analytics** (`src/lib/claude-code/`) — optional, enabled via `CLAUDE_CODE_ENABLED=true`. Uses Anthropic Admin API to pull per-developer Claude Code spend during report runs. Matches users by commit author email. Requires `AUTH_ENABLED=true` for spend visibility gating. Spend stored as cents in `cc_total_cost`, `cc_input_tokens`, `cc_output_tokens`, `cc_sessions` columns on `developer_stats`.
 
 ## Environment
 
@@ -34,6 +35,8 @@ Glooker is a Next.js 15 web app that generates developer impact reports for a Gi
 - `LLM_PROVIDER` selects backend: `openai` (default), `anthropic`, `openai-compatible`, `smartling`, `bedrock`
 - `DB_TYPE` selects database: `sqlite` (default), `mysql`
 - `JIRA_ENABLED=true` enables Jira integration; requires `JIRA_HOST`, `JIRA_USERNAME`, `JIRA_API_TOKEN`
+- `CLAUDE_CODE_ENABLED=true` enables Claude Code spend analytics; requires `ANTHROPIC_ADMIN_API_KEY` and `AUTH_ENABLED=true`
+- `CLAUDE_CODE_PROVIDER=mock` returns random spend data (for dev/test)
 - GitHub fine-grained token needs: Contents:read, Pull requests:read, Metadata:read, Members:read
 
 ## Gotchas
@@ -66,6 +69,9 @@ Glooker is a Next.js 15 web app that generates developer impact reports for a Gi
 - Admin/viewer role is derived from JWT `groups` claim on every request — no DB storage. Changing a user's Okta groups takes effect on their next page load.
 - All API route handlers must be wrapped with `withRequestLog()` — a Jest enforcement test (`logger-enforcement.test.ts`) checks for the import in every `src/app/api/**/route.ts` file. When adding a new API route, wrap every exported handler (GET, POST, PUT, PATCH, DELETE).
 - `LOG_DIR` env var enables API request logging — when unset, `withRequestLog` is a no-op. When set, creates the directory on first write. Log rotation is handled by infrastructure, not the app.
+- Claude Code Analytics API returns cost as cents in string format (e.g., `"123.45"` = $1.2345) — stored as cents in DB, formatted to dollars in UI
+- Claude Code API returns data one day at a time — a 30-day report makes 30 API calls (fast, free, no rate limit concerns)
+- Spend tile on dev detail page requires both `CLAUDE_CODE_ENABLED=true` and `AUTH_ENABLED=true` — without auth, can't determine who's viewing
 
 ## Local Development (Mock Mode)
 
