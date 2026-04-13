@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { useAuth } from '@/app/auth-context';
 
 const TYPE_COLORS: Record<string, string> = {
   feature: 'bg-blue-500', bug: 'bg-red-500', refactor: 'bg-purple-500',
@@ -19,6 +20,10 @@ interface Developer {
   avg_complexity: number; impact_score: number; pr_percentage: number; ai_percentage: number;
   type_breakdown: Record<string, number>; active_repos: string[];
   total_jira_issues?: number;
+  cc_total_cost?: number;
+  cc_input_tokens?: number;
+  cc_output_tokens?: number;
+  cc_sessions?: number;
 }
 
 interface WeeklyData {
@@ -35,11 +40,14 @@ interface ReportMeta {
 export default function OrgDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const { canAct: isAdmin } = useAuth();
   const [loading, setLoading] = useState(true);
   const [report, setReport] = useState<ReportMeta | null>(null);
   const [developers, setDevelopers] = useState<Developer[]>([]);
   const [timeline, setTimeline] = useState<WeeklyData[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [ccEnabled, setCcEnabled] = useState(false);
+  const [activeTab, setActiveTab] = useState<'overview' | 'spend'>('overview');
 
   useEffect(() => {
     fetch(`/api/report/${params.id}/org`)
@@ -52,6 +60,12 @@ export default function OrgDetailPage() {
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
   }, [params.id]);
+
+  useEffect(() => {
+    fetch('/api/llm-config').then(r => r.json()).then(d => {
+      setCcEnabled(d.claudeCode?.enabled ?? false);
+    }).catch(() => {});
+  }, []);
 
   if (loading) return <div className="max-w-6xl mx-auto px-4 py-16 text-gray-500">Loading...</div>;
   if (error || !report) return <div className="max-w-6xl mx-auto px-4 py-16 text-red-400">Error: {error || 'Not found'}</div>;
@@ -137,6 +151,22 @@ export default function OrgDetailPage() {
         </div>
       </div>
 
+      {/* Tab Navigation */}
+      {ccEnabled && isAdmin && (
+        <div className="flex gap-4 border-b border-gray-800 mb-6">
+          <button onClick={() => setActiveTab('overview')}
+            className={`pb-2 text-sm font-medium ${activeTab === 'overview' ? 'text-white border-b-2 border-blue-500' : 'text-gray-500 hover:text-gray-300'}`}>
+            Overview
+          </button>
+          <button onClick={() => setActiveTab('spend')}
+            className={`pb-2 text-sm font-medium ${activeTab === 'spend' ? 'text-white border-b-2 border-green-500' : 'text-gray-500 hover:text-gray-300'}`}>
+            Spend
+          </button>
+        </div>
+      )}
+
+      {/* Overview Tab */}
+      {(activeTab === 'overview' || !ccEnabled || !isAdmin) && (<>
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 mb-6">
         {summaryCards.map(c => (
@@ -206,6 +236,7 @@ export default function OrgDetailPage() {
               <th className="px-4 py-3 text-right">PR%</th>
               <th className="px-4 py-3 text-right">AI%</th>
               {hasJira && <th className="px-4 py-3 text-right">Jira</th>}
+              {ccEnabled && isAdmin && <th className="px-4 py-3 text-right">Spend</th>}
               <th className="px-4 py-3 text-right" title="Impact = Commits (2.0) + PRs (2.7) + Complexity (3.5) + PR% (1.1) + Jira (0.5) + Reviews (0.5). Max: 9.3">Impact ⓘ</th>
             </tr>
           </thead>
@@ -264,6 +295,15 @@ export default function OrgDetailPage() {
                       )}
                     </td>
                   )}
+                  {ccEnabled && isAdmin && (
+                    <td className="px-4 py-3 text-right">
+                      {(dev.cc_total_cost ?? 0) > 0 ? (
+                        <span className="font-mono text-sm text-green-400">${((dev.cc_total_cost ?? 0) / 100).toFixed(2)}</span>
+                      ) : (
+                        <span className="text-gray-600 text-sm">&mdash;</span>
+                      )}
+                    </td>
+                  )}
                   <td className="px-4 py-3 text-right">
                     <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold text-white ${impactColor}`}>
                       {impact.toFixed(1)}
@@ -274,6 +314,289 @@ export default function OrgDetailPage() {
             })}
           </tbody>
         </table>
+      </div>
+      </>)}
+
+      {/* Spend Tab */}
+      {activeTab === 'spend' && ccEnabled && isAdmin && <SpendTab developers={developers} />}
+    </div>
+  );
+}
+
+function computeSpendMetrics(devs: Developer[]) {
+  const withSpend = devs
+    .filter(d => (d.cc_total_cost ?? 0) > 0)
+    .sort((a, b) => (b.cc_total_cost ?? 0) - (a.cc_total_cost ?? 0));
+
+  const total = withSpend.reduce((s, d) => s + (d.cc_total_cost ?? 0), 0);
+  const avg = withSpend.length > 0 ? total / withSpend.length : 0;
+  const sorted = withSpend.map(d => d.cc_total_cost ?? 0).sort((a, b) => a - b);
+  const median = sorted.length > 0
+    ? sorted.length % 2 === 0
+      ? (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2
+      : sorted[Math.floor(sorted.length / 2)]
+    : 0;
+
+  const top20Count = Math.max(1, Math.ceil(withSpend.length * 0.2));
+  const top20Spend = withSpend.slice(0, top20Count).reduce((s, d) => s + (d.cc_total_cost ?? 0), 0);
+  const top20Pct = total > 0 ? Math.round((top20Spend / total) * 100) : 0;
+
+  // Outlier: 2x median $/impact
+  const cpiValues = withSpend
+    .filter(d => Number(d.impact_score) > 0)
+    .map(d => (d.cc_total_cost ?? 0) / Number(d.impact_score));
+  const medianCPI = cpiValues.length > 0
+    ? [...cpiValues].sort((a, b) => a - b)[Math.floor(cpiValues.length / 2)]
+    : 0;
+
+  return { withSpend, total, avg, median, top20Count, top20Spend, top20Pct, medianCPI };
+}
+
+function formatDollars(cents: number) {
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
+function formatTokens(n: number) {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
+function SpendTab({ developers }: { developers: Developer[] }) {
+  const [showCount, setShowCount] = useState<10 | 20 | 'all'>(10);
+
+  const hasAnySpend = developers.some(d => (d.cc_total_cost ?? 0) > 0);
+
+  if (!hasAnySpend) {
+    return (
+      <div className="bg-gray-900 rounded-xl p-8 text-center">
+        <p className="text-gray-500 text-sm">No Claude Code spend data. Enable CLAUDE_CODE_ENABLED to track spend.</p>
+      </div>
+    );
+  }
+
+  const { withSpend, total, avg, median, top20Count, top20Spend, top20Pct, medianCPI } = computeSpendMetrics(developers);
+  const bottom80Pct = 100 - top20Pct;
+
+  const isOutlier = (d: Developer) => {
+    const cost = d.cc_total_cost ?? 0;
+    const impact = Number(d.impact_score) || 0;
+    return cost > 0 && impact > 0 && medianCPI > 0 && (cost / impact) > 2 * medianCPI;
+  };
+
+  // Top spenders table
+  const displayCount = showCount === 'all' ? withSpend.length : showCount;
+  const visibleDevs = withSpend.slice(0, displayCount);
+  const hiddenDevs = withSpend.slice(displayCount);
+  const hiddenTotal = hiddenDevs.reduce((s, d) => s + (d.cc_total_cost ?? 0), 0);
+
+  let cumulative = 0;
+
+  // Scatter plot data
+  const maxImpact = Math.max(...withSpend.map(d => Number(d.impact_score) || 0), 1);
+  const maxCost = Math.max(...withSpend.map(d => d.cc_total_cost ?? 0), 1);
+  const medianImpact = (() => {
+    const impacts = withSpend.map(d => Number(d.impact_score) || 0).sort((a, b) => a - b);
+    if (impacts.length === 0) return 0;
+    return impacts.length % 2 === 0
+      ? (impacts[impacts.length / 2 - 1] + impacts[impacts.length / 2]) / 2
+      : impacts[Math.floor(impacts.length / 2)];
+  })();
+  const medianCost = median;
+
+  return (
+    <div className="space-y-6">
+      {/* Summary Bar */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="bg-gray-900 rounded-xl p-4 flex flex-col">
+          <p className="text-xs text-gray-500 uppercase tracking-wider">Total Org Spend</p>
+          <p className="text-lg font-bold text-green-400 mt-1">{formatDollars(total)}</p>
+        </div>
+        <div className="bg-gray-900 rounded-xl p-4 flex flex-col">
+          <p className="text-xs text-gray-500 uppercase tracking-wider">Avg / Developer</p>
+          <p className="text-lg font-bold text-green-400 mt-1">{formatDollars(avg)}</p>
+        </div>
+        <div className="bg-gray-900 rounded-xl p-4 flex flex-col">
+          <p className="text-xs text-gray-500 uppercase tracking-wider">Median</p>
+          <p className="text-lg font-bold text-green-400 mt-1">{formatDollars(median)}</p>
+        </div>
+        <div className="bg-gray-900 rounded-xl p-4 flex flex-col">
+          <p className="text-xs text-gray-500 uppercase tracking-wider">Top 20% Share</p>
+          <p className="text-lg font-bold text-amber-400 mt-1">{top20Pct}%</p>
+        </div>
+      </div>
+
+      {/* Pareto Concentration Bar */}
+      <div className="bg-gray-900 rounded-xl p-5">
+        <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-3">Spend Concentration</p>
+        <div className="h-6 bg-gray-800 rounded-full overflow-hidden flex">
+          <div
+            className="h-full bg-amber-500 flex items-center justify-center text-xs font-bold text-gray-900 transition-all"
+            style={{ width: `${top20Pct}%` }}
+          >
+            {top20Pct > 8 && `Top 20% — ${top20Pct}%`}
+          </div>
+          <div
+            className="h-full bg-gray-600 flex items-center justify-center text-xs font-medium text-gray-300 transition-all"
+            style={{ width: `${bottom80Pct}%` }}
+          >
+            {bottom80Pct > 15 && `Bottom 80% — ${bottom80Pct}%`}
+          </div>
+        </div>
+        <div className="flex justify-between mt-2 text-xs text-gray-500">
+          <span>{top20Count} developer{top20Count !== 1 ? 's' : ''} ({formatDollars(top20Spend)})</span>
+          <span>{withSpend.length - top20Count} developer{withSpend.length - top20Count !== 1 ? 's' : ''} ({formatDollars(total - top20Spend)})</span>
+        </div>
+      </div>
+
+      {/* Top Spenders Table */}
+      <div className="bg-gray-900 rounded-xl overflow-hidden">
+        <div className="px-5 py-3 border-b border-gray-800 flex items-center justify-between">
+          <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">
+            Top Spenders ({withSpend.length})
+          </p>
+          <div className="flex gap-1">
+            {([10, 20, 'all'] as const).map(n => (
+              <button
+                key={String(n)}
+                onClick={() => setShowCount(n)}
+                className={`px-2.5 py-1 text-xs rounded ${showCount === n ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+              >
+                {n === 'all' ? 'All' : `Top ${n}`}
+              </button>
+            ))}
+          </div>
+        </div>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs text-gray-500 uppercase tracking-wider border-b border-gray-800">
+              <th className="px-4 py-3 w-8">#</th>
+              <th className="px-4 py-3">Developer</th>
+              <th className="px-4 py-3 text-right">Spend</th>
+              <th className="px-4 py-3 text-right">% of Total</th>
+              <th className="px-4 py-3 text-right">Cumulative %</th>
+              <th className="px-4 py-3 text-right">Sessions</th>
+              <th className="px-4 py-3 text-right">$/Session</th>
+              <th className="px-4 py-3 text-right">Impact</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visibleDevs.map((dev, i) => {
+              const cost = dev.cc_total_cost ?? 0;
+              const pctOfTotal = total > 0 ? (cost / total) * 100 : 0;
+              cumulative += pctOfTotal;
+              const sessions = dev.cc_sessions ?? 0;
+              const perSession = sessions > 0 ? cost / sessions : 0;
+              const impact = Number(dev.impact_score) || 0;
+              const outlier = isOutlier(dev);
+
+              return (
+                <tr key={dev.github_login} className="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors">
+                  <td className="px-4 py-3 text-gray-600 text-xs">{i + 1}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      {dev.avatar_url && (
+                        <img src={dev.avatar_url} alt="" className="w-6 h-6 rounded-full shrink-0" />
+                      )}
+                      <span className="text-white font-medium truncate">@{dev.github_login}</span>
+                      {outlier && (
+                        <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-red-500/20 text-red-400 rounded">
+                          high $/impact
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-right font-mono text-green-400">{formatDollars(cost)}</td>
+                  <td className="px-4 py-3 text-right text-gray-300">{pctOfTotal.toFixed(1)}%</td>
+                  <td className="px-4 py-3 text-right text-gray-300">{cumulative.toFixed(1)}%</td>
+                  <td className="px-4 py-3 text-right text-gray-300">{sessions > 0 ? sessions : <span className="text-gray-600">&mdash;</span>}</td>
+                  <td className="px-4 py-3 text-right font-mono text-gray-300">{sessions > 0 ? formatDollars(perSession) : <span className="text-gray-600">&mdash;</span>}</td>
+                  <td className="px-4 py-3 text-right">
+                    <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold text-white ${impact >= 7 ? 'bg-accent-light' : impact >= 4 ? 'bg-accent-dark' : 'bg-gray-700'}`}>
+                      {impact.toFixed(1)}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+            {hiddenDevs.length > 0 && (
+              <tr className="border-b border-gray-800/50 bg-gray-800/20">
+                <td colSpan={8} className="px-4 py-3 text-center text-xs text-gray-500">
+                  +{hiddenDevs.length} more developer{hiddenDevs.length !== 1 ? 's' : ''} ({formatDollars(hiddenTotal)})
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Spend vs Impact Scatter Plot */}
+      <div className="bg-gray-900 rounded-xl p-5">
+        <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-4">Spend vs Impact</p>
+        <div className="relative w-full" style={{ height: 320 }}>
+          {/* Quadrant labels */}
+          <div className="absolute top-2 left-4 text-[10px] text-gray-600">High Spend / Low Impact</div>
+          <div className="absolute top-2 right-4 text-[10px] text-gray-600">High Spend / High Impact</div>
+          <div className="absolute bottom-8 left-4 text-[10px] text-gray-600">Low Spend / Low Impact</div>
+          <div className="absolute bottom-8 right-4 text-[10px] text-gray-600">Low Spend / High Impact</div>
+
+          {/* Median crosshairs */}
+          <div
+            className="absolute bg-gray-700"
+            style={{
+              left: `${(medianImpact / maxImpact) * 100}%`,
+              top: 0,
+              width: 1,
+              height: '100%',
+              opacity: 0.4,
+            }}
+          />
+          <div
+            className="absolute bg-gray-700"
+            style={{
+              top: `${100 - (medianCost / maxCost) * 100}%`,
+              left: 0,
+              width: '100%',
+              height: 1,
+              opacity: 0.4,
+            }}
+          />
+
+          {/* Dots */}
+          {withSpend.map(dev => {
+            const cost = dev.cc_total_cost ?? 0;
+            const impact = Number(dev.impact_score) || 0;
+            const x = (impact / maxImpact) * 92 + 4; // 4-96% range
+            const y = 100 - ((cost / maxCost) * 88 + 6); // 6-94% inverted
+            const outlier = isOutlier(dev);
+            return (
+              <div
+                key={dev.github_login}
+                className="absolute group"
+                style={{
+                  left: `${x}%`,
+                  top: `${y}%`,
+                  transform: 'translate(-50%, -50%)',
+                }}
+              >
+                <div
+                  className={`w-3 h-3 rounded-full ${outlier ? 'bg-red-400' : 'bg-blue-400'} opacity-80 hover:opacity-100 transition-opacity`}
+                />
+                <div className="hidden group-hover:block absolute z-10 bottom-5 left-1/2 -translate-x-1/2 bg-gray-800 border border-gray-700 rounded px-2 py-1 whitespace-nowrap text-xs">
+                  <span className="text-white font-medium">@{dev.github_login}</span>
+                  <span className="text-gray-400 ml-2">{formatDollars(cost)}</span>
+                  <span className="text-gray-500 ml-1">/ {impact.toFixed(1)} impact</span>
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Axis labels */}
+          <div className="absolute bottom-0 left-0 right-0 text-center text-[10px] text-gray-500">Impact Score &rarr;</div>
+          <div className="absolute top-0 left-0 bottom-0 flex items-center">
+            <span className="text-[10px] text-gray-500 -rotate-90 whitespace-nowrap">Spend &rarr;</span>
+          </div>
+        </div>
       </div>
     </div>
   );
