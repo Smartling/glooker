@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { findFirstJiraKey } from '@/lib/jira-key-utils';
+import { useAuth } from '@/app/auth-context';
 
 const TYPE_COLORS: Record<string, string> = {
   feature: 'bg-blue-500', bug: 'bg-red-500', refactor: 'bg-purple-500',
@@ -21,6 +22,10 @@ interface DevStats {
   type_breakdown: Record<string, number>; active_repos: string[];
   total_jira_issues: number;
   total_reviews?: number;
+  cc_total_cost?: number;
+  cc_input_tokens?: number;
+  cc_output_tokens?: number;
+  cc_sessions?: number;
 }
 
 interface JiraIssue {
@@ -36,6 +41,10 @@ interface CompactDev {
   avg_complexity: number; impact_score: number; pr_percentage: number; ai_percentage: number;
   total_jira_issues: number;
   total_reviews?: number;
+  cc_total_cost?: number;
+  cc_input_tokens?: number;
+  cc_output_tokens?: number;
+  cc_sessions?: number;
 }
 
 interface Commit {
@@ -84,6 +93,7 @@ function pctRank(values: number[], value: number): number {
 export default function DevDetailPage() {
   const params = useParams<{ id: string; login: string }>();
   const router = useRouter();
+  const { user: authUser, canAct: isAdmin, enabled: authEnabled } = useAuth();
   const [loading, setLoading] = useState(true);
   const [report, setReport] = useState<ReportMeta | null>(null);
   const [dev, setDev] = useState<DevStats | null>(null);
@@ -99,9 +109,13 @@ export default function DevDetailPage() {
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [jiraIssues, setJiraIssues] = useState<JiraIssue[]>([]);
   const [jiraHost, setJiraHost] = useState<string | null>(null);
+  const [ccEnabled, setCcEnabled] = useState(false);
 
   useEffect(() => {
-    fetch('/api/llm-config').then(r => r.json()).then(d => { if (d.jira?.host) setJiraHost(d.jira.host); }).catch(() => {});
+    fetch('/api/llm-config').then(r => r.json()).then(d => {
+      if (d.jira?.host) setJiraHost(d.jira.host);
+      setCcEnabled(d.claudeCode?.enabled ?? false);
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -145,6 +159,10 @@ export default function DevDetailPage() {
   if (error || !dev || !report) return <div className="max-w-6xl mx-auto px-4 py-16 text-red-400">Error: {error || 'Not found'}</div>;
 
   const rank = allDevs.findIndex(d => d.github_login === dev.github_login) + 1;
+
+  // CC Spend visibility
+  const isOwnProfile = authUser?.githubLogin === params.login;
+  const showSpendTile = ccEnabled && authEnabled && (isAdmin || isOwnProfile);
 
   // Percentile data
   const hasJiraData = allDevs.some(d => (d.total_jira_issues ?? 0) > 0);
@@ -256,6 +274,13 @@ export default function DevDetailPage() {
             </div>
           );
         })}
+        {showSpendTile && (dev.cc_total_cost ?? 0) > 0 && (
+          <div className="bg-gray-900 rounded-xl p-4">
+            <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">CC Spend</p>
+            <p className="text-xl font-bold text-green-400">${(Number(dev.cc_total_cost) / 100).toFixed(2)}</p>
+            <p className="text-xs text-gray-600 mt-0.5">{dev.cc_sessions ?? 0} sessions</p>
+          </div>
+        )}
       </div>
 
       {/* Type Breakdown + Active Repos */}
