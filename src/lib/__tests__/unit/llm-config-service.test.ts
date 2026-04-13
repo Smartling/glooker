@@ -34,6 +34,8 @@ describe('getAppConfig', () => {
     'JIRA_USERNAME',
     'JIRA_API_TOKEN',
     'JIRA_STORY_POINTS_FIELDS',
+    'CLAUDE_CODE_ENABLED',
+    'ANTHROPIC_ADMIN_API_KEY',
   ];
 
   beforeEach(() => {
@@ -292,6 +294,23 @@ describe('getAppConfig', () => {
       process.env.LLM_API_KEY = 'key';
       const config = getAppConfig();
       expect(config.provider).toBe('openai');
+    });
+  });
+
+  describe('claudeCode config', () => {
+    it('defaults to disabled', () => {
+      delete process.env.CLAUDE_CODE_ENABLED;
+      const config = getAppConfig();
+      expect(config.claudeCode.enabled).toBe(false);
+      expect(config.claudeCode.hasAdminApiKey).toBe(false);
+    });
+
+    it('enabled when CLAUDE_CODE_ENABLED=true', () => {
+      process.env.CLAUDE_CODE_ENABLED = 'true';
+      process.env.ANTHROPIC_ADMIN_API_KEY = 'sk-ant-admin-test';
+      const config = getAppConfig();
+      expect(config.claudeCode.enabled).toBe(true);
+      expect(config.claudeCode.hasAdminApiKey).toBe(true);
     });
   });
 });

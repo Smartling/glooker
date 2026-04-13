@@ -88,6 +88,15 @@ const rules: EnvRule[] = [
     validate: (v) =>
       VALID_GITHUB_PROVIDERS.includes(v) ? null : `must be one of: ${VALID_GITHUB_PROVIDERS.join(', ')}`,
   },
+  {
+    name: 'CLAUDE_CODE_ENABLED',
+    required: false,
+    description: 'Enable Claude Code spend analytics (true/false)',
+    validate: (v) =>
+      ['true', 'false'].includes(v)
+        ? null
+        : 'must be true or false',
+  },
 ];
 
 /**
@@ -132,6 +141,14 @@ const conditionalRules: {
     featureLabel: 'AUTH_ENABLED=true',
     vars: [
       { name: 'AUTH_ADMIN_GROUP', description: 'Okta group for admin role (without this, no one can run reports or manage settings)' },
+    ],
+  },
+  {
+    when: () => process.env.CLAUDE_CODE_ENABLED === 'true',
+    featureLabel: 'CLAUDE_CODE_ENABLED=true',
+    vars: [
+      { name: 'ANTHROPIC_ADMIN_API_KEY', description: 'Anthropic Admin API key (sk-ant-admin...)' },
+      { name: 'AUTH_ENABLED', description: 'Auth must be enabled for spend visibility gating' },
     ],
   },
 ];

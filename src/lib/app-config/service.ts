@@ -34,6 +34,10 @@ export interface AppConfig {
     projectsJql: string | null;
     missing: string[];
   };
+  claudeCode: {
+    enabled: boolean;
+    hasAdminApiKey: boolean;
+  };
 }
 
 export interface LLMConnectionResult {
@@ -116,6 +120,11 @@ export function getAppConfig(): AppConfig {
       : [],
     projectsJql: process.env.JIRA_PROJECTS_JQL || null,
     missing: jiraMissing,
+  };
+
+  config.claudeCode = {
+    enabled: process.env.CLAUDE_CODE_ENABLED === 'true',
+    hasAdminApiKey: Boolean(process.env.ANTHROPIC_ADMIN_API_KEY),
   };
 
   return config;
