@@ -1,7 +1,9 @@
 import type { Metadata } from 'next';
+import { Suspense } from 'react';
 import './globals.css';
 import { ThemeProvider } from './theme-context';
 import { AuthProvider } from './auth-context';
+import NavBar from '@/components/NavBar';
 import Footer from '@/components/Footer';
 
 export const metadata: Metadata = {
@@ -15,6 +17,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="bg-[#0F0F0F] text-gray-100 min-h-screen antialiased">
         <ThemeProvider>
           <AuthProvider>
+            <Suspense>
+              <NavBar />
+            </Suspense>
             {children}
             <Footer />
           </AuthProvider>
