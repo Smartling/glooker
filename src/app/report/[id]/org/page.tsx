@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 
 const TYPE_COLORS: Record<string, string> = {
   feature: 'bg-blue-500', bug: 'bg-red-500', refactor: 'bg-purple-500',
@@ -34,11 +34,22 @@ interface ReportMeta {
 
 export default function OrgDetailPage() {
   const params = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
+  const view = searchParams.get('view');
+  const chartsRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
   const [report, setReport] = useState<ReportMeta | null>(null);
   const [developers, setDevelopers] = useState<Developer[]>([]);
   const [timeline, setTimeline] = useState<WeeklyData[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (view === 'org' && chartsRef.current && !loading) {
+      setTimeout(() => {
+        chartsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+    }
+  }, [view, loading]);
 
   useEffect(() => {
     fetch(`/api/report/${params.id}/org`)
@@ -157,21 +168,23 @@ export default function OrgDetailPage() {
         </div>
       </div>
 
-      {/* Timeline Charts */}
-      {timeline.length >= 2 && (
-        <div className="mb-6">
-          <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-3">Org Activity Over Time (weekly)</p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <TimelineChart data={timeline} valueKey="commits" label="Commits / Week" color="#3B82F6" />
-            <TimelineChart data={timeline} valueKey="activeDevs" label="Active Developers / Week" color="#10B981" />
-            <LinesChangedChart data={timeline} />
-            <TimelineChart data={timeline} valueKey="aiPercent" label="AI Assisted %" color="#A855F7" suffix="%" />
+      <div ref={chartsRef}>
+        {/* Timeline Charts */}
+        {timeline.length >= 2 && (
+          <div className="mb-6">
+            <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-3">Org Activity Over Time (weekly)</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <TimelineChart data={timeline} valueKey="commits" label="Commits / Week" color="#3B82F6" />
+              <TimelineChart data={timeline} valueKey="activeDevs" label="Active Developers / Week" color="#10B981" />
+              <LinesChangedChart data={timeline} />
+              <TimelineChart data={timeline} valueKey="aiPercent" label="AI Assisted %" color="#A855F7" suffix="%" />
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Stacked Commit Types Over Time */}
-      {timeline.length >= 2 && <StackedTypesChart data={timeline} />}
+        {/* Stacked Commit Types Over Time */}
+        {timeline.length >= 2 && <StackedTypesChart data={timeline} />}
+      </div>
 
       {/* Top Developers Table */}
       <div className="bg-gray-900 rounded-xl overflow-hidden">
