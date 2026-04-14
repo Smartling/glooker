@@ -702,14 +702,9 @@ function TimelineChart({
   const padL = 40, padR = 12, padT = 12, padB = 24;
   const chartW = W - padL - padR, chartH = H - padT - padB;
 
-  const points = values.map((v, i) => ({
-    x: padL + (i / (values.length - 1)) * chartW,
-    y: padT + chartH - ((v - min) / range) * chartH,
-    v,
-  }));
-
-  const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
-  const areaPath = `${linePath} L${points[points.length - 1].x},${padT + chartH} L${points[0].x},${padT + chartH} Z`;
+  const barW = Math.max(4, (chartW / values.length) * 0.75);
+  const barGap = (chartW / values.length) - barW;
+  const xFor = (i: number) => padL + i * (barW + barGap) + barW / 2;
 
   const labelIndices = [0, Math.floor(filtered.length / 2), filtered.length - 1];
   const formatWeek = (w: string) => {
@@ -748,31 +743,38 @@ function TimelineChart({
             </g>
           );
         })}
-        <path d={areaPath} fill={color} opacity="0.1" />
-        <path d={linePath} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        {points.map((p, i) => (
-          <g key={i} onMouseEnter={() => setHoverIdx(i)} onMouseLeave={() => setHoverIdx(null)}>
-            <circle cx={p.x} cy={p.y} r="10" fill="transparent" />
-            <circle cx={p.x} cy={p.y} r={hoverIdx === i ? 5 : 3} fill={color} opacity={hoverIdx === i ? 1 : i === points.length - 1 ? 1 : 0.5} />
-          </g>
-        ))}
+        {values.map((v, i) => {
+          const barH = range > 0 ? ((v - min) / range) * chartH : 0;
+          const x = xFor(i);
+          const y = padT + chartH - barH;
+          return (
+            <g key={i} onMouseEnter={() => setHoverIdx(i)} onMouseLeave={() => setHoverIdx(null)}>
+              <rect x={x - barGap / 2} y={padT} width={barW + barGap} height={chartH}
+                fill="transparent" />
+              <rect x={x - barW / 2} y={y} width={barW} height={barH} rx={Math.min(2, barW / 2)}
+                fill={color} opacity={hoverIdx === i ? 1 : 0.7} />
+            </g>
+          );
+        })}
         {hoverIdx !== null && (() => {
-          const p = points[hoverIdx];
-          const text = `${formatWeek(filtered[hoverIdx].week)}: ${formatVal(p.v)}`;
+          const v = values[hoverIdx];
+          const barH = range > 0 ? ((v - min) / range) * chartH : 0;
+          const x = xFor(hoverIdx);
+          const y = padT + chartH - barH;
+          const text = `${formatWeek(filtered[hoverIdx].week)}: ${formatVal(v)}`;
           const textW = text.length * 6 + 16;
-          const tooltipX = Math.min(Math.max(p.x - textW / 2, 2), W - textW - 2);
-          const above = p.y > padT + 30;
-          const tooltipY = above ? p.y - 28 : p.y + 12;
+          const tooltipX = Math.min(Math.max(x - textW / 2, 2), W - textW - 2);
+          const above = y > padT + 30;
+          const tooltipY = above ? y - 24 : y + barH + 8;
           return (
             <g>
-              <line x1={p.x} y1={padT} x2={p.x} y2={padT + chartH} stroke={color} strokeWidth="1" opacity="0.3" strokeDasharray="3,3" />
               <rect x={tooltipX} y={tooltipY} width={textW} height={20} rx="4" fill="#1F2937" stroke="#374151" strokeWidth="1" />
               <text x={tooltipX + textW / 2} y={tooltipY + 14} textAnchor="middle" className="fill-gray-200" fontSize="10" fontWeight="500">{text}</text>
             </g>
           );
         })()}
         {labelIndices.map(idx => (
-          <text key={idx} x={points[idx].x} y={H - 4} textAnchor="middle" className="fill-gray-600" fontSize="10">
+          <text key={idx} x={xFor(idx)} y={H - 4} textAnchor="middle" className="fill-gray-600" fontSize="10">
             {formatWeek(filtered[idx].week)}
           </text>
         ))}
