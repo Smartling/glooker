@@ -549,12 +549,6 @@ export default function ProjectsContent() {
           <h1 className="text-2xl font-bold text-white">Projects</h1>
           <p className="text-gray-400 text-sm mt-1">Epics from Jira</p>
         </div>
-        <a
-          href="/"
-          className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
-        >
-          &larr; Back to Dashboard
-        </a>
       </div>
 
       {error && <div className="text-red-400 py-8">Error: {error}</div>}

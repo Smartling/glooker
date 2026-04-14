@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
 import { useTheme } from '../theme-context';
 import { THEMES, type ThemeColors } from '../themes';
 import { useAuth } from '../auth-context';
@@ -33,7 +32,6 @@ function timeAgo(dateStr: string): string {
 }
 
 export default function SettingsPage() {
-  const router = useRouter();
   const { canAct, loading } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('appearance');
   const [orgs, setOrgs] = useState<Array<{ login: string }>>([]);
@@ -54,20 +52,6 @@ export default function SettingsPage() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8">
-        <div className="flex items-center gap-4">
-          <span
-            className="text-2xl font-bold text-white cursor-pointer hover:text-accent-light transition-colors"
-            onClick={() => router.push('/')}
-          >
-            Glooker
-          </span>
-          <span className="text-gray-600">/</span>
-          <span className="text-lg font-semibold text-gray-400">Settings</span>
-        </div>
-      </div>
-
       {/* Tabs */}
       <div className="flex gap-1 mb-6 border-b border-gray-800">
         {([

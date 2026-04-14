@@ -1,11 +1,8 @@
 'use client';
 
 import { useAuth } from '../auth-context';
-import { useRouter } from 'next/navigation';
-
 export default function ProfileContent() {
   const auth = useAuth();
-  const router = useRouter();
 
   if (auth.loading) {
     return (
@@ -27,16 +24,6 @@ export default function ProfileContent() {
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-16">
-      <button
-        onClick={() => router.push('/')}
-        className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-300 mb-8 transition-colors"
-      >
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-        </svg>
-        Back
-      </button>
-
       <div className="bg-gray-900 rounded-xl p-8 border border-gray-800">
         <div className="flex items-center gap-5 mb-6">
           {user.avatarUrl ? (
