@@ -16,6 +16,10 @@ export interface DeveloperStats {
   totalJiraIssues: number;
   totalStoryPoints: number;
   totalReviews: number;
+  ccTotalCost: number;
+  ccInputTokens: number;
+  ccOutputTokens: number;
+  ccSessions: number;
   typeBreakdown:  Record<string, number>;
   activeRepos:    string[];
 }
@@ -129,6 +133,10 @@ export function aggregate(
       totalJiraIssues: 0,  // Set by report-runner after Jira fetch
       totalStoryPoints: 0, // Set by report-runner after Jira fetch
       totalReviews: 0, // Set by report-runner after GitHub review count fetch
+      ccTotalCost: 0,
+      ccInputTokens: 0,
+      ccOutputTokens: 0,
+      ccSessions: 0,
       typeBreakdown,
       activeRepos:   [...dev.repos],
     });

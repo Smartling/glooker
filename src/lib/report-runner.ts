@@ -7,6 +7,7 @@ import { updateProgress, addLog } from './progress-store';
 import { getJiraClient } from './jira';
 import { resolveJiraUser } from './jira';
 import { getAppConfig } from './app-config/service';
+import { getClaudeCodeClient } from './claude-code';
 
 const CONCURRENCY = Number(process.env.LLM_CONCURRENCY || 5);
 
@@ -118,8 +119,9 @@ export async function runReport(
               total_prs, total_commits, lines_added, lines_removed,
               avg_complexity, impact_score, pr_percentage, ai_percentage,
               total_jira_issues, total_reviews,
+              cc_total_cost, cc_input_tokens, cc_output_tokens, cc_sessions,
               type_breakdown, active_repos)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON DUPLICATE KEY UPDATE
              total_prs        = VALUES(total_prs),
              total_commits    = VALUES(total_commits),
@@ -131,6 +133,10 @@ export async function runReport(
              ai_percentage    = VALUES(ai_percentage),
              total_jira_issues = VALUES(total_jira_issues),
              total_reviews    = VALUES(total_reviews),
+             cc_total_cost     = VALUES(cc_total_cost),
+             cc_input_tokens   = VALUES(cc_input_tokens),
+             cc_output_tokens  = VALUES(cc_output_tokens),
+             cc_sessions       = VALUES(cc_sessions),
              type_breakdown   = VALUES(type_breakdown),
              active_repos     = VALUES(active_repos)`,
           [
@@ -148,6 +154,10 @@ export async function runReport(
             s.aiPercentage,
             s.totalJiraIssues,
             s.totalReviews,
+            s.ccTotalCost,
+            s.ccInputTokens,
+            s.ccOutputTokens,
+            s.ccSessions,
             JSON.stringify(s.typeBreakdown),
             JSON.stringify(s.activeRepos),
           ],
@@ -356,6 +366,74 @@ export async function runReport(
       }
     }
 
+    // Claude Code spend collection
+    const ccConfig = getAppConfig().claudeCode;
+    const ccSpendByLogin = new Map<string, { cost: number; inputTokens: number; outputTokens: number; sessions: number }>();
+
+    if (ccConfig.enabled) {
+      const ccClient = getClaudeCodeClient();
+      if (ccClient) {
+        log('[claude-code] Fetching spend data...');
+        updateProgress(reportId, { step: 'Collecting Claude Code spend...' });
+
+        // Build date range for the report period
+        const dates: string[] = [];
+        for (let d = 0; d < days; d++) {
+          const date = new Date(since.getTime() + d * 24 * 60 * 60 * 1000);
+          dates.push(date.toISOString().split('T')[0]);
+        }
+
+        // Fetch all days and accumulate by email
+        const spendByEmail = new Map<string, { cost: number; inputTokens: number; outputTokens: number; sessions: number }>();
+        for (const date of dates) {
+          try {
+            const records = await ccClient.fetchDailySpend(date);
+            for (const r of records) {
+              const existing = spendByEmail.get(r.email) || { cost: 0, inputTokens: 0, outputTokens: 0, sessions: 0 };
+              existing.cost += r.totalCost;
+              existing.inputTokens += r.inputTokens;
+              existing.outputTokens += r.outputTokens;
+              existing.sessions += r.sessions;
+              spendByEmail.set(r.email, existing);
+            }
+          } catch (err) {
+            log(`[claude-code] WARN: failed to fetch ${date}: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+
+        // Build email-to-login map from commit_analyses
+        const [emailRows] = await db.execute(
+          `SELECT DISTINCT github_login, author_email FROM commit_analyses WHERE report_id = ? AND author_email IS NOT NULL`,
+          [reportId],
+        ) as [any[], any];
+        const emailToLogin = new Map<string, string>();
+        for (const row of emailRows) {
+          if (row.author_email) emailToLogin.set(row.author_email.toLowerCase(), row.github_login);
+        }
+
+        // Match and assign
+        let matched = 0;
+        let unmatched = 0;
+        for (const [email, spend] of spendByEmail) {
+          const login = emailToLogin.get(email.toLowerCase());
+          if (login) {
+            ccSpendByLogin.set(login, spend);
+            matched++;
+          } else {
+            unmatched++;
+          }
+        }
+
+        // Log per-developer spend
+        for (const [login, spend] of ccSpendByLogin) {
+          log(`[claude-code] @${login}: $${(spend.cost / 100).toFixed(2)} (${spend.sessions} sessions)`);
+        }
+
+        const totalSpend = [...ccSpendByLogin.values()].reduce((s, v) => s + v.cost, 0);
+        log(`[claude-code] Spend collection complete: $${(totalSpend / 100).toFixed(2)} total across ${matched} matched developers (${unmatched} unmatched emails skipped)`);
+      }
+    }
+
     // 3. Final aggregation with full cross-member view (overwrites per-member stats)
     updateProgress(reportId, { step: 'Final aggregation...', completedDevelopers: membersWithCommits });
     log('Running final aggregation...');
@@ -388,6 +466,15 @@ export async function runReport(
       // Attach review counts (already fetched during per-member loop)
       s.totalReviews = reviewCounts.get(s.githubLogin) || 0;
 
+      // Attach Claude Code spend (already fetched above)
+      const ccSpend = ccSpendByLogin.get(s.githubLogin);
+      if (ccSpend) {
+        s.ccTotalCost = ccSpend.cost;
+        s.ccInputTokens = ccSpend.inputTokens;
+        s.ccOutputTokens = ccSpend.outputTokens;
+        s.ccSessions = ccSpend.sessions;
+      }
+
       // Recalculate impact score with Jira + reviews
       s.impactScore = computeImpactScore(s);
     }
@@ -399,8 +486,9 @@ export async function runReport(
             total_prs, total_commits, lines_added, lines_removed,
             avg_complexity, impact_score, pr_percentage, ai_percentage,
             total_jira_issues, total_reviews,
+            cc_total_cost, cc_input_tokens, cc_output_tokens, cc_sessions,
             type_breakdown, active_repos)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            total_prs         = VALUES(total_prs),
            total_commits     = VALUES(total_commits),
@@ -412,6 +500,10 @@ export async function runReport(
            ai_percentage     = VALUES(ai_percentage),
            total_jira_issues = VALUES(total_jira_issues),
            total_reviews     = VALUES(total_reviews),
+           cc_total_cost     = VALUES(cc_total_cost),
+           cc_input_tokens   = VALUES(cc_input_tokens),
+           cc_output_tokens  = VALUES(cc_output_tokens),
+           cc_sessions       = VALUES(cc_sessions),
            type_breakdown    = VALUES(type_breakdown),
            active_repos      = VALUES(active_repos)`,
         [
@@ -429,6 +521,10 @@ export async function runReport(
           s.aiPercentage,
           s.totalJiraIssues,
           s.totalReviews,
+          s.ccTotalCost,
+          s.ccInputTokens,
+          s.ccOutputTokens,
+          s.ccSessions,
           JSON.stringify(s.typeBreakdown),
           JSON.stringify(s.activeRepos),
         ],

@@ -44,6 +44,11 @@ services:
       AUTH_ENABLED: ${AUTH_ENABLED:-}
       AUTH_HEADER: ${AUTH_HEADER:-x-amzn-oidc-data}
       AUTH_ADMIN_GROUP: ${AUTH_ADMIN_GROUP:-}
+
+      # Claude Code spend analytics (optional)
+      CLAUDE_CODE_ENABLED: ${CLAUDE_CODE_ENABLED:-}
+      ANTHROPIC_ADMIN_API_KEY: ${ANTHROPIC_ADMIN_API_KEY:-}
+      CLAUDE_CODE_PROVIDER: ${CLAUDE_CODE_PROVIDER:-}
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
       interval: 30s

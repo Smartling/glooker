@@ -297,8 +297,8 @@ export default function OrgDetailPage() {
                   )}
                   {ccEnabled && isAdmin && (
                     <td className="px-4 py-3 text-right">
-                      {(dev.cc_total_cost ?? 0) > 0 ? (
-                        <span className="font-mono text-sm text-green-400">${((dev.cc_total_cost ?? 0) / 100).toFixed(2)}</span>
+                      {Number(dev.cc_total_cost) > 0 ? (
+                        <span className="font-mono text-sm text-green-400">${(Number(dev.cc_total_cost) / 100).toFixed(2)}</span>
                       ) : (
                         <span className="text-gray-600 text-sm">&mdash;</span>
                       )}
@@ -323,14 +323,16 @@ export default function OrgDetailPage() {
   );
 }
 
+function ccCost(d: Developer): number { return Number(d.cc_total_cost) || 0; }
+
 function computeSpendMetrics(devs: Developer[]) {
   const withSpend = devs
-    .filter(d => (d.cc_total_cost ?? 0) > 0)
-    .sort((a, b) => (b.cc_total_cost ?? 0) - (a.cc_total_cost ?? 0));
+    .filter(d => ccCost(d) > 0)
+    .sort((a, b) => ccCost(b) - ccCost(a));
 
-  const total = withSpend.reduce((s, d) => s + (d.cc_total_cost ?? 0), 0);
+  const total = withSpend.reduce((s, d) => s + ccCost(d), 0);
   const avg = withSpend.length > 0 ? total / withSpend.length : 0;
-  const sorted = withSpend.map(d => d.cc_total_cost ?? 0).sort((a, b) => a - b);
+  const sorted = withSpend.map(d => ccCost(d)).sort((a, b) => a - b);
   const median = sorted.length > 0
     ? sorted.length % 2 === 0
       ? (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2
@@ -338,13 +340,13 @@ function computeSpendMetrics(devs: Developer[]) {
     : 0;
 
   const top20Count = Math.max(1, Math.ceil(withSpend.length * 0.2));
-  const top20Spend = withSpend.slice(0, top20Count).reduce((s, d) => s + (d.cc_total_cost ?? 0), 0);
+  const top20Spend = withSpend.slice(0, top20Count).reduce((s, d) => s + ccCost(d), 0);
   const top20Pct = total > 0 ? Math.round((top20Spend / total) * 100) : 0;
 
   // Outlier: 2x median $/impact
   const cpiValues = withSpend
     .filter(d => Number(d.impact_score) > 0)
-    .map(d => (d.cc_total_cost ?? 0) / Number(d.impact_score));
+    .map(d => ccCost(d) / Number(d.impact_score));
   const medianCPI = cpiValues.length > 0
     ? [...cpiValues].sort((a, b) => a - b)[Math.floor(cpiValues.length / 2)]
     : 0;
@@ -365,7 +367,7 @@ function formatTokens(n: number) {
 function SpendTab({ developers }: { developers: Developer[] }) {
   const [showCount, setShowCount] = useState<10 | 20 | 'all'>(10);
 
-  const hasAnySpend = developers.some(d => (d.cc_total_cost ?? 0) > 0);
+  const hasAnySpend = developers.some(d => ccCost(d) > 0);
 
   if (!hasAnySpend) {
     return (
@@ -379,7 +381,7 @@ function SpendTab({ developers }: { developers: Developer[] }) {
   const bottom80Pct = 100 - top20Pct;
 
   const isOutlier = (d: Developer) => {
-    const cost = d.cc_total_cost ?? 0;
+    const cost = ccCost(d);
     const impact = Number(d.impact_score) || 0;
     return cost > 0 && impact > 0 && medianCPI > 0 && (cost / impact) > 2 * medianCPI;
   };
@@ -388,13 +390,13 @@ function SpendTab({ developers }: { developers: Developer[] }) {
   const displayCount = showCount === 'all' ? withSpend.length : showCount;
   const visibleDevs = withSpend.slice(0, displayCount);
   const hiddenDevs = withSpend.slice(displayCount);
-  const hiddenTotal = hiddenDevs.reduce((s, d) => s + (d.cc_total_cost ?? 0), 0);
+  const hiddenTotal = hiddenDevs.reduce((s, d) => s + ccCost(d), 0);
 
   let cumulative = 0;
 
   // Scatter plot data
   const maxImpact = Math.max(...withSpend.map(d => Number(d.impact_score) || 0), 1);
-  const maxCost = Math.max(...withSpend.map(d => d.cc_total_cost ?? 0), 1);
+  const maxCost = Math.max(...withSpend.map(d => ccCost(d)), 1);
   const medianImpact = (() => {
     const impacts = withSpend.map(d => Number(d.impact_score) || 0).sort((a, b) => a - b);
     if (impacts.length === 0) return 0;
@@ -482,10 +484,10 @@ function SpendTab({ developers }: { developers: Developer[] }) {
           </thead>
           <tbody>
             {visibleDevs.map((dev, i) => {
-              const cost = dev.cc_total_cost ?? 0;
+              const cost = ccCost(dev);
               const pctOfTotal = total > 0 ? (cost / total) * 100 : 0;
               cumulative += pctOfTotal;
-              const sessions = dev.cc_sessions ?? 0;
+              const sessions = Number(dev.cc_sessions) || 0;
               const perSession = sessions > 0 ? cost / sessions : 0;
               const impact = Number(dev.impact_score) || 0;
               const outlier = isOutlier(dev);
@@ -564,7 +566,7 @@ function SpendTab({ developers }: { developers: Developer[] }) {
 
           {/* Dots */}
           {withSpend.map(dev => {
-            const cost = dev.cc_total_cost ?? 0;
+            const cost = ccCost(dev);
             const impact = Number(dev.impact_score) || 0;
             const x = (impact / maxImpact) * 92 + 4; // 4-96% range
             const y = 100 - ((cost / maxCost) * 88 + 6); // 6-94% inverted

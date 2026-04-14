@@ -11,6 +11,9 @@ jest.mock('@/lib/db/index', () => ({
   default: { execute: jest.fn().mockResolvedValue([[], null]) },
 }));
 jest.mock('@/lib/progress-store');
+jest.mock('@/lib/claude-code', () => ({
+  getClaudeCodeClient: jest.fn().mockReturnValue(null),
+}));
 jest.mock('p-limit', () => ({
   __esModule: true,
   default: () => <T>(fn: () => T) => fn(),
