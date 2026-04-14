@@ -65,6 +65,7 @@ export default function ProjectsContent() {
   const [filterTeam, setFilterTeam] = useState<string>('');
   const [filterGoal, setFilterGoal] = useState<string>('');
   const [filterInitiative, setFilterInitiative] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState<string>('');
 
   // Hover state for row highlight
   const [hoveredEpic, setHoveredEpic] = useState<string | null>(null);
@@ -329,11 +330,21 @@ export default function ProjectsContent() {
       if (filterTeam && filterTeam !== '__none__' && e.team?.name !== filterTeam) return false;
       if (filterGoal && e.goal?.summary !== filterGoal) return false;
       if (filterInitiative && e.initiative?.summary !== filterInitiative) return false;
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        const fields = [
+          e.key, e.summary, e.assignee,
+          e.goal?.key, e.goal?.summary,
+          e.initiative?.key, e.initiative?.summary,
+          e.team?.name, e.dueDate, e.status,
+        ];
+        if (!fields.some(f => f && f.toLowerCase().includes(q))) return false;
+      }
       return true;
     });
-  }, [epics, filterTeam, filterGoal, filterInitiative]);
+  }, [epics, filterTeam, filterGoal, filterInitiative, searchQuery]);
 
-  const activeFilterCount = [filterTeam, filterGoal, filterInitiative].filter(Boolean).length;
+  const activeFilterCount = [filterTeam, filterGoal, filterInitiative, searchQuery].filter(Boolean).length;
 
   const avgCommitsPerJira = useMemo(() => {
     const stats = Object.values(ringStats);
@@ -554,6 +565,13 @@ export default function ProjectsContent() {
         <>
           {/* Filters */}
           <div className="flex items-center gap-3 mb-4 flex-wrap">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search..."
+              className="bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-gray-300 placeholder-gray-600 focus:outline-none focus:border-accent w-48"
+            />
             <select
               value={filterGoal}
               onChange={e => setFilterGoal(e.target.value)}
@@ -598,8 +616,14 @@ export default function ProjectsContent() {
                 <button onClick={() => setFilterTeam('')} className="text-accent-light hover:text-white ml-0.5">&times;</button>
               </span>
             )}
+            {searchQuery && (
+              <span className="inline-flex items-center gap-1.5 bg-accent/20 text-accent-lighter text-xs font-medium px-2.5 py-1 rounded-lg border border-accent/30">
+                &ldquo;{searchQuery}&rdquo;
+                <button onClick={() => setSearchQuery('')} className="text-accent-light hover:text-white ml-0.5">&times;</button>
+              </span>
+            )}
             {activeFilterCount > 1 && (
-              <button onClick={() => { setFilterTeam(''); setFilterGoal(''); setFilterInitiative(''); }} className="text-xs text-gray-600 hover:text-gray-400">Clear all</button>
+              <button onClick={() => { setFilterTeam(''); setFilterGoal(''); setFilterInitiative(''); setSearchQuery(''); }} className="text-xs text-gray-600 hover:text-gray-400">Clear all</button>
             )}
           </div>
 
