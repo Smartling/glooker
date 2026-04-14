@@ -121,6 +121,25 @@ export function getAppConfig(): AppConfig {
   return config;
 }
 
+export async function getLatestReport(): Promise<{ id: string; date: string; org: string } | null> {
+  try {
+    const db = (await import('@/lib/db')).default;
+    const [rows] = await db.execute(
+      `SELECT id, org, created_at FROM reports WHERE status = 'completed' ORDER BY created_at DESC LIMIT 1`,
+    ) as [any[], any];
+    if (!rows.length) return null;
+    const r = rows[0];
+    const date = new Date(r.created_at);
+    return {
+      id: r.id,
+      date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      org: r.org,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function testLLMConnection(): Promise<LLMConnectionResult> {
   const start = Date.now();
   try {
