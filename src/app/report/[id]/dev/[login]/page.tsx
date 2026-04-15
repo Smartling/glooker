@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useParams } from 'next/navigation';
+import useSWR from 'swr';
 import Breadcrumb from '@/components/Breadcrumb';
 import { findFirstJiraKey } from '@/lib/jira-key-utils';
 
@@ -84,65 +85,39 @@ function pctRank(values: number[], value: number): number {
 
 export default function DevDetailPage() {
   const params = useParams<{ id: string; login: string }>();
-  const [loading, setLoading] = useState(true);
-  const [report, setReport] = useState<ReportMeta | null>(null);
-  const [dev, setDev] = useState<DevStats | null>(null);
-  const [allDevs, setAllDevs] = useState<CompactDev[]>([]);
-  const [commits, setCommits] = useState<Commit[]>([]);
-  const [error, setError] = useState<string | null>(null);
   const [expandedSha, setExpandedSha] = useState<string | null>(null);
   const [expandedIssueKey, setExpandedIssueKey] = useState<string | null>(null);
-  const [timeline, setTimeline] = useState<WeeklyData[]>([]);
-  const [summary, setSummary] = useState<string | null>(null);
-  const [badges, setBadges] = useState<Array<{ icon: string; title: string; description: string }>>([]);
-  const [summaryLoading, setSummaryLoading] = useState(false);
-  const [summaryError, setSummaryError] = useState<string | null>(null);
-  const [jiraIssues, setJiraIssues] = useState<JiraIssue[]>([]);
-  const [jiraHost, setJiraHost] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetch('/api/llm-config').then(r => r.json()).then(d => { if (d.jira?.host) setJiraHost(d.jira.host); }).catch(() => {});
-  }, []);
+  // 1. Config (jiraHost)
+  const { data: config } = useSWR('/api/llm-config', { revalidateIfStale: false });
+  const jiraHost = config?.jira?.host ?? null;
 
-  useEffect(() => {
-    fetch(`/api/report/${params.id}/dev/${params.login}`)
-      .then(r => { if (!r.ok) throw new Error('Not found'); return r.json(); })
-      .then(data => {
-        setReport(data.report);
-        setDev(data.developer);
-        setAllDevs(data.allDevelopers);
-        setCommits(data.commits);
-        setTimeline(data.timeline || []);
-        // Fetch summary (generates via LLM if not cached)
-        setSummaryLoading(true);
-        setSummaryError(null);
-        fetch(`/api/report/${params.id}/dev/${params.login}/summary`)
-          .then(async r => {
-            const text = await r.text();
-            let json: any;
-            try { json = JSON.parse(text); } catch { throw new Error('Invalid response from server'); }
-            if (!r.ok) throw new Error(json.error || 'Failed to generate summary');
-            return json;
-          })
-          .then(s => { setSummary(s.summary); setBadges(s.badges || []); })
-          .catch(e => setSummaryError(e.message))
-          .finally(() => setSummaryLoading(false));
-      })
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false));
-  }, [params.id, params.login]);
+  // 2. Main dev data
+  const { data: devData, isLoading, error: devError } = useSWR(`/api/report/${params.id}/dev/${params.login}`);
+  const report: ReportMeta | null = devData?.report ?? null;
+  const dev: DevStats | null = devData?.developer ?? null;
+  const allDevs: CompactDev[] = devData?.allDevelopers ?? [];
+  const commits: Commit[] = devData?.commits ?? [];
+  const timeline: WeeklyData[] = devData?.timeline ?? [];
 
-  useEffect(() => {
-    if ((dev?.total_jira_issues ?? 0) > 0) {
-      fetch(`/api/report/${params.id}/jira-issues?login=${params.login}`)
-        .then(r => r.json())
-        .then(setJiraIssues)
-        .catch(() => {});
-    }
-  }, [params.id, params.login, dev?.total_jira_issues]);
+  // 3. Summary (dependent on devData)
+  const { data: summaryData, isLoading: summaryLoading, error: summaryError } = useSWR(
+    devData ? `/api/report/${params.id}/dev/${params.login}/summary` : null,
+    { revalidateIfStale: false }
+  );
+  const summary: string | null = summaryData?.summary ?? null;
+  const badges: Array<{ icon: string; title: string; description: string }> = summaryData?.badges ?? [];
 
-  if (loading) return <div className="max-w-6xl mx-auto px-4 py-16 text-gray-500">Loading...</div>;
-  if (error || !dev || !report) return <div className="max-w-6xl mx-auto px-4 py-16 text-red-400">Error: {error || 'Not found'}</div>;
+  // 4. Jira issues (dependent on dev having jira issues)
+  const hasJira = dev && (dev.total_jira_issues ?? 0) > 0;
+  const { data: jiraIssuesData } = useSWR(
+    hasJira ? `/api/report/${params.id}/jira-issues?login=${params.login}` : null,
+    { revalidateIfStale: false }
+  );
+  const jiraIssues: JiraIssue[] = jiraIssuesData ?? [];
+
+  if (isLoading) return <div className="max-w-6xl mx-auto px-4 py-16 text-gray-500">Loading...</div>;
+  if (devError || !dev || !report) return <div className="max-w-6xl mx-auto px-4 py-16 text-red-400">Error: {devError?.message || 'Not found'}</div>;
 
   const rank = allDevs.findIndex(d => d.github_login === dev.github_login) + 1;
 
@@ -355,7 +330,7 @@ export default function DevDetailPage() {
             <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            {summaryError}
+            {summaryError.message}
           </div>
         )}
         {!summaryLoading && !summaryError && badges.length > 0 && (
