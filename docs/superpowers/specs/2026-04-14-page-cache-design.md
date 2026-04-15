@@ -108,22 +108,24 @@ Each page replaces its `useEffect` + `fetch` + `useState` pattern with `useSWR`:
 
 **Dev Detail (`src/app/report/[id]/dev/[login]/page.tsx`):**
 - Replace: `fetch('/api/report/{id}/dev/{login}')` → `useSWR('/api/report/{id}/dev/{login}')`
-- Replace: `fetch('/api/llm-config')` → `useSWR('/api/llm-config')`
+- Replace: `fetch('/api/llm-config')` → `useSWR('/api/llm-config')` (jiraHost + ccEnabled)
+- Replace: summary fetch (currently chained inside `.then()` of main fetch) → `useSWR(devData ? '/api/report/{id}/dev/{login}/summary' : null)` (dependent on main data loading)
+- Note: this page has 3 fetch chains that need to be unwound into independent `useSWR` calls with null-key dependencies
 
 **Projects (`src/app/projects/projects-content.tsx`):**
 - Replace: `fetch('/api/orgs')` → `useSWR('/api/orgs')`
 - Replace: tab fetches → `useSWR('/api/projects?org={org}&status={tab}')` per active tab
 - Keep: existing `tabCache` for local tab state (epic expand/collapse, optimistic mutations for status transitions and due dates). SWR caches the API responses; `tabCache` manages local UI mutations. These serve different purposes — don't remove `tabCache`.
-- Epic ring stats: move to child component `<EpicRow>` that calls `useSWR('/api/projects/{key}/stats?org={org}')` individually — one hook per component instance, no loop violation
+- Epic ring stats: move to child component `<EpicRow>` that calls `useSWR('/api/projects/{key}/stats?org={org}')` individually — one hook per component instance, no loop violation. The parent still aggregates all loaded stats to compute `maxVolume` and `avgCommitsPerJira` (needed for log-scale ring sizing). EpicRow receives these as props and re-renders when they update. The parent maintains a `ringStats` record updated via a callback from each EpicRow when its SWR resolves. The `ProgressRing` component must be hoisted to module scope (currently defined inside the render body).
 - Epic summaries: fetched on demand via `useSWR` with `revalidateIfStale: false` (only fetch once, cache forever within session)
 - Untracked work: keep as direct `fetch` (triggered by button click, not render)
 
 **Report History (`src/app/reports/page.tsx`):**
 - Replace: `fetch('/api/orgs')` → `useSWR('/api/orgs')`
-- Keep: report list polling as `useSWR('/api/report', { refreshInterval: 30_000 })` — SWR handles the polling natively
+- Keep: `useIdleAwarePolling` for report list polling — SWR's `refreshInterval` is not idle-aware (no tab visibility or activity detection). The idle-aware hook is intentional and should not regress. Use `useSWR('/api/report')` for the initial load only (cache benefit on return navigation), and keep `useIdleAwarePolling` for the polling updates that call `setPastReports` directly.
 - Keep: progress polling as direct `fetch` (1.5s interval with custom logic)
-- Replace: `toggleExpand` fetch → `useSWR` in an expandable child component
-- Add: `mutate(() => true, { revalidate: true })` when report completes (global revalidation)
+- Replace: `toggleExpand` fetch → `useSWR` in an expandable child component (e.g., `<ReportExpandedStats reportId={id} />`)
+- Add: `mutate(() => true, undefined, { revalidate: true })` when report completes (global revalidation)
 
 **NavBar (`src/components/NavBar.tsx`):**
 - Replace: `fetch('/api/llm-config')` → `useSWR('/api/llm-config', { revalidateIfStale: false })`
@@ -136,21 +138,35 @@ Each page replaces its `useEffect` + `fetch` + `useState` pattern with `useSWR`:
 
 ### Preloading
 
-SWR provides `preload(key, fetcher)` for prefetching:
+SWR provides `preload(key, fetcher)` for prefetching. NavBar wraps each `<Link>` with an `onMouseEnter` handler:
 
 ```typescript
 import { preload } from 'swr';
 
+// Define fetcher at module scope (same one used in SWRConfig)
+const fetcher = (url: string) => fetch(url).then(r => r.json());
+
+// In NavBar JSX — wrap the Link or use a span wrapper:
 <Link
   href={teamUrl}
   onMouseEnter={() => {
     preload(`/api/report/${latestReport.id}`, fetcher);
+  }}
+>
+  Team Summary ...
+</Link>
+
+<Link
+  href={orgUrl}
+  onMouseEnter={() => {
     preload(`/api/report/${latestReport.id}/org`, fetcher);
   }}
 >
+  Org Summary ...
+</Link>
 ```
 
-Fires on `onMouseEnter`, populates cache, target page gets instant render. Projects is NOT preloaded.
+`preload()` fires on mouse enter, populates SWR's cache, target page finds cached data on mount. No debounce needed — `preload` is a no-op if data is already cached. Projects is NOT preloaded (Jira API too slow for speculative fetch).
 
 ### Fix window.location.href
 
@@ -160,7 +176,8 @@ All `window.location.href` navigation causes full page reloads, destroying the S
 |------|----------|---------|-----|
 | `src/app/report/[id]/team/page.tsx` | Org name click | `window.location.href` | `useRouter().push()` |
 | `src/app/report/[id]/team/page.tsx` | Developer row click | `window.location.href` | `useRouter().push()` |
-| `src/app/report/[id]/org/page.tsx` | Developer row click (hidden but present) | `window.location.href` | `useRouter().push()` |
+| `src/app/report/[id]/org/page.tsx` | Developer row click (hidden, in `{false &&}` block) | `window.location.href` | `useRouter().push()` (fix while hidden) |
+| `src/app/settings/page.tsx` | Navigate to home | `window.location.href` | `useRouter().push()` |
 | `src/app/reports/page.tsx` | Expanded report links | `<a href>` | `<Link>` |
 
 ### Report Completion Cache Bust
@@ -173,7 +190,11 @@ import { useSWRConfig } from 'swr';
 const { mutate } = useSWRConfig();
 
 if (updated.status === 'completed' && current.status === 'running') {
-  mutate(() => true, undefined, { revalidate: true }); // revalidate all cached keys
+  mutate(
+    () => true,           // match all keys
+    undefined,            // don't set data
+    { revalidate: true }, // trigger background revalidation
+  );
   setRunning(false);
 }
 ```
@@ -182,13 +203,13 @@ This tells SWR to revalidate every cached key in the background. NavBar gets the
 
 ### SWRConfig Provider Position
 
-In `layout.tsx`, the SWRConfig wraps inside the existing providers:
+In `layout.tsx`, provider nesting order:
 
 ```
-ThemeProvider > AuthProvider > SWRConfig > Suspense > NavBar + children
+ThemeProvider > SWRConfig > AuthProvider > Suspense > NavBar + children
 ```
 
-SWRConfig is inside AuthProvider so that if auth context is needed in the fetcher later (e.g., adding auth headers), it's available. AuthProvider itself migrates to useSWR internally.
+SWRConfig must wrap AuthProvider because AuthProvider migrates to `useSWR('/api/auth/me')` internally — it needs the global SWR config (fetcher, dedup interval) to be available. The fetcher is a plain function that doesn't need React context, so placing SWRConfig above AuthProvider is correct.
 
 ## What This Does NOT Do
 
