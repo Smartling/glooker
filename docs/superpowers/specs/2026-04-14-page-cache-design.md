@@ -1,177 +1,228 @@
-# Client-Side Page Cache — Design Spec
+# Client-Side Page Cache — Design Spec (v2)
 
 ## Overview
 
-Add an in-memory client-side cache for API responses so that navigating between pages feels instant. Pages render cached data immediately and revalidate in the background. Full browser refresh clears the cache.
+Add client-side caching for API responses using [SWR](https://swr.vercel.app/) so that navigating between pages feels instant. Pages render cached data immediately and revalidate in the background. Full browser refresh clears the cache.
 
 ## Problem
 
-Every page is a `'use client'` component that re-fetches all data on mount. Navigating away and back triggers a full re-fetch with a loading spinner. The Projects page is especially slow because it calls the Jira API. Additionally, Team Summary uses `window.location.href` for navigation, causing full page reloads that destroy all client state.
+Every page is a `'use client'` component that re-fetches all data on mount. Navigating away and back triggers a full re-fetch with a loading spinner. The Projects page is especially slow because it calls the Jira API. Additionally, several pages use `window.location.href` for navigation, causing full page reloads that destroy all client state.
 
 ## Design
 
-### Cache Layer
+### SWR Instead of Custom Cache
 
-A `CacheProvider` React Context wrapping all pages (in `layout.tsx`). Provides a `useCachedFetch(url)` hook.
+Use [SWR](https://swr.vercel.app/) (4KB gzipped, by Vercel) instead of a custom cache implementation. SWR provides out of the box:
 
-**Cache behavior:**
-- Key: the full API URL (including query params)
-- Value: the parsed JSON response + timestamp
-- Storage: in-memory `Map` inside a React ref — survives client-side navigation, destroyed on full page refresh
-- TTL: 60 minutes — entries older than this are treated as cache misses
+- Stale-while-revalidate with configurable TTL
+- Request deduplication (concurrent calls to the same URL share one fetch)
+- Dependent fetches via `null` key (skip fetch until dependency is ready)
+- Error handling with `error` return value
+- Force revalidation via `mutate()`
+- In-memory cache that survives client-side navigation, cleared on full page refresh
+- Works with React hooks rules (one hook call per URL, safe in components)
 
-**`useCachedFetch(url)` hook returns:**
+### Global SWR Configuration
+
+Wrap the app in `<SWRConfig>` in `layout.tsx` with shared defaults:
+
+```typescript
+import { SWRConfig } from 'swr';
+
+const fetcher = (url: string) => fetch(url).then(r => {
+  if (!r.ok) throw new Error(`${r.status}`);
+  return r.json();
+});
+
+<SWRConfig value={{
+  fetcher,
+  revalidateOnFocus: false,      // don't refetch when tab regains focus
+  revalidateOnReconnect: false,   // don't refetch on network reconnect
+  dedupingInterval: 60_000,       // dedup identical requests within 60s
+  errorRetryCount: 1,             // retry failed fetches once
+}}>
+```
+
+SWR's in-memory cache provider is the default — data survives client-side navigation, cleared on full page refresh. No localStorage, no service worker.
+
+### Per-Page TTL via `refreshInterval` and `revalidateIfStale`
+
+Pages that need longer caching set per-hook options:
+
+```typescript
+// Rarely changes — cache for the session, revalidate on navigation
+const { data } = useSWR('/api/llm-config', { revalidateIfStale: false });
+
+// Changes per report — stale-while-revalidate on navigation
+const { data, isLoading, isValidating } = useSWR(`/api/report/${id}`);
+
+// Polling — keep fresh
+const { data } = useSWR('/api/report', { refreshInterval: 30_000 });
+```
+
+### Hook Return Values
+
+SWR's `useSWR` returns:
+
 ```typescript
 {
-  data: T | null;       // cached or fresh data
-  loading: boolean;     // true only on first load (no cache)
-  stale: boolean;       // true when showing cached data while revalidating
+  data: T | undefined;     // cached or fresh data
+  error: Error | undefined; // fetch error (if any)
+  isLoading: boolean;       // true on first load (no cache)
+  isValidating: boolean;    // true during any fetch (including background revalidation)
+  mutate: () => void;       // force revalidation
 }
 ```
 
-**Fetch flow:**
-1. Check cache for URL
-2. If cached and within TTL → return cached data, set `stale: true`, revalidate in background
-3. If cached but expired, or not cached → set `loading: true`, fetch, cache, return
-4. On background revalidate → if response differs from cache, update data (triggers re-render)
-5. On fetch error → keep showing cached data if available, don't clear cache
+This addresses the missing `error` state and stale lifecycle from v1.
 
-**Cache invalidation:**
-- `cache.invalidate()` — clears all entries (called when a report completes)
-- `cache.invalidatePrefix(prefix)` — clears entries whose URL starts with prefix (for targeted invalidation)
-- Full page refresh — naturally clears the cache (React tree remounts)
+### Dependent Fetches
 
-### Implementation
-
-**File: `src/contexts/cache-context.tsx`**
+SWR handles dependent fetches natively via `null` key:
 
 ```typescript
-interface CacheEntry {
-  data: any;
-  timestamp: number;
-}
-
-interface CacheContextType {
-  get(url: string): CacheEntry | undefined;
-  set(url: string, data: any): void;
-  invalidate(): void;
-  invalidatePrefix(prefix: string): void;
-}
+// Team Summary: fetch report first, then teams based on org from report
+const { data: reportData } = useSWR(`/api/report/${params.id}`);
+const org = reportData?.report?.org;
+const { data: teams } = useSWR(org ? `/api/teams?org=${org}` : null);
 ```
 
-The provider stores a `Map<string, CacheEntry>` in a ref. The `useCachedFetch` hook is a convenience wrapper:
-
-```typescript
-function useCachedFetch<T>(url: string | null, ttlMs = 60 * 60 * 1000): {
-  data: T | null;
-  loading: boolean;
-  stale: boolean;
-}
-```
-
-When `url` is `null`, the hook returns `{ data: null, loading: false, stale: false }` — useful for conditional fetching.
+When the key is `null`, SWR skips the fetch and returns `undefined`. When the key becomes non-null (org loaded), SWR automatically fetches.
 
 ### Pages to Migrate
 
-Each page replaces its `useEffect` + `fetch` pattern with `useCachedFetch`:
+Each page replaces its `useEffect` + `fetch` + `useState` pattern with `useSWR`:
 
 **Home (`src/app/page.tsx`):**
-- Replace: `fetch('/api/llm-config')` → `useCachedFetch('/api/llm-config')`
+- Replace: `fetch('/api/llm-config')` → `useSWR('/api/llm-config')`
 
 **Team Summary (`src/app/report/[id]/team/page.tsx`):**
-- Replace: `fetch('/api/report/{id}')` → `useCachedFetch('/api/report/{id}')`
-- Replace: `fetch('/api/teams?org={org}')` → `useCachedFetch('/api/teams?org={org}')`
-- Replace: `fetch('/api/llm-config')` → `useCachedFetch('/api/llm-config')`
-- Fix: `window.location.href` → Next.js `Link` for developer row clicks and org link
+- Replace: `fetch('/api/report/{id}')` → `useSWR('/api/report/{id}')`
+- Replace: `fetch('/api/teams?org={org}')` → `useSWR(org ? '/api/teams?org={org}' : null)` (dependent)
+- Replace: `fetch('/api/llm-config')` → `useSWR('/api/llm-config')`
+- Fix: `window.location.href` → Next.js `Link` or `useRouter().push` for developer row clicks and org link
 
 **Org Summary (`src/app/report/[id]/org/page.tsx`):**
-- Replace: `fetch('/api/report/{id}/org')` → `useCachedFetch('/api/report/{id}/org')`
-- Replace: `fetch('/api/llm-config')` → `useCachedFetch('/api/llm-config')`
+- Replace: `fetch('/api/report/{id}/org')` → `useSWR('/api/report/{id}/org')`
+- Replace: `fetch('/api/llm-config')` → `useSWR('/api/llm-config')`
+
+**Dev Detail (`src/app/report/[id]/dev/[login]/page.tsx`):**
+- Replace: `fetch('/api/report/{id}/dev/{login}')` → `useSWR('/api/report/{id}/dev/{login}')`
+- Replace: `fetch('/api/llm-config')` → `useSWR('/api/llm-config')`
 
 **Projects (`src/app/projects/projects-content.tsx`):**
-- Replace: `fetch('/api/orgs')` → `useCachedFetch('/api/orgs')`
-- Replace: `fetch('/api/projects?org={org}&status={tab}')` → `useCachedFetch` for each tab
-- Epic stats and summaries: use `useCachedFetch` so they persist across navigations
-- The existing `tabCache` state can be removed since the shared cache handles it
+- Replace: `fetch('/api/orgs')` → `useSWR('/api/orgs')`
+- Replace: tab fetches → `useSWR('/api/projects?org={org}&status={tab}')` per active tab
+- Keep: existing `tabCache` for local tab state (epic expand/collapse, optimistic mutations for status transitions and due dates). SWR caches the API responses; `tabCache` manages local UI mutations. These serve different purposes — don't remove `tabCache`.
+- Epic ring stats: move to child component `<EpicRow>` that calls `useSWR('/api/projects/{key}/stats?org={org}')` individually — one hook per component instance, no loop violation
+- Epic summaries: fetched on demand via `useSWR` with `revalidateIfStale: false` (only fetch once, cache forever within session)
+- Untracked work: keep as direct `fetch` (triggered by button click, not render)
 
 **Report History (`src/app/reports/page.tsx`):**
-- Replace: `fetch('/api/orgs')` → `useCachedFetch('/api/orgs')`
-- Keep: `fetch('/api/report')` as direct fetch (polled, always needs to be fresh)
-- Keep: progress polling as direct fetch
-- Add: `cache.invalidate()` when report status changes to `completed`
+- Replace: `fetch('/api/orgs')` → `useSWR('/api/orgs')`
+- Keep: report list polling as `useSWR('/api/report', { refreshInterval: 30_000 })` — SWR handles the polling natively
+- Keep: progress polling as direct `fetch` (1.5s interval with custom logic)
+- Replace: `toggleExpand` fetch → `useSWR` in an expandable child component
+- Add: `mutate(() => true, { revalidate: true })` when report completes (global revalidation)
 
 **NavBar (`src/components/NavBar.tsx`):**
-- Replace: `fetch('/api/llm-config')` → `useCachedFetch('/api/llm-config')`
-- This means `/api/llm-config` is fetched once and shared across NavBar + all pages that use it
+- Replace: `fetch('/api/llm-config')` → `useSWR('/api/llm-config', { revalidateIfStale: false })`
+- Shared: the same cache key means NavBar + Home + Team + Org all share one cached response
+- Prefetch on hover: `preload('/api/report/{id}', fetcher)` from `swr` — populates cache before navigation
+
+**Auth Context (`src/app/auth-context.tsx`):**
+- Replace: `fetch('/api/auth/me')` → `useSWR('/api/auth/me', { revalidateIfStale: false })`
+- Auth data cached for the session, never stale-revalidated (identity doesn't change mid-session)
 
 ### Preloading
 
-NavBar preloads Team Summary and Org Summary data on hover over those nav items:
+SWR provides `preload(key, fetcher)` for prefetching:
 
 ```typescript
+import { preload } from 'swr';
+
 <Link
   href={teamUrl}
-  onMouseEnter={() => cache.prefetch(`/api/report/${latestReport.id}`)}
+  onMouseEnter={() => {
+    preload(`/api/report/${latestReport.id}`, fetcher);
+    preload(`/api/report/${latestReport.id}/org`, fetcher);
+  }}
 >
 ```
 
-`cache.prefetch(url)` — fetches and caches if not already cached. Fire-and-forget, no UI impact. The `useCachedFetch` call on the target page will find the data in cache and render instantly.
-
-Projects is NOT preloaded (Jira API too slow for speculative fetching). It benefits from cache on return visits only.
+Fires on `onMouseEnter`, populates cache, target page gets instant render. Projects is NOT preloaded.
 
 ### Fix window.location.href
 
-Team Summary page uses `window.location.href` in two places, causing full page reloads:
-1. Clicking the org name link
-2. Clicking a developer table row
+All `window.location.href` navigation causes full page reloads, destroying the SWR cache. Fix all instances:
 
-Both need to change to Next.js `Link` or `router.push` for client-side navigation. This is required for the cache to work — `window.location.href` destroys all React state including the cache.
+| File | Location | Current | Fix |
+|------|----------|---------|-----|
+| `src/app/report/[id]/team/page.tsx` | Org name click | `window.location.href` | `useRouter().push()` |
+| `src/app/report/[id]/team/page.tsx` | Developer row click | `window.location.href` | `useRouter().push()` |
+| `src/app/report/[id]/org/page.tsx` | Developer row click (hidden but present) | `window.location.href` | `useRouter().push()` |
+| `src/app/reports/page.tsx` | Expanded report links | `<a href>` | `<Link>` |
 
 ### Report Completion Cache Bust
 
-In Report History, the idle-aware polling already detects when a report completes:
+When Report History detects a report completed, trigger a global SWR revalidation:
 
 ```typescript
+import { useSWRConfig } from 'swr';
+
+const { mutate } = useSWRConfig();
+
 if (updated.status === 'completed' && current.status === 'running') {
-  cache.invalidate(); // Clear all cached data — nav links, team/org data, etc.
+  mutate(() => true, undefined, { revalidate: true }); // revalidate all cached keys
   setRunning(false);
 }
 ```
 
-This ensures:
-- NavBar picks up the new latest report ID on next render
-- Team/Org Summary pages will fetch fresh data on next visit
-- Cheap (one Map.clear() call) and reliable (triggered by existing polling logic)
+This tells SWR to revalidate every cached key in the background. NavBar gets the new latest report ID, pages get fresh data on next visit.
+
+### SWRConfig Provider Position
+
+In `layout.tsx`, the SWRConfig wraps inside the existing providers:
+
+```
+ThemeProvider > AuthProvider > SWRConfig > Suspense > NavBar + children
+```
+
+SWRConfig is inside AuthProvider so that if auth context is needed in the fetcher later (e.g., adding auth headers), it's available. AuthProvider itself migrates to useSWR internally.
 
 ## What This Does NOT Do
 
-- No localStorage/sessionStorage persistence — cache is session-only
+- No localStorage/sessionStorage persistence — SWR's default in-memory cache only
 - No service worker or offline support
 - No preloading of Projects page
 - No server-side caching changes
 - No changes to API response headers or Next.js caching config
+- No removal of Projects' `tabCache` — it handles local UI mutations (status transitions, due dates) that SWR doesn't cover
 
 ## Files
 
 | File | Change |
 |------|--------|
-| Create: `src/contexts/cache-context.tsx` | CacheProvider + useCachedFetch + prefetch |
-| Modify: `src/app/layout.tsx` | Add CacheProvider |
-| Modify: `src/app/page.tsx` | Use useCachedFetch |
-| Modify: `src/app/report/[id]/team/page.tsx` | Use useCachedFetch, fix window.location.href → Link |
-| Modify: `src/app/report/[id]/org/page.tsx` | Use useCachedFetch |
-| Modify: `src/app/projects/projects-content.tsx` | Use useCachedFetch, remove tabCache |
-| Modify: `src/app/reports/page.tsx` | Add cache.invalidate() on report completion |
-| Modify: `src/components/NavBar.tsx` | Use useCachedFetch, add prefetch on hover |
+| `package.json` | Add `swr` dependency |
+| `src/app/layout.tsx` | Add SWRConfig with global fetcher and options |
+| `src/app/page.tsx` | Replace useEffect+fetch with useSWR |
+| `src/app/report/[id]/team/page.tsx` | Replace fetches with useSWR, fix window.location.href |
+| `src/app/report/[id]/org/page.tsx` | Replace fetches with useSWR, fix window.location.href |
+| `src/app/report/[id]/dev/[login]/page.tsx` | Replace fetches with useSWR |
+| `src/app/projects/projects-content.tsx` | Replace page-level fetches with useSWR, extract EpicRow component for ring stats |
+| `src/app/reports/page.tsx` | Replace orgs fetch with useSWR, use SWR polling for report list, add global mutate on completion, fix <a> → <Link> |
+| `src/components/NavBar.tsx` | Replace fetch with useSWR, add preload on hover |
+| `src/app/auth-context.tsx` | Replace fetch with useSWR |
 
 ## Decisions Log
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Cache storage | In-memory React ref | Clears on refresh (desired), survives navigation, no persistence complexity |
-| TTL | 60 minutes | Long enough for a session, short enough to not serve very stale data |
-| Cache key | Full URL with query params | Simple, unique, no normalization needed |
-| Preloading | Team/Org Summary on hover, not Projects | Team/Org are fast APIs; Projects calls Jira (too slow for speculative fetch) |
-| Report completion | Invalidate all cache | Cheap, reliable, ensures fresh data everywhere after a report finishes |
-| Stale-while-revalidate | Yes | Show cached data instantly, update if changed — best UX |
-| Projects tabCache | Remove, use shared cache | Avoids duplicate caching logic; shared cache persists across navigations |
+| Library | SWR (4KB) | Solves dedup, dependent fetches, error handling, stale lifecycle out of the box. Made by Vercel (Next.js creators). |
+| Cache storage | SWR default (in-memory Map) | Clears on refresh (desired), survives navigation |
+| TTL strategy | Per-hook via SWR options | `/api/llm-config` cached aggressively; report data uses SWR defaults (stale-while-revalidate); polling uses refreshInterval |
+| Preloading | `preload()` on NavBar hover, not Projects | Team/Org APIs are fast; Projects calls Jira (too slow for speculative fetch) |
+| Report completion | Global `mutate(() => true, { revalidate: true })` | Revalidates all SWR keys in background — cheap, reliable |
+| Projects tabCache | Keep alongside SWR | tabCache handles optimistic UI mutations (status transitions, due dates). SWR caches API responses. Different concerns. |
+| Auth caching | `useSWR` with `revalidateIfStale: false` | Identity doesn't change mid-session; cache forever until refresh |
+| Custom cache code | None needed | SWR provides everything; no `src/contexts/cache-context.tsx` needed |
