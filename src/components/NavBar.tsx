@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import useSWR, { preload } from 'swr';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/app/auth-context';
@@ -11,22 +11,16 @@ interface LatestReport {
   org: string;
 }
 
+const fetcher = (url: string) => fetch(url).then(r => r.json());
+
 export default function NavBar() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { enabled: authEnabled, user } = useAuth();
-  const [latestReport, setLatestReport] = useState<LatestReport | null>(null);
-  const [projectsEnabled, setProjectsEnabled] = useState(false);
 
-  useEffect(() => {
-    fetch('/api/llm-config')
-      .then(r => r.json())
-      .then(d => {
-        setLatestReport(d.latestReport ?? null);
-        setProjectsEnabled(Boolean(d.jira?.enabled && d.jira?.projectsJql));
-      })
-      .catch(() => {});
-  }, []);
+  const { data: config } = useSWR('/api/llm-config', { revalidateIfStale: false });
+  const latestReport = config?.latestReport ?? null;
+  const projectsEnabled = Boolean(config?.jira?.enabled && config?.jira?.projectsJql);
 
   const isReportPage = pathname.match(/^\/report\/[^/]+\//);
   const isDevDetail = pathname.match(/^\/report\/[^/]+\/dev\//);
@@ -64,7 +58,7 @@ export default function NavBar() {
         </Link>
 
         {teamUrl ? (
-          <Link href={teamUrl} className={navItemClass(isTeamActive)}>
+          <Link href={teamUrl} className={navItemClass(isTeamActive)} onMouseEnter={() => latestReport && preload(`/api/report/${latestReport.id}`, fetcher)}>
             Team Summary <span className="text-gray-600 text-[10px] ml-1">{latestReport?.date}</span>
           </Link>
         ) : (
@@ -74,7 +68,7 @@ export default function NavBar() {
         )}
 
         {orgUrl ? (
-          <Link href={orgUrl} className={navItemClass(isOrgActive)}>
+          <Link href={orgUrl} className={navItemClass(isOrgActive)} onMouseEnter={() => latestReport && preload(`/api/report/${latestReport.id}/org`, fetcher)}>
             Org Summary <span className="text-gray-600 text-[10px] ml-1">{latestReport?.date}</span>
           </Link>
         ) : (
