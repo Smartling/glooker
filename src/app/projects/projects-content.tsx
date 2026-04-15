@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import useSWR, { preload } from 'swr';
 import { useAuth } from '../auth-context';
 import { findFirstJiraKey } from '@/lib/jira-key-utils';
 
@@ -56,8 +57,6 @@ export default function ProjectsContent() {
   const { canAct } = useAuth();
   const [activeTab, setActiveTab] = useState<StatusTab>('In Progress');
   const [tabCache, setTabCache] = useState<Partial<Record<StatusTab, { epics: ProjectEpic[]; jiraHost: string | null }>>>({});
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [org, setOrg] = useState<string | null>(null);
   const [jiraHost, setJiraHost] = useState<string | null>(null);
 
@@ -213,66 +212,45 @@ export default function ProjectsContent() {
     }
   };
 
-  useEffect(() => {
-    fetch('/api/orgs')
-      .then(r => r.json())
-      .then(data => {
-        if (data.length > 0) setOrg(data[0].login);
-        else throw new Error('empty');
-      })
-      .catch(() => {
-        // Fallback: get org from latest report
-        fetch('/api/report')
-          .then(r => r.json())
-          .then(reports => {
-            if (reports.length > 0) setOrg(reports[0].org);
-            else setError('No org found — run a report or check GitHub token');
-          })
-          .catch(() => setError('Failed to load org'));
-      });
-  }, []);
+  // SWR: fetch orgs list
+  const { data: orgsData, error: orgsError } = useSWR('/api/orgs');
+  // Fallback: if orgs fails, try getting org from latest report
+  const { data: reportsData } = useSWR(orgsError ? '/api/report' : null);
 
-  // Fetch epics for a tab, with client-side caching
-  const fetchTab = useCallback((tab: StatusTab, background = false) => {
-    if (!org) return;
-    const params = new URLSearchParams({ org });
-    if (tab !== 'In Progress') params.set('status', tab);
-    if (!background) setLoading(true);
-    fetch(`/api/projects?${params}`)
-      .then(r => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then(data => {
-        setTabCache(prev => ({ ...prev, [tab]: { epics: data.epics, jiraHost: data.jiraHost } }));
-        if (tab === activeTab || !background) {
-          setJiraHost(data.jiraHost);
-        }
-      })
-      .catch(e => { if (!background) setError(e.message); })
-      .finally(() => { if (!background) setLoading(false); });
-  }, [org, activeTab]);
-
-  // On tab switch: use cache if available, otherwise fetch
   useEffect(() => {
-    if (!org) return;
-    const cached = tabCache[activeTab];
-    if (cached) {
-      setJiraHost(cached.jiraHost);
-      setLoading(false);
-    } else {
-      fetchTab(activeTab);
+    if (orgsData?.length > 0 && !org) {
+      setOrg(orgsData[0].login);
+    } else if (orgsError && reportsData?.length > 0 && !org) {
+      setOrg(reportsData[0].org);
     }
-  }, [org, activeTab]);
+  }, [orgsData, orgsError, reportsData, org]);
 
-  // Prefetch other tabs in background after default tab loads
+  // SWR: fetch epics for the active tab
+  const tabUrl = org ? `/api/projects?org=${encodeURIComponent(org)}&status=${encodeURIComponent(activeTab)}` : null;
+  const { data: tabData, isLoading: tabLoading, error: tabError } = useSWR(tabUrl);
+
+  // When tabData arrives, populate the tabCache (for optimistic mutations)
   useEffect(() => {
-    if (!org || loading) return;
-    const otherTabs: StatusTab[] = (['In Progress', 'Rollout', 'Done'] as StatusTab[]).filter(t => t !== activeTab && !tabCache[t]);
-    for (const tab of otherTabs) {
-      fetchTab(tab, true);
+    if (tabData?.epics) {
+      setTabCache(prev => ({ ...prev, [activeTab]: { epics: tabData.epics, jiraHost: tabData.jiraHost } }));
+      setJiraHost(tabData.jiraHost);
     }
-  }, [org, loading]);
+  }, [tabData, activeTab]);
+
+  // Prefetch other tabs in background after active tab loads
+  const fetcher = (url: string) => fetch(url).then(r => {
+    if (!r.ok) throw new Error(`${r.status}`);
+    return r.json();
+  });
+
+  useEffect(() => {
+    if (org && tabData) {
+      const otherTabs = (['In Progress', 'Rollout', 'Done'] as StatusTab[]).filter(t => t !== activeTab);
+      for (const tab of otherTabs) {
+        preload(`/api/projects?org=${encodeURIComponent(org)}&status=${encodeURIComponent(tab)}`, fetcher);
+      }
+    }
+  }, [org, tabData, activeTab]);
 
   // Derive epics from tab cache
   const epics = useMemo(() => tabCache[activeTab]?.epics || [], [tabCache, activeTab]);
@@ -551,11 +529,12 @@ export default function ProjectsContent() {
         </div>
       </div>
 
-      {error && <div className="text-red-400 py-8">Error: {error}</div>}
+      {orgsError && !reportsData && !org && <div className="text-red-400 py-8">Error: No org found &mdash; run a report or check GitHub token</div>}
+      {tabError && <div className="text-red-400 py-8">Error: {tabError.message}</div>}
 
-      {loading && <div className="text-gray-500 py-8">Loading projects from Jira...</div>}
+      {tabLoading && <div className="text-gray-500 py-8">Loading projects from Jira...</div>}
 
-      {!loading && !error && org && (
+      {!tabLoading && !tabError && org && (
         <>
           {/* Filters */}
           <div className="flex items-center gap-3 mb-4 flex-wrap">
