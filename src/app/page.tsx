@@ -1,23 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import useSWR from 'swr';
 import Link from 'next/link';
 import LlmFindings from './llm-findings';
 import ChatPanel from './chat-panel';
 
 export default function Home() {
-  const [org, setOrg] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetch('/api/llm-config')
-      .then(r => r.json())
-      .then(config => {
-        setOrg(config.latestReport?.org ?? null);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+  const { data: config, isLoading: loading } = useSWR('/api/llm-config', { revalidateIfStale: false });
+  const org = config?.latestReport?.org ?? null;
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
