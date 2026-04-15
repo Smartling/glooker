@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { useParams } from 'next/navigation';
+import { useState, useRef } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import useSWR from 'swr';
 import { createPortal } from 'react-dom';
 import ChatPanel from '@/app/chat-panel';
 
@@ -31,6 +32,12 @@ interface Report {
   completed_at: string | null;
 }
 
+interface Team {
+  id:      string;
+  name:    string;
+  members: string[];
+}
+
 const TYPE_COLORS: Record<string, string> = {
   feature:  'bg-blue-500',
   bug:      'bg-red-500',
@@ -44,33 +51,28 @@ const TYPE_COLORS: Record<string, string> = {
 
 export default function TeamSummaryPage() {
   const params = useParams<{ id: string }>();
-  const [developers, setDevelopers] = useState<Developer[]>([]);
-  const [activeReport, setActiveReport] = useState<Report | null>(null);
+  const router = useRouter();
+
+  // Main report data
+  const { data: reportData, isLoading } = useSWR(`/api/report/${params.id}`);
+  const developers: Developer[] = reportData?.developers ?? [];
+  const activeReport: Report | null = reportData?.report ?? null;
+
+  // Teams (dependent on org from report)
+  const org = activeReport?.org;
+  const { data: teamsData } = useSWR(org ? `/api/teams?org=${org}` : null);
+  const teams: Team[] = teamsData ?? [];
+
+  // Latest report ID (for historical warning)
+  const { data: config } = useSWR('/api/llm-config', { revalidateIfStale: false });
+  const latestReportId = config?.latestReport?.id ?? null;
+
   const commitCache = useRef<Map<string, any[]>>(new Map());
   const jiraCache = useRef<Map<string, any[]>>(new Map());
   const [filterLogins, setFilterLogins] = useState<Set<string>>(new Set());
   const [filterQuery, setFilterQuery] = useState('');
   const [filterOpen, setFilterOpen] = useState(false);
   const [filterHighlight, setFilterHighlight] = useState(0);
-  const [teams, setTeams] = useState<Array<{ id: string; name: string; color: string; members: string[] }>>([]);
-  const [latestReportId, setLatestReportId] = useState<string | null>(null);
-
-  // Load report data on mount
-  useEffect(() => {
-    fetch(`/api/report/${params.id}`)
-      .then(r => r.json())
-      .then(data => {
-        setDevelopers(data.developers || []);
-        setActiveReport(data.report);
-        if (data.report?.org) {
-          fetch(`/api/teams?org=${data.report.org}`).then(r => r.json()).then(setTeams).catch(() => {});
-        }
-      })
-      .catch(err => console.error('[glooker] Failed to load report:', err));
-    fetch('/api/llm-config').then(r => r.json()).then(d => {
-      setLatestReportId(d.latestReport?.id ?? null);
-    }).catch(() => {});
-  }, [params.id]);
 
   function exportCsv(devs: Developer[], report: Report) {
     const headers = ['Rank','Developer','Login','PRs','Commits','Lines Added','Lines Removed','Avg Complexity','PR%','AI%','Impact Score','Types','Active Repos'];
@@ -155,7 +157,7 @@ export default function TeamSummaryPage() {
           <div>
             <span
               className="text-gray-300 font-medium hover:text-accent-light cursor-pointer transition-colors"
-              onClick={() => window.location.href = `/report/${activeReport.id}/org`}
+              onClick={() => router.push(`/report/${activeReport!.id}/org`)}
             >{activeReport.org}</span>
             <span className="text-gray-500 text-sm ml-2">
               last {activeReport.period_days} days &middot; {developers.length} developers
@@ -317,7 +319,7 @@ export default function TeamSummaryPage() {
                 <tr
                   key={dev.github_login}
                   className="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors cursor-pointer"
-                  onClick={() => window.location.href = `/report/${params.id}/dev/${dev.github_login}`}
+                  onClick={() => router.push(`/report/${params.id}/dev/${dev.github_login}`)}
                 >
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">

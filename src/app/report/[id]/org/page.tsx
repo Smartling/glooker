@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { useParams } from 'next/navigation';
+import { useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import useSWR from 'swr';
 import ChatPanel from '@/app/chat-panel';
 
 const TYPE_COLORS: Record<string, string> = {
@@ -35,31 +36,18 @@ interface ReportMeta {
 
 export default function OrgDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
 
-  const [loading, setLoading] = useState(true);
-  const [report, setReport] = useState<ReportMeta | null>(null);
-  const [developers, setDevelopers] = useState<Developer[]>([]);
-  const [timeline, setTimeline] = useState<WeeklyData[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [latestReportId, setLatestReportId] = useState<string | null>(null);
+  const { data, isLoading: loading, error: fetchError } = useSWR(`/api/report/${params.id}/org`);
+  const report = data?.report ?? null;
+  const developers: Developer[] = data?.developers ?? [];
+  const timeline: WeeklyData[] = data?.timeline ?? [];
 
-  useEffect(() => {
-    fetch(`/api/report/${params.id}/org`)
-      .then(r => { if (!r.ok) throw new Error('Not found'); return r.json(); })
-      .then(data => {
-        setReport(data.report);
-        setDevelopers(data.developers);
-        setTimeline(data.timeline || []);
-      })
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false));
-    fetch('/api/llm-config').then(r => r.json()).then(d => {
-      setLatestReportId(d.latestReport?.id ?? null);
-    }).catch(() => {});
-  }, [params.id]);
+  const { data: config } = useSWR('/api/llm-config', { revalidateIfStale: false });
+  const latestReportId = config?.latestReport?.id ?? null;
 
   if (loading) return <div className="max-w-7xl mx-auto px-4 py-16 text-gray-500">Loading...</div>;
-  if (error || !report) return <div className="max-w-7xl mx-auto px-4 py-16 text-red-400">Error: {error || 'Not found'}</div>;
+  if (fetchError || !report) return <div className="max-w-7xl mx-auto px-4 py-16 text-red-400">Error: {fetchError?.message || 'Not found'}</div>;
 
   // Org-level aggregates
   const totalCommits = developers.reduce((s, d) => s + d.total_commits, 0);
@@ -222,7 +210,7 @@ export default function OrgDetailPage() {
                 <tr
                   key={dev.github_login}
                   className="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors cursor-pointer"
-                  onClick={() => window.location.href = `/report/${params.id}/dev/${dev.github_login}`}
+                  onClick={() => router.push(`/report/${params.id}/dev/${dev.github_login}`)}
                 >
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
