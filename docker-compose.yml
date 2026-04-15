@@ -44,6 +44,7 @@ services:
       AUTH_ENABLED: ${AUTH_ENABLED:-}
       AUTH_HEADER: ${AUTH_HEADER:-x-amzn-oidc-data}
       AUTH_ADMIN_GROUP: ${AUTH_ADMIN_GROUP:-}
+      AUTH_TEST_USER: ${AUTH_TEST_USER:-}
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
       interval: 30s

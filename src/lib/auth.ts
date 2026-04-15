@@ -14,6 +14,18 @@ export function isAuthEnabled(): boolean {
 export function extractUser(headers: Headers): AuthUser | null {
   if (!isAuthEnabled()) return null;
 
+  // Test mode: return a fake user based on AUTH_TEST_USER (admin or viewer)
+  const testUser = process.env.AUTH_TEST_USER;
+  if (testUser) {
+    const adminGroup = process.env.AUTH_ADMIN_GROUP || 'admins';
+    return {
+      email: 'testuser@glooker.dev',
+      sub: 'test-user-001',
+      name: testUser === 'admin' ? 'Test Admin' : 'Test Viewer',
+      groups: testUser === 'admin' ? [adminGroup] : [],
+    };
+  }
+
   const headerName = process.env.AUTH_HEADER || 'x-amzn-oidc-data';
   const jwt = headers.get(headerName);
   if (!jwt) return null;

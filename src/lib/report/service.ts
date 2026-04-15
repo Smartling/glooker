@@ -28,6 +28,23 @@ export class ReportAlreadyCompletedError extends Error {
   }
 }
 
+export class ReportAlreadyRunningError extends Error {
+  constructor() {
+    super('A report is already running. Please wait for it to complete or stop it first.');
+    this.name = 'ReportAlreadyRunningError';
+  }
+}
+
+async function assertNoRunningReport(excludeId?: string): Promise<void> {
+  const [rows] = await db.execute(
+    excludeId
+      ? `SELECT id FROM reports WHERE status IN ('pending', 'running') AND id != ? LIMIT 1`
+      : `SELECT id FROM reports WHERE status IN ('pending', 'running') LIMIT 1`,
+    excludeId ? [excludeId] : [],
+  ) as [any[], any];
+  if (rows.length > 0) throw new ReportAlreadyRunningError();
+}
+
 // ---------------------------------------------------------------------------
 // Service functions
 // ---------------------------------------------------------------------------
@@ -47,6 +64,7 @@ export async function createReport(input: {
   periodDays: number;
   testMode?: boolean;
 }): Promise<string> {
+  await assertNoRunningReport();
   const { org, periodDays, testMode = false } = input;
   const id = uuidv4();
 
@@ -186,6 +204,8 @@ export async function stopReport(id: string): Promise<void> {
 }
 
 export async function resumeReport(id: string): Promise<void> {
+  await assertNoRunningReport(id);
+
   const [rows] = await db.execute(
     `SELECT id, org, period_days, status FROM reports WHERE id = ?`,
     [id],

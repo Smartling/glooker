@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import { createPortal } from 'react-dom';
-import LlmFindings from '@/app/llm-findings';
 import ChatPanel from '@/app/chat-panel';
 
 interface Developer {
@@ -54,6 +53,7 @@ export default function TeamSummaryPage() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [filterHighlight, setFilterHighlight] = useState(0);
   const [teams, setTeams] = useState<Array<{ id: string; name: string; color: string; members: string[] }>>([]);
+  const [latestReportId, setLatestReportId] = useState<string | null>(null);
 
   // Load report data on mount
   useEffect(() => {
@@ -67,6 +67,9 @@ export default function TeamSummaryPage() {
         }
       })
       .catch(err => console.error('[glooker] Failed to load report:', err));
+    fetch('/api/llm-config').then(r => r.json()).then(d => {
+      setLatestReportId(d.latestReport?.id ?? null);
+    }).catch(() => {});
   }, [params.id]);
 
   function exportCsv(devs: Developer[], report: Report) {
@@ -136,6 +139,16 @@ export default function TeamSummaryPage() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
+      {/* Historical report notice */}
+      {activeReport && latestReportId && latestReportId !== params.id && (
+        <div className="mb-4 px-4 py-2.5 bg-amber-500/10 border border-amber-500/20 rounded-lg flex items-center gap-2 text-xs text-amber-400">
+          <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          Viewing historical report from {new Date(activeReport.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} — not the latest report.
+        </div>
+      )}
+
       {/* Report header */}
       {activeReport && (
         <div className="flex items-center justify-between mb-4">
@@ -379,8 +392,6 @@ export default function TeamSummaryPage() {
           No commits found for this org in the selected period.
         </div>
       )}
-
-      <LlmFindings />
 
       {activeReport?.org && <ChatPanel org={activeReport.org} />}
     </div>

@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams } from 'next/navigation';
+import ChatPanel from '@/app/chat-panel';
 
 const TYPE_COLORS: Record<string, string> = {
   feature: 'bg-blue-500', bug: 'bg-red-500', refactor: 'bg-purple-500',
@@ -34,22 +35,13 @@ interface ReportMeta {
 
 export default function OrgDetailPage() {
   const params = useParams<{ id: string }>();
-  const searchParams = useSearchParams();
-  const view = searchParams.get('view');
-  const chartsRef = useRef<HTMLDivElement>(null);
+
   const [loading, setLoading] = useState(true);
   const [report, setReport] = useState<ReportMeta | null>(null);
   const [developers, setDevelopers] = useState<Developer[]>([]);
   const [timeline, setTimeline] = useState<WeeklyData[]>([]);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (view === 'org' && chartsRef.current && !loading) {
-      setTimeout(() => {
-        chartsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 100);
-    }
-  }, [view, loading]);
+  const [latestReportId, setLatestReportId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(`/api/report/${params.id}/org`)
@@ -61,10 +53,13 @@ export default function OrgDetailPage() {
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
+    fetch('/api/llm-config').then(r => r.json()).then(d => {
+      setLatestReportId(d.latestReport?.id ?? null);
+    }).catch(() => {});
   }, [params.id]);
 
-  if (loading) return <div className="max-w-6xl mx-auto px-4 py-16 text-gray-500">Loading...</div>;
-  if (error || !report) return <div className="max-w-6xl mx-auto px-4 py-16 text-red-400">Error: {error || 'Not found'}</div>;
+  if (loading) return <div className="max-w-7xl mx-auto px-4 py-16 text-gray-500">Loading...</div>;
+  if (error || !report) return <div className="max-w-7xl mx-auto px-4 py-16 text-red-400">Error: {error || 'Not found'}</div>;
 
   // Org-level aggregates
   const totalCommits = developers.reduce((s, d) => s + d.total_commits, 0);
@@ -114,7 +109,17 @@ export default function OrgDetailPage() {
   ];
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8">
+    <div className="max-w-7xl mx-auto px-4 py-8">
+      {/* Historical report notice */}
+      {latestReportId && latestReportId !== params.id && (
+        <div className="mb-4 px-4 py-2.5 bg-amber-500/10 border border-amber-500/20 rounded-lg flex items-center gap-2 text-xs text-amber-400">
+          <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          Viewing historical report from {new Date(report.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} — not the latest report.
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-gray-900 rounded-xl p-6 mb-6">
         <div className="flex items-center justify-between">
@@ -168,26 +173,24 @@ export default function OrgDetailPage() {
         </div>
       </div>
 
-      <div ref={chartsRef}>
-        {/* Timeline Charts */}
-        {timeline.length >= 2 && (
-          <div className="mb-6">
-            <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-3">Org Activity Over Time (weekly)</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <TimelineChart data={timeline} valueKey="commits" label="Commits / Week" color="#3B82F6" />
-              <TimelineChart data={timeline} valueKey="activeDevs" label="Active Developers / Week" color="#10B981" />
-              <LinesChangedChart data={timeline} />
-              <TimelineChart data={timeline} valueKey="aiPercent" label="AI Assisted %" color="#A855F7" suffix="%" />
-            </div>
+      {/* Timeline Charts */}
+      {timeline.length >= 2 && (
+        <div className="mb-6">
+          <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-3">Org Activity Over Time (weekly)</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <TimelineChart data={timeline} valueKey="commits" label="Commits / Week" color="#3B82F6" />
+            <TimelineChart data={timeline} valueKey="activeDevs" label="Active Developers / Week" color="#10B981" />
+            <LinesChangedChart data={timeline} />
+            <TimelineChart data={timeline} valueKey="aiPercent" label="AI Assisted %" color="#A855F7" suffix="%" />
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Stacked Commit Types Over Time */}
-        {timeline.length >= 2 && <StackedTypesChart data={timeline} />}
-      </div>
+      {/* Stacked Commit Types Over Time */}
+      {timeline.length >= 2 && <StackedTypesChart data={timeline} />}
 
-      {/* Top Developers Table */}
-      <div className="bg-gray-900 rounded-xl overflow-hidden">
+      {/* Top Developers Table — hidden, use Team Summary instead */}
+      {false && <div className="bg-gray-900 rounded-xl overflow-hidden">
         <div className="px-5 py-3 border-b border-gray-800">
           <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">
             Developers ({developers.length})
@@ -272,7 +275,8 @@ export default function OrgDetailPage() {
             })}
           </tbody>
         </table>
-      </div>
+      </div>}
+      {report?.org && <ChatPanel org={report.org} />}
     </div>
   );
 }

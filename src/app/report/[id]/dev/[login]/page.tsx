@@ -173,7 +173,7 @@ export default function DevDetailPage() {
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
       <Breadcrumb items={[
-        { label: 'Team Summary', href: `/report/${params.id}/org` },
+        { label: 'Team Summary', href: `/report/${params.id}/team` },
         { label: `@${params.login}` },
       ]} />
 

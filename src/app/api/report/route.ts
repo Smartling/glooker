@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { listReports, createReport } from '@/lib/report/service';
+import { listReports, createReport, ReportAlreadyRunningError } from '@/lib/report/service';
 import { requireAdmin } from '@/lib/auth';
 import { withRequestLog } from '@/lib/logger';
 
@@ -16,8 +16,15 @@ async function postHandler(req: NextRequest) {
     return NextResponse.json({ error: 'periodDays must be 3, 14, 30, or 90' }, { status: 400 });
   }
 
-  const id = await createReport({ org, periodDays: Number(periodDays), testMode: Boolean(testMode) });
-  return NextResponse.json({ reportId: id });
+  try {
+    const id = await createReport({ org, periodDays: Number(periodDays), testMode: Boolean(testMode) });
+    return NextResponse.json({ reportId: id });
+  } catch (err) {
+    if (err instanceof ReportAlreadyRunningError) {
+      return NextResponse.json({ error: err.message }, { status: 409 });
+    }
+    throw err;
+  }
 }
 
 async function getHandler() {

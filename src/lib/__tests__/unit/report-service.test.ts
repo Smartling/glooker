@@ -49,7 +49,9 @@ describe('listReports', () => {
 
 describe('createReport', () => {
   it('inserts into DB, calls initProgress, calls runReport (fire-and-forget), returns id', async () => {
-    mockDbExecute.mockResolvedValue([{ affectedRows: 1 }, null]);
+    mockDbExecute
+      .mockResolvedValueOnce([[], null]) // assertNoRunningReport
+      .mockResolvedValueOnce([{ affectedRows: 1 }, null]); // INSERT
 
     const id = await createReport({ org: 'acme', periodDays: 30 });
 
@@ -63,7 +65,9 @@ describe('createReport', () => {
   });
 
   it('passes testMode=true to runReport when specified', async () => {
-    mockDbExecute.mockResolvedValue([{ affectedRows: 1 }, null]);
+    mockDbExecute
+      .mockResolvedValueOnce([[], null]) // assertNoRunningReport
+      .mockResolvedValueOnce([{ affectedRows: 1 }, null]); // INSERT
 
     await createReport({ org: 'acme', periodDays: 14, testMode: true });
 
@@ -238,6 +242,7 @@ describe('stopReport', () => {
 describe('resumeReport', () => {
   it('resets status, calls initProgress, calls runReport with resume=true', async () => {
     mockDbExecute
+      .mockResolvedValueOnce([[], null]) // assertNoRunningReport
       .mockResolvedValueOnce([[{ id: 'r1', org: 'acme', period_days: 30, status: 'stopped' }], null])
       .mockResolvedValueOnce([{ affectedRows: 1 }, null]);
 
@@ -252,14 +257,26 @@ describe('resumeReport', () => {
   });
 
   it('throws ReportNotFoundError when report does not exist', async () => {
-    mockDbExecute.mockResolvedValue([[], null]);
+    mockDbExecute
+      .mockResolvedValueOnce([[], null]) // assertNoRunningReport
+      .mockResolvedValueOnce([[], null]); // report lookup
 
     await expect(resumeReport('missing-id')).rejects.toThrow(ReportNotFoundError);
   });
 
   it('throws ReportAlreadyCompletedError when status is completed', async () => {
-    mockDbExecute.mockResolvedValue([[{ id: 'r1', org: 'acme', period_days: 30, status: 'completed' }], null]);
+    mockDbExecute
+      .mockResolvedValueOnce([[], null]) // assertNoRunningReport
+      .mockResolvedValueOnce([[{ id: 'r1', org: 'acme', period_days: 30, status: 'completed' }], null]);
 
     await expect(resumeReport('r1')).rejects.toThrow(ReportAlreadyCompletedError);
+  });
+
+  it('throws ReportAlreadyRunningError when another report is running', async () => {
+    mockDbExecute
+      .mockResolvedValueOnce([[{ id: 'other-report' }], null]); // assertNoRunningReport finds one
+
+    const { ReportAlreadyRunningError } = require('@/lib/report/service');
+    await expect(resumeReport('r1')).rejects.toThrow(ReportAlreadyRunningError);
   });
 });

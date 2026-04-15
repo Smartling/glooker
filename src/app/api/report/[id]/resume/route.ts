@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { resumeReport, ReportNotFoundError, ReportAlreadyCompletedError } from '@/lib/report/service';
+import { resumeReport, ReportNotFoundError, ReportAlreadyCompletedError, ReportAlreadyRunningError } from '@/lib/report/service';
 import { requireAdmin } from '@/lib/auth';
 import { withRequestLog } from '@/lib/logger';
 
@@ -20,6 +20,9 @@ async function postHandler(
     }
     if (err instanceof ReportAlreadyCompletedError) {
       return NextResponse.json({ error: 'Report already completed' }, { status: 400 });
+    }
+    if (err instanceof ReportAlreadyRunningError) {
+      return NextResponse.json({ error: err.message }, { status: 409 });
     }
     throw err;
   }

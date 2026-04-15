@@ -37,9 +37,23 @@ export default function SettingsPage() {
   const [orgs, setOrgs] = useState<Array<{ login: string }>>([]);
   const [selectedOrg, setSelectedOrg] = useState('');
 
-  // Set default tab to 'app' once auth loads and user is admin
+  // Set default tab: hash overrides, otherwise 'app' for admins
+  const adminTabs = ['schedules', 'teams', 'app'];
   useEffect(() => {
-    if (!loading && canAct) setActiveTab('app');
+    if (!loading) {
+      const hash = window.location.hash.replace('#', '') as Tab;
+      if (['schedules', 'teams', 'app', 'appearance'].includes(hash)) {
+        // Only allow admin tabs if user is admin
+        if (adminTabs.includes(hash) && !canAct) {
+          setActiveTab('appearance');
+        } else {
+          setActiveTab(hash);
+        }
+      } else if (canAct) {
+        setActiveTab('app');
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, canAct]);
 
   useEffect(() => {

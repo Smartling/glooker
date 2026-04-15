@@ -54,7 +54,7 @@ export default function ReportsPage() {
   const lastCompletedDevsRef = useRef(0);
   const activeReportRef = useRef<Report | null>(null);
 
-  // Load orgs and past reports on mount
+  // Load orgs and past reports on mount; auto-resume polling if a report is running
   useEffect(() => {
     fetch('/api/orgs')
       .then((r) => r.json())
@@ -65,7 +65,17 @@ export default function ReportsPage() {
       .catch((err) => console.error('[glooker]', err));
     fetch('/api/report')
       .then((r) => r.json())
-      .then(setPastReports)
+      .then((reports: Report[]) => {
+        setPastReports(reports);
+        // Auto-resume polling for any running report
+        const runningReport = reports.find(r => r.status === 'running');
+        if (runningReport) {
+          setRunning(true);
+          setReportId(runningReport.id);
+          setActiveReport(runningReport);
+          startPolling(runningReport.id);
+        }
+      })
       .catch((err) => console.error('[glooker]', err));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -206,8 +216,41 @@ export default function ReportsPage() {
     startPolling(id);
   }
 
-  function viewReport(id: string) {
-    window.location.href = `/report/${id}/org`;
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [reportStats, setReportStats] = useState<Record<string, any>>({});
+
+  function toggleExpand(id: string) {
+    if (expandedId === id) {
+      setExpandedId(null);
+      return;
+    }
+    setExpandedId(id);
+    if (!reportStats[id]) {
+      fetch(`/api/report/${id}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data?.developers) {
+            const devs = data.developers;
+            const hasJira = devs.some((d: any) => (d.total_jira_issues ?? 0) > 0);
+            setReportStats(prev => ({
+              ...prev,
+              [id]: {
+                developers: devs.length,
+                commits: devs.reduce((s: number, d: any) => s + d.total_commits, 0),
+                prs: devs.reduce((s: number, d: any) => s + d.total_prs, 0),
+                linesAdded: devs.reduce((s: number, d: any) => s + d.lines_added, 0),
+                linesRemoved: devs.reduce((s: number, d: any) => s + d.lines_removed, 0),
+                avgImpact: devs.length > 0
+                  ? devs.reduce((s: number, d: any) => s + Number(d.impact_score || 0), 0) / devs.length
+                  : 0,
+                jiraIssues: hasJira ? devs.reduce((s: number, d: any) => s + (d.total_jira_issues ?? 0), 0) : null,
+                reviews: devs.reduce((s: number, d: any) => s + (d.total_reviews ?? 0), 0),
+              },
+            }));
+          }
+        })
+        .catch(() => {});
+    }
   }
 
   const pct = progress && progress.totalDevelopers > 0
@@ -224,7 +267,7 @@ export default function ReportsPage() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8">
+    <div className="max-w-7xl mx-auto px-4 py-8">
       {/* Page header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -232,16 +275,19 @@ export default function ReportsPage() {
           <p className="text-xs text-gray-500 mt-0.5">Generate and manage developer impact reports</p>
         </div>
         <div className="flex items-center gap-3">
-          <a href="/settings#schedule" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">
-            Schedule
-          </a>
+          {canAct && (
+            <a href="/settings#schedules" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">
+              Schedule
+            </a>
+          )}
           {canAct && (
             <button
               onClick={() => setShowReportForm(true)}
-              disabled={orgs.length === 0}
+              disabled={orgs.length === 0 || running}
+              title={running ? 'A report is currently running' : undefined}
               className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors"
             >
-              + New Report
+              {running ? 'Report Running...' : '+ New Report'}
             </button>
           )}
         </div>
@@ -313,115 +359,6 @@ export default function ReportsPage() {
         </div>
       )}
 
-      {/* Running report progress */}
-      {running && reportId && (
-        <div className="bg-gray-900 rounded-xl p-5 mb-6">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-sm text-gray-300">Report is running...</span>
-            {canAct && (
-              <button
-                type="button"
-                onClick={() => reportId && stopReport(reportId)}
-                className="px-4 py-1.5 bg-red-700 hover:bg-red-600 text-white rounded-lg text-xs font-medium transition-colors"
-              >
-                Stop
-              </button>
-            )}
-          </div>
-          {progress && (
-            <>
-              <div className="flex justify-between text-sm mb-2">
-                <span className="text-gray-300">{progress.step}</span>
-                {progress.totalDevelopers > 0 ? (
-                  <span className="text-gray-500">
-                    {progress.completedDevelopers} / {progress.totalDevelopers} developers
-                  </span>
-                ) : progress.completedDevelopers > 0 ? (
-                  <span className="text-gray-500">
-                    {progress.completedDevelopers} developers done
-                  </span>
-                ) : null}
-              </div>
-              <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all duration-500 ${
-                    progress.status === 'failed' ? 'bg-red-500' : progress.status === 'stopped' ? 'bg-orange-500' : 'bg-indigo-500'
-                  }`}
-                  style={{ width: `${Math.max(pct, running ? 2 : 0)}%` }}
-                />
-              </div>
-              {progress.totalRepos > 0 && progress.totalDevelopers === 0 && (
-                <p className="text-xs text-gray-600 mt-2">
-                  Fetching: {progress.processedRepos}/{progress.totalRepos} members
-                </p>
-              )}
-              {progress.error && (
-                <p className="text-xs text-red-400 mt-2">{progress.error}</p>
-              )}
-            </>
-          )}
-        </div>
-      )}
-
-      {/* Failed/stopped progress (when not running anymore) */}
-      {!running && progress && (progress.status === 'failed' || progress.status === 'stopped') && (
-        <div className="bg-gray-900 rounded-xl p-5 mb-6">
-          <div className="flex justify-between text-sm mb-2">
-            <span className="text-gray-300">{progress.step}</span>
-            <span className={`text-xs font-medium ${progress.status === 'failed' ? 'text-red-400' : 'text-orange-400'}`}>
-              {progress.status}
-            </span>
-          </div>
-          <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
-            <div
-              className={`h-full rounded-full ${progress.status === 'failed' ? 'bg-red-500' : 'bg-orange-500'}`}
-              style={{ width: `${pct}%` }}
-            />
-          </div>
-          {progress.error && (
-            <p className="text-xs text-red-400 mt-2">{progress.error}</p>
-          )}
-        </div>
-      )}
-
-      {/* Log panel */}
-      {logs.length > 0 && (
-        <div className="bg-gray-900 rounded-xl mb-6 overflow-hidden">
-          <button
-            onClick={() => setShowLogs(!showLogs)}
-            className="w-full flex items-center justify-between px-4 py-2 text-xs text-gray-400 hover:text-gray-300 bg-gray-800/50"
-          >
-            <span className="font-semibold uppercase tracking-wider">
-              Logs ({logs.length})
-            </span>
-            <span>{showLogs ? 'Hide' : 'Show'}</span>
-          </button>
-          {showLogs && (
-            <div className="max-h-64 overflow-y-auto p-3 font-mono text-xs leading-relaxed">
-              {logs.map((line, i) => (
-                <div
-                  key={i}
-                  className={`${
-                    line.includes('ERROR') || line.includes('FATAL')
-                      ? 'text-red-400'
-                      : line.includes('SKIP')
-                      ? 'text-yellow-500'
-                      : line.includes('LLM [')
-                      ? 'text-indigo-400'
-                      : line.includes('DEV ')
-                      ? 'text-green-400'
-                      : 'text-gray-500'
-                  }`}
-                >
-                  {line}
-                </div>
-              ))}
-              <div ref={logsEndRef} />
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Report list */}
       <div className="space-y-2">
         {pastReports.length === 0 && !running && (
@@ -468,14 +405,26 @@ export default function ReportsPage() {
             );
           }
 
+          const isExpanded = expandedId === r.id;
+          const stats = reportStats[r.id];
+
           return (
             <div
               key={r.id}
-              className="group bg-gray-900 border border-gray-800 rounded-xl p-4 hover:border-gray-700 transition-colors cursor-pointer"
-              onClick={() => viewReport(r.id)}
+              className={`group bg-gray-900 border rounded-xl transition-colors ${isExpanded ? 'border-gray-700' : 'border-gray-800 hover:border-gray-700'}`}
             >
-              <div className="flex items-center justify-between">
+              {/* Header row */}
+              <div
+                className="flex items-center justify-between p-4 cursor-pointer"
+                onClick={() => r.status === 'completed' ? toggleExpand(r.id) : undefined}
+              >
                 <div className="flex items-center gap-3">
+                  {/* Expand arrow */}
+                  {r.status === 'completed' && (
+                    <svg className={`w-3.5 h-3.5 text-gray-600 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  )}
                   <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${statusColor} ${statusBg}`}>
                     {r.status === 'completed' ? 'done' : r.status}
                   </span>
@@ -517,6 +466,137 @@ export default function ReportsPage() {
                   </div>
                 </div>
               </div>
+
+              {/* Progress + logs inside the running/failed/stopped tile */}
+              {r.id === reportId && progress && (
+                <div className="border-t border-gray-800 px-4 pb-3 pt-3">
+                  {/* Progress bar — always visible */}
+                  <div className="flex justify-between text-xs mb-1.5">
+                    <span className="text-gray-400">{progress.step}</span>
+                    {progress.totalDevelopers > 0 ? (
+                      <span className="text-gray-600">
+                        {progress.completedDevelopers} / {progress.totalDevelopers} developers
+                      </span>
+                    ) : progress.completedDevelopers > 0 ? (
+                      <span className="text-gray-600">
+                        {progress.completedDevelopers} developers done
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ${
+                        progress.status === 'failed' ? 'bg-red-500' : progress.status === 'stopped' ? 'bg-orange-500' : 'bg-indigo-500'
+                      }`}
+                      style={{ width: `${Math.max(pct, running ? 2 : 0)}%` }}
+                    />
+                  </div>
+                  {progress.totalRepos > 0 && progress.totalDevelopers === 0 && (
+                    <p className="text-[10px] text-gray-600 mt-1">
+                      Fetching: {progress.processedRepos}/{progress.totalRepos} members
+                    </p>
+                  )}
+                  {progress.error && (
+                    <p className="text-xs text-red-400 mt-1.5">{progress.error}</p>
+                  )}
+
+                  {/* Logs — collapsible */}
+                  {logs.length > 0 && (
+                    <div className="mt-3">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setShowLogs(!showLogs); }}
+                        className="flex items-center gap-1.5 text-[10px] text-gray-500 hover:text-gray-400 uppercase tracking-wider font-semibold"
+                      >
+                        <svg className={`w-3 h-3 transition-transform ${showLogs ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                        Logs ({logs.length})
+                      </button>
+                      {showLogs && (
+                        <div className="max-h-48 overflow-y-auto mt-1.5 p-2 bg-gray-950 rounded-lg font-mono text-[11px] leading-relaxed">
+                          {logs.map((line, i) => (
+                            <div
+                              key={i}
+                              className={
+                                line.includes('ERROR') || line.includes('FATAL')
+                                  ? 'text-red-400'
+                                  : line.includes('SKIP')
+                                  ? 'text-yellow-500'
+                                  : line.includes('LLM [')
+                                  ? 'text-indigo-400'
+                                  : line.includes('DEV ')
+                                  ? 'text-green-400'
+                                  : 'text-gray-600'
+                              }
+                            >
+                              {line}
+                            </div>
+                          ))}
+                          <div ref={logsEndRef} />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Expanded stats */}
+              {isExpanded && (
+                <div className="border-t border-gray-800 px-4 pb-4 pt-3">
+                  {!stats ? (
+                    <div className="text-xs text-gray-500 py-2">Loading stats...</div>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-4">
+                        <div>
+                          <div className="text-[10px] text-gray-600 uppercase tracking-wider">Developers</div>
+                          <div className="text-sm font-bold text-white">{stats.developers}</div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] text-gray-600 uppercase tracking-wider">Commits</div>
+                          <div className="text-sm font-bold text-white">{stats.commits.toLocaleString()}</div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] text-gray-600 uppercase tracking-wider">PRs</div>
+                          <div className="text-sm font-bold text-white">{stats.prs.toLocaleString()}</div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] text-gray-600 uppercase tracking-wider">Lines +/-</div>
+                          <div className="text-sm font-bold">
+                            <span className="text-green-400">+{stats.linesAdded.toLocaleString()}</span>
+                            <span className="text-gray-600"> / </span>
+                            <span className="text-red-400">-{stats.linesRemoved.toLocaleString()}</span>
+                          </div>
+                        </div>
+                        {stats.jiraIssues !== null && (
+                          <div>
+                            <div className="text-[10px] text-gray-600 uppercase tracking-wider">Jira Issues</div>
+                            <div className="text-sm font-bold text-white">{stats.jiraIssues}</div>
+                          </div>
+                        )}
+                        <div>
+                          <div className="text-[10px] text-gray-600 uppercase tracking-wider">Avg Impact</div>
+                          <div className="text-sm font-bold text-indigo-400">{stats.avgImpact.toFixed(1)}</div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <a
+                          href={`/report/${r.id}/team`}
+                          className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors font-medium"
+                        >
+                          Team Summary &rarr;
+                        </a>
+                        <a
+                          href={`/report/${r.id}/org`}
+                          className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors font-medium"
+                        >
+                          Org Summary &rarr;
+                        </a>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
