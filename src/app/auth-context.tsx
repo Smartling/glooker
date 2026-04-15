@@ -1,6 +1,7 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, type ReactNode } from 'react';
+import useSWR from 'swr';
 
 interface AuthUser {
   email: string;
@@ -24,26 +25,13 @@ const AuthContext = createContext<AuthContextType>({
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<AuthContextType>({
-    enabled: false,
-    user: null,
-    loading: true,
-  });
+  const { data, isLoading } = useSWR('/api/auth/me', { revalidateIfStale: false });
 
-  useEffect(() => {
-    fetch('/api/auth/me')
-      .then(res => res.json())
-      .then(data => {
-        setState({
-          enabled: data.enabled ?? false,
-          user: data.user ?? null,
-          loading: false,
-        });
-      })
-      .catch(() => {
-        setState({ enabled: false, user: null, loading: false });
-      });
-  }, []);
+  const state: AuthContextType = {
+    enabled: data?.enabled ?? false,
+    user: data?.user ?? null,
+    loading: isLoading,
+  };
 
   return (
     <AuthContext.Provider value={state}>
