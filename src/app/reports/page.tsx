@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import useSWR, { useSWRConfig } from 'swr';
+import Link from 'next/link';
 import { useAuth } from '../auth-context';
 import { useIdleAwarePolling } from '@/hooks/use-idle-aware-polling';
 
@@ -38,7 +40,7 @@ export default function ReportsPage() {
   const [pastReports, setPastReports]   = useState<Report[]>([]);
   const [activeReport, setActiveReport] = useState<Report | null>(null);
   const [deletingId, setDeletingId]     = useState<string | null>(null);
-  const [orgs, setOrgs]             = useState<Array<{ login: string; avatar_url: string }>>([]);
+  // orgs derived from SWR below
 
   // Logs
   const [logs, setLogs]             = useState<string[]>([]);
@@ -54,31 +56,32 @@ export default function ReportsPage() {
   const lastCompletedDevsRef = useRef(0);
   const activeReportRef = useRef<Report | null>(null);
 
-  // Load orgs and past reports on mount; auto-resume polling if a report is running
+  // SWR: orgs and initial report list
+  const { data: orgsData } = useSWR<Array<{ login: string; avatar_url: string }>>('/api/orgs');
+  const orgs = orgsData ?? [];
+  const { data: initialReports } = useSWR<Report[]>('/api/report');
+  const { mutate: globalMutate } = useSWRConfig();
+
+  // Set default org when orgs load
   useEffect(() => {
-    fetch('/api/orgs')
-      .then((r) => r.json())
-      .then((data: Array<{ login: string; avatar_url: string }>) => {
-        setOrgs(data);
-        if (data.length > 0 && !org) setOrg(data[0].login);
-      })
-      .catch((err) => console.error('[glooker]', err));
-    fetch('/api/report')
-      .then((r) => r.json())
-      .then((reports: Report[]) => {
-        setPastReports(reports);
-        // Auto-resume polling for any running report
-        const runningReport = reports.find(r => r.status === 'running');
-        if (runningReport) {
-          setRunning(true);
-          setReportId(runningReport.id);
-          setActiveReport(runningReport);
-          startPolling(runningReport.id);
-        }
-      })
-      .catch((err) => console.error('[glooker]', err));
+    if (orgsData && orgsData.length > 0 && !org) setOrg(orgsData[0].login);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [orgsData]);
+
+  // Seed pastReports from SWR initial load; auto-resume polling for running report
+  useEffect(() => {
+    if (initialReports) {
+      setPastReports(initialReports);
+      const runningReport = initialReports.find((r: Report) => r.status === 'running');
+      if (runningReport && !running) {
+        setRunning(true);
+        setReportId(runningReport.id);
+        setActiveReport(runningReport);
+        startPolling(runningReport.id);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialReports]);
 
   useEffect(() => { activeReportRef.current = activeReport; }, [activeReport]);
 
@@ -94,6 +97,7 @@ export default function ReportsPage() {
           if (updated && updated.status !== current.status) {
             setActiveReport((prev) => prev ? { ...prev, status: updated.status, completed_at: updated.completed_at } : prev);
             if (updated.status === 'completed' && current.status === 'running') {
+              globalMutate(() => true, undefined, { revalidate: true });
               setRunning(false);
             }
           }
@@ -126,8 +130,8 @@ export default function ReportsPage() {
         if (prog.status === 'completed' || prog.status === 'failed' || prog.status === 'stopped') {
           stopPolling();
           setRunning(false);
-          // Refresh past reports list
-          fetch('/api/report').then((r) => r.json()).then(setPastReports).catch((err) => console.error('[glooker]', err));
+          // Bust all SWR caches so every page sees fresh data
+          globalMutate(() => true, undefined, { revalidate: true });
         }
       } catch (err) {
         console.error('[glooker] Polling error:', err);
@@ -580,18 +584,18 @@ export default function ReportsPage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-4">
-                        <a
+                        <Link
                           href={`/report/${r.id}/team`}
                           className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors font-medium"
                         >
                           Team Summary &rarr;
-                        </a>
-                        <a
+                        </Link>
+                        <Link
                           href={`/report/${r.id}/org`}
                           className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors font-medium"
                         >
                           Org Summary &rarr;
-                        </a>
+                        </Link>
                       </div>
                     </>
                   )}

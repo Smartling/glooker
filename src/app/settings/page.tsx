@@ -1175,12 +1175,12 @@ function AppSettingsTab({ org }: { org: string }) {
                   Run a report to automatically map GitHub logins to Jira accounts using email matching.
                   Mappings are saved and reused across future reports.
                 </p>
-                <button
-                  onClick={() => window.location.href = '/'}
-                  className="mt-3 px-3 py-1.5 text-xs font-medium bg-accent hover:bg-accent-dark text-white rounded-lg transition-colors"
+                <a
+                  href="/reports"
+                  className="mt-3 inline-block px-3 py-1.5 text-xs font-medium bg-accent hover:bg-accent-dark text-white rounded-lg transition-colors"
                 >
                   Run Report →
-                </button>
+                </a>
               </div>
             </div>
           ) : (
