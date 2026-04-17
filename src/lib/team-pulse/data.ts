@@ -21,24 +21,21 @@ export interface TeamPulseData {
   trendDirection: 'up' | 'down' | 'stable';
 }
 
+function formatLocalDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 export function getWorkingDays(endDate: Date, count: number): string[] {
   const days: string[] = [];
   const d = new Date(endDate);
-  const dow = d.getDay(); // 0=Sun, 1=Mon, ..., 5=Fri, 6=Sat
-
-  // If endDate falls Mon–Thu, skip back past the current incomplete week
-  // so the window comes entirely from the prior week (ending on Friday)
-  if (dow >= 1 && dow <= 4) {
-    // Move d to the Saturday that closes the prior week:
-    // Mon(1)→-2, Tue(2)→-3, Wed(3)→-4, Thu(4)→-5
-    d.setDate(d.getDate() - (dow + 1));
-  }
-
   while (days.length < count) {
     d.setDate(d.getDate() - 1);
-    const dow2 = d.getDay();
-    if (dow2 !== 0 && dow2 !== 6) {
-      days.push(d.toISOString().split('T')[0]);
+    const dow = d.getDay();
+    if (dow !== 0 && dow !== 6) {
+      days.push(formatLocalDate(d));
     }
   }
   return days.reverse();
@@ -92,13 +89,16 @@ export async function extractTeamPulseData(
   const commitByMemberDay = new Map<string, Map<string, any>>();
   for (const row of commitRows) {
     if (!commitByMemberDay.has(row.github_login)) commitByMemberDay.set(row.github_login, new Map());
-    commitByMemberDay.get(row.github_login)!.set(row.day, row);
+    // MySQL returns DATE() as a Date object; convert to YYYY-MM-DD string for map lookup
+    const dayStr = row.day instanceof Date ? formatLocalDate(row.day) : String(row.day).split('T')[0];
+    commitByMemberDay.get(row.github_login)!.set(dayStr, row);
   }
 
   const jiraByMemberDay = new Map<string, Map<string, any>>();
   for (const row of jiraRows) {
     if (!jiraByMemberDay.has(row.github_login)) jiraByMemberDay.set(row.github_login, new Map());
-    jiraByMemberDay.get(row.github_login)!.set(row.day, row);
+    const dayStr = row.day instanceof Date ? formatLocalDate(row.day) : String(row.day).split('T')[0];
+    jiraByMemberDay.get(row.github_login)!.set(dayStr, row);
   }
 
   const members = new Map<string, MemberWindowData>();

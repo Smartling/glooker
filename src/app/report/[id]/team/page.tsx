@@ -423,7 +423,7 @@ function TeamPulseCard({ reportId, teamName, org, periodDays }: {
 }) {
   const [collapsed, setCollapsed] = useState(() => {
     if (typeof window !== 'undefined') {
-      return sessionStorage.getItem(`team-pulse-collapsed-${teamName}`) === 'true';
+      return sessionStorage.getItem(`team-pulse-collapsed-${teamName}`) !== 'false';
     }
     return false;
   });
