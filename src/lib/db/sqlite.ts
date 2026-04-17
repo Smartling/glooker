@@ -198,6 +198,18 @@ CREATE TABLE IF NOT EXISTS release_notes (
   UNIQUE (latest_commit_sha)
 );
 
+CREATE TABLE IF NOT EXISTS team_pulse_summaries (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  report_id    TEXT    NOT NULL,
+  team_name    TEXT    NOT NULL,
+  org          TEXT    NOT NULL,
+  summary_text TEXT    NOT NULL,
+  health_json  TEXT    NOT NULL,
+  generated_at TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+  FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
+  UNIQUE (report_id, team_name)
+);
+
 CREATE INDEX IF NOT EXISTS idx_devstats_login ON developer_stats(github_login);
 CREATE INDEX IF NOT EXISTS idx_reports_org_status_created ON reports(org, status, created_at);
 `;
@@ -282,6 +294,7 @@ function translateSQL(sql: string): string {
       epic_summaries: 'epic_key, org',
       untracked_summaries: 'team_name, org',
       release_notes: 'latest_commit_sha',
+      team_pulse_summaries: 'report_id, team_name',
     };
     const conflict = conflictCols[table] || 'id';
 

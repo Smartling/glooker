@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { createPortal } from 'react-dom';
 import ChatPanel from '@/app/chat-panel';
+import { useAuth } from '@/app/auth-context';
 
 interface Developer {
   github_login:       string;
@@ -52,6 +53,7 @@ const TYPE_COLORS: Record<string, string> = {
 export default function TeamSummaryPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const { canAct } = useAuth();
 
   // Main report data
   const { data: reportData, isLoading } = useSWR(`/api/report/${params.id}`);
@@ -69,6 +71,7 @@ export default function TeamSummaryPage() {
 
   const commitCache = useRef<Map<string, any[]>>(new Map());
   const jiraCache = useRef<Map<string, any[]>>(new Map());
+  const [selectedTeamName, setSelectedTeamName] = useState<string | null>(null);
   const [filterLogins, setFilterLogins] = useState<Set<string>>(new Set());
   const [filterQuery, setFilterQuery] = useState('');
   const [filterOpen, setFilterOpen] = useState(false);
@@ -205,7 +208,10 @@ export default function TeamSummaryPage() {
                 value=""
                 onChange={e => {
                   const team = teams.find(t => t.id === e.target.value);
-                  if (team) setFilterLogins(new Set(team.members));
+                  if (team) {
+                    setFilterLogins(new Set(team.members));
+                    setSelectedTeamName(team.name);
+                  }
                   e.target.value = '';
                 }}
                 className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-gray-400 focus:outline-none focus:border-accent cursor-pointer"
@@ -287,10 +293,19 @@ export default function TeamSummaryPage() {
               })()}
             </div>
             {filterLogins.size > 0 && (
-              <button onClick={() => setFilterLogins(new Set())} className="text-xs text-gray-600 hover:text-gray-400">Clear all</button>
+              <button onClick={() => { setFilterLogins(new Set()); setSelectedTeamName(null); }} className="text-xs text-gray-600 hover:text-gray-400">Clear all</button>
             )}
           </div>
         </div>
+      )}
+
+      {canAct && selectedTeamName && activeReport && activeReport.period_days >= 14 && (
+        <TeamPulseCard
+          reportId={params.id}
+          teamName={selectedTeamName}
+          org={activeReport.org}
+          periodDays={activeReport.period_days}
+        />
       )}
 
       {/* Developer table */}
@@ -398,6 +413,90 @@ export default function TeamSummaryPage() {
       {activeReport?.org && <ChatPanel org={activeReport.org} />}
     </div>
   );
+}
+
+function TeamPulseCard({ reportId, teamName, org, periodDays }: {
+  reportId: string;
+  teamName: string;
+  org: string;
+  periodDays: number;
+}) {
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem(`team-pulse-collapsed-${teamName}`) !== 'false';
+    }
+    return false;
+  });
+
+  const { data, isLoading, error } = useSWR(
+    periodDays >= 14
+      ? `/api/report/${reportId}/team-pulse?team=${encodeURIComponent(teamName)}&org=${encodeURIComponent(org)}`
+      : null,
+    { revalidateIfStale: false },
+  );
+
+  const toggleCollapse = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    sessionStorage.setItem(`team-pulse-collapsed-${teamName}`, String(next));
+  };
+
+  if (!data && !isLoading && !error) return null;
+
+  const trendColor = data?.health?.trendDirection === 'up' ? 'text-green-400'
+    : data?.health?.trendDirection === 'down' ? 'text-red-400'
+    : 'text-gray-500';
+  const trendArrow = data?.health?.trendDirection === 'up' ? '▲'
+    : data?.health?.trendDirection === 'down' ? '▼'
+    : '—';
+
+  return (
+    <div className="bg-gray-900 rounded-xl mb-4 overflow-hidden">
+      <button
+        onClick={toggleCollapse}
+        className="w-full flex items-center justify-between px-5 py-3 text-left hover:bg-gray-800/30 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <svg className={`w-3.5 h-3.5 text-gray-500 transition-transform ${collapsed ? '' : 'rotate-90'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+          <span className="text-sm font-semibold text-white">Team Pulse: {teamName}</span>
+          {isLoading && <span className="text-xs text-gray-500 animate-pulse">Generating...</span>}
+        </div>
+        {data?.health && (
+          <div className="flex items-center gap-3 text-xs">
+            <span className="text-gray-400">{data.health.activeRatio} active</span>
+            <span className={trendColor}>{trendArrow} {data.health.trending}</span>
+          </div>
+        )}
+      </button>
+      {!collapsed && (
+        <div className="px-5 pb-4 border-t border-gray-800">
+          {isLoading && (
+            <div className="py-6 text-center text-sm text-gray-500 animate-pulse">Generating team pulse...</div>
+          )}
+          {error && (
+            <div className="py-4 text-center text-sm text-red-400">Failed to generate summary</div>
+          )}
+          {data?.summary && (
+            <div
+              className="mt-3 text-sm text-gray-300 leading-relaxed"
+              dangerouslySetInnerHTML={{ __html: renderPulseMarkdown(data.summary) }}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function renderPulseMarkdown(md: string): string {
+  return md
+    .replace(/^## (.+)$/gm, '<h3 class="text-xs font-bold uppercase tracking-wider text-gray-400 mt-4 mb-2">$1</h3>')
+    .replace(/^- (.+)$/gm, '<li class="ml-4 text-gray-300 mb-1">$1</li>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong class="text-white">$1</strong>')
+    .replace(/@(\w[\w-]*)/g, '<span class="text-accent-light font-medium">@$1</span>')
+    .replace(/\n/g, '');
 }
 
 function ComplexityBadge({ value }: { value: number }) {
