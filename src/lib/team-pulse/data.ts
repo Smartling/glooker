@@ -49,8 +49,8 @@ export async function extractTeamPulseData(
   const allDays = getWorkingDays(reportEndDate, 4);
   const priorDays = allDays.slice(0, 2);
   const currentDays = allDays.slice(2, 4);
-  const allDaysStr = allDays.map(d => `'${d}'`).join(',');
-  const membersStr = teamMembers.map(m => `'${m}'`).join(',');
+  const memberPlaceholders = teamMembers.map(() => '?').join(',');
+  const dayPlaceholders = allDays.map(() => '?').join(',');
 
   const [commitRows] = await db.execute(
     `SELECT github_login, DATE(committed_at) as day,
@@ -62,25 +62,25 @@ export async function extractTeamPulseData(
       GROUP_CONCAT(DISTINCT type ORDER BY type) as types,
       GROUP_CONCAT(DISTINCT repo ORDER BY repo) as repos
     FROM commit_analyses
-    WHERE report_id = ? AND github_login IN (${membersStr}) AND DATE(committed_at) IN (${allDaysStr})
+    WHERE report_id = ? AND github_login IN (${memberPlaceholders}) AND DATE(committed_at) IN (${dayPlaceholders})
     GROUP BY github_login, DATE(committed_at)`,
-    [reportId],
+    [reportId, ...teamMembers, ...allDays],
   ) as [any[], any];
 
   const [jiraRows] = await db.execute(
     `SELECT github_login, DATE(resolved_at) as day, COUNT(*) as issues,
       COALESCE(SUM(story_points), 0) as story_points
     FROM jira_issues
-    WHERE report_id = ? AND github_login IN (${membersStr}) AND DATE(resolved_at) IN (${allDaysStr})
+    WHERE report_id = ? AND github_login IN (${memberPlaceholders}) AND DATE(resolved_at) IN (${dayPlaceholders})
     GROUP BY github_login, DATE(resolved_at)`,
-    [reportId],
+    [reportId, ...teamMembers, ...allDays],
   ) as [any[], any];
 
   const [reviewRows] = await db.execute(
     `SELECT github_login, total_reviews
     FROM developer_stats
-    WHERE report_id = ? AND github_login IN (${membersStr})`,
-    [reportId],
+    WHERE report_id = ? AND github_login IN (${memberPlaceholders})`,
+    [reportId, ...teamMembers],
   ) as [any[], any];
 
   const reviewMap = new Map<string, number>();
