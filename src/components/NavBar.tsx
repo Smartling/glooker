@@ -18,7 +18,7 @@ export default function NavBar() {
   const searchParams = useSearchParams();
   const { enabled: authEnabled, user } = useAuth();
 
-  const { data: config } = useSWR('/api/llm-config', { revalidateIfStale: false });
+  const { data: config } = useSWR('/api/llm-config');
   const latestReport = config?.latestReport ?? null;
   const projectsEnabled = Boolean(config?.jira?.enabled && config?.jira?.projectsJql);
 
