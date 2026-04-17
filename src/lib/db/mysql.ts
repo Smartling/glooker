@@ -103,6 +103,20 @@ CREATE TABLE IF NOT EXISTS epic_stats (
 );
 `;
 
+const TEAM_PULSE_SCHEMA = `
+CREATE TABLE IF NOT EXISTS team_pulse_summaries (
+  id           INT AUTO_INCREMENT PRIMARY KEY,
+  report_id    VARCHAR(36)  NOT NULL,
+  team_name    VARCHAR(255) NOT NULL,
+  org          VARCHAR(255) NOT NULL,
+  summary_text TEXT         NOT NULL,
+  health_json  TEXT         NOT NULL,
+  generated_at TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_report_team_pulse (report_id, team_name)
+);
+`;
+
 export function createMySQLDB(): DB {
   const pool = mysql.createPool({
     host:     process.env.DB_HOST     || 'localhost',
@@ -132,6 +146,9 @@ export function createMySQLDB(): DB {
   });
   pool.execute(EPIC_STATS_SCHEMA).catch((err) => {
     console.error('[db/mysql] Failed to create epic_stats table:', err);
+  });
+  pool.execute(TEAM_PULSE_SCHEMA).catch((err) => {
+    console.error('[db/mysql] Failed to create team_pulse_summaries table:', err);
   });
 
   // Migrations
