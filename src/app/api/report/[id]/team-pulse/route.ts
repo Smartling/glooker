@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth';
 import { withRequestLog } from '@/lib/logger';
 import { getTeamPulse } from '@/lib/team-pulse';
 import db from '@/lib/db';
@@ -8,8 +7,6 @@ async function getHandler(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const denied = await requireAdmin(req);
-  if (denied) return denied;
 
   const { id } = await params;
   const team = req.nextUrl.searchParams.get('team');

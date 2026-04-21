@@ -299,7 +299,7 @@ export default function TeamSummaryPage() {
         </div>
       )}
 
-      {canAct && selectedTeamName && activeReport && activeReport.period_days >= 14 && (
+      {selectedTeamName && activeReport && activeReport.period_days >= 14 && (
         <TeamPulseCard
           reportId={params.id}
           teamName={selectedTeamName}
