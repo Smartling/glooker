@@ -4,8 +4,9 @@ import { useState, useEffect, useRef } from 'react';
 import { useTheme } from '../theme-context';
 import { THEMES, type ThemeColors } from '../themes';
 import { useAuth } from '../auth-context';
+import { parseSpendPeriodFromFilename } from '@/lib/cc-spend/filename';
 
-type Tab = 'schedules' | 'teams' | 'app' | 'appearance';
+type Tab = 'schedules' | 'teams' | 'app' | 'appearance' | 'cc-spend';
 
 const CADENCE_PRESETS = [
   { label: 'Every hour',           cron: '0 * * * *' },
@@ -38,11 +39,11 @@ export default function SettingsPage() {
   const [selectedOrg, setSelectedOrg] = useState('');
 
   // Set default tab: hash overrides, otherwise 'app' for admins
-  const adminTabs = ['schedules', 'teams', 'app'];
+  const adminTabs = ['schedules', 'teams', 'app', 'cc-spend'];
   useEffect(() => {
     if (!loading) {
       const hash = window.location.hash.replace('#', '') as Tab;
-      if (['schedules', 'teams', 'app', 'appearance'].includes(hash)) {
+      if (['schedules', 'teams', 'app', 'appearance', 'cc-spend'].includes(hash)) {
         // Only allow admin tabs if user is admin
         if (adminTabs.includes(hash) && !canAct) {
           setActiveTab('appearance');
@@ -72,6 +73,7 @@ export default function SettingsPage() {
           { id: 'schedules' as Tab, label: 'Schedules', icon: '🕐', adminOnly: true },
           { id: 'teams' as Tab, label: 'Teams', icon: '👥', adminOnly: true },
           { id: 'app' as Tab, label: 'App Settings', icon: '⚙️', adminOnly: true },
+          { id: 'cc-spend' as Tab, label: 'CC Spend', icon: '💰', adminOnly: true },
           { id: 'appearance' as Tab, label: 'Appearance', icon: '🎨', adminOnly: false },
         ]).filter(tab => !tab.adminOnly || canAct).map(tab => (
           <button
@@ -93,6 +95,7 @@ export default function SettingsPage() {
       {activeTab === 'schedules' && <SchedulesTab />}
       {activeTab === 'teams' && selectedOrg && <TeamsTab org={selectedOrg} />}
       {activeTab === 'app' && <AppSettingsTab org={selectedOrg} />}
+      {activeTab === 'cc-spend' && <CCSpendTab />}
       {activeTab === 'appearance' && <AppearanceTab />}
     </div>
   );
@@ -1330,6 +1333,170 @@ function AppearanceTab() {
         {lightThemes.map(t => (
           <ThemeCard key={t.id} t={t} isActive={theme.id === t.id} onSelect={() => setThemeId(t.id)} />
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// CC Spend Tab
+// ============================================================================
+
+function CCSpendTab() {
+  const [reports, setReports] = useState<Array<{ id: string; org: string; period_days: number; created_at: string; cc_total_cost: number | null }>>([]);
+  const [selectedReportId, setSelectedReportId] = useState<string>('');
+  const [file, setFile] = useState<File | null>(null);
+  const [periodStart, setPeriodStart] = useState('');
+  const [periodEnd, setPeriodEnd] = useState('');
+  const [needsManualPeriod, setNeedsManualPeriod] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [result, setResult] = useState<{ matched: number; unmatched: number; totalCsvUsers: number; totalSpendUsd: number; periodStart: string; periodEnd: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('/api/report').then(r => r.json()).then((list) => {
+      const completed = list.filter((r: any) => r.status === 'completed');
+      setReports(completed);
+      if (completed.length > 0 && !selectedReportId) setSelectedReportId(completed[0].id);
+    }).catch(() => {});
+  }, []);
+
+  function onFileChange(f: File | null) {
+    setFile(f);
+    setError(null);
+    setResult(null);
+    setNeedsManualPeriod(false);
+    if (f) {
+      const parsed = parseSpendPeriodFromFilename(f.name);
+      if (parsed) {
+        setPeriodStart(parsed.start);
+        setPeriodEnd(parsed.end);
+      } else {
+        setPeriodStart('');
+        setPeriodEnd('');
+        setNeedsManualPeriod(true);
+      }
+    }
+  }
+
+  async function handleUpload(e: React.FormEvent) {
+    e.preventDefault();
+    if (!file || !selectedReportId) return;
+    if (!periodStart || !periodEnd) {
+      setNeedsManualPeriod(true);
+      setError('Spend period dates are required.');
+      return;
+    }
+    setUploading(true);
+    setError(null);
+    setResult(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('periodStart', periodStart);
+      formData.append('periodEnd', periodEnd);
+      const res = await fetch(`/api/report/${selectedReportId}/cc-spend/upload`, {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (data.error === 'missing_period') setNeedsManualPeriod(true);
+        setError(data.message || data.error || 'Upload failed');
+      } else {
+        setResult(data);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-gray-900 rounded-xl p-5">
+        <h2 className="text-sm font-semibold text-white mb-1">Upload Claude Code Spend CSV</h2>
+        <p className="text-xs text-gray-500 mb-4">
+          Export the CSV from claude.ai → Settings → Analytics → Spend → Export. Upload here to populate per-developer spend.
+          The period is auto-detected from filenames like <code className="text-gray-400">spend-report-…-2026-04-01-to-2026-04-21.csv</code>.
+        </p>
+
+        <form onSubmit={handleUpload} className="space-y-3">
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Target Report</label>
+            <select
+              value={selectedReportId}
+              onChange={e => setSelectedReportId(e.target.value)}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent"
+            >
+              {reports.map(r => (
+                <option key={r.id} value={r.id}>
+                  {r.org} · {r.period_days}d · {new Date(r.created_at).toLocaleDateString()}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">CSV File</label>
+            <input
+              type="file"
+              accept=".csv"
+              onChange={e => onFileChange(e.target.files?.[0] ?? null)}
+              className="block w-full text-sm text-gray-400 file:mr-3 file:px-3 file:py-2 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-gray-800 file:text-gray-300 hover:file:bg-gray-700"
+            />
+          </div>
+
+          {(file && (periodStart || periodEnd || needsManualPeriod)) && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Period Start</label>
+                <input
+                  type="date"
+                  value={periodStart}
+                  onChange={e => setPeriodStart(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Period End</label>
+                <input
+                  type="date"
+                  value={periodEnd}
+                  onChange={e => setPeriodEnd(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent"
+                />
+              </div>
+              {needsManualPeriod && (
+                <p className="col-span-2 text-xs text-amber-400">
+                  Couldn't detect the period from the filename — please enter it manually.
+                </p>
+              )}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={!file || !selectedReportId || !periodStart || !periodEnd || uploading}
+            className="px-4 py-2 bg-accent hover:bg-accent-dark disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors"
+          >
+            {uploading ? 'Uploading...' : 'Upload CSV'}
+          </button>
+        </form>
+
+        {error && (
+          <div className="mt-4 px-3 py-2 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-400">
+            {error}
+          </div>
+        )}
+
+        {result && (
+          <div className="mt-4 px-3 py-2 bg-green-500/10 border border-green-500/20 rounded-lg text-xs text-green-400">
+            Uploaded for {result.periodStart} → {result.periodEnd}. Matched {result.matched} developers,
+            skipped {result.unmatched} unmatched emails. Total spend: ${result.totalSpendUsd.toFixed(2)}.
+          </div>
+        )}
       </div>
     </div>
   );

@@ -20,6 +20,8 @@ interface Developer {
   pr_percentage:      number;
   ai_percentage:      number;
   total_jira_issues?: number;
+  cc_total_cost?:     number;
+  cc_sessions?:       number;
   type_breakdown:     Record<string, number>;
   active_repos:       string[];
 }
@@ -312,6 +314,7 @@ export default function TeamSummaryPage() {
       {(() => {
         const filteredDevs = filterLogins.size > 0 ? developers.filter(d => filterLogins.has(d.github_login)) : developers;
         const hasJira = developers.some(d => (d.total_jira_issues ?? 0) > 0);
+        const hasSpend = canAct && developers.some(d => Number(d.cc_total_cost ?? 0) > 0);
         return filteredDevs.length > 0 && (
         <div className="bg-gray-900 rounded-xl overflow-hidden">
           <table className="w-full text-sm table-fixed">
@@ -325,6 +328,7 @@ export default function TeamSummaryPage() {
                 <th className="px-4 py-3 text-right w-[5%]">PR%</th>
                 <th className="px-4 py-3 text-right w-[5%]">AI%</th>
                 {hasJira && <th className="px-4 py-3 text-right w-[5%]">Jira</th>}
+                {hasSpend && <th className="px-4 py-3 text-right w-[7%]" title="Claude Code spend (last uploaded period)">CC Spend</th>}
                 <th className="px-4 py-3 w-[24%]">Types</th>
                 <th className="px-4 py-3 text-right w-[7%]" title="Impact = Commits (2.0) + PRs (2.7) + Complexity (3.5) + PR% (1.1) + Jira (0.5) + Reviews (0.5). Max: 9.3">Impact &#9432;</th>
               </tr>
@@ -385,6 +389,15 @@ export default function TeamSummaryPage() {
                           login={dev.github_login}
                           cacheRef={jiraCache}
                         />
+                      ) : (
+                        <span className="text-gray-600 text-sm">—</span>
+                      )}
+                    </td>
+                  )}
+                  {hasSpend && (
+                    <td className="px-4 py-3 text-right">
+                      {Number(dev.cc_total_cost ?? 0) > 0 ? (
+                        <span className="text-green-400 font-mono text-sm">${(Number(dev.cc_total_cost) / 100).toFixed(2)}</span>
                       ) : (
                         <span className="text-gray-600 text-sm">—</span>
                       )}

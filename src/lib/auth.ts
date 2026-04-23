@@ -46,6 +46,15 @@ export function extractUser(headers: Headers): AuthUser | null {
   }
 }
 
+export function isAdmin(req: Request): boolean {
+  if (!isAuthEnabled()) return true;
+  const user = extractUser(req.headers);
+  if (!user) return false;
+  const adminGroup = process.env.AUTH_ADMIN_GROUP;
+  if (!adminGroup) return false;
+  return user.groups.includes(adminGroup);
+}
+
 export async function requireAdmin(req: Request): Promise<NextResponse | null> {
   if (!isAuthEnabled()) return null;
 

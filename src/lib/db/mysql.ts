@@ -162,6 +162,24 @@ export function createMySQLDB(): DB {
   pool.execute('ALTER TABLE developer_stats ADD COLUMN total_reviews INT NOT NULL DEFAULT 0').catch((err) => {
     if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add total_reviews:', err);
   });
+  pool.execute('ALTER TABLE developer_stats ADD COLUMN cc_total_cost DECIMAL(10,2) NOT NULL DEFAULT 0.00').catch((err) => {
+    if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add cc_total_cost:', err);
+  });
+  pool.execute('ALTER TABLE developer_stats ADD COLUMN cc_input_tokens BIGINT NOT NULL DEFAULT 0').catch((err) => {
+    if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add cc_input_tokens:', err);
+  });
+  pool.execute('ALTER TABLE developer_stats ADD COLUMN cc_output_tokens BIGINT NOT NULL DEFAULT 0').catch((err) => {
+    if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add cc_output_tokens:', err);
+  });
+  pool.execute('ALTER TABLE developer_stats ADD COLUMN cc_sessions INT NOT NULL DEFAULT 0').catch((err) => {
+    if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add cc_sessions:', err);
+  });
+  pool.execute('ALTER TABLE reports ADD COLUMN cc_period_start DATE NULL').catch((err) => {
+    if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add cc_period_start:', err);
+  });
+  pool.execute('ALTER TABLE reports ADD COLUMN cc_period_end DATE NULL').catch((err) => {
+    if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add cc_period_end:', err);
+  });
 
   return {
     execute: <T = any>(sql: string, params?: any[]): Promise<[T[], any]> =>
