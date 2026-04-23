@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import useSWR from 'swr';
 import Breadcrumb from '@/components/Breadcrumb';
 import { findFirstJiraKey } from '@/lib/jira-key-utils';
+import { useAuth } from '@/app/auth-context';
 
 const TYPE_COLORS: Record<string, string> = {
   feature: 'bg-blue-500', bug: 'bg-red-500', refactor: 'bg-purple-500',
@@ -23,6 +24,8 @@ interface DevStats {
   type_breakdown: Record<string, number>; active_repos: string[];
   total_jira_issues: number;
   total_reviews?: number;
+  cc_total_cost?: number;
+  cc_sessions?: number;
 }
 
 interface JiraIssue {
@@ -85,6 +88,7 @@ function pctRank(values: number[], value: number): number {
 
 export default function DevDetailPage() {
   const params = useParams<{ id: string; login: string }>();
+  const { canAct } = useAuth();
   const [expandedSha, setExpandedSha] = useState<string | null>(null);
   const [expandedIssueKey, setExpandedIssueKey] = useState<string | null>(null);
 
@@ -223,6 +227,15 @@ export default function DevDetailPage() {
           );
         })}
       </div>
+
+      {/* CC Spend tile (admin only) */}
+      {canAct && Number(dev.cc_total_cost ?? 0) > 0 && (
+        <div className="bg-gray-900 rounded-xl p-4 mb-6">
+          <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">CC Spend</p>
+          <p className="text-xl font-bold text-green-400">${(Number(dev.cc_total_cost) / 100).toFixed(2)}</p>
+          <p className="text-xs text-gray-600 mt-0.5">{dev.cc_sessions ?? 0} sessions</p>
+        </div>
+      )}
 
       {/* Type Breakdown + Active Repos */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">

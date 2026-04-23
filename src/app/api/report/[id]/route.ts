@@ -1,16 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getReport, deleteReport, ReportNotFoundError } from '@/lib/report/service';
-import { requireAdmin } from '@/lib/auth';
+import { requireAdmin, isAdmin } from '@/lib/auth';
 import { withRequestLog } from '@/lib/logger';
 
 async function getHandler(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
 
   try {
     const result = await getReport(id);
+    if (!isAdmin(req)) {
+      result.developers = result.developers.map(({ cc_total_cost, cc_input_tokens, cc_output_tokens, cc_sessions, ...rest }: any) => rest);
+    }
     return NextResponse.json(result);
   } catch (err) {
     if (err instanceof ReportNotFoundError) {
