@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useTheme } from '../theme-context';
 import { THEMES, type ThemeColors } from '../themes';
 import { useAuth } from '../auth-context';
+import { parseSpendPeriodFromFilename } from '@/lib/cc-spend/filename';
 
 type Tab = 'schedules' | 'teams' | 'app' | 'appearance' | 'cc-spend';
 
@@ -1366,10 +1367,10 @@ function CCSpendTab() {
     setResult(null);
     setNeedsManualPeriod(false);
     if (f) {
-      const m = f.name.match(/(\d{4}-\d{2}-\d{2})-to-(\d{4}-\d{2}-\d{2})/);
-      if (m) {
-        setPeriodStart(m[1]);
-        setPeriodEnd(m[2]);
+      const parsed = parseSpendPeriodFromFilename(f.name);
+      if (parsed) {
+        setPeriodStart(parsed.start);
+        setPeriodEnd(parsed.end);
       } else {
         setPeriodStart('');
         setPeriodEnd('');
