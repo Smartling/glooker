@@ -88,6 +88,40 @@ export async function getDevReport(reportId: string, login: string) {
 
   const timeline = aggregateWeekly(timelineCommits);
 
+  // Unmerged work (in-flight) — separate from shipped stats
+  const [unmergedRows] = await db.execute(
+    `SELECT kind, repo, pr_number, pr_title, pr_url, is_draft,
+            pr_commits, pr_additions, pr_deletions, pr_created_at, pr_updated_at,
+            commit_sha, commit_message, branch_name,
+            commit_additions, commit_deletions, committed_at
+     FROM unmerged_work
+     WHERE report_id = ? AND github_login = ?
+     ORDER BY COALESCE(pr_updated_at, committed_at) DESC`,
+    [reportId, login],
+  ) as [any[], any];
+
+  const openPrs = unmergedRows.filter((r: any) => r.kind === 'open_pr').map((r: any) => ({
+    repo:       r.repo,
+    number:     r.pr_number,
+    title:      r.pr_title,
+    url:        r.pr_url,
+    draft:      Boolean(r.is_draft),
+    commits:    r.pr_commits,
+    additions:  r.pr_additions,
+    deletions:  r.pr_deletions,
+    createdAt:  r.pr_created_at,
+    updatedAt:  r.pr_updated_at,
+  }));
+  const branchCommits = unmergedRows.filter((r: any) => r.kind === 'bare_branch_commit').map((r: any) => ({
+    repo:         r.repo,
+    sha:          r.commit_sha,
+    message:      r.commit_message,
+    branchName:   r.branch_name,
+    additions:    r.commit_additions,
+    deletions:    r.commit_deletions,
+    committedAt:  r.committed_at,
+  }));
+
   const parseDev = (row: any) => ({
     ...row,
     type_breakdown: typeof row.type_breakdown === 'string' ? JSON.parse(row.type_breakdown || '{}') : (row.type_breakdown || {}),
@@ -100,5 +134,6 @@ export async function getDevReport(reportId: string, login: string) {
     allDevelopers: allDevRows,
     commits: commitRows,
     timeline,
+    unmergedWork: { openPrs, branchCommits },
   };
 }
