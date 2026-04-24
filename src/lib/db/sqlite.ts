@@ -210,6 +210,31 @@ CREATE TABLE IF NOT EXISTS team_pulse_summaries (
   UNIQUE (report_id, team_name)
 );
 
+CREATE TABLE IF NOT EXISTS unmerged_work (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  report_id         TEXT    NOT NULL,
+  github_login      TEXT    NOT NULL,
+  kind              TEXT    NOT NULL CHECK(kind IN ('open_pr','bare_branch_commit')),
+  repo              TEXT    NOT NULL,
+  pr_number         INTEGER,
+  pr_title          TEXT,
+  pr_url            TEXT,
+  is_draft          INTEGER,
+  pr_commits        INTEGER,
+  pr_additions      INTEGER,
+  pr_deletions      INTEGER,
+  pr_created_at     TEXT,
+  pr_updated_at     TEXT,
+  commit_sha        TEXT,
+  commit_message    TEXT,
+  branch_name       TEXT,
+  commit_additions  INTEGER,
+  commit_deletions  INTEGER,
+  committed_at      TEXT,
+  FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
+  UNIQUE (report_id, kind, repo, pr_number, commit_sha)
+);
+
 CREATE INDEX IF NOT EXISTS idx_devstats_login ON developer_stats(github_login);
 CREATE INDEX IF NOT EXISTS idx_reports_org_status_created ON reports(org, status, created_at);
 `;
