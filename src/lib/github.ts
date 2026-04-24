@@ -55,6 +55,7 @@ export interface GitHubProvider {
   listOrgs(): Promise<Array<{ login: string; avatar_url: string }>>;
   countReviewedPRs(org: string, user: string, since: Date): Promise<number>;
   fetchOpenPRs(org: string, user: string, since: Date, log?: (msg: string) => void): Promise<OpenPrInfo[]>;
+  isCommitInDefaultBranch(owner: string, repo: string, sha: string): Promise<boolean>;
 }
 
 let octokit: InstanceType<typeof Octokit> | null = null;
@@ -509,6 +510,32 @@ export async function fetchOpenPRs(
   return results;
 }
 
+// ---------- Default branch membership check ----------
+
+// Per-run cache of default branch names keyed by "owner/repo".
+const defaultBranchCache = new Map<string, string>();
+
+export async function getDefaultBranch(owner: string, repo: string): Promise<string> {
+  const key = `${owner}/${repo}`;
+  if (defaultBranchCache.has(key)) return defaultBranchCache.get(key)!;
+  const { data } = await withRetry(() => getOctokit().repos.get({ owner, repo }));
+  const name = data.default_branch || 'main';
+  defaultBranchCache.set(key, name);
+  return name;
+}
+
+export async function isCommitInDefaultBranch(
+  owner: string,
+  repo:  string,
+  sha:   string,
+): Promise<boolean> {
+  const base = await getDefaultBranch(owner, repo);
+  const { data } = await withRetry(() =>
+    getOctokit().repos.compareCommits({ owner, repo, base, head: sha }),
+  );
+  return data.status === 'behind' || data.status === 'identical';
+}
+
 // ---------- Provider factory ----------
 
 let cachedProvider: GitHubProvider | null = null;
@@ -522,6 +549,13 @@ export function getGitHubProvider(): GitHubProvider {
     return cachedProvider!;
   }
 
-  cachedProvider = { listOrgMembers, fetchUserActivity, listOrgs, countReviewedPRs, fetchOpenPRs };
+  cachedProvider = {
+    listOrgMembers,
+    fetchUserActivity,
+    listOrgs,
+    countReviewedPRs,
+    fetchOpenPRs,
+    isCommitInDefaultBranch,
+  };
   return cachedProvider;
 }

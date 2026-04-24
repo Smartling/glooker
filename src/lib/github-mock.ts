@@ -76,5 +76,11 @@ export function createMockGitHubProvider(): GitHubProvider {
       log?.(`[mock] fetchOpenPRs for ${_user}`);
       return [];
     },
+
+    async isCommitInDefaultBranch(_owner, _repo, sha) {
+      // For the mock, mark every 3rd commit (by SHA char-code sum) as NOT in default (bare-branch commit)
+      const n = String(sha).split('').reduce((s, c) => s + c.charCodeAt(0), 0);
+      return n % 3 !== 0;
+    },
   };
 }
