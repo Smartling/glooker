@@ -13,7 +13,9 @@ Prior 7 days: commits=0, lines=0, avgComplexity=0, AI%=0, types={}
 
 This developer is #1 — no one above them.
 
-Total developers in org: 1"
+Total developers in org: 1
+
+"
 `;
 
 exports[`getDevSummary prompt and settings snapshots sends exact system prompt: summary-system-prompt 1`] = `

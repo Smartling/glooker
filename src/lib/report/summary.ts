@@ -6,6 +6,54 @@ import { ReportNotFoundError } from './service';
 import { DeveloperNotFoundError } from './dev';
 import { dedupCommitsBySha } from './timeline';
 
+interface UnmergedPrSummary { title: string; updatedAt: string; createdAt: string; draft: boolean; }
+interface UnmergedCommitSummary { message: string; repo: string; committedAt: string; }
+
+export function formatUnmergedWorkSection(
+  openPrs: UnmergedPrSummary[],
+  branchCommits: UnmergedCommitSummary[],
+): string {
+  if (openPrs.length === 0 && branchCommits.length === 0) return '';
+
+  const daysAgo = (iso: string) => Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 86400000));
+
+  const lines: string[] = [];
+  lines.push('Work in flight (NOT counted in impact score — these are unmerged):');
+
+  if (openPrs.length > 0) {
+    const top = [...openPrs]
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+      .slice(0, 5);
+    lines.push(`- Open PRs: ${openPrs.length}`);
+    for (const pr of top) {
+      const age = daysAgo(pr.createdAt);
+      const upd = daysAgo(pr.updatedAt);
+      const draft = pr.draft ? ' [draft]' : '';
+      lines.push(`  - "${pr.title}" (opened ${age}d ago, updated ${upd}d ago${draft})`);
+    }
+    if (openPrs.length > 5) lines.push(`  + ${openPrs.length - 5} more`);
+  }
+
+  if (branchCommits.length > 0) {
+    const repos = Array.from(new Set(branchCommits.map(c => c.repo)));
+    const top = [...branchCommits]
+      .sort((a, b) => new Date(b.committedAt).getTime() - new Date(a.committedAt).getTime())
+      .slice(0, 3);
+    lines.push(`- Commits on unmerged branches: ${branchCommits.length} across ${repos.length} repo${repos.length === 1 ? '' : 's'}`);
+    for (const c of top) {
+      lines.push(`  - "${c.message.split('\n')[0]}" (${daysAgo(c.committedAt)}d ago in ${c.repo})`);
+    }
+    if (branchCommits.length > 3) lines.push(`  + ${branchCommits.length - 3} more`);
+  }
+
+  lines.push('');
+  lines.push('If this developer has substantial in-flight work AND modest shipped impact, nudge them to finish existing work before starting new.');
+  lines.push('If in-flight work is minimal or shipped impact is already strong, do not mention it.');
+  lines.push('Remember: in-flight work is NOT reflected in the impact score.');
+
+  return lines.join('\n');
+}
+
 export async function getDevSummary(reportId: string, login: string) {
   // Check cache first
   const [cached] = await db.execute(
@@ -96,6 +144,32 @@ export async function getDevSummary(reportId: string, login: string) {
   const recentStats = weekStats(recent7d);
   const priorStats = weekStats(prior7d);
 
+  const [unmergedRows] = await db.execute(
+    `SELECT kind, pr_title, pr_created_at, pr_updated_at, is_draft,
+            commit_message, repo, committed_at
+     FROM unmerged_work
+     WHERE report_id = ? AND github_login = ?`,
+    [reportId, login],
+  ) as [any[], any];
+
+  const unmergedPrs = unmergedRows
+    .filter((r: any) => r.kind === 'open_pr')
+    .map((r: any) => ({
+      title:     r.pr_title,
+      createdAt: r.pr_created_at,
+      updatedAt: r.pr_updated_at,
+      draft:     Boolean(r.is_draft),
+    }));
+  const unmergedCommits = unmergedRows
+    .filter((r: any) => r.kind === 'bare_branch_commit')
+    .map((r: any) => ({
+      message:     r.commit_message,
+      repo:        r.repo,
+      committedAt: r.committed_at,
+    }));
+
+  const unmergedSection = formatUnmergedWorkSection(unmergedPrs, unmergedCommits);
+
   // Build prompt
   const formatDev = (d: any, anonymous = false) => {
     const prefix = anonymous ? `rank #${d.rank || '?'}` : `@${d.github_login}`;
@@ -130,6 +204,7 @@ export async function getDevSummary(reportId: string, login: string) {
     PRIOR_TYPES: JSON.stringify(priorStats.types),
     DEVS_ABOVE_SECTION: devsAboveSection,
     TOTAL_DEVS: String(totalDevs),
+    UNMERGED_WORK_SECTION: unmergedSection,
   });
 
   const client = await getLLMClient();

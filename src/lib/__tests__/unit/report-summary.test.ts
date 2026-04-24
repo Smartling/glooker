@@ -119,6 +119,7 @@ describe('getDevSummary', () => {
         .mockResolvedValueOnce([[devRow], null])                    // all devs
         .mockResolvedValueOnce([[{ id: 'report-1' }], null])       // all report IDs for org
         .mockResolvedValueOnce([[commitRow], null])                 // all commits for dev
+        .mockResolvedValueOnce([[], null])                          // unmerged_work (empty)
         .mockResolvedValueOnce([{ affectedRows: 1 }, null]);       // INSERT/UPDATE summary
 
       return mockClient;
@@ -162,6 +163,7 @@ describe('getDevSummary', () => {
         .mockResolvedValueOnce([[devRow], null])
         .mockResolvedValueOnce([[{ id: 'report-1' }], null])
         .mockResolvedValueOnce([[commitRow], null])
+        .mockResolvedValueOnce([[], null])
         .mockResolvedValueOnce([{ affectedRows: 1 }, null]);
 
       const result = await getDevSummary('report-1', 'alice');
@@ -185,6 +187,7 @@ describe('getDevSummary', () => {
         .mockResolvedValueOnce([[devRow], null])                    // all devs (single dev = rank 1)
         .mockResolvedValueOnce([[{ id: 'report-1' }], null])       // all report IDs for org
         .mockResolvedValueOnce([[commitRow], null])                 // commits for dev
+        .mockResolvedValueOnce([[], null])                          // unmerged_work (empty)
         .mockResolvedValueOnce([{ affectedRows: 1 }, null]);       // INSERT
 
       return createFn;

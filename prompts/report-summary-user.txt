@@ -11,3 +11,5 @@ Prior 7 days: commits={{PRIOR_COUNT}}, lines={{PRIOR_LINES}}, avgComplexity={{PR
 {{DEVS_ABOVE_SECTION}}
 
 Total developers in org: {{TOTAL_DEVS}}
+
+{{UNMERGED_WORK_SECTION}}
