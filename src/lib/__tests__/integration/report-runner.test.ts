@@ -25,12 +25,16 @@ import { updateProgress, addLog } from '@/lib/progress-store';
 const mockListOrgMembers = jest.fn();
 const mockFetchUserActivity = jest.fn();
 const mockCountReviewedPRs = jest.fn().mockResolvedValue(0);
+const mockFetchOpenPRs = jest.fn().mockResolvedValue([]);
+const mockIsCommitInDefaultBranch = jest.fn().mockResolvedValue(true); // default: every commit is in main (no bare branch)
 const mockGetGitHubProvider = getGitHubProvider as jest.Mock;
 mockGetGitHubProvider.mockReturnValue({
   listOrgMembers: mockListOrgMembers,
   fetchUserActivity: mockFetchUserActivity,
   listOrgs: jest.fn(),
   countReviewedPRs: mockCountReviewedPRs,
+  fetchOpenPRs: mockFetchOpenPRs,
+  isCommitInDefaultBranch: mockIsCommitInDefaultBranch,
 });
 const mockAnalyzeCommit = analyzeCommit as jest.Mock;
 const mockDbExecute = db.execute as jest.Mock;
@@ -55,6 +59,11 @@ describe('runReport', () => {
     );
 
     mockDbExecute.mockResolvedValue([[], null]);
+
+    mockFetchOpenPRs.mockClear();
+    mockFetchOpenPRs.mockResolvedValue([]);
+    mockIsCommitInDefaultBranch.mockClear();
+    mockIsCommitInDefaultBranch.mockResolvedValue(true);
   });
 
   it('happy path: calls analyzeCommit for each unique commit and writes to DB', async () => {
@@ -188,5 +197,68 @@ describe('runReport', () => {
       (call: any[]) => typeof call[0] === 'string' && call[0].includes('completed'),
     );
     expect(completedCall).toBeTruthy();
+  });
+
+  it('persists open PRs into unmerged_work table', async () => {
+    // alice has one open PR, bob has none
+    mockFetchOpenPRs.mockImplementation(async (_org, user) => {
+      if (user === 'alice') {
+        return [{
+          repo: 'app',
+          number: 42,
+          title: 'Refactor',
+          url: 'https://github.com/my-org/app/pull/42',
+          draft: false,
+          commits: 3,
+          additions: 100,
+          deletions: 20,
+          createdAt: '2026-04-10T00:00:00Z',
+          updatedAt: '2026-04-22T00:00:00Z',
+        }];
+      }
+      return [];
+    });
+
+    await runReport('r1', 'my-org', 14);
+
+    const insertCall = mockDbExecute.mock.calls.find(
+      (call: any[]) =>
+        typeof call[0] === 'string' &&
+        call[0].includes('INSERT') &&
+        call[0].includes('unmerged_work') &&
+        Array.isArray(call[1]) &&
+        call[1][1] === 'alice' &&
+        call[1][2] === 'open_pr' &&
+        call[1][3] === 'app' &&
+        call[1][4] === 42,
+    );
+    expect(insertCall).toBeTruthy();
+  });
+
+  it('persists bare branch commits into unmerged_work table', async () => {
+    // Alice has one commit with no PR association; compareCommits says it's NOT in main.
+    mockFetchUserActivity.mockImplementation(async (_org, user) => {
+      if (user === 'alice') {
+        return {
+          commits: [makeCommit({ sha: 'aaa1', author: 'alice', authorName: 'alice', prNumber: null, repo: 'app' })],
+          prs: [],
+        };
+      }
+      return { commits: [], prs: [] };
+    });
+    mockIsCommitInDefaultBranch.mockImplementation(async (_owner, _repo, sha) => sha !== 'aaa1');
+
+    await runReport('r1', 'my-org', 14);
+
+    const insertCall = mockDbExecute.mock.calls.find(
+      (call: any[]) =>
+        typeof call[0] === 'string' &&
+        call[0].includes('INSERT') &&
+        call[0].includes('unmerged_work') &&
+        Array.isArray(call[1]) &&
+        call[1][2] === 'bare_branch_commit' &&
+        call[1][4] === 'aaa1',
+    );
+    expect(insertCall).toBeTruthy();
   });
 });

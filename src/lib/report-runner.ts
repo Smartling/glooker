@@ -189,6 +189,37 @@ export async function runReport(
           reviewCounts.set(member.login, 0);
         }
 
+        // Fetch open PRs for this member (in-flight work, not counted in impact)
+        try {
+          const openPrs = await github.fetchOpenPRs(org, member.login, since, log);
+          if (openPrs.length > 0) log(`@${member.login}: ${openPrs.length} open PR(s)`);
+          for (const pr of openPrs) {
+            await db.execute(
+              `INSERT IGNORE INTO unmerged_work
+                 (report_id, github_login, kind, repo, pr_number, pr_title, pr_url,
+                  is_draft, pr_commits, pr_additions, pr_deletions, pr_created_at, pr_updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                reportId,
+                member.login,
+                'open_pr',
+                pr.repo,
+                pr.number,
+                pr.title,
+                pr.url,
+                pr.draft ? 1 : 0,
+                pr.commits,
+                pr.additions,
+                pr.deletions,
+                pr.createdAt,
+                pr.updatedAt,
+              ],
+            );
+          }
+        } catch (err) {
+          log(`@${member.login} openPRs failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+
         // Dedup commits against global seen set
         const thisMemCommits: CommitData[] = [];
         for (const c of activity.commits) {
@@ -198,6 +229,34 @@ export async function runReport(
           }
         }
         memberCommits.set(member.login, thisMemCommits);
+
+        // Classify commits not associated with any PR: are they in main already, or bare-branch WIP?
+        for (const commit of thisMemCommits) {
+          if (commit.prNumber) continue; // already tied to a PR (merged or open)
+          try {
+            const inMain = await github.isCommitInDefaultBranch(org, commit.repo, commit.sha);
+            if (inMain) continue;
+            await db.execute(
+              `INSERT IGNORE INTO unmerged_work
+                 (report_id, github_login, kind, repo, commit_sha, commit_message,
+                  commit_additions, commit_deletions, committed_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                reportId,
+                member.login,
+                'bare_branch_commit',
+                commit.repo,
+                commit.sha,
+                commit.message,
+                commit.additions,
+                commit.deletions,
+                commit.committedAt,
+              ],
+            );
+          } catch (err) {
+            log(`bare-branch check failed for ${commit.sha.slice(0, 7)}: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
 
         // Queue LLM for commits not already analyzed
         let pendingCount = 0;
