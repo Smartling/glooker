@@ -25,6 +25,7 @@ describe('listOrgs', () => {
       listOrgMembers: jest.fn(),
       fetchUserActivity: jest.fn(),
       countReviewedPRs: jest.fn(),
+      fetchOpenPRs: jest.fn(),
     });
 
     const orgs = await listOrgs();
@@ -44,6 +45,7 @@ describe('listOrgs', () => {
       listOrgMembers: jest.fn(),
       fetchUserActivity: jest.fn(),
       countReviewedPRs: jest.fn(),
+      fetchOpenPRs: jest.fn(),
     });
 
     const orgs = await listOrgs();
@@ -64,6 +66,7 @@ describe('listOrgs', () => {
       listOrgMembers: jest.fn(),
       fetchUserActivity: jest.fn(),
       countReviewedPRs: jest.fn(),
+      fetchOpenPRs: jest.fn(),
     });
 
     const orgs = await listOrgs();
@@ -82,6 +85,7 @@ describe('listOrgs', () => {
       listOrgMembers: jest.fn(),
       fetchUserActivity: jest.fn(),
       countReviewedPRs: jest.fn(),
+      fetchOpenPRs: jest.fn(),
     });
 
     const orgs = await listOrgs();

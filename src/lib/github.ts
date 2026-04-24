@@ -26,6 +26,19 @@ export interface PRInfo {
   mergedAt: string;
 }
 
+export interface OpenPrInfo {
+  repo:       string;
+  number:     number;
+  title:      string;
+  url:        string;
+  draft:      boolean;
+  commits:    number;
+  additions:  number;
+  deletions:  number;
+  createdAt:  string;
+  updatedAt:  string;
+}
+
 export interface OrgMember {
   login:     string;
   avatarUrl: string;
@@ -41,10 +54,18 @@ export interface GitHubProvider {
   fetchUserActivity(org: string, user: string, since: Date, log?: (msg: string) => void): Promise<UserActivity>;
   listOrgs(): Promise<Array<{ login: string; avatar_url: string }>>;
   countReviewedPRs(org: string, user: string, since: Date): Promise<number>;
+  fetchOpenPRs(org: string, user: string, since: Date, log?: (msg: string) => void): Promise<OpenPrInfo[]>;
 }
 
 let octokit: InstanceType<typeof Octokit> | null = null;
-function getOctokit() {
+let octokitOverride: InstanceType<typeof Octokit> | null = null;
+
+export function __setOctokitForTest(mock: any) {
+  octokitOverride = mock;
+}
+
+function getOctokit(): InstanceType<typeof Octokit> {
+  if (octokitOverride) return octokitOverride;
   if (!octokit) {
     octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
   }
@@ -435,6 +456,59 @@ async function countReviewedPRs(org: string, user: string, since: Date): Promise
   return res.data.total_count;
 }
 
+// ---------- Open PR search ----------
+
+export async function fetchOpenPRs(
+  org:   string,
+  user:  string,
+  since: Date,
+  log?:  (msg: string) => void,
+): Promise<OpenPrInfo[]> {
+  const sinceStr = since.toISOString().split('T')[0];
+  const q = `org:${org} author:${user} is:pr is:open updated:>=${sinceStr}`;
+  const results: OpenPrInfo[] = [];
+
+  let page = 1;
+  while (true) {
+    await sleep(2500);
+    const res = await withRetry(
+      () => getOctokit().search.issuesAndPullRequests({ q, per_page: 100, page }),
+      log,
+    );
+    for (const item of res.data.items) {
+      const repo = (item.repository_url || '').split('/').pop() || '';
+      let commits = 0, additions = 0, deletions = 0;
+      try {
+        const { data: prDetail } = await withRetry(
+          () => getOctokit().pulls.get({ owner: org, repo, pull_number: item.number }),
+          log,
+        );
+        commits   = prDetail.commits   ?? 0;
+        additions = prDetail.additions ?? 0;
+        deletions = prDetail.deletions ?? 0;
+      } catch {
+        // degrade gracefully if PR details are unavailable
+      }
+      results.push({
+        repo,
+        number:    item.number,
+        title:     item.title,
+        url:       item.html_url,
+        draft:     Boolean(item.draft),
+        commits,
+        additions,
+        deletions,
+        createdAt: item.created_at,
+        updatedAt: item.updated_at,
+      });
+    }
+    if (results.length >= res.data.total_count || res.data.items.length < 100) break;
+    page++;
+  }
+
+  return results;
+}
+
 // ---------- Provider factory ----------
 
 let cachedProvider: GitHubProvider | null = null;
@@ -448,6 +522,6 @@ export function getGitHubProvider(): GitHubProvider {
     return cachedProvider!;
   }
 
-  cachedProvider = { listOrgMembers, fetchUserActivity, listOrgs, countReviewedPRs };
+  cachedProvider = { listOrgMembers, fetchUserActivity, listOrgs, countReviewedPRs, fetchOpenPRs };
   return cachedProvider;
 }
