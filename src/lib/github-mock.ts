@@ -72,9 +72,12 @@ export function createMockGitHubProvider(): GitHubProvider {
       return Math.floor(Math.random() * 15);
     },
 
-    async fetchOpenPRs(_org, _user, _since, log) {
-      log?.(`[mock] fetchOpenPRs for ${_user}`);
-      return [];
+    async fetchOpenPRs(_org, user, _since, log) {
+      const { MOCK_DEVELOPERS } = getIdentities();
+      const dev = MOCK_DEVELOPERS.find((d: any) => d.githubLogin === user);
+      const prs = dev?.mockOpenPrs ?? [];
+      log?.(`[mock] fetchOpenPRs ${user}: ${prs.length}`);
+      return prs;
     },
 
     async isCommitInDefaultBranch(_owner, _repo, sha) {
