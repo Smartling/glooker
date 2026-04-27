@@ -71,6 +71,14 @@ export default function OrgDetailPage() {
   const developers: Developer[] = data?.developers ?? [];
   const timeline: WeeklyData[] = data?.timeline ?? [];
   const spendWindow: SpendWindow | null = data?.spendWindow ?? null;
+  const unmergedSummary: {
+    openPrCount: number;
+    openPrDevCount: number;
+    bareBranchCount: number;
+    bareBranchDevCount: number;
+    inFlightLinesAdded: number;
+    inFlightLinesRemoved: number;
+  } | null = data?.unmergedSummary ?? null;
 
   const { data: config } = useSWR('/api/llm-config', { revalidateIfStale: false });
   const latestReportId = config?.latestReport?.id ?? null;
@@ -215,6 +223,38 @@ export default function OrgDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* In-flight Work KPI cards */}
+      {unmergedSummary && (
+        <div className="mb-6">
+          <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-3">In-flight Work</p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-gray-900 rounded-xl p-5">
+              <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Open PRs</p>
+              <p className="text-2xl font-bold text-amber-400">{unmergedSummary.openPrCount.toLocaleString()}</p>
+              <p className="text-xs text-gray-600 mt-1">across {unmergedSummary.openPrDevCount} dev{unmergedSummary.openPrDevCount === 1 ? '' : 's'}</p>
+            </div>
+            <div className="bg-gray-900 rounded-xl p-5">
+              <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Bare-branch commits</p>
+              <p className="text-2xl font-bold text-amber-400">{unmergedSummary.bareBranchCount.toLocaleString()}</p>
+              <p className="text-xs text-gray-600 mt-1">
+                {unmergedSummary.bareBranchCount === 0
+                  ? 'no orphaned WIP'
+                  : `across ${unmergedSummary.bareBranchDevCount} dev${unmergedSummary.bareBranchDevCount === 1 ? '' : 's'}`}
+              </p>
+            </div>
+            <div className="bg-gray-900 rounded-xl p-5">
+              <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">In-flight lines</p>
+              <p className="text-2xl font-bold">
+                <span className="text-green-400">+{unmergedSummary.inFlightLinesAdded.toLocaleString()}</span>
+                <span className="text-gray-500"> / </span>
+                <span className="text-red-400">−{unmergedSummary.inFlightLinesRemoved.toLocaleString()}</span>
+              </p>
+              <p className="text-xs text-gray-600 mt-1">from open PRs</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Timeline Charts */}
       {timeline.length >= 2 && (
