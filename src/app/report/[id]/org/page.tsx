@@ -92,11 +92,13 @@ export default function OrgDetailPage() {
   const avgImpact = developers.length > 0
     ? developers.reduce((s, d) => s + Number(d.impact_score), 0) / developers.length : 0;
 
-  // Type breakdown across all developers
+  // Type breakdown — sum across all timeline weeks. timeline already has the
+  // per-commit in_flight override applied server-side in getOrgReport, so the
+  // pie inherits the in_flight slice automatically.
   const orgTypes: Record<string, number> = {};
-  for (const d of developers) {
-    for (const [type, count] of Object.entries(d.type_breakdown || {})) {
-      orgTypes[type] = (orgTypes[type] || 0) + count;
+  for (const week of timeline) {
+    for (const [type, count] of Object.entries(week.types || {})) {
+      orgTypes[type] = (orgTypes[type] || 0) + (count as number);
     }
   }
   const typeEntries = Object.entries(orgTypes).sort((a, b) => b[1] - a[1]);
