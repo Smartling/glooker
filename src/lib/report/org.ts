@@ -52,8 +52,49 @@ export async function getOrgReport(reportId: string) {
     timelineCommits = dedupCommitsBySha(tlRows);
   }
 
-  // 4. Weekly aggregation with trackDevs
+  // Override type='in_flight' for any commit currently classified as bare-branch.
+  const [bareBranchRows] = await db.execute(
+    `SELECT commit_sha FROM unmerged_work
+     WHERE report_id = ? AND kind = 'bare_branch_commit'`,
+    [reportId],
+  ) as [any[], any];
+  const bareBranchShas = new Set<string>(bareBranchRows.map((r: any) => r.commit_sha));
+  if (bareBranchShas.size > 0) {
+    for (const c of timelineCommits) {
+      if (bareBranchShas.has(c.commit_sha)) c.type = 'in_flight';
+    }
+  }
+
+  // 4. Weekly aggregation with trackDevs (in-flight commits are now classified above)
   const timeline = aggregateWeekly(timelineCommits, { trackDevs: true });
+
+  // Unmerged-work summary KPI counts (single aggregation query).
+  const [unmergedAggRows] = await db.execute(
+    `SELECT
+       SUM(CASE WHEN kind = 'open_pr' THEN 1 ELSE 0 END) AS openPrCount,
+       COUNT(DISTINCT CASE WHEN kind = 'open_pr' THEN github_login END) AS openPrDevCount,
+       SUM(CASE WHEN kind = 'bare_branch_commit' THEN 1 ELSE 0 END) AS bareBranchCount,
+       COUNT(DISTINCT CASE WHEN kind = 'bare_branch_commit' THEN github_login END) AS bareBranchDevCount,
+       COALESCE(SUM(CASE WHEN kind = 'open_pr' THEN pr_additions ELSE 0 END), 0) AS inFlightLinesAdded,
+       COALESCE(SUM(CASE WHEN kind = 'open_pr' THEN pr_deletions ELSE 0 END), 0) AS inFlightLinesRemoved
+     FROM unmerged_work
+     WHERE report_id = ?`,
+    [reportId],
+  ) as [any[], any];
+
+  const aggRow = unmergedAggRows[0] || {};
+  const openPrCount = Number(aggRow.openPrCount || 0);
+  const bareBranchCount = Number(aggRow.bareBranchCount || 0);
+  const unmergedSummary = (openPrCount > 0 || bareBranchCount > 0)
+    ? {
+        openPrCount,
+        openPrDevCount:       Number(aggRow.openPrDevCount || 0),
+        bareBranchCount,
+        bareBranchDevCount:   Number(aggRow.bareBranchDevCount || 0),
+        inFlightLinesAdded:   Number(aggRow.inFlightLinesAdded || 0),
+        inFlightLinesRemoved: Number(aggRow.inFlightLinesRemoved || 0),
+      }
+    : null;
 
   // 5. Spend-window per-developer stats (only when a period is set on the report)
   let spendWindow: {
@@ -122,5 +163,5 @@ export async function getOrgReport(reportId: string) {
     };
   }
 
-  return { report: reportRows[0], developers, timeline, spendWindow };
+  return { report: reportRows[0], developers, timeline, spendWindow, unmergedSummary };
 }
