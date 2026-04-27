@@ -7,13 +7,25 @@ import ChatPanel from '@/app/chat-panel';
 import { useAuth } from '@/app/auth-context';
 
 const TYPE_COLORS: Record<string, string> = {
-  feature: 'bg-blue-500', bug: 'bg-red-500', refactor: 'bg-purple-500',
-  infra: 'bg-yellow-500', docs: 'bg-gray-500', test: 'bg-green-500', other: 'bg-gray-600',
+  feature:   'bg-blue-500',
+  bug:       'bg-red-500',
+  refactor:  'bg-purple-500',
+  infra:     'bg-yellow-500',
+  docs:      'bg-gray-500',
+  test:      'bg-green-500',
+  other:     'bg-gray-600',
+  in_flight: 'bg-amber-400',
 };
 
 const TYPE_HEX: Record<string, string> = {
-  feature: '#3B82F6', bug: '#EF4444', refactor: '#A855F7',
-  infra: '#EAB308', docs: '#6B7280', test: '#22C55E', other: '#4B5563',
+  feature:   '#3B82F6',
+  bug:       '#EF4444',
+  refactor:  '#A855F7',
+  infra:     '#EAB308',
+  docs:      '#6B7280',
+  test:      '#22C55E',
+  other:     '#4B5563',
+  in_flight: '#FBBF24',
 };
 
 interface Developer {
@@ -357,7 +369,7 @@ function StackedTypesChart({ data }: { data: WeeklyData[] }) {
 
   const allTypes = new Set<string>();
   for (const w of filtered) { for (const t of Object.keys(w.types)) allTypes.add(t); }
-  const typeOrder = ['feature', 'bug', 'refactor', 'infra', 'docs', 'test', 'other'].filter(t => allTypes.has(t));
+  const typeOrder = ['feature', 'bug', 'refactor', 'infra', 'docs', 'test', 'other', 'in_flight'].filter(t => allTypes.has(t));
 
   const stacked = filtered.map(w => {
     const total = typeOrder.reduce((s, t) => s + (w.types[t] || 0), 0);
