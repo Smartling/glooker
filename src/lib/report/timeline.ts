@@ -9,6 +9,9 @@ export interface WeeklyBucket {
   aiPercent: number;
   types: Record<string, number>;
   activeDevs?: number;
+  // Populated post-aggregation by getOrgReport when open-PR rows overlay the timeline.
+  inFlightLinesAdded?: number;
+  inFlightLinesRemoved?: number;
 }
 
 export function dedupCommitsBySha(rows: any[]): any[] {

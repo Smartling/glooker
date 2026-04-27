@@ -44,6 +44,7 @@ interface WeeklyData {
   week: string; commits: number; linesAdded: number; linesRemoved: number;
   linesP95Added?: number; linesP95Removed?: number;
   avgComplexity: number; aiPercent: number; types: Record<string, number>; activeDevs: number;
+  inFlightLinesAdded?: number; inFlightLinesRemoved?: number;
 }
 
 interface ReportMeta {
@@ -261,7 +262,13 @@ export default function OrgDetailPage() {
         <div className="mb-6">
           <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-3">Org Activity Over Time (weekly)</p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <TimelineChart data={timeline} valueKey="commits" label="Commits / Week" color="#3B82F6" />
+            <TimelineChart
+              data={timeline}
+              valueKey="commits"
+              label="Commits / Week"
+              color="#3B82F6"
+              inFlightValue={d => d.types?.in_flight ?? 0}
+            />
             <TimelineChart data={timeline} valueKey="activeDevs" label="Active Developers / Week" color="#10B981" />
             <LinesChangedChart data={timeline} />
             <TimelineChart data={timeline} valueKey="aiPercent" label="AI Assisted %" color="#A855F7" suffix="%" />
@@ -588,16 +595,40 @@ function LinesChangedChart({ data }: { data: WeeklyData[] }) {
         {filtered.map((d, i) => {
           const a = d.linesP95Added || 0;
           const r = d.linesP95Removed || 0;
-          const total = a + r;
-          const addedH = total > 0 ? (a / maxTotal) * chartH : 0;
-          const removedH = total > 0 ? (r / maxTotal) * chartH : 0;
-          const addedY = padT + chartH - addedH - removedH;
-          const removedY = padT + chartH - removedH;
+          const inFlightA = Math.min(d.inFlightLinesAdded || 0, a);
+          const inFlightR = Math.min(d.inFlightLinesRemoved || 0, r);
+          const shippedA = Math.max(0, a - inFlightA);
+          const shippedR = Math.max(0, r - inFlightR);
+
+          const addedH        = a > 0 ? (a / maxTotal) * chartH : 0;
+          const removedH      = r > 0 ? (r / maxTotal) * chartH : 0;
+          const inFlightAH    = inFlightA > 0 ? (inFlightA / maxTotal) * chartH : 0;
+          const inFlightRH    = inFlightR > 0 ? (inFlightR / maxTotal) * chartH : 0;
+          const shippedAH     = Math.max(0, addedH - inFlightAH);
+          const shippedRH     = Math.max(0, removedH - inFlightRH);
+
+          const addedY        = padT + chartH - addedH - removedH;
+          const inFlightAddedY = addedY;                        // amber sits on top
+          const shippedAddedY  = addedY + inFlightAH;
+          const removedY      = padT + chartH - removedH;
+          const inFlightRemovedY = removedY;                    // amber on top of red
+          const shippedRemovedY  = removedY + inFlightRH;
+
           return (
             <g key={i}>
-              <rect x={xFor(i)} y={addedY} width={barW} height={addedH} rx={1.5}
+              {/* added: in-flight (amber, top) + shipped (green, bottom of added stack) */}
+              {inFlightAH > 0 && (
+                <rect x={xFor(i)} y={inFlightAddedY} width={barW} height={inFlightAH} rx={1.5}
+                  fill="#FBBF24" opacity={hoverIdx === i ? 1 : 0.85} />
+              )}
+              <rect x={xFor(i)} y={shippedAddedY} width={barW} height={shippedAH} rx={1.5}
                 fill="#10B981" opacity={hoverIdx === i ? 0.8 : 0.55} />
-              <rect x={xFor(i)} y={removedY} width={barW} height={removedH} rx={1.5}
+              {/* removed: in-flight (amber muted, top of removed stack) + shipped (red, bottom) */}
+              {inFlightRH > 0 && (
+                <rect x={xFor(i)} y={inFlightRemovedY} width={barW} height={inFlightRH} rx={1.5}
+                  fill="#FBBF24" opacity={hoverIdx === i ? 0.6 : 0.45} />
+              )}
+              <rect x={xFor(i)} y={shippedRemovedY} width={barW} height={shippedRH} rx={1.5}
                 fill="#EF4444" opacity={hoverIdx === i ? 0.6 : 0.35} />
               <rect x={xFor(i) - barGap / 2} y={padT} width={barW + barGap} height={chartH}
                 fill="transparent" onMouseEnter={() => setHoverIdx(i)} onMouseLeave={() => setHoverIdx(null)} />
@@ -751,6 +782,7 @@ function TimelineChart({
   suffix = '',
   decimals = 0,
   computeValue,
+  inFlightValue,
 }: {
   data: WeeklyData[];
   valueKey: string;
@@ -759,6 +791,9 @@ function TimelineChart({
   suffix?: string;
   decimals?: number;
   computeValue?: (d: WeeklyData) => number;
+  // Optional: per-week in-flight portion. When provided, each bar is rendered as
+  // a stacked pair: shipped (color, bottom) + in-flight (amber, top).
+  inFlightValue?: (d: WeeklyData) => number;
 }) {
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
 
@@ -833,12 +868,21 @@ function TimelineChart({
           const barH = range > 0 ? ((v - min) / range) * chartH : 0;
           const x = xFor(i);
           const y = padT + chartH - barH;
+          const inFlight = inFlightValue ? inFlightValue(filtered[i]) : 0;
+          const inFlightH = range > 0 && inFlight > 0 ? (inFlight / range) * chartH : 0;
+          const shippedH = Math.max(0, barH - inFlightH);
           return (
             <g key={i} onMouseEnter={() => setHoverIdx(i)} onMouseLeave={() => setHoverIdx(null)}>
               <rect x={x - barGap / 2} y={padT} width={barW + barGap} height={chartH}
                 fill="transparent" />
-              <rect x={x - barW / 2} y={y} width={barW} height={barH} rx={Math.min(2, barW / 2)}
+              {/* shipped portion (bottom) */}
+              <rect x={x - barW / 2} y={y + inFlightH} width={barW} height={shippedH} rx={Math.min(2, barW / 2)}
                 fill={color} opacity={hoverIdx === i ? 1 : 0.7} />
+              {/* in-flight portion (top) */}
+              {inFlightH > 0 && (
+                <rect x={x - barW / 2} y={y} width={barW} height={inFlightH} rx={Math.min(2, barW / 2)}
+                  fill="#FBBF24" opacity={hoverIdx === i ? 1 : 0.85} />
+              )}
             </g>
           );
         })}

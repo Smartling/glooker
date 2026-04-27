@@ -52,21 +52,72 @@ export async function getOrgReport(reportId: string) {
     timelineCommits = dedupCommitsBySha(tlRows);
   }
 
-  // Override type='in_flight' for any commit currently classified as bare-branch.
-  const [bareBranchRows] = await db.execute(
-    `SELECT commit_sha FROM unmerged_work
-     WHERE report_id = ? AND kind = 'bare_branch_commit'`,
+  // 4. Weekly aggregation with trackDevs
+  const timeline = aggregateWeekly(timelineCommits, { trackDevs: true });
+
+  // 4a. In-flight overlay: source from open-PR rows in unmerged_work.
+  //     Each open PR contributes its `pr_commits` count and `pr_additions`/`pr_deletions`
+  //     to the week of its `pr_updated_at`. Open-PR commits aren't in commit_analyses
+  //     (GitHub commit search doesn't return branch-only commits), so this is the only
+  //     way they show up in the org timeline.
+  const [openPrRows] = await db.execute(
+    `SELECT pr_commits, pr_additions, pr_deletions, pr_updated_at
+     FROM unmerged_work
+     WHERE report_id = ? AND kind = 'open_pr'`,
     [reportId],
   ) as [any[], any];
-  const bareBranchShas = new Set<string>(bareBranchRows.map((r: any) => r.commit_sha));
-  if (bareBranchShas.size > 0) {
-    for (const c of timelineCommits) {
-      if (bareBranchShas.has(c.commit_sha)) c.type = 'in_flight';
-    }
-  }
 
-  // 4. Weekly aggregation with trackDevs (in-flight commits are now classified above)
-  const timeline = aggregateWeekly(timelineCommits, { trackDevs: true });
+  if (openPrRows.length > 0) {
+    const weekMap = new Map<string, any>();
+    for (const w of timeline) weekMap.set(w.week, w);
+
+    for (const pr of openPrRows) {
+      if (!pr.pr_updated_at) continue;
+      const d = new Date(pr.pr_updated_at);
+      if (Number.isNaN(d.getTime())) continue;
+      const day = d.getDay();
+      const monday = new Date(d);
+      monday.setDate(d.getDate() - ((day + 6) % 7));
+      const weekKey = monday.toISOString().split('T')[0];
+
+      let bucket = weekMap.get(weekKey);
+      if (!bucket) {
+        bucket = {
+          week: weekKey,
+          commits: 0,
+          linesAdded: 0,
+          linesRemoved: 0,
+          linesP95Added: 0,
+          linesP95Removed: 0,
+          avgComplexity: 0,
+          aiPercent: 0,
+          types: {},
+          inFlightLinesAdded: 0,
+          inFlightLinesRemoved: 0,
+          activeDevs: 0,
+        };
+        weekMap.set(weekKey, bucket);
+        timeline.push(bucket);
+      }
+
+      const prCommits  = Number(pr.pr_commits  || 0);
+      const prAdded    = Number(pr.pr_additions || 0);
+      const prRemoved  = Number(pr.pr_deletions || 0);
+
+      bucket.commits         += prCommits;
+      bucket.linesAdded      += prAdded;
+      bucket.linesRemoved    += prRemoved;
+      bucket.linesP95Added   = (bucket.linesP95Added   || 0) + prAdded;
+      bucket.linesP95Removed = (bucket.linesP95Removed || 0) + prRemoved;
+      bucket.types           = { ...(bucket.types || {}) };
+      bucket.types.in_flight = (bucket.types.in_flight || 0) + prCommits;
+      bucket.inFlightLinesAdded   = (bucket.inFlightLinesAdded   || 0) + prAdded;
+      bucket.inFlightLinesRemoved = (bucket.inFlightLinesRemoved || 0) + prRemoved;
+    }
+
+    // Re-sort by week key after potentially appending new buckets
+    timeline.sort((a, b) => a.week.localeCompare(b.week));
+  }
 
   // Unmerged-work summary KPI counts (single aggregation query).
   const [unmergedAggRows] = await db.execute(

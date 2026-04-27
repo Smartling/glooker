@@ -19,14 +19,14 @@ describe('getOrgReport unmerged-work integration', () => {
     devs = [],
     reportIds = ['r1'],
     timelineCommits = [],
-    bareBranchShas = [],
+    openPrRows = [],
     unmergedAgg = null,
   }: {
     org?: string;
     devs?: any[];
     reportIds?: string[];
     timelineCommits?: any[];
-    bareBranchShas?: string[];
+    openPrRows?: Array<{ pr_commits: number; pr_additions: number; pr_deletions: number; pr_updated_at: string }>;
     unmergedAgg?: { openPrCount: number; openPrDevCount: number; bareBranchCount: number; bareBranchDevCount: number; inFlightLinesAdded: number; inFlightLinesRemoved: number; } | null;
   }) {
     // 1. report metadata (cc_period_start/end NULL → spend-window branch is skipped)
@@ -37,8 +37,8 @@ describe('getOrgReport unmerged-work integration', () => {
     dbExec.mockResolvedValueOnce([reportIds.map(id => ({ id })), null]);
     // 4. timeline commits
     dbExec.mockResolvedValueOnce([timelineCommits, null]);
-    // 5. bare-branch SHAs
-    dbExec.mockResolvedValueOnce([bareBranchShas.map(sha => ({ commit_sha: sha })), null]);
+    // 5. open_pr rows (in-flight overlay source)
+    dbExec.mockResolvedValueOnce([openPrRows, null]);
     // 6. unmerged summary aggregation
     if (unmergedAgg) {
       dbExec.mockResolvedValueOnce([[unmergedAgg], null]);
@@ -72,37 +72,59 @@ describe('getOrgReport unmerged-work integration', () => {
     });
   });
 
-  it("overrides commit type to 'in_flight' for bare-branch SHAs", async () => {
+  it('adds open-PR commits to types.in_flight bucketed by week of pr_updated_at', async () => {
+    // Existing shipped commit on 2026-04-20 (a Monday). Open PR updated 2026-04-22 (also that week).
     mockBaselineQueries({
       timelineCommits: [
-        { commit_sha: 'aaa', github_login: 'alice', committed_at: '2026-04-20', lines_added: 10, lines_removed: 2, complexity: 5, type: 'feature', ai_co_authored: 0, maybe_ai: 0 },
-        { commit_sha: 'bbb', github_login: 'bob',   committed_at: '2026-04-20', lines_added: 5,  lines_removed: 1, complexity: 4, type: 'bug',     ai_co_authored: 0, maybe_ai: 0 },
+        { commit_sha: 'aaa', github_login: 'alice', committed_at: '2026-04-22T15:00:00Z', lines_added: 10, lines_removed: 2, complexity: 5, type: 'feature', ai_co_authored: 0, maybe_ai: 0 },
       ],
-      bareBranchShas: ['aaa'],
-      unmergedAgg: { openPrCount: 0, openPrDevCount: 0, bareBranchCount: 1, bareBranchDevCount: 1, inFlightLinesAdded: 0, inFlightLinesRemoved: 0 },
+      openPrRows: [
+        { pr_commits: 5, pr_additions: 100, pr_deletions: 30, pr_updated_at: '2026-04-22T10:00:00Z' },
+      ],
+      unmergedAgg: { openPrCount: 1, openPrDevCount: 1, bareBranchCount: 0, bareBranchDevCount: 0, inFlightLinesAdded: 100, inFlightLinesRemoved: 30 },
     });
     const result = await getOrgReport('rep1');
-    const allTypes = result.timeline.flatMap((w: any) => Object.entries(w.types));
-    const typeCounts: Record<string, number> = {};
-    for (const [t, c] of allTypes) typeCounts[t] = (typeCounts[t] || 0) + (c as number);
-    expect(typeCounts.in_flight).toBe(1);
-    expect(typeCounts.bug).toBe(1);
-    expect(typeCounts.feature).toBeUndefined();
+    // Find the week bucket containing 2026-04-20 (Monday key)
+    const week = result.timeline.find((w: any) => w.week === '2026-04-20')!;
+    expect(week).toBeDefined();
+    expect(week.types.in_flight).toBe(5);
+    expect(week.types.feature).toBe(1);                 // shipped commit's original type preserved
+    expect(week.commits).toBe(6);                       // 1 shipped + 5 in-flight
+    expect(week.linesAdded).toBe(110);                  // 10 + 100
+    expect(week.linesRemoved).toBe(32);                 // 2 + 30
+    expect(week.inFlightLinesAdded).toBe(100);
+    expect(week.inFlightLinesRemoved).toBe(30);
   });
 
-  it('does not override type when bareBranchShas is empty', async () => {
+  it('creates a new week bucket if pr_updated_at falls outside existing weeks', async () => {
+    mockBaselineQueries({
+      timelineCommits: [],                               // no shipped commits at all
+      openPrRows: [
+        { pr_commits: 3, pr_additions: 50, pr_deletions: 10, pr_updated_at: '2026-04-22T10:00:00Z' },
+      ],
+      unmergedAgg: { openPrCount: 1, openPrDevCount: 1, bareBranchCount: 0, bareBranchDevCount: 0, inFlightLinesAdded: 50, inFlightLinesRemoved: 10 },
+    });
+    const result = await getOrgReport('rep1');
+    expect(result.timeline.length).toBe(1);
+    const week = result.timeline[0];
+    expect(week.week).toBe('2026-04-20');
+    expect(week.types.in_flight).toBe(3);
+    expect(week.commits).toBe(3);
+    expect(week.inFlightLinesAdded).toBe(50);
+  });
+
+  it('does not modify timeline when no open PRs exist', async () => {
     mockBaselineQueries({
       timelineCommits: [
-        { commit_sha: 'xxx', github_login: 'a', committed_at: '2026-04-20', lines_added: 1, lines_removed: 0, complexity: 5, type: 'feature', ai_co_authored: 0, maybe_ai: 0 },
+        { commit_sha: 'xxx', github_login: 'a', committed_at: '2026-04-22T15:00:00Z', lines_added: 1, lines_removed: 0, complexity: 5, type: 'feature', ai_co_authored: 0, maybe_ai: 0 },
       ],
-      bareBranchShas: [],
+      openPrRows: [],
       unmergedAgg: null,
     });
     const result = await getOrgReport('rep1');
-    const allTypes = result.timeline.flatMap((w: any) => Object.entries(w.types));
-    const typeCounts: Record<string, number> = {};
-    for (const [t, c] of allTypes) typeCounts[t] = (typeCounts[t] || 0) + (c as number);
-    expect(typeCounts.feature).toBe(1);
-    expect(typeCounts.in_flight).toBeUndefined();
+    const week = result.timeline.find((w: any) => w.week === '2026-04-20')!;
+    expect(week.types.feature).toBe(1);
+    expect(week.types.in_flight).toBeUndefined();
+    expect(week.inFlightLinesAdded).toBeUndefined();
   });
 });
