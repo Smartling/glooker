@@ -178,3 +178,24 @@ This step is owned by the user (`msogin`) since it requires their git credential
 | Bucket open PRs by created or updated date? | N/A — no PR time-series chart in this scope |
 | Admin gating? | None — same as Dev Detail page (non-sensitive data) |
 | 0 bare-branch in the latest report — bug or correct? | Correct, verified via direct GitHub API sampling. Manual verification step (§8) added to confirm the detection path works end-to-end with a contrived case. |
+
+---
+
+## Addendum 2026-04-27: Replace bare-branch type override with open-PR overlay
+
+**Why:** During implementation review, discovered that GitHub's commit search API returns commits from default branches only — branch-only commits (the basis of `bare_branch_commit` rows) and commits-inside-open-PRs never enter `commit_analyses`. As a result the bare-branch type override paints a near-empty slice and the substantial 600+ commits sitting inside open PRs are invisible to all charts.
+
+**Change:** Stop overriding `type='in_flight'` on bare-branch commit SHAs. Instead, source the `in_flight` category from `unmerged_work` rows where `kind='open_pr'`:
+- For each open-PR row, take its `pr_commits`, `pr_additions`, `pr_deletions`.
+- Bucket by the week of `pr_updated_at`.
+- Add `pr_commits` to that week's `commits` total AND `types.in_flight`.
+- Add `pr_additions` / `pr_deletions` to that week's `linesAdded` / `linesRemoved` AND new fields `inFlightLinesAdded` / `inFlightLinesRemoved`.
+- If the week didn't already exist in the timeline, create it.
+
+**Visual semantics:** Bars on `Commits/Week` and `Lines Changed/Week` get **taller** — totals now reflect both shipped (`commit_analyses` rows) and in-flight (open-PR aggregates). Stacked: shipped at the bottom (existing color), in-flight at the top (amber `#FBBF24`). Pie + stacked-types charts pick up `in_flight` automatically via the type counts.
+
+**Bare-branch tracking:** `unmerged_work.kind='bare_branch_commit'` rows remain in the schema. The `Bare-branch commits` KPI card stays. Only the chart override is removed — bare-branch commits aren't added to `in_flight` because they're not in `commit_analyses` (so they wouldn't show up in any timeline anyway, and adding them would double-count if they're ever surfaced).
+
+**Bucket date:** `pr_updated_at` (last activity), not `pr_created_at`.
+
+**Tests update:** The "overrides type to in_flight for bare-branch" test is replaced with: "open PRs contribute to `types.in_flight` and `inFlightLines*` per the week of `pr_updated_at`".
