@@ -55,25 +55,21 @@ export async function getOrgReport(reportId: string) {
   // 4. Weekly aggregation with trackDevs
   const timeline = aggregateWeekly(timelineCommits, { trackDevs: true });
 
-  // 4a. In-flight overlay: source from open-PR rows in unmerged_work.
-  //     Each open PR contributes its `pr_commits` count and `pr_additions`/`pr_deletions`
-  //     to the week of its `pr_updated_at`. Open-PR commits aren't in commit_analyses
-  //     (GitHub commit search doesn't return branch-only commits), so this is the only
-  //     way they show up in the org timeline.
-  const [openPrRows] = await db.execute(
-    `SELECT pr_commits, pr_additions, pr_deletions, pr_updated_at
-     FROM unmerged_work
-     WHERE report_id = ? AND kind = 'open_pr'`,
+  // 4a. In-flight overlay: per-commit data from unmerged_commits, bucketed by committed_at.
+  const [overlayRows] = await db.execute(
+    `SELECT committed_at, lines_added, lines_removed
+     FROM unmerged_commits
+     WHERE report_id = ?`,
     [reportId],
   ) as [any[], any];
 
-  if (openPrRows.length > 0) {
+  if (overlayRows.length > 0) {
     const weekMap = new Map<string, any>();
     for (const w of timeline) weekMap.set(w.week, w);
 
-    for (const pr of openPrRows) {
-      if (!pr.pr_updated_at) continue;
-      const d = new Date(pr.pr_updated_at);
+    for (const row of overlayRows) {
+      if (!row.committed_at) continue;
+      const d = new Date(row.committed_at);
       if (Number.isNaN(d.getTime())) continue;
       const day = d.getDay();
       const monday = new Date(d);
@@ -100,37 +96,33 @@ export async function getOrgReport(reportId: string) {
         timeline.push(bucket);
       }
 
-      const prCommits  = Number(pr.pr_commits  || 0);
-      const prAdded    = Number(pr.pr_additions || 0);
-      const prRemoved  = Number(pr.pr_deletions || 0);
+      const a = Number(row.lines_added   || 0);
+      const r = Number(row.lines_removed || 0);
 
-      bucket.commits         += prCommits;
-      bucket.linesAdded      += prAdded;
-      bucket.linesRemoved    += prRemoved;
-      bucket.linesP95Added   = (bucket.linesP95Added   || 0) + prAdded;
-      bucket.linesP95Removed = (bucket.linesP95Removed || 0) + prRemoved;
+      bucket.commits         += 1;
+      bucket.linesAdded      += a;
+      bucket.linesRemoved    += r;
+      bucket.linesP95Added   = (bucket.linesP95Added   || 0) + a;
+      bucket.linesP95Removed = (bucket.linesP95Removed || 0) + r;
       bucket.types           = { ...(bucket.types || {}) };
-      bucket.types.in_flight = (bucket.types.in_flight || 0) + prCommits;
-      bucket.inFlightLinesAdded   = (bucket.inFlightLinesAdded   || 0) + prAdded;
-      bucket.inFlightLinesRemoved = (bucket.inFlightLinesRemoved || 0) + prRemoved;
+      bucket.types.in_flight = (bucket.types.in_flight || 0) + 1;
+      bucket.inFlightLinesAdded   = (bucket.inFlightLinesAdded   || 0) + a;
+      bucket.inFlightLinesRemoved = (bucket.inFlightLinesRemoved || 0) + r;
     }
 
-    // Re-sort by week key after potentially appending new buckets
     timeline.sort((a, b) => a.week.localeCompare(b.week));
   }
 
-  // Unmerged-work summary KPI counts (single aggregation query).
+  // KPI-card aggregation: PR counts from unmerged_prs, commit counts from unmerged_commits
   const [unmergedAggRows] = await db.execute(
     `SELECT
-       SUM(CASE WHEN kind = 'open_pr' THEN 1 ELSE 0 END) AS openPrCount,
-       COUNT(DISTINCT CASE WHEN kind = 'open_pr' THEN github_login END) AS openPrDevCount,
-       SUM(CASE WHEN kind = 'bare_branch_commit' THEN 1 ELSE 0 END) AS bareBranchCount,
-       COUNT(DISTINCT CASE WHEN kind = 'bare_branch_commit' THEN github_login END) AS bareBranchDevCount,
-       COALESCE(SUM(CASE WHEN kind = 'open_pr' THEN pr_additions ELSE 0 END), 0) AS inFlightLinesAdded,
-       COALESCE(SUM(CASE WHEN kind = 'open_pr' THEN pr_deletions ELSE 0 END), 0) AS inFlightLinesRemoved
-     FROM unmerged_work
-     WHERE report_id = ?`,
-    [reportId],
+       (SELECT COUNT(*)              FROM unmerged_prs     WHERE report_id = ?) AS openPrCount,
+       (SELECT COUNT(DISTINCT github_login) FROM unmerged_prs WHERE report_id = ?) AS openPrDevCount,
+       (SELECT COUNT(*)              FROM unmerged_commits WHERE report_id = ? AND pr_number IS NULL) AS bareBranchCount,
+       (SELECT COUNT(DISTINCT github_login) FROM unmerged_commits WHERE report_id = ? AND pr_number IS NULL) AS bareBranchDevCount,
+       (SELECT COALESCE(SUM(lines_added),   0) FROM unmerged_commits WHERE report_id = ?) AS inFlightLinesAdded,
+       (SELECT COALESCE(SUM(lines_removed), 0) FROM unmerged_commits WHERE report_id = ?) AS inFlightLinesRemoved`,
+    [reportId, reportId, reportId, reportId, reportId, reportId],
   ) as [any[], any];
 
   const aggRow = unmergedAggRows[0] || {};
