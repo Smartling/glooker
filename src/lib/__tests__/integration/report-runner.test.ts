@@ -247,27 +247,32 @@ describe('runReport', () => {
   it('persists per-commit rows to unmerged_commits via PR commits + branch compare', async () => {
     const { getCommitDetail } = require('@/lib/github');
 
+    // Use dynamic dates within the runner's 90-day in-flight cutoff so this test
+    // doesn't go stale as wall-clock advances.
+    const recent = new Date(Date.now() - 2 * 86400_000).toISOString();
+    const slightlyOlder = new Date(Date.now() - 3 * 86400_000).toISOString();
+
     // Alice has one open PR with one commit
     mockFetchOpenPRs.mockImplementation(async (_org, user) =>
       user === 'alice'
-        ? [{ repo: 'app', number: 7, title: 'wip', url: 'https://github.com/o/app/pull/7', draft: false, commits: 1, additions: 30, deletions: 5, createdAt: '2026-04-10', updatedAt: '2026-04-22' }]
+        ? [{ repo: 'app', number: 7, title: 'wip', url: 'https://github.com/o/app/pull/7', draft: false, commits: 1, additions: 30, deletions: 5, createdAt: recent, updatedAt: recent }]
         : [],
     );
     mockFetchPullRequestCommits.mockImplementation(async (_owner, _repo, n) =>
       n === 7
-        ? [{ sha: 'pr-sha-1', message: 'wip commit', authorLogin: 'alice', committedAt: '2026-04-22T15:00:00Z' }]
+        ? [{ sha: 'pr-sha-1', message: 'wip commit', authorLogin: 'alice', committedAt: recent }]
         : [],
     );
     // Alice also pushed a commit to a branch with no PR.
     // Per-repo events feed: 'app' is in alice's activeRepos because she has an open PR there.
     mockFetchRepoEvents.mockImplementation(async (_owner, repo) =>
       repo === 'app'
-        ? [{ type: 'PushEvent', actorLogin: 'alice', ref: 'refs/heads/wip-branch', headSha: 'orphan-head', createdAt: '2026-04-22T15:00:00Z' }]
+        ? [{ type: 'PushEvent', actorLogin: 'alice', ref: 'refs/heads/wip-branch', headSha: 'orphan-head', createdAt: recent }]
         : [],
     );
     mockCompareBranchCommits.mockImplementation(async (_owner, _repo, head) =>
       head === 'orphan-head'
-        ? [{ sha: 'orphan-sha-1', message: 'WIP no PR', authorLogin: 'alice', committedAt: '2026-04-21T15:00:00Z' }]
+        ? [{ sha: 'orphan-sha-1', message: 'WIP no PR', authorLogin: 'alice', committedAt: slightlyOlder }]
         : [],
     );
     mockIsCommitInDefaultBranch.mockResolvedValue(false); // ensure orphan-head is treated as non-default
@@ -287,5 +292,39 @@ describe('runReport', () => {
     const shas = allParams.map(p => p[5]); // commit_sha is the 6th param (0-indexed 5) in the INSERT
     expect(shas).toContain('pr-sha-1');
     expect(shas).toContain('orphan-sha-1');
+  });
+
+  it('skips unmerged commits older than 90 days (matches chart display window)', async () => {
+    const { getCommitDetail } = require('@/lib/github');
+    const recent = new Date(Date.now() - 2 * 86400_000).toISOString();
+    const tooOld = new Date(Date.now() - 100 * 86400_000).toISOString(); // outside the 90-day cutoff
+
+    mockFetchOpenPRs.mockImplementation(async (_org, user) =>
+      user === 'alice'
+        ? [{ repo: 'app', number: 9, title: 'wip', url: '#', draft: false, commits: 2, additions: 10, deletions: 0, createdAt: tooOld, updatedAt: recent }]
+        : [],
+    );
+    mockFetchPullRequestCommits.mockImplementation(async (_owner, _repo, n) =>
+      n === 9
+        ? [
+            { sha: 'fresh-sha', message: 'recent', authorLogin: 'alice', committedAt: recent },
+            { sha: 'stale-sha', message: 'ancient', authorLogin: 'alice', committedAt: tooOld },
+          ]
+        : [],
+    );
+    mockFetchRepoEvents.mockResolvedValue([]);
+    (getCommitDetail as jest.Mock).mockResolvedValue({ additions: 1, deletions: 0, diff: '' });
+
+    await runReport('r1', 'my-org', 14);
+
+    const inserts = mockDbExecute.mock.calls.filter(
+      (call: any[]) =>
+        typeof call[0] === 'string' &&
+        call[0].includes('INSERT') &&
+        call[0].includes('unmerged_commits'),
+    );
+    const shas = inserts.map((c: any[]) => c[1][5]);
+    expect(shas).toContain('fresh-sha');
+    expect(shas).not.toContain('stale-sha');
   });
 });

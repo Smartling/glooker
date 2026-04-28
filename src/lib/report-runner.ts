@@ -229,6 +229,15 @@ export async function runReport(
           type UmRecord = { repo: string; sha: string; message: string; committedAt: string; branch: string | null; prNumber: number | null };
           const seenSha = new Set<string>();
           const queue: UmRecord[] = [];
+          // Cap unmerged-commit fetch at 90 days back. Matches the org chart display
+          // window (which already clips pre-90d weeks), so older commits would never
+          // render anyway. Skipping them avoids ~15-20% of the dominant getCommitDetail
+          // cost without any visible information loss.
+          const unmergedCutoff = new Date(Date.now() - 90 * 86400_000);
+          const inWindow = (committedAt: string): boolean => {
+            const t = new Date(committedAt).getTime();
+            return Number.isFinite(t) && t >= unmergedCutoff.getTime();
+          };
 
           // (1) commits in open PRs
           for (const pr of openPrs) {
@@ -236,6 +245,7 @@ export async function runReport(
               const prCommits = await github.fetchPullRequestCommits(org, pr.repo, pr.number, log);
               for (const c of prCommits) {
                 if (c.authorLogin && c.authorLogin !== member.login) continue;
+                if (!inWindow(c.committedAt)) continue;
                 if (seenSha.has(c.sha)) continue;
                 seenSha.add(c.sha);
                 queue.push({ repo: pr.repo, sha: c.sha, message: c.message, committedAt: c.committedAt, branch: null, prNumber: pr.number });
@@ -283,6 +293,7 @@ export async function runReport(
                 const branchCommits = await github.compareBranchCommits(org, repo, headSha, log);
                 for (const c of branchCommits) {
                   if (c.authorLogin && c.authorLogin !== member.login) continue;
+                  if (!inWindow(c.committedAt)) continue;
                   if (seenSha.has(c.sha)) continue;
                   seenSha.add(c.sha);
                   queue.push({ repo, sha: c.sha, message: c.message, committedAt: c.committedAt, branch: branchName, prNumber: null });
