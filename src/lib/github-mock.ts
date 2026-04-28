@@ -90,5 +90,10 @@ export function createMockGitHubProvider(): GitHubProvider {
       log?.(`[mock] fetchUserOrgEvents for ${_user}`);
       return [];
     },
+
+    async fetchPullRequestCommits(_owner, _repo, pullNumber, log) {
+      log?.(`[mock] fetchPullRequestCommits #${pullNumber}`);
+      return [];
+    },
   };
 }

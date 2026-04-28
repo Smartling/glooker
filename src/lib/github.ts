@@ -46,6 +46,13 @@ export interface UserOrgEvent {
   headSha: string;
 }
 
+export interface UnmergedCommitInfo {
+  sha:          string;
+  message:      string;
+  authorLogin:  string | null;
+  committedAt:  string;
+}
+
 export interface OrgMember {
   login:     string;
   avatarUrl: string;
@@ -64,6 +71,7 @@ export interface GitHubProvider {
   fetchOpenPRs(org: string, user: string, since: Date, log?: (msg: string) => void): Promise<OpenPrInfo[]>;
   isCommitInDefaultBranch(owner: string, repo: string, sha: string): Promise<boolean>;
   fetchUserOrgEvents(org: string, user: string, log?: (msg: string) => void): Promise<UserOrgEvent[]>;
+  fetchPullRequestCommits(owner: string, repo: string, pullNumber: number, log?: (msg: string) => void): Promise<UnmergedCommitInfo[]>;
 }
 
 let octokit: InstanceType<typeof Octokit> | null = null;
@@ -552,6 +560,34 @@ export async function fetchUserOrgEvents(
   return events;
 }
 
+// ---------- PR commits list ----------
+
+export async function fetchPullRequestCommits(
+  owner: string,
+  repo:  string,
+  pullNumber: number,
+  log?:  (msg: string) => void,
+): Promise<UnmergedCommitInfo[]> {
+  const result: UnmergedCommitInfo[] = [];
+  for (let page = 1; page <= 3; page++) { // GitHub caps PR commits at 250
+    await sleep(2500);
+    const res = await withRetry(
+      () => getOctokit().pulls.listCommits({ owner, repo, pull_number: pullNumber, per_page: 100, page }),
+      log,
+    );
+    for (const c of res.data) {
+      result.push({
+        sha:          c.sha,
+        message:      c.commit?.message || '',
+        authorLogin:  c.author?.login ?? null,
+        committedAt:  c.commit?.committer?.date || c.commit?.author?.date || '',
+      });
+    }
+    if (res.data.length < 100) break;
+  }
+  return result;
+}
+
 // ---------- Default branch membership check ----------
 
 // Per-run cache of default branch names keyed by "owner/repo".
@@ -599,6 +635,7 @@ export function getGitHubProvider(): GitHubProvider {
     fetchOpenPRs,
     isCommitInDefaultBranch,
     fetchUserOrgEvents,
+    fetchPullRequestCommits,
   };
   return cachedProvider;
 }

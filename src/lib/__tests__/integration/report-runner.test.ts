@@ -27,6 +27,7 @@ const mockFetchUserActivity = jest.fn();
 const mockCountReviewedPRs = jest.fn().mockResolvedValue(0);
 const mockFetchOpenPRs = jest.fn().mockResolvedValue([]);
 const mockFetchUserOrgEvents = jest.fn().mockResolvedValue([]);
+const mockFetchPullRequestCommits = jest.fn().mockResolvedValue([]);
 const mockIsCommitInDefaultBranch = jest.fn().mockResolvedValue(true); // default: every commit is in main (no bare branch)
 const mockGetGitHubProvider = getGitHubProvider as jest.Mock;
 mockGetGitHubProvider.mockReturnValue({
@@ -36,6 +37,7 @@ mockGetGitHubProvider.mockReturnValue({
   countReviewedPRs: mockCountReviewedPRs,
   fetchOpenPRs: mockFetchOpenPRs,
   fetchUserOrgEvents: mockFetchUserOrgEvents,
+  fetchPullRequestCommits: mockFetchPullRequestCommits,
   isCommitInDefaultBranch: mockIsCommitInDefaultBranch,
 });
 const mockAnalyzeCommit = analyzeCommit as jest.Mock;
