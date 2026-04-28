@@ -86,9 +86,14 @@ export function createMockGitHubProvider(): GitHubProvider {
       return n % 3 !== 0;
     },
 
-    async fetchUserOrgEvents(_org, _user, log) {
-      log?.(`[mock] fetchUserOrgEvents for ${_user}`);
+    async fetchRepoEvents(_owner, repo, log) {
+      log?.(`[mock] fetchRepoEvents for ${repo}`);
       return [];
+    },
+
+    async getBranchHeadSha(_owner, _repo, _branchName, log) {
+      log?.(`[mock] getBranchHeadSha`);
+      return null;
     },
 
     async fetchPullRequestCommits(_owner, _repo, pullNumber, log) {

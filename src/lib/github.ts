@@ -39,11 +39,12 @@ export interface OpenPrInfo {
   updatedAt:  string;
 }
 
-export interface UserOrgEvent {
-  type:    string;
-  repo:    string;     // bare repo name (without owner)
-  ref:     string;     // e.g., 'refs/heads/feature-foo'
-  headSha: string;
+export interface RepoEvent {
+  type:        'PushEvent' | 'CreateEvent';
+  actorLogin:  string;
+  ref:         string;          // 'refs/heads/feature-foo'
+  headSha:     string | null;    // null for CreateEvent — resolve via getBranchHeadSha
+  createdAt:   string;
 }
 
 export interface UnmergedCommitInfo {
@@ -70,7 +71,8 @@ export interface GitHubProvider {
   countReviewedPRs(org: string, user: string, since: Date): Promise<number>;
   fetchOpenPRs(org: string, user: string, since: Date, log?: (msg: string) => void): Promise<OpenPrInfo[]>;
   isCommitInDefaultBranch(owner: string, repo: string, sha: string): Promise<boolean>;
-  fetchUserOrgEvents(org: string, user: string, log?: (msg: string) => void): Promise<UserOrgEvent[]>;
+  fetchRepoEvents(owner: string, repo: string, log?: (msg: string) => void): Promise<RepoEvent[]>;
+  getBranchHeadSha(owner: string, repo: string, branchName: string, log?: (msg: string) => void): Promise<string | null>;
   fetchPullRequestCommits(owner: string, repo: string, pullNumber: number, log?: (msg: string) => void): Promise<UnmergedCommitInfo[]>;
   compareBranchCommits(owner: string, repo: string, headSha: string, log?: (msg: string) => void): Promise<UnmergedCommitInfo[]>;
 }
@@ -527,38 +529,81 @@ export async function fetchOpenPRs(
   return results;
 }
 
-// ---------- User org events feed ----------
+// ---------- Repo events feed ----------
+// Per-repo events. Returns Push and Create-branch events with actor info.
+// Replaces the broken `fetchUserOrgEvents` (per-user feed isn't accessible to fine-grained PATs).
+// Cached per (owner, repo) for the run lifetime so multiple engineers active in the
+// same repo don't re-fetch.
 
-export async function fetchUserOrgEvents(
-  org:   string,
-  user:  string,
+const repoEventsCache = new Map<string, RepoEvent[]>();
+
+export async function fetchRepoEvents(
+  owner: string,
+  repo:  string,
   log?:  (msg: string) => void,
-): Promise<UserOrgEvent[]> {
-  const events: UserOrgEvent[] = [];
-  // GitHub caps user/events feeds at 300 events / 3 pages
-  for (let page = 1; page <= 3; page++) {
+): Promise<RepoEvent[]> {
+  const key = `${owner}/${repo}`;
+  if (repoEventsCache.has(key)) return repoEventsCache.get(key)!;
+
+  const events: RepoEvent[] = [];
+  for (let page = 1; page <= 3; page++) { // 300 events / 3 pages
     await sleep(2500);
     const res = await withRetry(
-      () => getOctokit().activity.listOrgEventsForAuthenticatedUser({
-        org, username: user, per_page: 100, page,
-      }),
+      () => getOctokit().activity.listRepoEvents({ owner, repo, per_page: 100, page }),
       log,
     );
     for (const item of res.data) {
-      if (item.type !== 'PushEvent') continue;
-      const repo = (item.repo?.name || '').split('/').pop() || '';
+      const actorLogin = item.actor?.login || '';
       const payload: any = item.payload || {};
-      if (!payload.ref || !payload.head) continue;
-      events.push({
-        type:    item.type,
-        repo,
-        ref:     payload.ref,
-        headSha: payload.head,
-      });
+      if (item.type === 'PushEvent') {
+        if (!payload.ref || !payload.head) continue;
+        events.push({
+          type: 'PushEvent',
+          actorLogin,
+          ref: payload.ref,
+          headSha: payload.head,
+          createdAt: item.created_at || '',
+        });
+      } else if (item.type === 'CreateEvent' && payload.ref_type === 'branch') {
+        const fullRef = payload.full_ref || (payload.ref ? `refs/heads/${payload.ref}` : '');
+        if (!fullRef) continue;
+        events.push({
+          type: 'CreateEvent',
+          actorLogin,
+          ref: fullRef,
+          headSha: null, // CreateEvent doesn't carry the head SHA — caller resolves via getBranchHeadSha
+          createdAt: item.created_at || '',
+        });
+      }
     }
     if (res.data.length < 100) break;
   }
+
+  repoEventsCache.set(key, events);
   return events;
+}
+
+export function __clearRepoEventsCacheForTest() {
+  repoEventsCache.clear();
+}
+
+// ---------- Branch head lookup (used to resolve head SHA for CreateEvent) ----------
+
+export async function getBranchHeadSha(
+  owner: string,
+  repo:  string,
+  branchName: string,
+  log?:  (msg: string) => void,
+): Promise<string | null> {
+  try {
+    const { data } = await withRetry(
+      () => getOctokit().repos.getBranch({ owner, repo, branch: branchName }),
+      log,
+    );
+    return data.commit?.sha || null;
+  } catch {
+    return null;
+  }
 }
 
 // ---------- PR commits list ----------
@@ -654,7 +699,8 @@ export function getGitHubProvider(): GitHubProvider {
     countReviewedPRs,
     fetchOpenPRs,
     isCommitInDefaultBranch,
-    fetchUserOrgEvents,
+    fetchRepoEvents,
+    getBranchHeadSha,
     fetchPullRequestCommits,
     compareBranchCommits,
   };

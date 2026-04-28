@@ -245,31 +245,51 @@ export async function runReport(
             }
           }
 
-          // (2) commits on orphan branches via push events
-          let events: any[] = [];
-          try {
-            events = await github.fetchUserOrgEvents(org, member.login, log);
-          } catch (err) {
-            log(`fetchUserOrgEvents failed for @${member.login}: ${err instanceof Error ? err.message : String(err)}`);
-          }
-          const branchSeen = new Set<string>();
-          for (const ev of events) {
-            const key = `${ev.repo}::${ev.ref}`;
-            if (branchSeen.has(key)) continue;
-            branchSeen.add(key);
+          // (2) commits on orphan branches via per-repo events.
+          // We can't use the per-user events feed (fine-grained PATs return 403). Instead,
+          // for each repo the engineer is active in, fetch the repo-level events feed
+          // (cached per repo across engineers), filter to PushEvents/CreateEvents whose
+          // actor is this engineer, and resolve each non-default ref to its head + commits.
+          const activeRepos = new Set<string>();
+          for (const c of activity.commits) activeRepos.add(c.repo);
+          for (const pr of openPrs) activeRepos.add(pr.repo);
+
+          for (const repo of activeRepos) {
+            let events: any[] = [];
             try {
-              const inMain = await github.isCommitInDefaultBranch(org, ev.repo, ev.headSha);
-              if (inMain) continue; // ref's head is already in default → not an orphan branch
-              const branchName = ev.ref.replace(/^refs\/heads\//, '');
-              const branchCommits = await github.compareBranchCommits(org, ev.repo, ev.headSha, log);
-              for (const c of branchCommits) {
-                if (c.authorLogin && c.authorLogin !== member.login) continue;
-                if (seenSha.has(c.sha)) continue;
-                seenSha.add(c.sha);
-                queue.push({ repo: ev.repo, sha: c.sha, message: c.message, committedAt: c.committedAt, branch: branchName, prNumber: null });
-              }
+              events = await github.fetchRepoEvents(org, repo, log);
             } catch (err) {
-              log(`branch compare failed for ${ev.repo}/${ev.ref}: ${err instanceof Error ? err.message : String(err)}`);
+              log(`fetchRepoEvents failed for ${repo}: ${err instanceof Error ? err.message : String(err)}`);
+              continue;
+            }
+            const branchSeen = new Set<string>();
+            for (const ev of events) {
+              if (ev.actorLogin !== member.login) continue;
+              if (!ev.ref) continue;
+              if (branchSeen.has(ev.ref)) continue;
+              branchSeen.add(ev.ref);
+              try {
+                // Resolve head SHA (PushEvents have it; CreateEvents need a branches lookup).
+                let headSha: string | null = ev.headSha;
+                if (!headSha) {
+                  const branchName = ev.ref.replace(/^refs\/heads\//, '');
+                  headSha = await github.getBranchHeadSha(org, repo, branchName, log);
+                }
+                if (!headSha) continue;
+
+                const inMain = await github.isCommitInDefaultBranch(org, repo, headSha);
+                if (inMain) continue; // already merged — not an orphan branch
+                const branchName = ev.ref.replace(/^refs\/heads\//, '');
+                const branchCommits = await github.compareBranchCommits(org, repo, headSha, log);
+                for (const c of branchCommits) {
+                  if (c.authorLogin && c.authorLogin !== member.login) continue;
+                  if (seenSha.has(c.sha)) continue;
+                  seenSha.add(c.sha);
+                  queue.push({ repo, sha: c.sha, message: c.message, committedAt: c.committedAt, branch: branchName, prNumber: null });
+                }
+              } catch (err) {
+                log(`branch compare failed for ${repo}/${ev.ref}: ${err instanceof Error ? err.message : String(err)}`);
+              }
             }
           }
 

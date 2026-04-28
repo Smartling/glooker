@@ -30,10 +30,11 @@ const mockListOrgMembers = jest.fn();
 const mockFetchUserActivity = jest.fn();
 const mockCountReviewedPRs = jest.fn().mockResolvedValue(0);
 const mockFetchOpenPRs = jest.fn().mockResolvedValue([]);
-const mockFetchUserOrgEvents = jest.fn().mockResolvedValue([]);
+const mockFetchRepoEvents = jest.fn().mockResolvedValue([]);
+const mockGetBranchHeadSha = jest.fn().mockResolvedValue(null);
 const mockFetchPullRequestCommits = jest.fn().mockResolvedValue([]);
 const mockCompareBranchCommits = jest.fn().mockResolvedValue([]);
-const mockIsCommitInDefaultBranch = jest.fn().mockResolvedValue(true); // default: every commit is in main (no bare branch)
+const mockIsCommitInDefaultBranch = jest.fn().mockResolvedValue(true);
 const mockGetGitHubProvider = getGitHubProvider as jest.Mock;
 mockGetGitHubProvider.mockReturnValue({
   listOrgMembers: mockListOrgMembers,
@@ -41,7 +42,8 @@ mockGetGitHubProvider.mockReturnValue({
   listOrgs: jest.fn(),
   countReviewedPRs: mockCountReviewedPRs,
   fetchOpenPRs: mockFetchOpenPRs,
-  fetchUserOrgEvents: mockFetchUserOrgEvents,
+  fetchRepoEvents: mockFetchRepoEvents,
+  getBranchHeadSha: mockGetBranchHeadSha,
   fetchPullRequestCommits: mockFetchPullRequestCommits,
   compareBranchCommits: mockCompareBranchCommits,
   isCommitInDefaultBranch: mockIsCommitInDefaultBranch,
@@ -74,8 +76,10 @@ describe('runReport', () => {
     mockFetchOpenPRs.mockResolvedValue([]);
     mockIsCommitInDefaultBranch.mockClear();
     mockIsCommitInDefaultBranch.mockResolvedValue(true);
-    mockFetchUserOrgEvents.mockClear();
-    mockFetchUserOrgEvents.mockResolvedValue([]);
+    mockFetchRepoEvents.mockClear();
+    mockFetchRepoEvents.mockResolvedValue([]);
+    mockGetBranchHeadSha.mockClear();
+    mockGetBranchHeadSha.mockResolvedValue(null);
     mockFetchPullRequestCommits.mockClear();
     mockFetchPullRequestCommits.mockResolvedValue([]);
     mockCompareBranchCommits.mockClear();
@@ -254,10 +258,11 @@ describe('runReport', () => {
         ? [{ sha: 'pr-sha-1', message: 'wip commit', authorLogin: 'alice', committedAt: '2026-04-22T15:00:00Z' }]
         : [],
     );
-    // Alice also pushed a commit to a branch with no PR
-    mockFetchUserOrgEvents.mockImplementation(async (_org, user) =>
-      user === 'alice'
-        ? [{ type: 'PushEvent', repo: 'app', ref: 'refs/heads/wip-branch', headSha: 'orphan-head' }]
+    // Alice also pushed a commit to a branch with no PR.
+    // Per-repo events feed: 'app' is in alice's activeRepos because she has an open PR there.
+    mockFetchRepoEvents.mockImplementation(async (_owner, repo) =>
+      repo === 'app'
+        ? [{ type: 'PushEvent', actorLogin: 'alice', ref: 'refs/heads/wip-branch', headSha: 'orphan-head', createdAt: '2026-04-22T15:00:00Z' }]
         : [],
     );
     mockCompareBranchCommits.mockImplementation(async (_owner, _repo, head) =>
