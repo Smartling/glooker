@@ -144,29 +144,31 @@ export async function getDevSummary(reportId: string, login: string) {
   const recentStats = weekStats(recent7d);
   const priorStats = weekStats(prior7d);
 
-  const [unmergedRows] = await db.execute(
-    `SELECT kind, pr_title, pr_created_at, pr_updated_at, is_draft,
-            commit_message, repo, committed_at
-     FROM unmerged_work
+  const [unmergedPrRows] = await db.execute(
+    `SELECT pr_title, pr_created_at, pr_updated_at, is_draft
+     FROM unmerged_prs
      WHERE report_id = ? AND github_login = ?`,
     [reportId, login],
   ) as [any[], any];
 
-  const unmergedPrs = unmergedRows
-    .filter((r: any) => r.kind === 'open_pr')
-    .map((r: any) => ({
-      title:     r.pr_title,
-      createdAt: r.pr_created_at,
-      updatedAt: r.pr_updated_at,
-      draft:     Boolean(r.is_draft),
-    }));
-  const unmergedCommits = unmergedRows
-    .filter((r: any) => r.kind === 'bare_branch_commit')
-    .map((r: any) => ({
-      message:     r.commit_message,
-      repo:        r.repo,
-      committedAt: r.committed_at,
-    }));
+  const [unmergedCommitRows] = await db.execute(
+    `SELECT commit_message, repo, committed_at
+     FROM unmerged_commits
+     WHERE report_id = ? AND github_login = ? AND pr_number IS NULL`,
+    [reportId, login],
+  ) as [any[], any];
+
+  const unmergedPrs = unmergedPrRows.map((r: any) => ({
+    title:     r.pr_title,
+    createdAt: r.pr_created_at,
+    updatedAt: r.pr_updated_at,
+    draft:     Boolean(r.is_draft),
+  }));
+  const unmergedCommits = unmergedCommitRows.map((r: any) => ({
+    message:     r.commit_message,
+    repo:        r.repo,
+    committedAt: r.committed_at,
+  }));
 
   const unmergedSection = formatUnmergedWorkSection(unmergedPrs, unmergedCommits);
 

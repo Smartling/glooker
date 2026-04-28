@@ -88,19 +88,26 @@ export async function getDevReport(reportId: string, login: string) {
 
   const timeline = aggregateWeekly(timelineCommits);
 
-  // Unmerged work (in-flight) — separate from shipped stats
-  const [unmergedRows] = await db.execute(
-    `SELECT kind, repo, pr_number, pr_title, pr_url, is_draft,
-            pr_commits, pr_additions, pr_deletions, pr_created_at, pr_updated_at,
-            commit_sha, commit_message, branch_name,
-            commit_additions, commit_deletions, committed_at
-     FROM unmerged_work
+  // Unmerged work: PR-level metadata and per-commit data live in two tables now.
+  const [unmergedPrRows] = await db.execute(
+    `SELECT pr_number, pr_title, pr_url, repo, is_draft,
+            pr_commits, pr_additions, pr_deletions, pr_created_at, pr_updated_at
+     FROM unmerged_prs
      WHERE report_id = ? AND github_login = ?
-     ORDER BY COALESCE(pr_updated_at, committed_at) DESC`,
+     ORDER BY pr_updated_at DESC`,
     [reportId, login],
   ) as [any[], any];
 
-  const openPrs = unmergedRows.filter((r: any) => r.kind === 'open_pr').map((r: any) => ({
+  const [unmergedCommitRows] = await db.execute(
+    `SELECT commit_sha, repo, branch, pr_number, commit_message,
+            lines_added, lines_removed, committed_at
+     FROM unmerged_commits
+     WHERE report_id = ? AND github_login = ? AND pr_number IS NULL
+     ORDER BY committed_at DESC`,
+    [reportId, login],
+  ) as [any[], any];
+
+  const openPrs = unmergedPrRows.map((r: any) => ({
     repo:       r.repo,
     number:     r.pr_number,
     title:      r.pr_title,
@@ -112,14 +119,14 @@ export async function getDevReport(reportId: string, login: string) {
     createdAt:  r.pr_created_at,
     updatedAt:  r.pr_updated_at,
   }));
-  const branchCommits = unmergedRows.filter((r: any) => r.kind === 'bare_branch_commit').map((r: any) => ({
-    repo:         r.repo,
-    sha:          r.commit_sha,
-    message:      r.commit_message,
-    branchName:   r.branch_name,
-    additions:    r.commit_additions,
-    deletions:    r.commit_deletions,
-    committedAt:  r.committed_at,
+  const branchCommits = unmergedCommitRows.map((r: any) => ({
+    repo:        r.repo,
+    sha:         r.commit_sha,
+    message:     r.commit_message,
+    branchName:  r.branch,
+    additions:   r.lines_added,
+    deletions:   r.lines_removed,
+    committedAt: r.committed_at,
   }));
 
   const parseDev = (row: any) => ({
