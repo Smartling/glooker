@@ -269,3 +269,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and [CLAUDE.m
 ## License
 
 [MIT](LICENSE)
+// bare-branch verification — delete me Tue Apr 28 14:25:40 EDT 2026
