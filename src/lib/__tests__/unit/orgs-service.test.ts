@@ -26,6 +26,7 @@ describe('listOrgs', () => {
       fetchUserActivity: jest.fn(),
       countReviewedPRs: jest.fn(),
       fetchOpenPRs: jest.fn(),
+      fetchUserOrgEvents: jest.fn().mockResolvedValue([]),
       isCommitInDefaultBranch: jest.fn().mockResolvedValue(true),
     });
 
@@ -47,6 +48,7 @@ describe('listOrgs', () => {
       fetchUserActivity: jest.fn(),
       countReviewedPRs: jest.fn(),
       fetchOpenPRs: jest.fn(),
+      fetchUserOrgEvents: jest.fn().mockResolvedValue([]),
       isCommitInDefaultBranch: jest.fn().mockResolvedValue(true),
     });
 
@@ -69,6 +71,7 @@ describe('listOrgs', () => {
       fetchUserActivity: jest.fn(),
       countReviewedPRs: jest.fn(),
       fetchOpenPRs: jest.fn(),
+      fetchUserOrgEvents: jest.fn().mockResolvedValue([]),
       isCommitInDefaultBranch: jest.fn().mockResolvedValue(true),
     });
 
@@ -89,6 +92,7 @@ describe('listOrgs', () => {
       fetchUserActivity: jest.fn(),
       countReviewedPRs: jest.fn(),
       fetchOpenPRs: jest.fn(),
+      fetchUserOrgEvents: jest.fn().mockResolvedValue([]),
       isCommitInDefaultBranch: jest.fn().mockResolvedValue(true),
     });
 

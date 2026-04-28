@@ -85,5 +85,10 @@ export function createMockGitHubProvider(): GitHubProvider {
       const n = String(sha).split('').reduce((s, c) => s + c.charCodeAt(0), 0);
       return n % 3 !== 0;
     },
+
+    async fetchUserOrgEvents(_org, _user, log) {
+      log?.(`[mock] fetchUserOrgEvents for ${_user}`);
+      return [];
+    },
   };
 }

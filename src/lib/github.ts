@@ -39,6 +39,13 @@ export interface OpenPrInfo {
   updatedAt:  string;
 }
 
+export interface UserOrgEvent {
+  type:    string;
+  repo:    string;     // bare repo name (without owner)
+  ref:     string;     // e.g., 'refs/heads/feature-foo'
+  headSha: string;
+}
+
 export interface OrgMember {
   login:     string;
   avatarUrl: string;
@@ -56,6 +63,7 @@ export interface GitHubProvider {
   countReviewedPRs(org: string, user: string, since: Date): Promise<number>;
   fetchOpenPRs(org: string, user: string, since: Date, log?: (msg: string) => void): Promise<OpenPrInfo[]>;
   isCommitInDefaultBranch(owner: string, repo: string, sha: string): Promise<boolean>;
+  fetchUserOrgEvents(org: string, user: string, log?: (msg: string) => void): Promise<UserOrgEvent[]>;
 }
 
 let octokit: InstanceType<typeof Octokit> | null = null;
@@ -510,6 +518,40 @@ export async function fetchOpenPRs(
   return results;
 }
 
+// ---------- User org events feed ----------
+
+export async function fetchUserOrgEvents(
+  org:   string,
+  user:  string,
+  log?:  (msg: string) => void,
+): Promise<UserOrgEvent[]> {
+  const events: UserOrgEvent[] = [];
+  // GitHub caps user/events feeds at 300 events / 3 pages
+  for (let page = 1; page <= 3; page++) {
+    await sleep(2500);
+    const res = await withRetry(
+      () => getOctokit().activity.listOrgEventsForAuthenticatedUser({
+        org, username: user, per_page: 100, page,
+      }),
+      log,
+    );
+    for (const item of res.data) {
+      if (item.type !== 'PushEvent') continue;
+      const repo = (item.repo?.name || '').split('/').pop() || '';
+      const payload: any = item.payload || {};
+      if (!payload.ref || !payload.head) continue;
+      events.push({
+        type:    item.type,
+        repo,
+        ref:     payload.ref,
+        headSha: payload.head,
+      });
+    }
+    if (res.data.length < 100) break;
+  }
+  return events;
+}
+
 // ---------- Default branch membership check ----------
 
 // Per-run cache of default branch names keyed by "owner/repo".
@@ -556,6 +598,7 @@ export function getGitHubProvider(): GitHubProvider {
     countReviewedPRs,
     fetchOpenPRs,
     isCommitInDefaultBranch,
+    fetchUserOrgEvents,
   };
   return cachedProvider;
 }
