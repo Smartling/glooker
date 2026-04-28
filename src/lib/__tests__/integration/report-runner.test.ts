@@ -4,7 +4,11 @@ import { makeCommit, makeAnalysis } from '../fixtures';
 jest.mock('@octokit/rest', () => ({
   Octokit: jest.fn().mockImplementation(() => ({})),
 }));
-jest.mock('@/lib/github');
+jest.mock('@/lib/github', () => ({
+  ...jest.requireActual('@/lib/github'),
+  getGitHubProvider: jest.fn(),
+  getCommitDetail: jest.fn().mockResolvedValue({ additions: 0, deletions: 0, diff: '' }),
+}));
 jest.mock('@/lib/analyzer');
 jest.mock('@/lib/db/index', () => ({
   __esModule: true,
@@ -70,6 +74,16 @@ describe('runReport', () => {
     mockFetchOpenPRs.mockResolvedValue([]);
     mockIsCommitInDefaultBranch.mockClear();
     mockIsCommitInDefaultBranch.mockResolvedValue(true);
+    mockFetchUserOrgEvents.mockClear();
+    mockFetchUserOrgEvents.mockResolvedValue([]);
+    mockFetchPullRequestCommits.mockClear();
+    mockFetchPullRequestCommits.mockResolvedValue([]);
+    mockCompareBranchCommits.mockClear();
+    mockCompareBranchCommits.mockResolvedValue([]);
+
+    const { getCommitDetail } = require('@/lib/github');
+    (getCommitDetail as jest.Mock).mockReset();
+    (getCommitDetail as jest.Mock).mockResolvedValue({ additions: 0, deletions: 0, diff: '' });
   });
 
   it('happy path: calls analyzeCommit for each unique commit and writes to DB', async () => {
@@ -205,25 +219,12 @@ describe('runReport', () => {
     expect(completedCall).toBeTruthy();
   });
 
-  it('persists open PRs into unmerged_work table', async () => {
-    // alice has one open PR, bob has none
-    mockFetchOpenPRs.mockImplementation(async (_org, user) => {
-      if (user === 'alice') {
-        return [{
-          repo: 'app',
-          number: 42,
-          title: 'Refactor',
-          url: 'https://github.com/my-org/app/pull/42',
-          draft: false,
-          commits: 3,
-          additions: 100,
-          deletions: 20,
-          createdAt: '2026-04-10T00:00:00Z',
-          updatedAt: '2026-04-22T00:00:00Z',
-        }];
-      }
-      return [];
-    });
+  it('persists open PRs to unmerged_prs (renamed from unmerged_work)', async () => {
+    mockFetchOpenPRs.mockImplementation(async (_org, user) =>
+      user === 'alice'
+        ? [{ repo: 'app', number: 42, title: 'WIP feature', url: 'https://github.com/o/app/pull/42', draft: false, commits: 3, additions: 100, deletions: 20, createdAt: '2026-04-10T00:00:00Z', updatedAt: '2026-04-22T00:00:00Z' }]
+        : [],
+    );
 
     await runReport('r1', 'my-org', 14);
 
@@ -231,40 +232,55 @@ describe('runReport', () => {
       (call: any[]) =>
         typeof call[0] === 'string' &&
         call[0].includes('INSERT') &&
-        call[0].includes('unmerged_work') &&
+        call[0].includes('unmerged_prs') &&
         Array.isArray(call[1]) &&
         call[1][1] === 'alice' &&
-        call[1][2] === 'open_pr' &&
-        call[1][3] === 'app' &&
-        call[1][4] === 42,
+        call[1][3] === 42,
     );
     expect(insertCall).toBeTruthy();
   });
 
-  it('persists bare branch commits into unmerged_work table', async () => {
-    // Alice has one commit with no PR association; compareCommits says it's NOT in main.
-    mockFetchUserActivity.mockImplementation(async (_org, user) => {
-      if (user === 'alice') {
-        return {
-          commits: [makeCommit({ sha: 'aaa1', author: 'alice', authorName: 'alice', prNumber: null, repo: 'app' })],
-          prs: [],
-        };
-      }
-      return { commits: [], prs: [] };
-    });
-    mockIsCommitInDefaultBranch.mockImplementation(async (_owner, _repo, sha) => sha !== 'aaa1');
+  it('persists per-commit rows to unmerged_commits via PR commits + branch compare', async () => {
+    const { getCommitDetail } = require('@/lib/github');
+
+    // Alice has one open PR with one commit
+    mockFetchOpenPRs.mockImplementation(async (_org, user) =>
+      user === 'alice'
+        ? [{ repo: 'app', number: 7, title: 'wip', url: 'https://github.com/o/app/pull/7', draft: false, commits: 1, additions: 30, deletions: 5, createdAt: '2026-04-10', updatedAt: '2026-04-22' }]
+        : [],
+    );
+    mockFetchPullRequestCommits.mockImplementation(async (_owner, _repo, n) =>
+      n === 7
+        ? [{ sha: 'pr-sha-1', message: 'wip commit', authorLogin: 'alice', committedAt: '2026-04-22T15:00:00Z' }]
+        : [],
+    );
+    // Alice also pushed a commit to a branch with no PR
+    mockFetchUserOrgEvents.mockImplementation(async (_org, user) =>
+      user === 'alice'
+        ? [{ type: 'PushEvent', repo: 'app', ref: 'refs/heads/wip-branch', headSha: 'orphan-head' }]
+        : [],
+    );
+    mockCompareBranchCommits.mockImplementation(async (_owner, _repo, head) =>
+      head === 'orphan-head'
+        ? [{ sha: 'orphan-sha-1', message: 'WIP no PR', authorLogin: 'alice', committedAt: '2026-04-21T15:00:00Z' }]
+        : [],
+    );
+    mockIsCommitInDefaultBranch.mockResolvedValue(false); // ensure orphan-head is treated as non-default
+    (getCommitDetail as jest.Mock).mockResolvedValue({ additions: 30, deletions: 5, diff: '' });
 
     await runReport('r1', 'my-org', 14);
 
-    const insertCall = mockDbExecute.mock.calls.find(
+    const inserts = mockDbExecute.mock.calls.filter(
       (call: any[]) =>
         typeof call[0] === 'string' &&
         call[0].includes('INSERT') &&
-        call[0].includes('unmerged_work') &&
-        Array.isArray(call[1]) &&
-        call[1][2] === 'bare_branch_commit' &&
-        call[1][4] === 'aaa1',
+        call[0].includes('unmerged_commits'),
     );
-    expect(insertCall).toBeTruthy();
+    expect(inserts.length).toBe(2);
+
+    const allParams = inserts.map((c: any[]) => c[1]);
+    const shas = allParams.map(p => p[5]); // commit_sha is the 6th param (0-indexed 5) in the INSERT
+    expect(shas).toContain('pr-sha-1');
+    expect(shas).toContain('orphan-sha-1');
   });
 });

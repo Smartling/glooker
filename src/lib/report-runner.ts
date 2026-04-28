@@ -1,6 +1,6 @@
 import pLimit from 'p-limit';
 import db from './db/index';
-import { getGitHubProvider, type CommitData } from './github';
+import { getGitHubProvider, getCommitDetail, type CommitData } from './github';
 import { analyzeCommit, type CommitAnalysis } from './analyzer';
 import { aggregate, computeImpactScore } from './aggregator';
 import { updateProgress, addLog } from './progress-store';
@@ -189,30 +189,20 @@ export async function runReport(
           reviewCounts.set(member.login, 0);
         }
 
-        // Fetch open PRs for this member (in-flight work, not counted in impact)
+        // Fetch open PRs for this member (in-flight metadata, not counted in impact)
+        let openPrs: any[] = [];
         try {
-          const openPrs = await github.fetchOpenPRs(org, member.login, since, log);
+          openPrs = await github.fetchOpenPRs(org, member.login, since, log);
           if (openPrs.length > 0) log(`@${member.login}: ${openPrs.length} open PR(s)`);
           for (const pr of openPrs) {
             await db.execute(
-              `INSERT IGNORE INTO unmerged_work
-                 (report_id, github_login, kind, repo, pr_number, pr_title, pr_url,
+              `INSERT IGNORE INTO unmerged_prs
+                 (report_id, github_login, repo, pr_number, pr_title, pr_url,
                   is_draft, pr_commits, pr_additions, pr_deletions, pr_created_at, pr_updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
               [
-                reportId,
-                member.login,
-                'open_pr',
-                pr.repo,
-                pr.number,
-                pr.title,
-                pr.url,
-                pr.draft ? 1 : 0,
-                pr.commits,
-                pr.additions,
-                pr.deletions,
-                pr.createdAt,
-                pr.updatedAt,
+                reportId, member.login, pr.repo, pr.number, pr.title, pr.url,
+                pr.draft ? 1 : 0, pr.commits, pr.additions, pr.deletions, pr.createdAt, pr.updatedAt,
               ],
             );
           }
@@ -230,32 +220,79 @@ export async function runReport(
         }
         memberCommits.set(member.login, thisMemCommits);
 
-        // Classify commits not associated with any PR: are they in main already, or bare-branch WIP?
-        for (const commit of thisMemCommits) {
-          if (commit.prNumber) continue; // already tied to a PR (merged or open)
-          try {
-            const inMain = await github.isCommitInDefaultBranch(org, commit.repo, commit.sha);
-            if (inMain) continue;
-            await db.execute(
-              `INSERT IGNORE INTO unmerged_work
-                 (report_id, github_login, kind, repo, commit_sha, commit_message,
-                  commit_additions, commit_deletions, committed_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-              [
-                reportId,
-                member.login,
-                'bare_branch_commit',
-                commit.repo,
-                commit.sha,
-                commit.message,
-                commit.additions,
-                commit.deletions,
-                commit.committedAt,
-              ],
-            );
-          } catch (err) {
-            log(`bare-branch check failed for ${commit.sha.slice(0, 7)}: ${err instanceof Error ? err.message : String(err)}`);
+        // ── Unmerged commits flow (per-engineer, isolated from main report) ──
+        // Build a per-engineer set of unmerged commit SHAs across two sources:
+        //   (1) commits in the engineer's open PRs
+        //   (2) commits on non-default branches the engineer pushed to (no PR yet)
+        // Then enrich each unique SHA with line counts via getCommitDetail.
+        try {
+          type UmRecord = { repo: string; sha: string; message: string; committedAt: string; branch: string | null; prNumber: number | null };
+          const seenSha = new Set<string>();
+          const queue: UmRecord[] = [];
+
+          // (1) commits in open PRs
+          for (const pr of openPrs) {
+            try {
+              const prCommits = await github.fetchPullRequestCommits(org, pr.repo, pr.number, log);
+              for (const c of prCommits) {
+                if (c.authorLogin && c.authorLogin !== member.login) continue;
+                if (seenSha.has(c.sha)) continue;
+                seenSha.add(c.sha);
+                queue.push({ repo: pr.repo, sha: c.sha, message: c.message, committedAt: c.committedAt, branch: null, prNumber: pr.number });
+              }
+            } catch (err) {
+              log(`fetchPullRequestCommits failed for ${pr.repo}#${pr.number}: ${err instanceof Error ? err.message : String(err)}`);
+            }
           }
+
+          // (2) commits on orphan branches via push events
+          let events: any[] = [];
+          try {
+            events = await github.fetchUserOrgEvents(org, member.login, log);
+          } catch (err) {
+            log(`fetchUserOrgEvents failed for @${member.login}: ${err instanceof Error ? err.message : String(err)}`);
+          }
+          const branchSeen = new Set<string>();
+          for (const ev of events) {
+            const key = `${ev.repo}::${ev.ref}`;
+            if (branchSeen.has(key)) continue;
+            branchSeen.add(key);
+            try {
+              const inMain = await github.isCommitInDefaultBranch(org, ev.repo, ev.headSha);
+              if (inMain) continue; // ref's head is already in default → not an orphan branch
+              const branchName = ev.ref.replace(/^refs\/heads\//, '');
+              const branchCommits = await github.compareBranchCommits(org, ev.repo, ev.headSha, log);
+              for (const c of branchCommits) {
+                if (c.authorLogin && c.authorLogin !== member.login) continue;
+                if (seenSha.has(c.sha)) continue;
+                seenSha.add(c.sha);
+                queue.push({ repo: ev.repo, sha: c.sha, message: c.message, committedAt: c.committedAt, branch: branchName, prNumber: null });
+              }
+            } catch (err) {
+              log(`branch compare failed for ${ev.repo}/${ev.ref}: ${err instanceof Error ? err.message : String(err)}`);
+            }
+          }
+
+          // (3) per-commit line counts + INSERT into unmerged_commits
+          for (const item of queue) {
+            try {
+              const detail = await getCommitDetail(org, item.repo, item.sha, log);
+              await db.execute(
+                `INSERT IGNORE INTO unmerged_commits
+                   (report_id, github_login, repo, branch, pr_number, commit_sha, commit_message,
+                    lines_added, lines_removed, committed_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                  reportId, member.login, item.repo, item.branch, item.prNumber,
+                  item.sha, item.message, detail.additions, detail.deletions, item.committedAt,
+                ],
+              );
+            } catch (err) {
+              log(`unmerged-commit detail failed for ${item.sha.slice(0, 7)}: ${err instanceof Error ? err.message : String(err)}`);
+            }
+          }
+        } catch (err) {
+          log(`@${member.login} unmerged-commits flow failed: ${err instanceof Error ? err.message : String(err)}`);
         }
 
         // Queue LLM for commits not already analyzed
