@@ -95,5 +95,10 @@ export function createMockGitHubProvider(): GitHubProvider {
       log?.(`[mock] fetchPullRequestCommits #${pullNumber}`);
       return [];
     },
+
+    async compareBranchCommits(_owner, _repo, _headSha, log) {
+      log?.(`[mock] compareBranchCommits ${_repo}`);
+      return [];
+    },
   };
 }

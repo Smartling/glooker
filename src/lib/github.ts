@@ -72,6 +72,7 @@ export interface GitHubProvider {
   isCommitInDefaultBranch(owner: string, repo: string, sha: string): Promise<boolean>;
   fetchUserOrgEvents(org: string, user: string, log?: (msg: string) => void): Promise<UserOrgEvent[]>;
   fetchPullRequestCommits(owner: string, repo: string, pullNumber: number, log?: (msg: string) => void): Promise<UnmergedCommitInfo[]>;
+  compareBranchCommits(owner: string, repo: string, headSha: string, log?: (msg: string) => void): Promise<UnmergedCommitInfo[]>;
 }
 
 let octokit: InstanceType<typeof Octokit> | null = null;
@@ -272,7 +273,7 @@ async function searchUserMergedPRs(
 
 // ---------- Commit detail (diff) ----------
 
-async function getCommitDetail(
+export async function getCommitDetail(
   org:  string,
   repo: string,
   sha:  string,
@@ -614,6 +615,25 @@ export async function isCommitInDefaultBranch(
   return data.status === 'behind' || data.status === 'identical';
 }
 
+export async function compareBranchCommits(
+  owner:   string,
+  repo:    string,
+  headSha: string,
+  log?:    (msg: string) => void,
+): Promise<UnmergedCommitInfo[]> {
+  const base = await getDefaultBranch(owner, repo);
+  const { data } = await withRetry(
+    () => getOctokit().repos.compareCommits({ owner, repo, base, head: headSha }),
+    log,
+  );
+  return (data.commits || []).map((c: any) => ({
+    sha:         c.sha,
+    message:     c.commit?.message || '',
+    authorLogin: c.author?.login ?? null,
+    committedAt: c.commit?.committer?.date || c.commit?.author?.date || '',
+  }));
+}
+
 // ---------- Provider factory ----------
 
 let cachedProvider: GitHubProvider | null = null;
@@ -636,6 +656,7 @@ export function getGitHubProvider(): GitHubProvider {
     isCommitInDefaultBranch,
     fetchUserOrgEvents,
     fetchPullRequestCommits,
+    compareBranchCommits,
   };
   return cachedProvider;
 }
