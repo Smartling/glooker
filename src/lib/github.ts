@@ -75,6 +75,7 @@ export interface GitHubProvider {
   getBranchHeadSha(owner: string, repo: string, branchName: string, log?: (msg: string) => void): Promise<string | null>;
   fetchPullRequestCommits(owner: string, repo: string, pullNumber: number, log?: (msg: string) => void): Promise<UnmergedCommitInfo[]>;
   compareBranchCommits(owner: string, repo: string, headSha: string, log?: (msg: string) => void): Promise<UnmergedCommitInfo[]>;
+  isShaInMergedPR(owner: string, repo: string, sha: string, log?: (msg: string) => void): Promise<boolean>;
 }
 
 let octokit: InstanceType<typeof Octokit> | null = null;
@@ -679,6 +680,27 @@ export async function compareBranchCommits(
   }));
 }
 
+// Returns true if any PR containing this commit has been merged.
+// Used to filter out squash-merged-but-branch-kept refs from the in-flight set.
+export async function isShaInMergedPR(
+  owner: string,
+  repo:  string,
+  sha:   string,
+  log?:  (msg: string) => void,
+): Promise<boolean> {
+  try {
+    const res: any = await withRetry(
+      () => (getOctokit() as any).repos.listPullRequestsAssociatedWithCommit({
+        owner, repo, commit_sha: sha,
+      }),
+      log,
+    );
+    return (res?.data || []).some((pr: any) => pr.merged_at != null);
+  } catch {
+    return false;
+  }
+}
+
 // ---------- Provider factory ----------
 
 let cachedProvider: GitHubProvider | null = null;
@@ -703,6 +725,7 @@ export function getGitHubProvider(): GitHubProvider {
     getBranchHeadSha,
     fetchPullRequestCommits,
     compareBranchCommits,
+    isShaInMergedPR,
   };
   return cachedProvider;
 }

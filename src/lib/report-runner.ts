@@ -289,6 +289,13 @@ export async function runReport(
 
                 const inMain = await github.isCommitInDefaultBranch(org, repo, headSha);
                 if (inMain) continue; // already merged — not an orphan branch
+
+                // Catch the squash-merged-but-branch-kept case: branch still exists, head SHA
+                // isn't in default (squash created a new SHA there), but the work shipped via
+                // a merged PR. Without this, the original branch commits would be re-inserted
+                // every report run as fake in-flight.
+                if (await github.isShaInMergedPR(org, repo, headSha, log)) continue;
+
                 const branchCommits = await github.compareBranchCommits(org, repo, headSha, log);
                 for (const c of branchCommits) {
                   if (c.authorLogin && c.authorLogin !== member.login) continue;

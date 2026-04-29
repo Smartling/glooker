@@ -34,6 +34,7 @@ const mockFetchRepoEvents = jest.fn().mockResolvedValue([]);
 const mockGetBranchHeadSha = jest.fn().mockResolvedValue(null);
 const mockFetchPullRequestCommits = jest.fn().mockResolvedValue([]);
 const mockCompareBranchCommits = jest.fn().mockResolvedValue([]);
+const mockIsShaInMergedPR = jest.fn().mockResolvedValue(false);
 const mockIsCommitInDefaultBranch = jest.fn().mockResolvedValue(true);
 const mockGetGitHubProvider = getGitHubProvider as jest.Mock;
 mockGetGitHubProvider.mockReturnValue({
@@ -47,6 +48,7 @@ mockGetGitHubProvider.mockReturnValue({
   fetchPullRequestCommits: mockFetchPullRequestCommits,
   compareBranchCommits: mockCompareBranchCommits,
   isCommitInDefaultBranch: mockIsCommitInDefaultBranch,
+  isShaInMergedPR: mockIsShaInMergedPR,
 });
 const mockAnalyzeCommit = analyzeCommit as jest.Mock;
 const mockDbExecute = db.execute as jest.Mock;
@@ -84,6 +86,8 @@ describe('runReport', () => {
     mockFetchPullRequestCommits.mockResolvedValue([]);
     mockCompareBranchCommits.mockClear();
     mockCompareBranchCommits.mockResolvedValue([]);
+    mockIsShaInMergedPR.mockClear();
+    mockIsShaInMergedPR.mockResolvedValue(false);
 
     const { getCommitDetail } = require('@/lib/github');
     (getCommitDetail as jest.Mock).mockReset();
@@ -344,6 +348,39 @@ describe('runReport', () => {
     // compareBranchCommits should never get called for this ref.
     mockCompareBranchCommits.mockResolvedValue([
       { sha: 'should-not-appear', message: 'orig commit', authorLogin: 'alice', committedAt: recent },
+    ]);
+    (getCommitDetail as jest.Mock).mockResolvedValue({ additions: 1, deletions: 0, diff: '' });
+
+    await runReport('r1', 'my-org', 14);
+
+    const inserts = mockDbExecute.mock.calls.filter(
+      (call: any[]) =>
+        typeof call[0] === 'string' &&
+        call[0].includes('INSERT') &&
+        call[0].includes('unmerged_commits'),
+    );
+    expect(inserts.length).toBe(0);
+    expect(mockCompareBranchCommits).not.toHaveBeenCalled();
+  });
+
+  it('skips refs whose head SHA is part of a merged PR (squash-merge + branch kept)', async () => {
+    const { getCommitDetail } = require('@/lib/github');
+    const recent = new Date(Date.now() - 5 * 86400_000).toISOString();
+
+    mockFetchOpenPRs.mockResolvedValue([]);
+    mockFetchRepoEvents.mockImplementation(async (_owner, repo) =>
+      repo === 'app'
+        ? [{ type: 'PushEvent', actorLogin: 'alice', ref: 'refs/heads/squashed-and-kept', headSha: 'historical-head', createdAt: recent }]
+        : [],
+    );
+    // Branch still exists on origin (engineer didn't delete it after squash-merge)
+    mockGetBranchHeadSha.mockResolvedValue('live-head-c');
+    mockIsCommitInDefaultBranch.mockResolvedValue(false); // squash created a different SHA in main
+    // The head's SHA was part of a merged PR — work has shipped.
+    mockIsShaInMergedPR.mockResolvedValue(true);
+    // compareBranchCommits should never be called because we skip first.
+    mockCompareBranchCommits.mockResolvedValue([
+      { sha: 'pre-squash-orig', message: 'a', authorLogin: 'alice', committedAt: recent },
     ]);
     (getCommitDetail as jest.Mock).mockResolvedValue({ additions: 1, deletions: 0, diff: '' });
 

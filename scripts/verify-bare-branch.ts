@@ -23,6 +23,7 @@ import {
   fetchRepoEvents,
   getBranchHeadSha,
   isCommitInDefaultBranch,
+  isShaInMergedPR,
   compareBranchCommits,
   fetchOpenPRs,
   fetchPullRequestCommits,
@@ -87,6 +88,11 @@ async function main() {
 
     const inMain = await isCommitInDefaultBranch(ORG, REPO, headSha);
     if (inMain) { console.log(`    ↳ in default branch — skipping`); continue; }
+
+    if (await isShaInMergedPR(ORG, REPO, headSha, log)) {
+      console.log(`    ↳ head SHA is part of a merged PR (squash-merge + kept) — skipping`);
+      continue;
+    }
 
     const branchCommits = await compareBranchCommits(ORG, REPO, headSha, log);
     console.log(`    ↳ branch is ahead of default; ${branchCommits.length} commits in branch not in default`);

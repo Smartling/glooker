@@ -105,5 +105,10 @@ export function createMockGitHubProvider(): GitHubProvider {
       log?.(`[mock] compareBranchCommits ${_repo}`);
       return [];
     },
+
+    async isShaInMergedPR(_owner, _repo, _sha, log) {
+      log?.(`[mock] isShaInMergedPR`);
+      return false;
+    },
   };
 }

@@ -31,6 +31,7 @@ describe('listOrgs', () => {
       fetchPullRequestCommits: jest.fn().mockResolvedValue([]),
       compareBranchCommits: jest.fn().mockResolvedValue([]),
       isCommitInDefaultBranch: jest.fn().mockResolvedValue(true),
+      isShaInMergedPR: jest.fn().mockResolvedValue(false),
     });
 
     const orgs = await listOrgs();
@@ -56,6 +57,7 @@ describe('listOrgs', () => {
       fetchPullRequestCommits: jest.fn().mockResolvedValue([]),
       compareBranchCommits: jest.fn().mockResolvedValue([]),
       isCommitInDefaultBranch: jest.fn().mockResolvedValue(true),
+      isShaInMergedPR: jest.fn().mockResolvedValue(false),
     });
 
     const orgs = await listOrgs();
@@ -82,6 +84,7 @@ describe('listOrgs', () => {
       fetchPullRequestCommits: jest.fn().mockResolvedValue([]),
       compareBranchCommits: jest.fn().mockResolvedValue([]),
       isCommitInDefaultBranch: jest.fn().mockResolvedValue(true),
+      isShaInMergedPR: jest.fn().mockResolvedValue(false),
     });
 
     const orgs = await listOrgs();
@@ -106,6 +109,7 @@ describe('listOrgs', () => {
       fetchPullRequestCommits: jest.fn().mockResolvedValue([]),
       compareBranchCommits: jest.fn().mockResolvedValue([]),
       isCommitInDefaultBranch: jest.fn().mockResolvedValue(true),
+      isShaInMergedPR: jest.fn().mockResolvedValue(false),
     });
 
     const orgs = await listOrgs();
