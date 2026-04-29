@@ -76,14 +76,14 @@ async function main() {
     branchSeen.add(ev.ref);
     const branchName = ev.ref.replace(/^refs\/heads\//, '');
 
-    let headSha = ev.headSha;
+    // Always resolve via live branches API (don't trust events-feed historical head).
+    // If the branch was deleted (e.g., merged + auto-cleanup), skip — work has moved on.
+    const headSha = await getBranchHeadSha(ORG, REPO, branchName, log);
     if (!headSha) {
-      headSha = await getBranchHeadSha(ORG, REPO, branchName, log);
-      console.log(`  CreateEvent ref=${ev.ref}  resolved head → ${headSha?.slice(0,8) || 'null'}`);
-    } else {
-      console.log(`  PushEvent   ref=${ev.ref}  head=${headSha.slice(0,8)}`);
+      console.log(`  ${ev.type}  ref=${ev.ref}  branch deleted on origin → SKIP`);
+      continue;
     }
-    if (!headSha) continue;
+    console.log(`  ${ev.type}  ref=${ev.ref}  live head=${headSha.slice(0,8)}`);
 
     const inMain = await isCommitInDefaultBranch(ORG, REPO, headSha);
     if (inMain) { console.log(`    ↳ in default branch — skipping`); continue; }

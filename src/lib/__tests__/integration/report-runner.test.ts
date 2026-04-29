@@ -276,6 +276,7 @@ describe('runReport', () => {
         : [],
     );
     mockIsCommitInDefaultBranch.mockResolvedValue(false); // ensure orphan-head is treated as non-default
+    mockGetBranchHeadSha.mockResolvedValue('orphan-head'); // branch still exists; runner uses live head
     (getCommitDetail as jest.Mock).mockResolvedValue({ additions: 30, deletions: 5, diff: '' });
 
     await runReport('r1', 'my-org', 14);
@@ -326,5 +327,35 @@ describe('runReport', () => {
     const shas = inserts.map((c: any[]) => c[1][5]);
     expect(shas).toContain('fresh-sha');
     expect(shas).not.toContain('stale-sha');
+  });
+
+  it('skips refs whose branch was deleted (squash-merged + cleaned up)', async () => {
+    const { getCommitDetail } = require('@/lib/github');
+    const recent = new Date(Date.now() - 5 * 86400_000).toISOString();
+
+    mockFetchOpenPRs.mockResolvedValue([]);
+    mockFetchRepoEvents.mockImplementation(async (_owner, repo) =>
+      repo === 'app'
+        ? [{ type: 'PushEvent', actorLogin: 'alice', ref: 'refs/heads/merged-and-deleted', headSha: 'historical-head', createdAt: recent }]
+        : [],
+    );
+    // Branch no longer exists on origin (was deleted after squash merge).
+    mockGetBranchHeadSha.mockResolvedValue(null);
+    // compareBranchCommits should never get called for this ref.
+    mockCompareBranchCommits.mockResolvedValue([
+      { sha: 'should-not-appear', message: 'orig commit', authorLogin: 'alice', committedAt: recent },
+    ]);
+    (getCommitDetail as jest.Mock).mockResolvedValue({ additions: 1, deletions: 0, diff: '' });
+
+    await runReport('r1', 'my-org', 14);
+
+    const inserts = mockDbExecute.mock.calls.filter(
+      (call: any[]) =>
+        typeof call[0] === 'string' &&
+        call[0].includes('INSERT') &&
+        call[0].includes('unmerged_commits'),
+    );
+    expect(inserts.length).toBe(0);
+    expect(mockCompareBranchCommits).not.toHaveBeenCalled();
   });
 });

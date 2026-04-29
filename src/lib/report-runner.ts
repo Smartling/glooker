@@ -279,17 +279,16 @@ export async function runReport(
               if (branchSeen.has(ev.ref)) continue;
               branchSeen.add(ev.ref);
               try {
-                // Resolve head SHA (PushEvents have it; CreateEvents need a branches lookup).
-                let headSha: string | null = ev.headSha;
-                if (!headSha) {
-                  const branchName = ev.ref.replace(/^refs\/heads\//, '');
-                  headSha = await github.getBranchHeadSha(org, repo, branchName, log);
-                }
+                // Always resolve via the live branches API (don't trust the events-feed
+                // headSha). If the branch was deleted (e.g., merged + auto-cleanup),
+                // the call returns null and we skip — work has moved on. If it was
+                // force-pushed, we get the current head, not the historical one.
+                const branchName = ev.ref.replace(/^refs\/heads\//, '');
+                const headSha = await github.getBranchHeadSha(org, repo, branchName, log);
                 if (!headSha) continue;
 
                 const inMain = await github.isCommitInDefaultBranch(org, repo, headSha);
                 if (inMain) continue; // already merged — not an orphan branch
-                const branchName = ev.ref.replace(/^refs\/heads\//, '');
                 const branchCommits = await github.compareBranchCommits(org, repo, headSha, log);
                 for (const c of branchCommits) {
                   if (c.authorLogin && c.authorLogin !== member.login) continue;
