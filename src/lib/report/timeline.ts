@@ -12,6 +12,8 @@ export interface WeeklyBucket {
   // Populated post-aggregation by getOrgReport when open-PR rows overlay the timeline.
   inFlightLinesAdded?: number;
   inFlightLinesRemoved?: number;
+  inFlightLinesP95Added?: number;
+  inFlightLinesP95Removed?: number;
 }
 
 export function dedupCommitsBySha(rows: any[]): any[] {

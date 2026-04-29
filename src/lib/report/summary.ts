@@ -75,12 +75,15 @@ export async function getDevSummary(reportId: string, login: string) {
 
   // Gather data for the prompt
   const [reportRows] = await db.execute(
-    `SELECT org, period_days FROM reports WHERE id = ?`, [reportId],
+    `SELECT org, period_days, created_at FROM reports WHERE id = ?`, [reportId],
   ) as [any[], any];
   if (!reportRows.length) {
     throw new ReportNotFoundError(reportId);
   }
   const { org, period_days } = reportRows[0];
+  const reportSince = new Date(
+    new Date(reportRows[0].created_at).getTime() - Number(period_days || 0) * 86400_000,
+  ).toISOString();
 
   // All devs ordered by impact (for rank + above devs)
   const [allDevs] = await db.execute(
@@ -147,15 +150,17 @@ export async function getDevSummary(reportId: string, login: string) {
   const [unmergedPrRows] = await db.execute(
     `SELECT pr_title, pr_created_at, pr_updated_at, is_draft
      FROM unmerged_prs
-     WHERE report_id = ? AND github_login = ?`,
-    [reportId, login],
+     WHERE report_id = ? AND github_login = ?
+       AND pr_updated_at >= ?`,
+    [reportId, login, reportSince],
   ) as [any[], any];
 
   const [unmergedCommitRows] = await db.execute(
     `SELECT commit_message, repo, committed_at
      FROM unmerged_commits
-     WHERE report_id = ? AND github_login = ? AND pr_number IS NULL`,
-    [reportId, login],
+     WHERE report_id = ? AND github_login = ? AND pr_number IS NULL
+       AND committed_at >= ?`,
+    [reportId, login, reportSince],
   ) as [any[], any];
 
   const unmergedPrs = unmergedPrRows.map((r: any) => ({

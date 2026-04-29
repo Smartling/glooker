@@ -64,6 +64,17 @@ export async function getOrgReport(reportId: string) {
   ) as [any[], any];
 
   if (overlayRows.length > 0) {
+    // P95 threshold for in-flight commits — same logic aggregateWeekly uses for shipped.
+    // Without this, a single huge in-flight commit dominates the Lines Changed/Week chart
+    // and breaks the "outliers excluded" smoothing.
+    const inFlightTotals = overlayRows
+      .filter((r: any) => r.committed_at)
+      .map((r: any) => (Number(r.lines_added) || 0) + (Number(r.lines_removed) || 0))
+      .sort((a: number, b: number) => a - b);
+    const inFlightP95 = inFlightTotals.length > 0
+      ? inFlightTotals[Math.floor(inFlightTotals.length * 0.95)]
+      : Infinity;
+
     const weekMap = new Map<string, any>();
     for (const w of timeline) weekMap.set(w.week, w);
 
@@ -90,6 +101,8 @@ export async function getOrgReport(reportId: string) {
           types: {},
           inFlightLinesAdded: 0,
           inFlightLinesRemoved: 0,
+          inFlightLinesP95Added: 0,
+          inFlightLinesP95Removed: 0,
           activeDevs: 0,
         };
         weekMap.set(weekKey, bucket);
@@ -102,12 +115,16 @@ export async function getOrgReport(reportId: string) {
       bucket.commits         += 1;
       bucket.linesAdded      += a;
       bucket.linesRemoved    += r;
-      bucket.linesP95Added   = (bucket.linesP95Added   || 0) + a;
-      bucket.linesP95Removed = (bucket.linesP95Removed || 0) + r;
       bucket.types           = { ...(bucket.types || {}) };
       bucket.types.in_flight = (bucket.types.in_flight || 0) + 1;
       bucket.inFlightLinesAdded   = (bucket.inFlightLinesAdded   || 0) + a;
       bucket.inFlightLinesRemoved = (bucket.inFlightLinesRemoved || 0) + r;
+      // Only contribute to the P95-filtered tally if this row is below threshold.
+      // linesP95Added/Removed remain shipped-only (untouched by overlay).
+      if ((a + r) <= inFlightP95) {
+        bucket.inFlightLinesP95Added   = (bucket.inFlightLinesP95Added   || 0) + a;
+        bucket.inFlightLinesP95Removed = (bucket.inFlightLinesP95Removed || 0) + r;
+      }
     }
 
     timeline.sort((a, b) => a.week.localeCompare(b.week));

@@ -23,6 +23,7 @@ const reportRow = {
   id: 'report-1',
   org: 'acme',
   period_days: 30,
+  created_at: '2026-04-28T00:00:00Z',
 };
 
 const devRow = {

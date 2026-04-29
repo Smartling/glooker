@@ -45,6 +45,7 @@ interface WeeklyData {
   linesP95Added?: number; linesP95Removed?: number;
   avgComplexity: number; aiPercent: number; types: Record<string, number>; activeDevs: number;
   inFlightLinesAdded?: number; inFlightLinesRemoved?: number;
+  inFlightLinesP95Added?: number; inFlightLinesP95Removed?: number;
 }
 
 interface ReportMeta {
@@ -554,7 +555,15 @@ function LinesChangedChart({ data }: { data: WeeklyData[] }) {
   const filtered = data.filter(d => d.week >= cutoffStr);
   if (filtered.length < 2) return null;
 
-  const maxTotal = Math.max(...filtered.map(d => (d.linesP95Added || 0) + (d.linesP95Removed || 0)), 1);
+  // linesP95Added/Removed are shipped-only (computed by aggregateWeekly).
+  // inFlightLinesP95Added/Removed are the in-flight overlay, P95-filtered separately.
+  const maxTotal = Math.max(
+    ...filtered.map(d =>
+      (d.linesP95Added || 0) + (d.linesP95Removed || 0) +
+      (d.inFlightLinesP95Added || 0) + (d.inFlightLinesP95Removed || 0),
+    ),
+    1,
+  );
 
   const W = 800;
   const H = 180;
@@ -593,26 +602,25 @@ function LinesChangedChart({ data }: { data: WeeklyData[] }) {
           </g>
         ))}
         {filtered.map((d, i) => {
-          const a = d.linesP95Added || 0;
-          const r = d.linesP95Removed || 0;
-          const inFlightA = Math.min(d.inFlightLinesAdded || 0, a);
-          const inFlightR = Math.min(d.inFlightLinesRemoved || 0, r);
-          const shippedA = Math.max(0, a - inFlightA);
-          const shippedR = Math.max(0, r - inFlightR);
+          // Shipped portions (P95-filtered, untouched by overlay)
+          const shippedA = d.linesP95Added || 0;
+          const shippedR = d.linesP95Removed || 0;
+          // In-flight portions (separately P95-filtered over in-flight commits only)
+          const inFlightA = d.inFlightLinesP95Added || 0;
+          const inFlightR = d.inFlightLinesP95Removed || 0;
 
-          const addedH        = a > 0 ? (a / maxTotal) * chartH : 0;
-          const removedH      = r > 0 ? (r / maxTotal) * chartH : 0;
-          const inFlightAH    = inFlightA > 0 ? (inFlightA / maxTotal) * chartH : 0;
-          const inFlightRH    = inFlightR > 0 ? (inFlightR / maxTotal) * chartH : 0;
-          const shippedAH     = Math.max(0, addedH - inFlightAH);
-          const shippedRH     = Math.max(0, removedH - inFlightRH);
+          const totalH    = ((shippedA + shippedR + inFlightA + inFlightR) / maxTotal) * chartH;
+          const shippedAH = (shippedA / maxTotal) * chartH;
+          const shippedRH = (shippedR / maxTotal) * chartH;
+          const inFlightAH = (inFlightA / maxTotal) * chartH;
+          const inFlightRH = (inFlightR / maxTotal) * chartH;
 
-          const addedY        = padT + chartH - addedH - removedH;
-          const inFlightAddedY = addedY;                        // amber sits on top
-          const shippedAddedY  = addedY + inFlightAH;
-          const removedY      = padT + chartH - removedH;
-          const inFlightRemovedY = removedY;                    // amber on top of red
-          const shippedRemovedY  = removedY + inFlightRH;
+          // Stack from bottom to top: shippedR (red), shippedA (green), inFlightR (amber/red), inFlightA (amber)
+          const baseY = padT + chartH;
+          const shippedRemovedY  = baseY - shippedRH;
+          const shippedAddedY    = shippedRemovedY - shippedAH;
+          const inFlightRemovedY = shippedAddedY - inFlightRH;
+          const inFlightAddedY   = inFlightRemovedY - inFlightAH;
 
           return (
             <g key={i}>

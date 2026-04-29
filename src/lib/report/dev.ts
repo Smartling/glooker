@@ -89,13 +89,21 @@ export async function getDevReport(reportId: string, login: string) {
   const timeline = aggregateWeekly(timelineCommits);
 
   // Unmerged work: PR-level metadata and per-commit data live in two tables now.
+  // Also constrain to the report's time window so the engineer card mirrors
+  // what the rest of the report covers (long-running PR commits older than the
+  // window stay in the table for org-level views, but don't clutter the dev card).
+  const periodDays = Number(reportRows[0].period_days || 0);
+  const reportCreatedAt = new Date(reportRows[0].created_at);
+  const reportSince = new Date(reportCreatedAt.getTime() - periodDays * 86400_000).toISOString();
+
   const [unmergedPrRows] = await db.execute(
     `SELECT pr_number, pr_title, pr_url, repo, is_draft,
             pr_commits, pr_additions, pr_deletions, pr_created_at, pr_updated_at
      FROM unmerged_prs
      WHERE report_id = ? AND github_login = ?
+       AND pr_updated_at >= ?
      ORDER BY pr_updated_at DESC`,
-    [reportId, login],
+    [reportId, login, reportSince],
   ) as [any[], any];
 
   const [unmergedCommitRows] = await db.execute(
@@ -103,8 +111,9 @@ export async function getDevReport(reportId: string, login: string) {
             lines_added, lines_removed, committed_at
      FROM unmerged_commits
      WHERE report_id = ? AND github_login = ? AND pr_number IS NULL
+       AND committed_at >= ?
      ORDER BY committed_at DESC`,
-    [reportId, login],
+    [reportId, login, reportSince],
   ) as [any[], any];
 
   const openPrs = unmergedPrRows.map((r: any) => ({
