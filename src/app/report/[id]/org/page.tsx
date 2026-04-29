@@ -14,7 +14,7 @@ const TYPE_COLORS: Record<string, string> = {
   docs:      'bg-gray-500',
   test:      'bg-green-500',
   other:     'bg-gray-600',
-  in_flight: 'bg-amber-400',
+  in_flight: 'bg-cyan-500',
 };
 
 const TYPE_HEX: Record<string, string> = {
@@ -25,7 +25,7 @@ const TYPE_HEX: Record<string, string> = {
   docs:      '#6B7280',
   test:      '#22C55E',
   other:     '#4B5563',
-  in_flight: '#FBBF24',
+  in_flight: '#06B6D4',
 };
 
 interface Developer {
@@ -233,12 +233,12 @@ export default function OrgDetailPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="bg-gray-900 rounded-xl p-5">
               <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Open PRs</p>
-              <p className="text-2xl font-bold text-amber-400">{unmergedSummary.openPrCount.toLocaleString()}</p>
+              <p className="text-2xl font-bold text-cyan-400">{unmergedSummary.openPrCount.toLocaleString()}</p>
               <p className="text-xs text-gray-600 mt-1">across {unmergedSummary.openPrDevCount} dev{unmergedSummary.openPrDevCount === 1 ? '' : 's'}</p>
             </div>
             <div className="bg-gray-900 rounded-xl p-5">
               <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Bare-branch commits</p>
-              <p className="text-2xl font-bold text-amber-400">{unmergedSummary.bareBranchCount.toLocaleString()}</p>
+              <p className="text-2xl font-bold text-cyan-400">{unmergedSummary.bareBranchCount.toLocaleString()}</p>
               <p className="text-xs text-gray-600 mt-1">
                 {unmergedSummary.bareBranchCount === 0
                   ? 'no orphaned WIP'
@@ -627,14 +627,14 @@ function LinesChangedChart({ data }: { data: WeeklyData[] }) {
               {/* added: in-flight (amber, top) + shipped (green, bottom of added stack) */}
               {inFlightAH > 0 && (
                 <rect x={xFor(i)} y={inFlightAddedY} width={barW} height={inFlightAH} rx={1.5}
-                  fill="#FBBF24" opacity={hoverIdx === i ? 1 : 0.85} />
+                  fill="#06B6D4" opacity={hoverIdx === i ? 1 : 0.85} />
               )}
               <rect x={xFor(i)} y={shippedAddedY} width={barW} height={shippedAH} rx={1.5}
                 fill="#10B981" opacity={hoverIdx === i ? 0.8 : 0.55} />
               {/* removed: in-flight (amber muted, top of removed stack) + shipped (red, bottom) */}
               {inFlightRH > 0 && (
                 <rect x={xFor(i)} y={inFlightRemovedY} width={barW} height={inFlightRH} rx={1.5}
-                  fill="#FBBF24" opacity={hoverIdx === i ? 0.6 : 0.45} />
+                  fill="#06B6D4" opacity={hoverIdx === i ? 0.6 : 0.45} />
               )}
               <rect x={xFor(i)} y={shippedRemovedY} width={barW} height={shippedRH} rx={1.5}
                 fill="#EF4444" opacity={hoverIdx === i ? 0.6 : 0.35} />
@@ -889,7 +889,7 @@ function TimelineChart({
               {/* in-flight portion (top) */}
               {inFlightH > 0 && (
                 <rect x={x - barW / 2} y={y} width={barW} height={inFlightH} rx={Math.min(2, barW / 2)}
-                  fill="#FBBF24" opacity={hoverIdx === i ? 1 : 0.85} />
+                  fill="#06B6D4" opacity={hoverIdx === i ? 1 : 0.85} />
               )}
             </g>
           );
