@@ -40,7 +40,7 @@ async function main() {
   await seed('untracked_summaries', data.seedUntrackedSummaries);
   await seed('schedules', data.seedSchedules);
   await seed('release_notes', data.seedReleaseNotes);
-  await seed('unmerged_work', data.seedUnmergedWork);
+  await seed('unmerged_prs', data.seedUnmergedPrs);
 
   console.log('\nDone! Run `npm run dev:mock` to start the app with mock providers.');
 }

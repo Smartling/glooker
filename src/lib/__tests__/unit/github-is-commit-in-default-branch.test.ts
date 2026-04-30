@@ -2,13 +2,17 @@ jest.mock('@octokit/rest', () => ({
   Octokit: jest.fn().mockImplementation(() => ({})),
 }));
 
-import { isCommitInDefaultBranch, __setOctokitForTest, getDefaultBranch } from '../../github';
+import {
+  isCommitInDefaultBranch,
+  __setOctokitForTest,
+  __clearAllCachesForTest,
+  getDefaultBranch,
+} from '../../github';
 
 describe('isCommitInDefaultBranch', () => {
   afterEach(() => {
     __setOctokitForTest(null as any);
-    // Clear the default-branch cache between tests by re-exporting a reset via re-import is not possible;
-    // we use different repo names per test to avoid cache hits.
+    __clearAllCachesForTest();
   });
 
   it('returns true when compare status is behind', async () => {

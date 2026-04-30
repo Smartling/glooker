@@ -14,6 +14,13 @@ describe('getOrgReport unmerged-work integration', () => {
 
   beforeEach(() => { dbExec.mockReset(); });
 
+  type UnmergedAgg = {
+    openPrCount: number; openPrDevCount: number;
+    bareBranchCount: number; bareBranchDevCount: number;
+    prLinesAdded: number; prLinesRemoved: number;
+    bareLinesAdded: number; bareLinesRemoved: number;
+  };
+
   function mockBaselineQueries({
     org = 'acme',
     devs = [],
@@ -27,7 +34,7 @@ describe('getOrgReport unmerged-work integration', () => {
     reportIds?: string[];
     timelineCommits?: any[];
     overlayCommits?: Array<{ committed_at: string; lines_added: number; lines_removed: number }>;
-    unmergedAgg?: { openPrCount: number; openPrDevCount: number; bareBranchCount: number; bareBranchDevCount: number; inFlightLinesAdded: number; inFlightLinesRemoved: number; } | null;
+    unmergedAgg?: UnmergedAgg | null;
   }) {
     // 1. report metadata (cc_period_start/end NULL → spend-window branch is skipped)
     dbExec.mockResolvedValueOnce([[{ id: 'rep1', org, period_days: 14, status: 'completed', created_at: '2026-04-25', completed_at: '2026-04-25', cc_period_start: null, cc_period_end: null }], null]);
@@ -43,7 +50,7 @@ describe('getOrgReport unmerged-work integration', () => {
     if (unmergedAgg) {
       dbExec.mockResolvedValueOnce([[unmergedAgg], null]);
     } else {
-      dbExec.mockResolvedValueOnce([[{ openPrCount: 0, openPrDevCount: 0, bareBranchCount: 0, bareBranchDevCount: 0, inFlightLinesAdded: 0, inFlightLinesRemoved: 0 }], null]);
+      dbExec.mockResolvedValueOnce([[{ openPrCount: 0, openPrDevCount: 0, bareBranchCount: 0, bareBranchDevCount: 0, prLinesAdded: 0, prLinesRemoved: 0, bareLinesAdded: 0, bareLinesRemoved: 0 }], null]);
     }
   }
 
@@ -58,7 +65,8 @@ describe('getOrgReport unmerged-work integration', () => {
       unmergedAgg: {
         openPrCount: 62, openPrDevCount: 33,
         bareBranchCount: 4, bareBranchDevCount: 2,
-        inFlightLinesAdded: 12431, inFlightLinesRemoved: 2118,
+        prLinesAdded: 12000, prLinesRemoved: 2000,
+        bareLinesAdded: 431, bareLinesRemoved: 118,
       },
     });
     const result = await getOrgReport('rep1');
@@ -67,9 +75,28 @@ describe('getOrgReport unmerged-work integration', () => {
       openPrDevCount: 33,
       bareBranchCount: 4,
       bareBranchDevCount: 2,
+      // PR-attached lines + bare-branch lines, summed without double-counting
+      // unmerged_commits rows that already appear in unmerged_prs.pr_additions.
       inFlightLinesAdded: 12431,
       inFlightLinesRemoved: 2118,
     });
+  });
+
+  it('does NOT double-count PR-attached commits across unmerged_prs and unmerged_commits', async () => {
+    // Scenario: an open PR with 100 additions is represented in both
+    // unmerged_prs.pr_additions=100 AND unmerged_commits[pr_number=8421] rows.
+    // The KPI should count those 100 lines once, not twice.
+    mockBaselineQueries({
+      unmergedAgg: {
+        openPrCount: 1, openPrDevCount: 1,
+        bareBranchCount: 0, bareBranchDevCount: 0,
+        prLinesAdded: 100, prLinesRemoved: 30,
+        bareLinesAdded: 0, bareLinesRemoved: 0,
+      },
+    });
+    const result = await getOrgReport('rep1');
+    expect(result.unmergedSummary?.inFlightLinesAdded).toBe(100);
+    expect(result.unmergedSummary?.inFlightLinesRemoved).toBe(30);
   });
 
   it('adds unmerged_commits rows to types.in_flight bucketed by week of committed_at', async () => {
@@ -81,7 +108,7 @@ describe('getOrgReport unmerged-work integration', () => {
         { committed_at: '2026-04-22T15:00:00Z', lines_added: 100, lines_removed: 30 },
         { committed_at: '2026-04-22T15:00:00Z', lines_added: 50,  lines_removed: 5  },
       ],
-      unmergedAgg: { openPrCount: 1, openPrDevCount: 1, bareBranchCount: 0, bareBranchDevCount: 0, inFlightLinesAdded: 150, inFlightLinesRemoved: 35 },
+      unmergedAgg: { openPrCount: 1, openPrDevCount: 1, bareBranchCount: 0, bareBranchDevCount: 0, prLinesAdded: 150, prLinesRemoved: 35, bareLinesAdded: 0, bareLinesRemoved: 0 },
     });
     const result = await getOrgReport('rep1');
     const week = result.timeline.find((w: any) => w.week === '2026-04-20')!;
@@ -99,7 +126,7 @@ describe('getOrgReport unmerged-work integration', () => {
     mockBaselineQueries({
       timelineCommits: [],
       overlayCommits: [{ committed_at: '2026-04-22T15:00:00Z', lines_added: 50, lines_removed: 10 }],
-      unmergedAgg: { openPrCount: 0, openPrDevCount: 0, bareBranchCount: 1, bareBranchDevCount: 1, inFlightLinesAdded: 50, inFlightLinesRemoved: 10 },
+      unmergedAgg: { openPrCount: 0, openPrDevCount: 0, bareBranchCount: 1, bareBranchDevCount: 1, prLinesAdded: 0, prLinesRemoved: 0, bareLinesAdded: 50, bareLinesRemoved: 10 },
     });
     const result = await getOrgReport('rep1');
     expect(result.timeline.length).toBe(1);

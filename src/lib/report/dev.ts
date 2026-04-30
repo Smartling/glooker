@@ -1,6 +1,7 @@
 import db from '@/lib/db';
 import { ReportNotFoundError } from './service';
 import { dedupCommitsBySha, aggregateWeekly } from './timeline';
+import { UNMERGED_LOOKBACK_DAYS } from './unmerged-window';
 
 export class DeveloperNotFoundError extends Error {
   constructor(login: string) {
@@ -89,12 +90,14 @@ export async function getDevReport(reportId: string, login: string) {
   const timeline = aggregateWeekly(timelineCommits);
 
   // Unmerged work: PR-level metadata and per-commit data live in two tables now.
-  // Also constrain to the report's time window so the engineer card mirrors
-  // what the rest of the report covers (long-running PR commits older than the
-  // window stay in the table for org-level views, but don't clutter the dev card).
-  const periodDays = Number(reportRows[0].period_days || 0);
+  // Use the same lookback the runner uses (UNMERGED_LOOKBACK_DAYS) so we don't
+  // silently drop PRs the runner just inserted. The shipped-work `period_days`
+  // window doesn't apply to in-flight work — long-running drafts older than the
+  // report period are the *most* actionable signal.
   const reportCreatedAt = new Date(reportRows[0].created_at);
-  const reportSince = new Date(reportCreatedAt.getTime() - periodDays * 86400_000).toISOString();
+  const unmergedSince = Number.isNaN(reportCreatedAt.getTime())
+    ? new Date(0).toISOString()
+    : new Date(reportCreatedAt.getTime() - UNMERGED_LOOKBACK_DAYS * 86400_000).toISOString();
 
   const [unmergedPrRows] = await db.execute(
     `SELECT pr_number, pr_title, pr_url, repo, is_draft,
@@ -103,7 +106,7 @@ export async function getDevReport(reportId: string, login: string) {
      WHERE report_id = ? AND github_login = ?
        AND pr_updated_at >= ?
      ORDER BY pr_updated_at DESC`,
-    [reportId, login, reportSince],
+    [reportId, login, unmergedSince],
   ) as [any[], any];
 
   const [unmergedCommitRows] = await db.execute(
@@ -113,7 +116,7 @@ export async function getDevReport(reportId: string, login: string) {
      WHERE report_id = ? AND github_login = ? AND pr_number IS NULL
        AND committed_at >= ?
      ORDER BY committed_at DESC`,
-    [reportId, login, reportSince],
+    [reportId, login, unmergedSince],
   ) as [any[], any];
 
   const openPrs = unmergedPrRows.map((r: any) => ({

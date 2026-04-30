@@ -497,7 +497,13 @@ export async function fetchOpenPRs(
       log,
     );
     for (const item of res.data.items) {
-      const repo = (item.repository_url || '').split('/').pop() || '';
+      // repository_url is `https://api.github.com/repos/{owner}/{repo}`. Use the
+      // explicit `/repos/` split rather than `pop()` so a missing/malformed URL
+      // produces an empty string we can detect and skip, instead of inserting a
+      // row with `repo: ''` that the dev page can't link.
+      const repoFullName = (item.repository_url || '').split('/repos/')[1] || '';
+      const repo = repoFullName.split('/')[1] || '';
+      if (!repo) continue;
       let commits = 0, additions = 0, deletions = 0;
       try {
         const { data: prDetail } = await withRetry(
@@ -524,6 +530,9 @@ export async function fetchOpenPRs(
       });
     }
     if (results.length >= res.data.total_count || res.data.items.length < 100) break;
+    // GitHub Search caps results at 1000 (10 pages of 100). Without this guard,
+    // total_count > 1000 would loop forever.
+    if (page >= 10) break;
     page++;
   }
 
@@ -584,8 +593,19 @@ export async function fetchRepoEvents(
   return events;
 }
 
+// Test-only: clear repoEventsCache. Prefer __clearAllCachesForTest in new tests
+// so a future cache addition (e.g. defaultBranchCache below) is also cleared.
 export function __clearRepoEventsCacheForTest() {
   repoEventsCache.clear();
+}
+
+// Test-only: clear every module-global cache used by github.ts. Wire this into
+// `afterEach` for any test exercising github helpers, so cross-test state never
+// leaks (e.g. one test seeding `acme/auth` events; the next test asserting an
+// empty fetch with the same key would silently get the cached array).
+export function __clearAllCachesForTest() {
+  repoEventsCache.clear();
+  defaultBranchCache.clear();
 }
 
 // ---------- Branch head lookup (used to resolve head SHA for CreateEvent) ----------
@@ -672,7 +692,15 @@ export async function compareBranchCommits(
     () => getOctokit().repos.compareCommits({ owner, repo, base, head: headSha }),
     log,
   );
-  return (data.commits || []).map((c: any) => ({
+  const commits = data.commits || [];
+  // GitHub returns up to 250 commits in `data.commits` even if `data.behind_by`
+  // is larger. Long-lived feature branches > 250 commits ahead silently truncate.
+  // Log so the operator can see this happen; pagination via compareCommitsWithBasehead
+  // would be the proper fix when it matters.
+  if (commits.length === 250) {
+    log?.(`compareBranchCommits: ${owner}/${repo} ${headSha.slice(0, 8)} hit 250-commit cap (branch may be further ahead)`);
+  }
+  return commits.map((c: any) => ({
     sha:         c.sha,
     message:     c.commit?.message || '',
     authorLogin: c.author?.login ?? null,
@@ -682,6 +710,11 @@ export async function compareBranchCommits(
 
 // Returns true if any PR containing this commit has been merged.
 // Used to filter out squash-merged-but-branch-kept refs from the in-flight set.
+//
+// On error we log and return false so the caller continues, but a transient
+// failure (e.g. 5xx after withRetry exhausts) means this report run treats
+// the SHA as not-merged and re-inserts pre-squash commits as bogus in-flight
+// work. The log line makes that regression mode visible to operators.
 export async function isShaInMergedPR(
   owner: string,
   repo:  string,
@@ -696,7 +729,8 @@ export async function isShaInMergedPR(
       log,
     );
     return (res?.data || []).some((pr: any) => pr.merged_at != null);
-  } catch {
+  } catch (err) {
+    log?.(`isShaInMergedPR: ${owner}/${repo} ${sha.slice(0, 8)} failed (${err instanceof Error ? err.message : String(err)}); treating as not-merged`);
     return false;
   }
 }

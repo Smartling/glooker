@@ -377,18 +377,17 @@ export const seedSchedules = [
 ];
 
 // ---------------------------------------------------------------------------
-// 13. seedUnmergedWork
+// 13. seedUnmergedPrs (open-PR rows for the In-flight Work surfaces)
 // ---------------------------------------------------------------------------
 
-export const seedUnmergedWork: Record<string, any>[] = [];
+export const seedUnmergedPrs: Record<string, any>[] = [];
 for (const rid of completedReportIds) {
   for (const dev of MOCK_DEVELOPERS) {
     const prs = dev.mockOpenPrs ?? [];
     for (const pr of prs) {
-      seedUnmergedWork.push({
+      seedUnmergedPrs.push({
         report_id: rid,
         github_login: dev.githubLogin,
-        kind: 'open_pr',
         repo: pr.repo,
         pr_number: pr.number,
         pr_title: pr.title,

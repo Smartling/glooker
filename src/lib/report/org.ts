@@ -1,6 +1,6 @@
 import db from '../db/index';
 import { ReportNotFoundError } from './service';
-import { dedupCommitsBySha, aggregateWeekly } from './timeline';
+import { dedupCommitsBySha, aggregateWeekly, weekKeyForDate } from './timeline';
 
 export async function getOrgReport(reportId: string) {
   // 1. Report metadata
@@ -82,10 +82,7 @@ export async function getOrgReport(reportId: string) {
       if (!row.committed_at) continue;
       const d = new Date(row.committed_at);
       if (Number.isNaN(d.getTime())) continue;
-      const day = d.getDay();
-      const monday = new Date(d);
-      monday.setDate(d.getDate() - ((day + 6) % 7));
-      const weekKey = monday.toISOString().split('T')[0];
+      const weekKey = weekKeyForDate(d);
 
       let bucket = weekMap.get(weekKey);
       if (!bucket) {
@@ -130,16 +127,22 @@ export async function getOrgReport(reportId: string) {
     timeline.sort((a, b) => a.week.localeCompare(b.week));
   }
 
-  // KPI-card aggregation: PR counts from unmerged_prs, commit counts from unmerged_commits
+  // KPI-card aggregation: PR counts from unmerged_prs, commit counts from unmerged_commits.
+  // In-flight lines = open-PR diffs (from unmerged_prs.pr_additions/pr_deletions) PLUS
+  // bare-branch commits with no PR yet (unmerged_commits WHERE pr_number IS NULL).
+  // We can't sum across all unmerged_commits because PR-attached rows there
+  // double-count work already represented in unmerged_prs.pr_additions.
   const [unmergedAggRows] = await db.execute(
     `SELECT
        (SELECT COUNT(*)              FROM unmerged_prs     WHERE report_id = ?) AS openPrCount,
        (SELECT COUNT(DISTINCT github_login) FROM unmerged_prs WHERE report_id = ?) AS openPrDevCount,
        (SELECT COUNT(*)              FROM unmerged_commits WHERE report_id = ? AND pr_number IS NULL) AS bareBranchCount,
        (SELECT COUNT(DISTINCT github_login) FROM unmerged_commits WHERE report_id = ? AND pr_number IS NULL) AS bareBranchDevCount,
-       (SELECT COALESCE(SUM(lines_added),   0) FROM unmerged_commits WHERE report_id = ?) AS inFlightLinesAdded,
-       (SELECT COALESCE(SUM(lines_removed), 0) FROM unmerged_commits WHERE report_id = ?) AS inFlightLinesRemoved`,
-    [reportId, reportId, reportId, reportId, reportId, reportId],
+       (SELECT COALESCE(SUM(pr_additions), 0) FROM unmerged_prs WHERE report_id = ?) AS prLinesAdded,
+       (SELECT COALESCE(SUM(pr_deletions), 0) FROM unmerged_prs WHERE report_id = ?) AS prLinesRemoved,
+       (SELECT COALESCE(SUM(lines_added),   0) FROM unmerged_commits WHERE report_id = ? AND pr_number IS NULL) AS bareLinesAdded,
+       (SELECT COALESCE(SUM(lines_removed), 0) FROM unmerged_commits WHERE report_id = ? AND pr_number IS NULL) AS bareLinesRemoved`,
+    [reportId, reportId, reportId, reportId, reportId, reportId, reportId, reportId],
   ) as [any[], any];
 
   const aggRow = unmergedAggRows[0] || {};
@@ -151,8 +154,8 @@ export async function getOrgReport(reportId: string) {
         openPrDevCount:       Number(aggRow.openPrDevCount || 0),
         bareBranchCount,
         bareBranchDevCount:   Number(aggRow.bareBranchDevCount || 0),
-        inFlightLinesAdded:   Number(aggRow.inFlightLinesAdded || 0),
-        inFlightLinesRemoved: Number(aggRow.inFlightLinesRemoved || 0),
+        inFlightLinesAdded:   Number(aggRow.prLinesAdded || 0)   + Number(aggRow.bareLinesAdded   || 0),
+        inFlightLinesRemoved: Number(aggRow.prLinesRemoved || 0) + Number(aggRow.bareLinesRemoved || 0),
       }
     : null;
 

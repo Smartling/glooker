@@ -1,12 +1,14 @@
 import pLimit from 'p-limit';
 import db from './db/index';
-import { getGitHubProvider, getCommitDetail, type CommitData } from './github';
+import { getGitHubProvider, getCommitDetail, type CommitData, type OpenPrInfo } from './github';
 import { analyzeCommit, type CommitAnalysis } from './analyzer';
 import { aggregate, computeImpactScore } from './aggregator';
 import { updateProgress, addLog } from './progress-store';
 import { getJiraClient } from './jira';
 import { resolveJiraUser } from './jira';
 import { getAppConfig } from './app-config/service';
+
+import { UNMERGED_LOOKBACK_DAYS } from './report/unmerged-window';
 
 const CONCURRENCY = Number(process.env.LLM_CONCURRENCY || 5);
 
@@ -190,7 +192,7 @@ export async function runReport(
         }
 
         // Fetch open PRs for this member (in-flight metadata, not counted in impact)
-        let openPrs: any[] = [];
+        let openPrs: OpenPrInfo[] = [];
         try {
           openPrs = await github.fetchOpenPRs(org, member.login, since, log);
           if (openPrs.length > 0) log(`@${member.login}: ${openPrs.length} open PR(s)`);
@@ -229,22 +231,28 @@ export async function runReport(
           type UmRecord = { repo: string; sha: string; message: string; committedAt: string; branch: string | null; prNumber: number | null };
           const seenSha = new Set<string>();
           const queue: UmRecord[] = [];
-          // Cap unmerged-commit fetch at 90 days back. Matches the org chart display
-          // window (which already clips pre-90d weeks), so older commits would never
-          // render anyway. Skipping them avoids ~15-20% of the dominant getCommitDetail
-          // cost without any visible information loss.
-          const unmergedCutoff = new Date(Date.now() - 90 * 86400_000);
+          // Cap unmerged-commit fetch at UNMERGED_LOOKBACK_DAYS. Matches the org chart
+          // display window (which already clips older weeks), so older commits would
+          // never render anyway. Skipping them avoids ~15-20% of the dominant
+          // getCommitDetail cost without any visible information loss. Readers in
+          // dev.ts/summary.ts/org.ts use the same constant so query windows match.
+          const unmergedCutoff = new Date(Date.now() - UNMERGED_LOOKBACK_DAYS * 86400_000);
           const inWindow = (committedAt: string): boolean => {
             const t = new Date(committedAt).getTime();
             return Number.isFinite(t) && t >= unmergedCutoff.getTime();
           };
 
-          // (1) commits in open PRs
+          // (1) commits in open PRs.
+          // Drop commits with null `authorLogin` (rare: signed merge commits, bot
+          // authors without GitHub accounts) rather than implicitly attributing
+          // them to the engineer being processed. Email-based fallback would be
+          // an option but the safer default is to skip — these commits don't
+          // belong on the in-flight surface for this engineer.
           for (const pr of openPrs) {
             try {
               const prCommits = await github.fetchPullRequestCommits(org, pr.repo, pr.number, log);
               for (const c of prCommits) {
-                if (c.authorLogin && c.authorLogin !== member.login) continue;
+                if (!c.authorLogin || c.authorLogin !== member.login) continue;
                 if (!inWindow(c.committedAt)) continue;
                 if (seenSha.has(c.sha)) continue;
                 seenSha.add(c.sha);
@@ -274,6 +282,7 @@ export async function runReport(
             }
             const branchSeen = new Set<string>();
             for (const ev of events) {
+              if (!ev.actorLogin) continue; // null/empty-actor events (rare bot pushes)
               if (ev.actorLogin !== member.login) continue;
               if (!ev.ref) continue;
               if (branchSeen.has(ev.ref)) continue;
@@ -298,7 +307,8 @@ export async function runReport(
 
                 const branchCommits = await github.compareBranchCommits(org, repo, headSha, log);
                 for (const c of branchCommits) {
-                  if (c.authorLogin && c.authorLogin !== member.login) continue;
+                  // See note above on dropping null authorLogin commits — applies here too.
+                  if (!c.authorLogin || c.authorLogin !== member.login) continue;
                   if (!inWindow(c.committedAt)) continue;
                   if (seenSha.has(c.sha)) continue;
                   seenSha.add(c.sha);
