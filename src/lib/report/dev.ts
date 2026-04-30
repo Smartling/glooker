@@ -1,6 +1,7 @@
 import db from '@/lib/db';
 import { ReportNotFoundError } from './service';
 import { dedupCommitsBySha, aggregateWeekly } from './timeline';
+import { UNMERGED_LOOKBACK_DAYS } from './unmerged-window';
 
 export class DeveloperNotFoundError extends Error {
   constructor(login: string) {
@@ -88,6 +89,58 @@ export async function getDevReport(reportId: string, login: string) {
 
   const timeline = aggregateWeekly(timelineCommits);
 
+  // Unmerged work: PR-level metadata and per-commit data live in two tables now.
+  // Use the same lookback the runner uses (UNMERGED_LOOKBACK_DAYS) so we don't
+  // silently drop PRs the runner just inserted. The shipped-work `period_days`
+  // window doesn't apply to in-flight work — long-running drafts older than the
+  // report period are the *most* actionable signal.
+  const reportCreatedAt = new Date(reportRows[0].created_at);
+  const unmergedSince = Number.isNaN(reportCreatedAt.getTime())
+    ? new Date(0).toISOString()
+    : new Date(reportCreatedAt.getTime() - UNMERGED_LOOKBACK_DAYS * 86400_000).toISOString();
+
+  const [unmergedPrRows] = await db.execute(
+    `SELECT pr_number, pr_title, pr_url, repo, is_draft,
+            pr_commits, pr_additions, pr_deletions, pr_created_at, pr_updated_at
+     FROM unmerged_prs
+     WHERE report_id = ? AND github_login = ?
+       AND pr_updated_at >= ?
+     ORDER BY pr_updated_at DESC`,
+    [reportId, login, unmergedSince],
+  ) as [any[], any];
+
+  const [unmergedCommitRows] = await db.execute(
+    `SELECT commit_sha, repo, branch, pr_number, commit_message,
+            lines_added, lines_removed, committed_at
+     FROM unmerged_commits
+     WHERE report_id = ? AND github_login = ? AND pr_number IS NULL
+       AND committed_at >= ?
+     ORDER BY committed_at DESC`,
+    [reportId, login, unmergedSince],
+  ) as [any[], any];
+
+  const openPrs = unmergedPrRows.map((r: any) => ({
+    repo:       r.repo,
+    number:     r.pr_number,
+    title:      r.pr_title,
+    url:        r.pr_url,
+    draft:      Boolean(r.is_draft),
+    commits:    r.pr_commits,
+    additions:  r.pr_additions,
+    deletions:  r.pr_deletions,
+    createdAt:  r.pr_created_at,
+    updatedAt:  r.pr_updated_at,
+  }));
+  const branchCommits = unmergedCommitRows.map((r: any) => ({
+    repo:        r.repo,
+    sha:         r.commit_sha,
+    message:     r.commit_message,
+    branchName:  r.branch,
+    additions:   r.lines_added,
+    deletions:   r.lines_removed,
+    committedAt: r.committed_at,
+  }));
+
   const parseDev = (row: any) => ({
     ...row,
     type_breakdown: typeof row.type_breakdown === 'string' ? JSON.parse(row.type_breakdown || '{}') : (row.type_breakdown || {}),
@@ -100,5 +153,6 @@ export async function getDevReport(reportId: string, login: string) {
     allDevelopers: allDevRows,
     commits: commitRows,
     timeline,
+    unmergedWork: { openPrs, branchCommits },
   };
 }

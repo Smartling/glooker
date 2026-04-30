@@ -9,6 +9,21 @@ export interface WeeklyBucket {
   aiPercent: number;
   types: Record<string, number>;
   activeDevs?: number;
+  // Populated post-aggregation by getOrgReport when open-PR rows overlay the timeline.
+  inFlightLinesAdded?: number;
+  inFlightLinesRemoved?: number;
+  inFlightLinesP95Added?: number;
+  inFlightLinesP95Removed?: number;
+}
+
+// ISO date string for the Monday of the week containing `d`. Used by both the
+// shipped-commit aggregator below and the in-flight overlay in `org.ts`, so the
+// two paths can't drift on what counts as the same week.
+export function weekKeyForDate(d: Date): string {
+  const day = d.getDay();
+  const monday = new Date(d);
+  monday.setDate(d.getDate() - ((day + 6) % 7));
+  return monday.toISOString().split('T')[0];
 }
 
 export function dedupCommitsBySha(rows: any[]): any[] {
@@ -50,10 +65,7 @@ export function aggregateWeekly(commits: any[], opts?: { trackDevs?: boolean }):
   for (const c of commits) {
     if (!c.committed_at) continue;
     const d = new Date(c.committed_at);
-    const day = d.getDay();
-    const monday = new Date(d);
-    monday.setDate(d.getDate() - ((day + 6) % 7));
-    const weekKey = monday.toISOString().split('T')[0];
+    const weekKey = weekKeyForDate(d);
 
     if (!weeklyMap.has(weekKey)) {
       weeklyMap.set(weekKey, {

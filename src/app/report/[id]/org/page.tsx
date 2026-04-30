@@ -7,13 +7,25 @@ import ChatPanel from '@/app/chat-panel';
 import { useAuth } from '@/app/auth-context';
 
 const TYPE_COLORS: Record<string, string> = {
-  feature: 'bg-blue-500', bug: 'bg-red-500', refactor: 'bg-purple-500',
-  infra: 'bg-yellow-500', docs: 'bg-gray-500', test: 'bg-green-500', other: 'bg-gray-600',
+  feature:   'bg-blue-500',
+  bug:       'bg-red-500',
+  refactor:  'bg-purple-500',
+  infra:     'bg-yellow-500',
+  docs:      'bg-gray-500',
+  test:      'bg-green-500',
+  other:     'bg-gray-600',
+  in_flight: 'bg-cyan-500',
 };
 
 const TYPE_HEX: Record<string, string> = {
-  feature: '#3B82F6', bug: '#EF4444', refactor: '#A855F7',
-  infra: '#EAB308', docs: '#6B7280', test: '#22C55E', other: '#4B5563',
+  feature:   '#3B82F6',
+  bug:       '#EF4444',
+  refactor:  '#A855F7',
+  infra:     '#EAB308',
+  docs:      '#6B7280',
+  test:      '#22C55E',
+  other:     '#4B5563',
+  in_flight: '#06B6D4',
 };
 
 interface Developer {
@@ -32,6 +44,8 @@ interface WeeklyData {
   week: string; commits: number; linesAdded: number; linesRemoved: number;
   linesP95Added?: number; linesP95Removed?: number;
   avgComplexity: number; aiPercent: number; types: Record<string, number>; activeDevs: number;
+  inFlightLinesAdded?: number; inFlightLinesRemoved?: number;
+  inFlightLinesP95Added?: number; inFlightLinesP95Removed?: number;
 }
 
 interface ReportMeta {
@@ -59,6 +73,14 @@ export default function OrgDetailPage() {
   const developers: Developer[] = data?.developers ?? [];
   const timeline: WeeklyData[] = data?.timeline ?? [];
   const spendWindow: SpendWindow | null = data?.spendWindow ?? null;
+  const unmergedSummary: {
+    openPrCount: number;
+    openPrDevCount: number;
+    bareBranchCount: number;
+    bareBranchDevCount: number;
+    inFlightLinesAdded: number;
+    inFlightLinesRemoved: number;
+  } | null = data?.unmergedSummary ?? null;
 
   const { data: config } = useSWR('/api/llm-config', { revalidateIfStale: false });
   const latestReportId = config?.latestReport?.id ?? null;
@@ -80,11 +102,13 @@ export default function OrgDetailPage() {
   const avgImpact = developers.length > 0
     ? developers.reduce((s, d) => s + Number(d.impact_score), 0) / developers.length : 0;
 
-  // Type breakdown across all developers
+  // Type breakdown — sum across all timeline weeks. timeline already has the
+  // per-commit in_flight override applied server-side in getOrgReport, so the
+  // pie inherits the in_flight slice automatically.
   const orgTypes: Record<string, number> = {};
-  for (const d of developers) {
-    for (const [type, count] of Object.entries(d.type_breakdown || {})) {
-      orgTypes[type] = (orgTypes[type] || 0) + count;
+  for (const week of timeline) {
+    for (const [type, count] of Object.entries(week.types || {})) {
+      orgTypes[type] = (orgTypes[type] || 0) + (count as number);
     }
   }
   const typeEntries = Object.entries(orgTypes).sort((a, b) => b[1] - a[1]);
@@ -202,12 +226,50 @@ export default function OrgDetailPage() {
         </div>
       </div>
 
+      {/* In-flight Work KPI cards */}
+      {unmergedSummary && (
+        <div className="mb-6">
+          <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-3">In-flight Work</p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-gray-900 rounded-xl p-5">
+              <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Open PRs</p>
+              <p className="text-2xl font-bold text-cyan-400">{unmergedSummary.openPrCount.toLocaleString()}</p>
+              <p className="text-xs text-gray-600 mt-1">across {unmergedSummary.openPrDevCount} dev{unmergedSummary.openPrDevCount === 1 ? '' : 's'}</p>
+            </div>
+            <div className="bg-gray-900 rounded-xl p-5">
+              <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Bare-branch commits</p>
+              <p className="text-2xl font-bold text-cyan-400">{unmergedSummary.bareBranchCount.toLocaleString()}</p>
+              <p className="text-xs text-gray-600 mt-1">
+                {unmergedSummary.bareBranchCount === 0
+                  ? 'no orphaned WIP'
+                  : `across ${unmergedSummary.bareBranchDevCount} dev${unmergedSummary.bareBranchDevCount === 1 ? '' : 's'}`}
+              </p>
+            </div>
+            <div className="bg-gray-900 rounded-xl p-5">
+              <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">In-flight lines</p>
+              <p className="text-2xl font-bold">
+                <span className="text-green-400">+{unmergedSummary.inFlightLinesAdded.toLocaleString()}</span>
+                <span className="text-gray-500"> / </span>
+                <span className="text-red-400">−{unmergedSummary.inFlightLinesRemoved.toLocaleString()}</span>
+              </p>
+              <p className="text-xs text-gray-600 mt-1">from open PRs</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Timeline Charts */}
       {timeline.length >= 2 && (
         <div className="mb-6">
           <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-3">Org Activity Over Time (weekly)</p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <TimelineChart data={timeline} valueKey="commits" label="Commits / Week" color="#3B82F6" />
+            <TimelineChart
+              data={timeline}
+              valueKey="commits"
+              label="Commits / Week"
+              color="#3B82F6"
+              inFlightValue={d => d.types?.in_flight ?? 0}
+            />
             <TimelineChart data={timeline} valueKey="activeDevs" label="Active Developers / Week" color="#10B981" />
             <LinesChangedChart data={timeline} />
             <TimelineChart data={timeline} valueKey="aiPercent" label="AI Assisted %" color="#A855F7" suffix="%" />
@@ -357,7 +419,7 @@ function StackedTypesChart({ data }: { data: WeeklyData[] }) {
 
   const allTypes = new Set<string>();
   for (const w of filtered) { for (const t of Object.keys(w.types)) allTypes.add(t); }
-  const typeOrder = ['feature', 'bug', 'refactor', 'infra', 'docs', 'test', 'other'].filter(t => allTypes.has(t));
+  const typeOrder = ['feature', 'bug', 'refactor', 'infra', 'docs', 'test', 'other', 'in_flight'].filter(t => allTypes.has(t));
 
   const stacked = filtered.map(w => {
     const total = typeOrder.reduce((s, t) => s + (w.types[t] || 0), 0);
@@ -493,7 +555,15 @@ function LinesChangedChart({ data }: { data: WeeklyData[] }) {
   const filtered = data.filter(d => d.week >= cutoffStr);
   if (filtered.length < 2) return null;
 
-  const maxTotal = Math.max(...filtered.map(d => (d.linesP95Added || 0) + (d.linesP95Removed || 0)), 1);
+  // linesP95Added/Removed are shipped-only (computed by aggregateWeekly).
+  // inFlightLinesP95Added/Removed are the in-flight overlay, P95-filtered separately.
+  const maxTotal = Math.max(
+    ...filtered.map(d =>
+      (d.linesP95Added || 0) + (d.linesP95Removed || 0) +
+      (d.inFlightLinesP95Added || 0) + (d.inFlightLinesP95Removed || 0),
+    ),
+    1,
+  );
 
   const W = 800;
   const H = 180;
@@ -532,18 +602,41 @@ function LinesChangedChart({ data }: { data: WeeklyData[] }) {
           </g>
         ))}
         {filtered.map((d, i) => {
-          const a = d.linesP95Added || 0;
-          const r = d.linesP95Removed || 0;
-          const total = a + r;
-          const addedH = total > 0 ? (a / maxTotal) * chartH : 0;
-          const removedH = total > 0 ? (r / maxTotal) * chartH : 0;
-          const addedY = padT + chartH - addedH - removedH;
-          const removedY = padT + chartH - removedH;
+          // Shipped portions (P95-filtered, untouched by overlay)
+          const shippedA = d.linesP95Added || 0;
+          const shippedR = d.linesP95Removed || 0;
+          // In-flight portions (separately P95-filtered over in-flight commits only)
+          const inFlightA = d.inFlightLinesP95Added || 0;
+          const inFlightR = d.inFlightLinesP95Removed || 0;
+
+          const totalH    = ((shippedA + shippedR + inFlightA + inFlightR) / maxTotal) * chartH;
+          const shippedAH = (shippedA / maxTotal) * chartH;
+          const shippedRH = (shippedR / maxTotal) * chartH;
+          const inFlightAH = (inFlightA / maxTotal) * chartH;
+          const inFlightRH = (inFlightR / maxTotal) * chartH;
+
+          // Stack from bottom to top: shippedR (red), shippedA (green), inFlightR (amber/red), inFlightA (amber)
+          const baseY = padT + chartH;
+          const shippedRemovedY  = baseY - shippedRH;
+          const shippedAddedY    = shippedRemovedY - shippedAH;
+          const inFlightRemovedY = shippedAddedY - inFlightRH;
+          const inFlightAddedY   = inFlightRemovedY - inFlightAH;
+
           return (
             <g key={i}>
-              <rect x={xFor(i)} y={addedY} width={barW} height={addedH} rx={1.5}
+              {/* added: in-flight (amber, top) + shipped (green, bottom of added stack) */}
+              {inFlightAH > 0 && (
+                <rect x={xFor(i)} y={inFlightAddedY} width={barW} height={inFlightAH} rx={1.5}
+                  fill="#06B6D4" opacity={hoverIdx === i ? 1 : 0.85} />
+              )}
+              <rect x={xFor(i)} y={shippedAddedY} width={barW} height={shippedAH} rx={1.5}
                 fill="#10B981" opacity={hoverIdx === i ? 0.8 : 0.55} />
-              <rect x={xFor(i)} y={removedY} width={barW} height={removedH} rx={1.5}
+              {/* removed: in-flight (amber muted, top of removed stack) + shipped (red, bottom) */}
+              {inFlightRH > 0 && (
+                <rect x={xFor(i)} y={inFlightRemovedY} width={barW} height={inFlightRH} rx={1.5}
+                  fill="#06B6D4" opacity={hoverIdx === i ? 0.6 : 0.45} />
+              )}
+              <rect x={xFor(i)} y={shippedRemovedY} width={barW} height={shippedRH} rx={1.5}
                 fill="#EF4444" opacity={hoverIdx === i ? 0.6 : 0.35} />
               <rect x={xFor(i) - barGap / 2} y={padT} width={barW + barGap} height={chartH}
                 fill="transparent" onMouseEnter={() => setHoverIdx(i)} onMouseLeave={() => setHoverIdx(null)} />
@@ -697,6 +790,7 @@ function TimelineChart({
   suffix = '',
   decimals = 0,
   computeValue,
+  inFlightValue,
 }: {
   data: WeeklyData[];
   valueKey: string;
@@ -705,6 +799,9 @@ function TimelineChart({
   suffix?: string;
   decimals?: number;
   computeValue?: (d: WeeklyData) => number;
+  // Optional: per-week in-flight portion. When provided, each bar is rendered as
+  // a stacked pair: shipped (color, bottom) + in-flight (amber, top).
+  inFlightValue?: (d: WeeklyData) => number;
 }) {
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
 
@@ -779,12 +876,21 @@ function TimelineChart({
           const barH = range > 0 ? ((v - min) / range) * chartH : 0;
           const x = xFor(i);
           const y = padT + chartH - barH;
+          const inFlight = inFlightValue ? inFlightValue(filtered[i]) : 0;
+          const inFlightH = range > 0 && inFlight > 0 ? (inFlight / range) * chartH : 0;
+          const shippedH = Math.max(0, barH - inFlightH);
           return (
             <g key={i} onMouseEnter={() => setHoverIdx(i)} onMouseLeave={() => setHoverIdx(null)}>
               <rect x={x - barGap / 2} y={padT} width={barW + barGap} height={chartH}
                 fill="transparent" />
-              <rect x={x - barW / 2} y={y} width={barW} height={barH} rx={Math.min(2, barW / 2)}
+              {/* shipped portion (bottom) */}
+              <rect x={x - barW / 2} y={y + inFlightH} width={barW} height={shippedH} rx={Math.min(2, barW / 2)}
                 fill={color} opacity={hoverIdx === i ? 1 : 0.7} />
+              {/* in-flight portion (top) */}
+              {inFlightH > 0 && (
+                <rect x={x - barW / 2} y={y} width={barW} height={inFlightH} rx={Math.min(2, barW / 2)}
+                  fill="#06B6D4" opacity={hoverIdx === i ? 1 : 0.85} />
+              )}
             </g>
           );
         })}

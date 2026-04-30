@@ -117,6 +117,44 @@ CREATE TABLE IF NOT EXISTS team_pulse_summaries (
 );
 `;
 
+const UNMERGED_PRS_SCHEMA = `
+CREATE TABLE IF NOT EXISTS unmerged_prs (
+  id              INT AUTO_INCREMENT PRIMARY KEY,
+  report_id       VARCHAR(36)  NOT NULL,
+  github_login    VARCHAR(255) NOT NULL,
+  repo            VARCHAR(255) NOT NULL,
+  pr_number       INT          NOT NULL,
+  pr_title        VARCHAR(500) NULL,
+  pr_url          VARCHAR(500) NULL,
+  is_draft        BOOLEAN      NULL,
+  pr_commits      INT          NULL,
+  pr_additions    INT          NULL,
+  pr_deletions    INT          NULL,
+  pr_created_at   TIMESTAMP    NULL,
+  pr_updated_at   TIMESTAMP    NULL,
+  FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_unmerged_pr (report_id, repo, pr_number)
+);
+`;
+
+const UNMERGED_COMMITS_SCHEMA = `
+CREATE TABLE IF NOT EXISTS unmerged_commits (
+  id              INT AUTO_INCREMENT PRIMARY KEY,
+  report_id       VARCHAR(36)  NOT NULL,
+  github_login    VARCHAR(255) NOT NULL,
+  repo            VARCHAR(255) NOT NULL,
+  branch          VARCHAR(255) NULL,
+  pr_number       INT          NULL,
+  commit_sha      VARCHAR(40)  NOT NULL,
+  commit_message  TEXT         NULL,
+  lines_added     INT          NOT NULL DEFAULT 0,
+  lines_removed   INT          NOT NULL DEFAULT 0,
+  committed_at    TIMESTAMP    NULL,
+  FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_unmerged_commit (report_id, repo, commit_sha)
+);
+`;
+
 export function createMySQLDB(): DB {
   const pool = mysql.createPool({
     host:     process.env.DB_HOST     || 'localhost',
@@ -149,6 +187,15 @@ export function createMySQLDB(): DB {
   });
   pool.execute(TEAM_PULSE_SCHEMA).catch((err) => {
     console.error('[db/mysql] Failed to create team_pulse_summaries table:', err);
+  });
+  pool.execute(UNMERGED_PRS_SCHEMA).catch((err) => {
+    console.error('[db/mysql] Failed to create unmerged_prs table:', err);
+  });
+  pool.execute(UNMERGED_COMMITS_SCHEMA).catch((err) => {
+    console.error('[db/mysql] Failed to create unmerged_commits table:', err);
+  });
+  pool.execute('DROP TABLE IF EXISTS unmerged_work').catch((err) => {
+    console.error('[db/mysql] Failed to drop unmerged_work table:', err);
   });
 
   // Migrations

@@ -71,5 +71,44 @@ export function createMockGitHubProvider(): GitHubProvider {
     async countReviewedPRs() {
       return Math.floor(Math.random() * 15);
     },
+
+    async fetchOpenPRs(_org, user, _since, log) {
+      const { MOCK_DEVELOPERS } = getIdentities();
+      const dev = MOCK_DEVELOPERS.find((d: any) => d.githubLogin === user);
+      const prs = dev?.mockOpenPrs ?? [];
+      log?.(`[mock] fetchOpenPRs ${user}: ${prs.length}`);
+      return prs;
+    },
+
+    async isCommitInDefaultBranch(_owner, _repo, sha) {
+      // For the mock, mark every 3rd commit (by SHA char-code sum) as NOT in default (bare-branch commit)
+      const n = String(sha).split('').reduce((s, c) => s + c.charCodeAt(0), 0);
+      return n % 3 !== 0;
+    },
+
+    async fetchRepoEvents(_owner, repo, log) {
+      log?.(`[mock] fetchRepoEvents for ${repo}`);
+      return [];
+    },
+
+    async getBranchHeadSha(_owner, _repo, _branchName, log) {
+      log?.(`[mock] getBranchHeadSha`);
+      return null;
+    },
+
+    async fetchPullRequestCommits(_owner, _repo, pullNumber, log) {
+      log?.(`[mock] fetchPullRequestCommits #${pullNumber}`);
+      return [];
+    },
+
+    async compareBranchCommits(_owner, _repo, _headSha, log) {
+      log?.(`[mock] compareBranchCommits ${_repo}`);
+      return [];
+    },
+
+    async isShaInMergedPR(_owner, _repo, _sha, log) {
+      log?.(`[mock] isShaInMergedPR`);
+      return false;
+    },
   };
 }

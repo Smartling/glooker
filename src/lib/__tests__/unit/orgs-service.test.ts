@@ -25,6 +25,13 @@ describe('listOrgs', () => {
       listOrgMembers: jest.fn(),
       fetchUserActivity: jest.fn(),
       countReviewedPRs: jest.fn(),
+      fetchOpenPRs: jest.fn(),
+      fetchRepoEvents: jest.fn().mockResolvedValue([]),
+      getBranchHeadSha: jest.fn().mockResolvedValue(null),
+      fetchPullRequestCommits: jest.fn().mockResolvedValue([]),
+      compareBranchCommits: jest.fn().mockResolvedValue([]),
+      isCommitInDefaultBranch: jest.fn().mockResolvedValue(true),
+      isShaInMergedPR: jest.fn().mockResolvedValue(false),
     });
 
     const orgs = await listOrgs();
@@ -44,6 +51,13 @@ describe('listOrgs', () => {
       listOrgMembers: jest.fn(),
       fetchUserActivity: jest.fn(),
       countReviewedPRs: jest.fn(),
+      fetchOpenPRs: jest.fn(),
+      fetchRepoEvents: jest.fn().mockResolvedValue([]),
+      getBranchHeadSha: jest.fn().mockResolvedValue(null),
+      fetchPullRequestCommits: jest.fn().mockResolvedValue([]),
+      compareBranchCommits: jest.fn().mockResolvedValue([]),
+      isCommitInDefaultBranch: jest.fn().mockResolvedValue(true),
+      isShaInMergedPR: jest.fn().mockResolvedValue(false),
     });
 
     const orgs = await listOrgs();
@@ -64,6 +78,13 @@ describe('listOrgs', () => {
       listOrgMembers: jest.fn(),
       fetchUserActivity: jest.fn(),
       countReviewedPRs: jest.fn(),
+      fetchOpenPRs: jest.fn(),
+      fetchRepoEvents: jest.fn().mockResolvedValue([]),
+      getBranchHeadSha: jest.fn().mockResolvedValue(null),
+      fetchPullRequestCommits: jest.fn().mockResolvedValue([]),
+      compareBranchCommits: jest.fn().mockResolvedValue([]),
+      isCommitInDefaultBranch: jest.fn().mockResolvedValue(true),
+      isShaInMergedPR: jest.fn().mockResolvedValue(false),
     });
 
     const orgs = await listOrgs();
@@ -82,6 +103,13 @@ describe('listOrgs', () => {
       listOrgMembers: jest.fn(),
       fetchUserActivity: jest.fn(),
       countReviewedPRs: jest.fn(),
+      fetchOpenPRs: jest.fn(),
+      fetchRepoEvents: jest.fn().mockResolvedValue([]),
+      getBranchHeadSha: jest.fn().mockResolvedValue(null),
+      fetchPullRequestCommits: jest.fn().mockResolvedValue([]),
+      compareBranchCommits: jest.fn().mockResolvedValue([]),
+      isCommitInDefaultBranch: jest.fn().mockResolvedValue(true),
+      isShaInMergedPR: jest.fn().mockResolvedValue(false),
     });
 
     const orgs = await listOrgs();

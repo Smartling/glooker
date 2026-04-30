@@ -26,6 +26,34 @@ export interface PRInfo {
   mergedAt: string;
 }
 
+export interface OpenPrInfo {
+  repo:       string;
+  number:     number;
+  title:      string;
+  url:        string;
+  draft:      boolean;
+  commits:    number;
+  additions:  number;
+  deletions:  number;
+  createdAt:  string;
+  updatedAt:  string;
+}
+
+export interface RepoEvent {
+  type:        'PushEvent' | 'CreateEvent';
+  actorLogin:  string;
+  ref:         string;          // 'refs/heads/feature-foo'
+  headSha:     string | null;    // null for CreateEvent — resolve via getBranchHeadSha
+  createdAt:   string;
+}
+
+export interface UnmergedCommitInfo {
+  sha:          string;
+  message:      string;
+  authorLogin:  string | null;
+  committedAt:  string;
+}
+
 export interface OrgMember {
   login:     string;
   avatarUrl: string;
@@ -41,10 +69,24 @@ export interface GitHubProvider {
   fetchUserActivity(org: string, user: string, since: Date, log?: (msg: string) => void): Promise<UserActivity>;
   listOrgs(): Promise<Array<{ login: string; avatar_url: string }>>;
   countReviewedPRs(org: string, user: string, since: Date): Promise<number>;
+  fetchOpenPRs(org: string, user: string, since: Date, log?: (msg: string) => void): Promise<OpenPrInfo[]>;
+  isCommitInDefaultBranch(owner: string, repo: string, sha: string): Promise<boolean>;
+  fetchRepoEvents(owner: string, repo: string, log?: (msg: string) => void): Promise<RepoEvent[]>;
+  getBranchHeadSha(owner: string, repo: string, branchName: string, log?: (msg: string) => void): Promise<string | null>;
+  fetchPullRequestCommits(owner: string, repo: string, pullNumber: number, log?: (msg: string) => void): Promise<UnmergedCommitInfo[]>;
+  compareBranchCommits(owner: string, repo: string, headSha: string, log?: (msg: string) => void): Promise<UnmergedCommitInfo[]>;
+  isShaInMergedPR(owner: string, repo: string, sha: string, log?: (msg: string) => void): Promise<boolean>;
 }
 
 let octokit: InstanceType<typeof Octokit> | null = null;
-function getOctokit() {
+let octokitOverride: InstanceType<typeof Octokit> | null = null;
+
+export function __setOctokitForTest(mock: any) {
+  octokitOverride = mock;
+}
+
+function getOctokit(): InstanceType<typeof Octokit> {
+  if (octokitOverride) return octokitOverride;
   if (!octokit) {
     octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
   }
@@ -234,7 +276,7 @@ async function searchUserMergedPRs(
 
 // ---------- Commit detail (diff) ----------
 
-async function getCommitDetail(
+export async function getCommitDetail(
   org:  string,
   repo: string,
   sha:  string,
@@ -435,6 +477,264 @@ async function countReviewedPRs(org: string, user: string, since: Date): Promise
   return res.data.total_count;
 }
 
+// ---------- Open PR search ----------
+
+export async function fetchOpenPRs(
+  org:   string,
+  user:  string,
+  since: Date,
+  log?:  (msg: string) => void,
+): Promise<OpenPrInfo[]> {
+  const sinceStr = since.toISOString().split('T')[0];
+  const q = `org:${org} author:${user} is:pr is:open updated:>=${sinceStr}`;
+  const results: OpenPrInfo[] = [];
+
+  let page = 1;
+  while (true) {
+    await sleep(2500);
+    const res = await withRetry(
+      () => getOctokit().search.issuesAndPullRequests({ q, per_page: 100, page }),
+      log,
+    );
+    for (const item of res.data.items) {
+      // repository_url is `https://api.github.com/repos/{owner}/{repo}`. Use the
+      // explicit `/repos/` split rather than `pop()` so a missing/malformed URL
+      // produces an empty string we can detect and skip, instead of inserting a
+      // row with `repo: ''` that the dev page can't link.
+      const repoFullName = (item.repository_url || '').split('/repos/')[1] || '';
+      const repo = repoFullName.split('/')[1] || '';
+      if (!repo) continue;
+      let commits = 0, additions = 0, deletions = 0;
+      try {
+        const { data: prDetail } = await withRetry(
+          () => getOctokit().pulls.get({ owner: org, repo, pull_number: item.number }),
+          log,
+        );
+        commits   = prDetail.commits   ?? 0;
+        additions = prDetail.additions ?? 0;
+        deletions = prDetail.deletions ?? 0;
+      } catch {
+        // degrade gracefully if PR details are unavailable
+      }
+      results.push({
+        repo,
+        number:    item.number,
+        title:     item.title,
+        url:       item.html_url,
+        draft:     Boolean(item.draft),
+        commits,
+        additions,
+        deletions,
+        createdAt: item.created_at,
+        updatedAt: item.updated_at,
+      });
+    }
+    if (results.length >= res.data.total_count || res.data.items.length < 100) break;
+    // GitHub Search caps results at 1000 (10 pages of 100). Without this guard,
+    // total_count > 1000 would loop forever.
+    if (page >= 10) break;
+    page++;
+  }
+
+  return results;
+}
+
+// ---------- Repo events feed ----------
+// Per-repo events. Returns Push and Create-branch events with actor info.
+// Replaces the broken `fetchUserOrgEvents` (per-user feed isn't accessible to fine-grained PATs).
+// Cached per (owner, repo) for the run lifetime so multiple engineers active in the
+// same repo don't re-fetch.
+
+const repoEventsCache = new Map<string, RepoEvent[]>();
+
+export async function fetchRepoEvents(
+  owner: string,
+  repo:  string,
+  log?:  (msg: string) => void,
+): Promise<RepoEvent[]> {
+  const key = `${owner}/${repo}`;
+  if (repoEventsCache.has(key)) return repoEventsCache.get(key)!;
+
+  const events: RepoEvent[] = [];
+  for (let page = 1; page <= 3; page++) { // 300 events / 3 pages
+    await sleep(2500);
+    const res = await withRetry(
+      () => getOctokit().activity.listRepoEvents({ owner, repo, per_page: 100, page }),
+      log,
+    );
+    for (const item of res.data) {
+      const actorLogin = item.actor?.login || '';
+      const payload: any = item.payload || {};
+      if (item.type === 'PushEvent') {
+        if (!payload.ref || !payload.head) continue;
+        events.push({
+          type: 'PushEvent',
+          actorLogin,
+          ref: payload.ref,
+          headSha: payload.head,
+          createdAt: item.created_at || '',
+        });
+      } else if (item.type === 'CreateEvent' && payload.ref_type === 'branch') {
+        const fullRef = payload.full_ref || (payload.ref ? `refs/heads/${payload.ref}` : '');
+        if (!fullRef) continue;
+        events.push({
+          type: 'CreateEvent',
+          actorLogin,
+          ref: fullRef,
+          headSha: null, // CreateEvent doesn't carry the head SHA — caller resolves via getBranchHeadSha
+          createdAt: item.created_at || '',
+        });
+      }
+    }
+    if (res.data.length < 100) break;
+  }
+
+  repoEventsCache.set(key, events);
+  return events;
+}
+
+// Test-only: clear repoEventsCache. Prefer __clearAllCachesForTest in new tests
+// so a future cache addition (e.g. defaultBranchCache below) is also cleared.
+export function __clearRepoEventsCacheForTest() {
+  repoEventsCache.clear();
+}
+
+// Test-only: clear every module-global cache used by github.ts. Wire this into
+// `afterEach` for any test exercising github helpers, so cross-test state never
+// leaks (e.g. one test seeding `acme/auth` events; the next test asserting an
+// empty fetch with the same key would silently get the cached array).
+export function __clearAllCachesForTest() {
+  repoEventsCache.clear();
+  defaultBranchCache.clear();
+}
+
+// ---------- Branch head lookup (used to resolve head SHA for CreateEvent) ----------
+
+export async function getBranchHeadSha(
+  owner: string,
+  repo:  string,
+  branchName: string,
+  log?:  (msg: string) => void,
+): Promise<string | null> {
+  try {
+    const { data } = await withRetry(
+      () => getOctokit().repos.getBranch({ owner, repo, branch: branchName }),
+      log,
+    );
+    return data.commit?.sha || null;
+  } catch {
+    return null;
+  }
+}
+
+// ---------- PR commits list ----------
+
+export async function fetchPullRequestCommits(
+  owner: string,
+  repo:  string,
+  pullNumber: number,
+  log?:  (msg: string) => void,
+): Promise<UnmergedCommitInfo[]> {
+  const result: UnmergedCommitInfo[] = [];
+  for (let page = 1; page <= 3; page++) { // GitHub caps PR commits at 250
+    await sleep(2500);
+    const res = await withRetry(
+      () => getOctokit().pulls.listCommits({ owner, repo, pull_number: pullNumber, per_page: 100, page }),
+      log,
+    );
+    for (const c of res.data) {
+      result.push({
+        sha:          c.sha,
+        message:      c.commit?.message || '',
+        authorLogin:  c.author?.login ?? null,
+        committedAt:  c.commit?.committer?.date || c.commit?.author?.date || '',
+      });
+    }
+    if (res.data.length < 100) break;
+  }
+  return result;
+}
+
+// ---------- Default branch membership check ----------
+
+// Per-run cache of default branch names keyed by "owner/repo".
+const defaultBranchCache = new Map<string, string>();
+
+export async function getDefaultBranch(owner: string, repo: string): Promise<string> {
+  const key = `${owner}/${repo}`;
+  if (defaultBranchCache.has(key)) return defaultBranchCache.get(key)!;
+  const { data } = await withRetry(() => getOctokit().repos.get({ owner, repo }));
+  const name = data.default_branch || 'main';
+  defaultBranchCache.set(key, name);
+  return name;
+}
+
+export async function isCommitInDefaultBranch(
+  owner: string,
+  repo:  string,
+  sha:   string,
+): Promise<boolean> {
+  const base = await getDefaultBranch(owner, repo);
+  const { data } = await withRetry(() =>
+    getOctokit().repos.compareCommits({ owner, repo, base, head: sha }),
+  );
+  return data.status === 'behind' || data.status === 'identical';
+}
+
+export async function compareBranchCommits(
+  owner:   string,
+  repo:    string,
+  headSha: string,
+  log?:    (msg: string) => void,
+): Promise<UnmergedCommitInfo[]> {
+  const base = await getDefaultBranch(owner, repo);
+  const { data } = await withRetry(
+    () => getOctokit().repos.compareCommits({ owner, repo, base, head: headSha }),
+    log,
+  );
+  const commits = data.commits || [];
+  // GitHub returns up to 250 commits in `data.commits` even if `data.behind_by`
+  // is larger. Long-lived feature branches > 250 commits ahead silently truncate.
+  // Log so the operator can see this happen; pagination via compareCommitsWithBasehead
+  // would be the proper fix when it matters.
+  if (commits.length === 250) {
+    log?.(`compareBranchCommits: ${owner}/${repo} ${headSha.slice(0, 8)} hit 250-commit cap (branch may be further ahead)`);
+  }
+  return commits.map((c: any) => ({
+    sha:         c.sha,
+    message:     c.commit?.message || '',
+    authorLogin: c.author?.login ?? null,
+    committedAt: c.commit?.committer?.date || c.commit?.author?.date || '',
+  }));
+}
+
+// Returns true if any PR containing this commit has been merged.
+// Used to filter out squash-merged-but-branch-kept refs from the in-flight set.
+//
+// On error we log and return false so the caller continues, but a transient
+// failure (e.g. 5xx after withRetry exhausts) means this report run treats
+// the SHA as not-merged and re-inserts pre-squash commits as bogus in-flight
+// work. The log line makes that regression mode visible to operators.
+export async function isShaInMergedPR(
+  owner: string,
+  repo:  string,
+  sha:   string,
+  log?:  (msg: string) => void,
+): Promise<boolean> {
+  try {
+    const res: any = await withRetry(
+      () => (getOctokit() as any).repos.listPullRequestsAssociatedWithCommit({
+        owner, repo, commit_sha: sha,
+      }),
+      log,
+    );
+    return (res?.data || []).some((pr: any) => pr.merged_at != null);
+  } catch (err) {
+    log?.(`isShaInMergedPR: ${owner}/${repo} ${sha.slice(0, 8)} failed (${err instanceof Error ? err.message : String(err)}); treating as not-merged`);
+    return false;
+  }
+}
+
 // ---------- Provider factory ----------
 
 let cachedProvider: GitHubProvider | null = null;
@@ -448,6 +748,18 @@ export function getGitHubProvider(): GitHubProvider {
     return cachedProvider!;
   }
 
-  cachedProvider = { listOrgMembers, fetchUserActivity, listOrgs, countReviewedPRs };
+  cachedProvider = {
+    listOrgMembers,
+    fetchUserActivity,
+    listOrgs,
+    countReviewedPRs,
+    fetchOpenPRs,
+    isCommitInDefaultBranch,
+    fetchRepoEvents,
+    getBranchHeadSha,
+    fetchPullRequestCommits,
+    compareBranchCommits,
+    isShaInMergedPR,
+  };
   return cachedProvider;
 }

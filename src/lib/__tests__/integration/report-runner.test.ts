@@ -4,7 +4,11 @@ import { makeCommit, makeAnalysis } from '../fixtures';
 jest.mock('@octokit/rest', () => ({
   Octokit: jest.fn().mockImplementation(() => ({})),
 }));
-jest.mock('@/lib/github');
+jest.mock('@/lib/github', () => ({
+  ...jest.requireActual('@/lib/github'),
+  getGitHubProvider: jest.fn(),
+  getCommitDetail: jest.fn().mockResolvedValue({ additions: 0, deletions: 0, diff: '' }),
+}));
 jest.mock('@/lib/analyzer');
 jest.mock('@/lib/db/index', () => ({
   __esModule: true,
@@ -25,12 +29,26 @@ import { updateProgress, addLog } from '@/lib/progress-store';
 const mockListOrgMembers = jest.fn();
 const mockFetchUserActivity = jest.fn();
 const mockCountReviewedPRs = jest.fn().mockResolvedValue(0);
+const mockFetchOpenPRs = jest.fn().mockResolvedValue([]);
+const mockFetchRepoEvents = jest.fn().mockResolvedValue([]);
+const mockGetBranchHeadSha = jest.fn().mockResolvedValue(null);
+const mockFetchPullRequestCommits = jest.fn().mockResolvedValue([]);
+const mockCompareBranchCommits = jest.fn().mockResolvedValue([]);
+const mockIsShaInMergedPR = jest.fn().mockResolvedValue(false);
+const mockIsCommitInDefaultBranch = jest.fn().mockResolvedValue(true);
 const mockGetGitHubProvider = getGitHubProvider as jest.Mock;
 mockGetGitHubProvider.mockReturnValue({
   listOrgMembers: mockListOrgMembers,
   fetchUserActivity: mockFetchUserActivity,
   listOrgs: jest.fn(),
   countReviewedPRs: mockCountReviewedPRs,
+  fetchOpenPRs: mockFetchOpenPRs,
+  fetchRepoEvents: mockFetchRepoEvents,
+  getBranchHeadSha: mockGetBranchHeadSha,
+  fetchPullRequestCommits: mockFetchPullRequestCommits,
+  compareBranchCommits: mockCompareBranchCommits,
+  isCommitInDefaultBranch: mockIsCommitInDefaultBranch,
+  isShaInMergedPR: mockIsShaInMergedPR,
 });
 const mockAnalyzeCommit = analyzeCommit as jest.Mock;
 const mockDbExecute = db.execute as jest.Mock;
@@ -55,6 +73,25 @@ describe('runReport', () => {
     );
 
     mockDbExecute.mockResolvedValue([[], null]);
+
+    mockFetchOpenPRs.mockClear();
+    mockFetchOpenPRs.mockResolvedValue([]);
+    mockIsCommitInDefaultBranch.mockClear();
+    mockIsCommitInDefaultBranch.mockResolvedValue(true);
+    mockFetchRepoEvents.mockClear();
+    mockFetchRepoEvents.mockResolvedValue([]);
+    mockGetBranchHeadSha.mockClear();
+    mockGetBranchHeadSha.mockResolvedValue(null);
+    mockFetchPullRequestCommits.mockClear();
+    mockFetchPullRequestCommits.mockResolvedValue([]);
+    mockCompareBranchCommits.mockClear();
+    mockCompareBranchCommits.mockResolvedValue([]);
+    mockIsShaInMergedPR.mockClear();
+    mockIsShaInMergedPR.mockResolvedValue(false);
+
+    const { getCommitDetail } = require('@/lib/github');
+    (getCommitDetail as jest.Mock).mockReset();
+    (getCommitDetail as jest.Mock).mockResolvedValue({ additions: 0, deletions: 0, diff: '' });
   });
 
   it('happy path: calls analyzeCommit for each unique commit and writes to DB', async () => {
@@ -188,5 +225,174 @@ describe('runReport', () => {
       (call: any[]) => typeof call[0] === 'string' && call[0].includes('completed'),
     );
     expect(completedCall).toBeTruthy();
+  });
+
+  it('persists open PRs to unmerged_prs (renamed from unmerged_work)', async () => {
+    mockFetchOpenPRs.mockImplementation(async (_org, user) =>
+      user === 'alice'
+        ? [{ repo: 'app', number: 42, title: 'WIP feature', url: 'https://github.com/o/app/pull/42', draft: false, commits: 3, additions: 100, deletions: 20, createdAt: '2026-04-10T00:00:00Z', updatedAt: '2026-04-22T00:00:00Z' }]
+        : [],
+    );
+
+    await runReport('r1', 'my-org', 14);
+
+    const insertCall = mockDbExecute.mock.calls.find(
+      (call: any[]) =>
+        typeof call[0] === 'string' &&
+        call[0].includes('INSERT') &&
+        call[0].includes('unmerged_prs') &&
+        Array.isArray(call[1]) &&
+        call[1][1] === 'alice' &&
+        call[1][3] === 42,
+    );
+    expect(insertCall).toBeTruthy();
+  });
+
+  it('persists per-commit rows to unmerged_commits via PR commits + branch compare', async () => {
+    const { getCommitDetail } = require('@/lib/github');
+
+    // Use dynamic dates within the runner's 90-day in-flight cutoff so this test
+    // doesn't go stale as wall-clock advances.
+    const recent = new Date(Date.now() - 2 * 86400_000).toISOString();
+    const slightlyOlder = new Date(Date.now() - 3 * 86400_000).toISOString();
+
+    // Alice has one open PR with one commit
+    mockFetchOpenPRs.mockImplementation(async (_org, user) =>
+      user === 'alice'
+        ? [{ repo: 'app', number: 7, title: 'wip', url: 'https://github.com/o/app/pull/7', draft: false, commits: 1, additions: 30, deletions: 5, createdAt: recent, updatedAt: recent }]
+        : [],
+    );
+    mockFetchPullRequestCommits.mockImplementation(async (_owner, _repo, n) =>
+      n === 7
+        ? [{ sha: 'pr-sha-1', message: 'wip commit', authorLogin: 'alice', committedAt: recent }]
+        : [],
+    );
+    // Alice also pushed a commit to a branch with no PR.
+    // Per-repo events feed: 'app' is in alice's activeRepos because she has an open PR there.
+    mockFetchRepoEvents.mockImplementation(async (_owner, repo) =>
+      repo === 'app'
+        ? [{ type: 'PushEvent', actorLogin: 'alice', ref: 'refs/heads/wip-branch', headSha: 'orphan-head', createdAt: recent }]
+        : [],
+    );
+    mockCompareBranchCommits.mockImplementation(async (_owner, _repo, head) =>
+      head === 'orphan-head'
+        ? [{ sha: 'orphan-sha-1', message: 'WIP no PR', authorLogin: 'alice', committedAt: slightlyOlder }]
+        : [],
+    );
+    mockIsCommitInDefaultBranch.mockResolvedValue(false); // ensure orphan-head is treated as non-default
+    mockGetBranchHeadSha.mockResolvedValue('orphan-head'); // branch still exists; runner uses live head
+    (getCommitDetail as jest.Mock).mockResolvedValue({ additions: 30, deletions: 5, diff: '' });
+
+    await runReport('r1', 'my-org', 14);
+
+    const inserts = mockDbExecute.mock.calls.filter(
+      (call: any[]) =>
+        typeof call[0] === 'string' &&
+        call[0].includes('INSERT') &&
+        call[0].includes('unmerged_commits'),
+    );
+    expect(inserts.length).toBe(2);
+
+    const allParams = inserts.map((c: any[]) => c[1]);
+    const shas = allParams.map(p => p[5]); // commit_sha is the 6th param (0-indexed 5) in the INSERT
+    expect(shas).toContain('pr-sha-1');
+    expect(shas).toContain('orphan-sha-1');
+  });
+
+  it('skips unmerged commits older than 90 days (matches chart display window)', async () => {
+    const { getCommitDetail } = require('@/lib/github');
+    const recent = new Date(Date.now() - 2 * 86400_000).toISOString();
+    const tooOld = new Date(Date.now() - 100 * 86400_000).toISOString(); // outside the 90-day cutoff
+
+    mockFetchOpenPRs.mockImplementation(async (_org, user) =>
+      user === 'alice'
+        ? [{ repo: 'app', number: 9, title: 'wip', url: '#', draft: false, commits: 2, additions: 10, deletions: 0, createdAt: tooOld, updatedAt: recent }]
+        : [],
+    );
+    mockFetchPullRequestCommits.mockImplementation(async (_owner, _repo, n) =>
+      n === 9
+        ? [
+            { sha: 'fresh-sha', message: 'recent', authorLogin: 'alice', committedAt: recent },
+            { sha: 'stale-sha', message: 'ancient', authorLogin: 'alice', committedAt: tooOld },
+          ]
+        : [],
+    );
+    mockFetchRepoEvents.mockResolvedValue([]);
+    (getCommitDetail as jest.Mock).mockResolvedValue({ additions: 1, deletions: 0, diff: '' });
+
+    await runReport('r1', 'my-org', 14);
+
+    const inserts = mockDbExecute.mock.calls.filter(
+      (call: any[]) =>
+        typeof call[0] === 'string' &&
+        call[0].includes('INSERT') &&
+        call[0].includes('unmerged_commits'),
+    );
+    const shas = inserts.map((c: any[]) => c[1][5]);
+    expect(shas).toContain('fresh-sha');
+    expect(shas).not.toContain('stale-sha');
+  });
+
+  it('skips refs whose branch was deleted (squash-merged + cleaned up)', async () => {
+    const { getCommitDetail } = require('@/lib/github');
+    const recent = new Date(Date.now() - 5 * 86400_000).toISOString();
+
+    mockFetchOpenPRs.mockResolvedValue([]);
+    mockFetchRepoEvents.mockImplementation(async (_owner, repo) =>
+      repo === 'app'
+        ? [{ type: 'PushEvent', actorLogin: 'alice', ref: 'refs/heads/merged-and-deleted', headSha: 'historical-head', createdAt: recent }]
+        : [],
+    );
+    // Branch no longer exists on origin (was deleted after squash merge).
+    mockGetBranchHeadSha.mockResolvedValue(null);
+    // compareBranchCommits should never get called for this ref.
+    mockCompareBranchCommits.mockResolvedValue([
+      { sha: 'should-not-appear', message: 'orig commit', authorLogin: 'alice', committedAt: recent },
+    ]);
+    (getCommitDetail as jest.Mock).mockResolvedValue({ additions: 1, deletions: 0, diff: '' });
+
+    await runReport('r1', 'my-org', 14);
+
+    const inserts = mockDbExecute.mock.calls.filter(
+      (call: any[]) =>
+        typeof call[0] === 'string' &&
+        call[0].includes('INSERT') &&
+        call[0].includes('unmerged_commits'),
+    );
+    expect(inserts.length).toBe(0);
+    expect(mockCompareBranchCommits).not.toHaveBeenCalled();
+  });
+
+  it('skips refs whose head SHA is part of a merged PR (squash-merge + branch kept)', async () => {
+    const { getCommitDetail } = require('@/lib/github');
+    const recent = new Date(Date.now() - 5 * 86400_000).toISOString();
+
+    mockFetchOpenPRs.mockResolvedValue([]);
+    mockFetchRepoEvents.mockImplementation(async (_owner, repo) =>
+      repo === 'app'
+        ? [{ type: 'PushEvent', actorLogin: 'alice', ref: 'refs/heads/squashed-and-kept', headSha: 'historical-head', createdAt: recent }]
+        : [],
+    );
+    // Branch still exists on origin (engineer didn't delete it after squash-merge)
+    mockGetBranchHeadSha.mockResolvedValue('live-head-c');
+    mockIsCommitInDefaultBranch.mockResolvedValue(false); // squash created a different SHA in main
+    // The head's SHA was part of a merged PR — work has shipped.
+    mockIsShaInMergedPR.mockResolvedValue(true);
+    // compareBranchCommits should never be called because we skip first.
+    mockCompareBranchCommits.mockResolvedValue([
+      { sha: 'pre-squash-orig', message: 'a', authorLogin: 'alice', committedAt: recent },
+    ]);
+    (getCommitDetail as jest.Mock).mockResolvedValue({ additions: 1, deletions: 0, diff: '' });
+
+    await runReport('r1', 'my-org', 14);
+
+    const inserts = mockDbExecute.mock.calls.filter(
+      (call: any[]) =>
+        typeof call[0] === 'string' &&
+        call[0].includes('INSERT') &&
+        call[0].includes('unmerged_commits'),
+    );
+    expect(inserts.length).toBe(0);
+    expect(mockCompareBranchCommits).not.toHaveBeenCalled();
   });
 });

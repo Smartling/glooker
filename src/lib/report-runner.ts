@@ -1,12 +1,14 @@
 import pLimit from 'p-limit';
 import db from './db/index';
-import { getGitHubProvider, type CommitData } from './github';
+import { getGitHubProvider, getCommitDetail, type CommitData, type OpenPrInfo } from './github';
 import { analyzeCommit, type CommitAnalysis } from './analyzer';
 import { aggregate, computeImpactScore } from './aggregator';
 import { updateProgress, addLog } from './progress-store';
 import { getJiraClient } from './jira';
 import { resolveJiraUser } from './jira';
 import { getAppConfig } from './app-config/service';
+
+import { UNMERGED_LOOKBACK_DAYS } from './report/unmerged-window';
 
 const CONCURRENCY = Number(process.env.LLM_CONCURRENCY || 5);
 
@@ -189,6 +191,27 @@ export async function runReport(
           reviewCounts.set(member.login, 0);
         }
 
+        // Fetch open PRs for this member (in-flight metadata, not counted in impact)
+        let openPrs: OpenPrInfo[] = [];
+        try {
+          openPrs = await github.fetchOpenPRs(org, member.login, since, log);
+          if (openPrs.length > 0) log(`@${member.login}: ${openPrs.length} open PR(s)`);
+          for (const pr of openPrs) {
+            await db.execute(
+              `INSERT IGNORE INTO unmerged_prs
+                 (report_id, github_login, repo, pr_number, pr_title, pr_url,
+                  is_draft, pr_commits, pr_additions, pr_deletions, pr_created_at, pr_updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                reportId, member.login, pr.repo, pr.number, pr.title, pr.url,
+                pr.draft ? 1 : 0, pr.commits, pr.additions, pr.deletions, pr.createdAt, pr.updatedAt,
+              ],
+            );
+          }
+        } catch (err) {
+          log(`@${member.login} openPRs failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+
         // Dedup commits against global seen set
         const thisMemCommits: CommitData[] = [];
         for (const c of activity.commits) {
@@ -198,6 +221,126 @@ export async function runReport(
           }
         }
         memberCommits.set(member.login, thisMemCommits);
+
+        // ── Unmerged commits flow (per-engineer, isolated from main report) ──
+        // Build a per-engineer set of unmerged commit SHAs across two sources:
+        //   (1) commits in the engineer's open PRs
+        //   (2) commits on non-default branches the engineer pushed to (no PR yet)
+        // Then enrich each unique SHA with line counts via getCommitDetail.
+        try {
+          type UmRecord = { repo: string; sha: string; message: string; committedAt: string; branch: string | null; prNumber: number | null };
+          const seenSha = new Set<string>();
+          const queue: UmRecord[] = [];
+          // Cap unmerged-commit fetch at UNMERGED_LOOKBACK_DAYS. Matches the org chart
+          // display window (which already clips older weeks), so older commits would
+          // never render anyway. Skipping them avoids ~15-20% of the dominant
+          // getCommitDetail cost without any visible information loss. Readers in
+          // dev.ts/summary.ts/org.ts use the same constant so query windows match.
+          const unmergedCutoff = new Date(Date.now() - UNMERGED_LOOKBACK_DAYS * 86400_000);
+          const inWindow = (committedAt: string): boolean => {
+            const t = new Date(committedAt).getTime();
+            return Number.isFinite(t) && t >= unmergedCutoff.getTime();
+          };
+
+          // (1) commits in open PRs.
+          // Drop commits with null `authorLogin` (rare: signed merge commits, bot
+          // authors without GitHub accounts) rather than implicitly attributing
+          // them to the engineer being processed. Email-based fallback would be
+          // an option but the safer default is to skip — these commits don't
+          // belong on the in-flight surface for this engineer.
+          for (const pr of openPrs) {
+            try {
+              const prCommits = await github.fetchPullRequestCommits(org, pr.repo, pr.number, log);
+              for (const c of prCommits) {
+                if (!c.authorLogin || c.authorLogin !== member.login) continue;
+                if (!inWindow(c.committedAt)) continue;
+                if (seenSha.has(c.sha)) continue;
+                seenSha.add(c.sha);
+                queue.push({ repo: pr.repo, sha: c.sha, message: c.message, committedAt: c.committedAt, branch: null, prNumber: pr.number });
+              }
+            } catch (err) {
+              log(`fetchPullRequestCommits failed for ${pr.repo}#${pr.number}: ${err instanceof Error ? err.message : String(err)}`);
+            }
+          }
+
+          // (2) commits on orphan branches via per-repo events.
+          // We can't use the per-user events feed (fine-grained PATs return 403). Instead,
+          // for each repo the engineer is active in, fetch the repo-level events feed
+          // (cached per repo across engineers), filter to PushEvents/CreateEvents whose
+          // actor is this engineer, and resolve each non-default ref to its head + commits.
+          const activeRepos = new Set<string>();
+          for (const c of activity.commits) activeRepos.add(c.repo);
+          for (const pr of openPrs) activeRepos.add(pr.repo);
+
+          for (const repo of activeRepos) {
+            let events: any[] = [];
+            try {
+              events = await github.fetchRepoEvents(org, repo, log);
+            } catch (err) {
+              log(`fetchRepoEvents failed for ${repo}: ${err instanceof Error ? err.message : String(err)}`);
+              continue;
+            }
+            const branchSeen = new Set<string>();
+            for (const ev of events) {
+              if (!ev.actorLogin) continue; // null/empty-actor events (rare bot pushes)
+              if (ev.actorLogin !== member.login) continue;
+              if (!ev.ref) continue;
+              if (branchSeen.has(ev.ref)) continue;
+              branchSeen.add(ev.ref);
+              try {
+                // Always resolve via the live branches API (don't trust the events-feed
+                // headSha). If the branch was deleted (e.g., merged + auto-cleanup),
+                // the call returns null and we skip — work has moved on. If it was
+                // force-pushed, we get the current head, not the historical one.
+                const branchName = ev.ref.replace(/^refs\/heads\//, '');
+                const headSha = await github.getBranchHeadSha(org, repo, branchName, log);
+                if (!headSha) continue;
+
+                const inMain = await github.isCommitInDefaultBranch(org, repo, headSha);
+                if (inMain) continue; // already merged — not an orphan branch
+
+                // Catch the squash-merged-but-branch-kept case: branch still exists, head SHA
+                // isn't in default (squash created a new SHA there), but the work shipped via
+                // a merged PR. Without this, the original branch commits would be re-inserted
+                // every report run as fake in-flight.
+                if (await github.isShaInMergedPR(org, repo, headSha, log)) continue;
+
+                const branchCommits = await github.compareBranchCommits(org, repo, headSha, log);
+                for (const c of branchCommits) {
+                  // See note above on dropping null authorLogin commits — applies here too.
+                  if (!c.authorLogin || c.authorLogin !== member.login) continue;
+                  if (!inWindow(c.committedAt)) continue;
+                  if (seenSha.has(c.sha)) continue;
+                  seenSha.add(c.sha);
+                  queue.push({ repo, sha: c.sha, message: c.message, committedAt: c.committedAt, branch: branchName, prNumber: null });
+                }
+              } catch (err) {
+                log(`branch compare failed for ${repo}/${ev.ref}: ${err instanceof Error ? err.message : String(err)}`);
+              }
+            }
+          }
+
+          // (3) per-commit line counts + INSERT into unmerged_commits
+          for (const item of queue) {
+            try {
+              const detail = await getCommitDetail(org, item.repo, item.sha, log);
+              await db.execute(
+                `INSERT IGNORE INTO unmerged_commits
+                   (report_id, github_login, repo, branch, pr_number, commit_sha, commit_message,
+                    lines_added, lines_removed, committed_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                  reportId, member.login, item.repo, item.branch, item.prNumber,
+                  item.sha, item.message, detail.additions, detail.deletions, item.committedAt,
+                ],
+              );
+            } catch (err) {
+              log(`unmerged-commit detail failed for ${item.sha.slice(0, 7)}: ${err instanceof Error ? err.message : String(err)}`);
+            }
+          }
+        } catch (err) {
+          log(`@${member.login} unmerged-commits flow failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
 
         // Queue LLM for commits not already analyzed
         let pendingCount = 0;

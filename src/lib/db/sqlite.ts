@@ -210,6 +210,40 @@ CREATE TABLE IF NOT EXISTS team_pulse_summaries (
   UNIQUE (report_id, team_name)
 );
 
+CREATE TABLE IF NOT EXISTS unmerged_prs (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  report_id       TEXT    NOT NULL,
+  github_login    TEXT    NOT NULL,
+  repo            TEXT    NOT NULL,
+  pr_number       INTEGER NOT NULL,
+  pr_title        TEXT,
+  pr_url          TEXT,
+  is_draft        INTEGER,
+  pr_commits      INTEGER,
+  pr_additions    INTEGER,
+  pr_deletions    INTEGER,
+  pr_created_at   TEXT,
+  pr_updated_at   TEXT,
+  FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
+  UNIQUE (report_id, repo, pr_number)
+);
+
+CREATE TABLE IF NOT EXISTS unmerged_commits (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  report_id       TEXT    NOT NULL,
+  github_login    TEXT    NOT NULL,
+  repo            TEXT    NOT NULL,
+  branch          TEXT,
+  pr_number       INTEGER,
+  commit_sha      TEXT    NOT NULL,
+  commit_message  TEXT,
+  lines_added     INTEGER NOT NULL DEFAULT 0,
+  lines_removed   INTEGER NOT NULL DEFAULT 0,
+  committed_at    TEXT,
+  FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
+  UNIQUE (report_id, repo, commit_sha)
+);
+
 CREATE INDEX IF NOT EXISTS idx_devstats_login ON developer_stats(github_login);
 CREATE INDEX IF NOT EXISTS idx_reports_org_status_created ON reports(org, status, created_at);
 `;
@@ -223,6 +257,7 @@ export function createSQLiteDB(): DB {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA);
+  db.exec('DROP TABLE IF EXISTS unmerged_work');
 
   // Migrations: safe for existing DBs (ignore "duplicate column" errors)
   try { db.exec('ALTER TABLE developer_stats ADD COLUMN total_jira_issues INTEGER NOT NULL DEFAULT 0'); } catch (_) {}
@@ -295,6 +330,8 @@ function translateSQL(sql: string): string {
       untracked_summaries: 'team_name, org',
       release_notes: 'latest_commit_sha',
       team_pulse_summaries: 'report_id, team_name',
+      unmerged_prs: 'report_id, repo, pr_number',
+      unmerged_commits: 'report_id, repo, commit_sha',
     };
     const conflict = conflictCols[table] || 'id';
 

@@ -66,6 +66,17 @@ interface WeeklyData {
   types: Record<string, number>;
 }
 
+interface OpenPr {
+  repo: string; number: number; title: string; url: string;
+  draft: boolean; commits: number; additions: number; deletions: number;
+  createdAt: string; updatedAt: string;
+}
+
+interface BareBranchCommit {
+  repo: string; sha: string; message: string; branchName: string | null;
+  additions: number; deletions: number; committedAt: string;
+}
+
 function percentile(values: number[], p: number): number {
   const sorted = [...values].sort((a, b) => a - b);
   if (sorted.length === 0) return 0;
@@ -86,6 +97,12 @@ function pctRank(values: number[], value: number): number {
   return Math.round((below / Math.max(values.length - 1, 1)) * 100);
 }
 
+function daysAgo(iso: string): number {
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return 0;
+  return Math.max(0, Math.round((Date.now() - t) / 86400000));
+}
+
 export default function DevDetailPage() {
   const params = useParams<{ id: string; login: string }>();
   const { canAct } = useAuth();
@@ -103,6 +120,8 @@ export default function DevDetailPage() {
   const allDevs: CompactDev[] = devData?.allDevelopers ?? [];
   const commits: Commit[] = devData?.commits ?? [];
   const timeline: WeeklyData[] = devData?.timeline ?? [];
+  const unmergedWork: { openPrs: OpenPr[]; branchCommits: BareBranchCommit[] } =
+    devData?.unmergedWork ?? { openPrs: [], branchCommits: [] };
 
   // 3. Summary (dependent on devData)
   const { data: summaryData, isLoading: summaryLoading, error: summaryError } = useSWR(
@@ -500,6 +519,57 @@ export default function DevDetailPage() {
           </table>
         </div>
       </div>
+
+      {(unmergedWork.openPrs.length > 0 || unmergedWork.branchCommits.length > 0) && (
+        <div className="bg-gray-900 rounded-xl p-5 mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">In-flight Work</p>
+            <p className="text-xs text-gray-600">
+              {unmergedWork.openPrs.length} open PR{unmergedWork.openPrs.length === 1 ? '' : 's'} ·{' '}
+              {unmergedWork.branchCommits.length} branch commit{unmergedWork.branchCommits.length === 1 ? '' : 's'}
+            </p>
+          </div>
+
+          {unmergedWork.openPrs.length > 0 && (
+            <div className="mb-4">
+              <p className="text-[10px] text-gray-600 uppercase tracking-wider font-semibold mb-2">Open Pull Requests</p>
+              <div className="space-y-1">
+                {unmergedWork.openPrs.map(pr => (
+                  <a key={pr.url} href={pr.url} target="_blank" rel="noopener noreferrer"
+                     className="flex items-center gap-3 px-2 py-1.5 hover:bg-gray-800/40 rounded -mx-2 text-sm">
+                    <span className="text-xs text-gray-600 font-mono shrink-0">#{pr.number}</span>
+                    {pr.draft && <span className="text-[10px] px-1.5 py-0.5 bg-gray-700 text-gray-300 rounded shrink-0">DRAFT</span>}
+                    <span className="text-gray-200 truncate min-w-0 flex-1">{pr.title}</span>
+                    <span className="text-xs text-gray-500 shrink-0">{pr.repo}</span>
+                    <span className="text-xs text-green-400 shrink-0 font-mono">+{pr.additions.toLocaleString()}</span>
+                    <span className="text-xs text-red-400 shrink-0 font-mono">-{pr.deletions.toLocaleString()}</span>
+                    <span className="text-xs text-gray-600 shrink-0">{daysAgo(pr.updatedAt)}d</span>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {unmergedWork.branchCommits.length > 0 && (
+            <div>
+              <p className="text-[10px] text-gray-600 uppercase tracking-wider font-semibold mb-2">Branch Commits (not in default branch)</p>
+              <div className="space-y-1">
+                {unmergedWork.branchCommits.map(c => (
+                  <a key={c.sha} href={`https://github.com/${report?.org}/${c.repo}/commit/${c.sha}`} target="_blank" rel="noopener noreferrer"
+                     className="flex items-center gap-3 px-2 py-1.5 hover:bg-gray-800/40 rounded -mx-2 text-sm">
+                    <span className="text-xs text-gray-600 font-mono shrink-0">{c.sha.slice(0, 7)}</span>
+                    <span className="text-gray-200 truncate min-w-0 flex-1">{c.message.split('\n')[0]}</span>
+                    <span className="text-xs text-gray-500 shrink-0">{c.repo}</span>
+                    <span className="text-xs text-green-400 shrink-0 font-mono">+{c.additions.toLocaleString()}</span>
+                    <span className="text-xs text-red-400 shrink-0 font-mono">-{c.deletions.toLocaleString()}</span>
+                    <span className="text-xs text-gray-600 shrink-0">{daysAgo(c.committedAt)}d</span>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Jira Issues Table */}
       {jiraIssues.length > 0 && (

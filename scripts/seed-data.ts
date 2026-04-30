@@ -377,7 +377,34 @@ export const seedSchedules = [
 ];
 
 // ---------------------------------------------------------------------------
-// 13. seedReleaseNotes
+// 13. seedUnmergedPrs (open-PR rows for the In-flight Work surfaces)
+// ---------------------------------------------------------------------------
+
+export const seedUnmergedPrs: Record<string, any>[] = [];
+for (const rid of completedReportIds) {
+  for (const dev of MOCK_DEVELOPERS) {
+    const prs = dev.mockOpenPrs ?? [];
+    for (const pr of prs) {
+      seedUnmergedPrs.push({
+        report_id: rid,
+        github_login: dev.githubLogin,
+        repo: pr.repo,
+        pr_number: pr.number,
+        pr_title: pr.title,
+        pr_url: pr.url,
+        is_draft: pr.draft ? 1 : 0,
+        pr_commits: pr.commits,
+        pr_additions: pr.additions,
+        pr_deletions: pr.deletions,
+        pr_created_at: pr.createdAt,
+        pr_updated_at: pr.updatedAt,
+      });
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 14. seedReleaseNotes
 // ---------------------------------------------------------------------------
 
 export const seedReleaseNotes = [
