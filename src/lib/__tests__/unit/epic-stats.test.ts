@@ -40,12 +40,14 @@ function makeMockJiraClient(
   };
 }
 
-// Helper: a DB row from commit_analyses (phase 2)
+// Helper: a DB row from commit_analyses. pr_number is set by default so the
+// Phase-2 same-PR sibling query fires; set to null to skip Phase 2.
 function makeCommitRow(overrides: Partial<Record<string, any>> = {}) {
   return {
     commit_sha: 'sha-abc123',
     repo: 'acme/my-repo',
     github_login: 'alice',
+    pr_number: 1,
     lines_added: 100,
     lines_removed: 20,
     ...overrides,
@@ -158,16 +160,14 @@ describe('getEpicRingStats — cache hit', () => {
 describe('getEpicRingStats — cache miss', () => {
   // DB call order on a full cache-miss path with seeded commits:
   //   1. epic_stats SELECT → empty (cache miss)
-  //   2. Phase 1 seed query (commit_analyses LIKE clauses)
-  //   3. user_mappings for assigneeEmails (if any)
-  //   4. Phase 2 full commit query
-  //   5. INSERT INTO epic_stats (upsert)
+  //   2. Phase 1: commits that directly reference the epic or any child key
+  //   3. Phase 2: same-PR siblings (only if any Phase-1 row has a pr_number)
+  //   4. INSERT INTO epic_stats (upsert)
 
   function setupCacheMissPath(opts: {
     children?: ReturnType<typeof makeChild>[];
     seedRows?: any[];
     phase2Rows?: any[];
-    mappingRows?: any[];
   } = {}) {
     const {
       children = [
@@ -176,37 +176,20 @@ describe('getEpicRingStats — cache miss', () => {
       ],
       seedRows = [makeCommitRow()],
       phase2Rows = [makeCommitRow()],
-      mappingRows,
     } = opts;
 
     const jiraClient = makeMockJiraClient(children);
     mockGetJiraClient.mockReturnValue(jiraClient);
 
-    const hasAssigneeEmails = children.some(c => c.assigneeEmail !== null);
-
-    if (hasAssigneeEmails && mappingRows !== undefined) {
-      mockDbExecute
-        // epic_stats SELECT → miss
-        .mockResolvedValueOnce([[], null])
-        // Phase 1 seed
-        .mockResolvedValueOnce([seedRows, null])
-        // user_mappings
-        .mockResolvedValueOnce([mappingRows, null])
-        // Phase 2
-        .mockResolvedValueOnce([phase2Rows, null])
-        // Upsert
-        .mockResolvedValueOnce([{ affectedRows: 1 }, null]);
-    } else {
-      mockDbExecute
-        // epic_stats SELECT → miss
-        .mockResolvedValueOnce([[], null])
-        // Phase 1 seed
-        .mockResolvedValueOnce([seedRows, null])
-        // Phase 2
-        .mockResolvedValueOnce([phase2Rows, null])
-        // Upsert
-        .mockResolvedValueOnce([{ affectedRows: 1 }, null]);
-    }
+    mockDbExecute
+      // epic_stats SELECT → miss
+      .mockResolvedValueOnce([[], null])
+      // Phase 1: direct key references
+      .mockResolvedValueOnce([seedRows, null])
+      // Phase 2: same-PR siblings
+      .mockResolvedValueOnce([phase2Rows, null])
+      // Upsert
+      .mockResolvedValueOnce([{ affectedRows: 1 }, null]);
 
     return jiraClient;
   }

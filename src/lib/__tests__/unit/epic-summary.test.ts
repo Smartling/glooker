@@ -95,6 +95,10 @@ function makeMockLLMClient() {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // mockReset() (not clearAllMocks) clears the mockResolvedValueOnce queue —
+  // otherwise unconsumed `.mockResolvedValueOnce(...)` entries from one test
+  // leak into the next and shift its mock chain.
+  mockDbExecute.mockReset();
   mockDbExecute.mockResolvedValue([[], null]);
   mockGetEpicRingStats.mockResolvedValue({
     epicKey: 'SPS-1',
@@ -257,7 +261,6 @@ describe('getEpicSummary — cache miss', () => {
 
 describe('getEpicSummary — force refresh', () => {
   it('skips cache lookup and calls LLM even when cache would be fresh', async () => {
-    // Use a child with an assigneeEmail to exercise user_mappings path
     const jiraClient = makeMockJiraClient([
       makeChild('EPIC-1-01', { assigneeEmail: 'dev@acme.com' }),
     ]);
@@ -269,11 +272,8 @@ describe('getEpicSummary — force refresh', () => {
     mockDbExecute
       // DELETE FROM epic_summaries (forceRefresh=true evicts DB cache)
       .mockResolvedValueOnce([{ affectedRows: 0 }, null])
-      // Phase 1 seed → no key-matching commits
-      .mockResolvedValueOnce([[], null])
-      // user_mappings for dev@acme.com → returns a login to seed phase 2
-      .mockResolvedValueOnce([[{ github_login: 'dev-alice' }], null])
-      // Phase 2 — seedLogins non-empty → runs, returns no commits
+      // Phase 1: no key-matching commits → getCommitDetails returns []
+      // (Phase 2 is skipped because phase1Rows is empty.)
       .mockResolvedValueOnce([[], null])
       // NO epic_summaries SELECT (forceRefresh=true)
       // epic_summaries INSERT/UPSERT
@@ -430,9 +430,8 @@ describe('getEpicSummary — commit details', () => {
     });
 
     mockDbExecute
-      // Phase 1 seed → seeds repo+login
-      .mockResolvedValueOnce([[commitRow], null])
-      // Phase 2
+      // Phase 1 returns the commit. With pr_number=null, no PR tuples
+      // accumulate and Phase 2 is skipped — so only 3 DB calls total.
       .mockResolvedValueOnce([[commitRow], null])
       // cache miss
       .mockResolvedValueOnce([[], null])
