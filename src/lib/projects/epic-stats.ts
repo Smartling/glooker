@@ -120,8 +120,9 @@ async function getCommitCounts(
   const likeValues = allKeys.map(k => `%${k}%`);
 
   // Phase 1: commits that directly reference the epic or any child issue key.
+  // No DISTINCT — the combine loop below dedupes by commit_sha.
   const [phase1Rows] = await db.execute(
-    `SELECT DISTINCT ca.commit_sha, ca.repo, ca.pr_number, ca.github_login,
+    `SELECT ca.commit_sha, ca.repo, ca.pr_number, ca.github_login,
             ca.lines_added, ca.lines_removed
      FROM commit_analyses ca
      JOIN reports r ON r.id = ca.report_id
@@ -170,9 +171,10 @@ async function getCommitCounts(
     phase2Rows = rows;
   }
 
-  // Combine + dedupe by SHA. Phase 1 rows are guaranteed to be a subset of
-  // Phase 2 (when they have a PR number); processing them first keeps their
-  // line counts authoritative.
+  // Combine + dedupe by SHA. Phase-1 rows with a non-null pr_number are a
+  // subset of Phase 2 (their PR was added to prTuples and Phase 2 re-queries
+  // those PRs). Phase-1 rows with null pr_number are NOT in Phase 2. Processing
+  // Phase 1 first keeps its line counts authoritative for either case.
   const seen = new Set<string>();
   const repos = new Set<string>();
   const logins = new Set<string>();

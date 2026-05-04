@@ -72,7 +72,7 @@ export async function getEpicSummary(
   };
 
   // 3. Fetch Jira child data (task titles needed for the LLM prompt)
-  const { resolved, remaining, allKeys, assigneeEmails } = await getJiraChildData(epicKey);
+  const { resolved, remaining, allKeys } = await getJiraChildData(epicKey);
 
   // 4. Fetch commit details for the expand view
   const commits = await getCommitDetails(epicKey, allKeys, org);
@@ -87,10 +87,10 @@ export async function getEpicSummary(
   if (!forceRefresh) {
     const cached = await getCachedSummary(epicKey, org);
     if (cached) {
-      cached.commits = commits;
-      cached.stats = stats; // use fresh stats from stats service
-      cached.remaining = remainingTasks; // always fresh from Jira, never cached
-      return cached;
+      // Non-mutating overlay so getCachedSummary can be safely memoized later.
+      // commits / stats / remaining are always sourced fresh and override the
+      // cached row (which never persists those fields).
+      return { ...cached, commits, stats, remaining: remainingTasks };
     }
   }
 
@@ -164,11 +164,8 @@ export async function getJiraChildData(epicKey: string) {
   );
   const remaining = children.filter(c => c.statusCategory !== 'Done');
   const allKeys = children.map(c => c.key);
-  const assigneeEmails = [...new Set(
-    children.map(c => c.assigneeEmail).filter((e): e is string => e !== null),
-  )];
 
-  return { resolved, remaining, allKeys, assigneeEmails };
+  return { resolved, remaining, allKeys };
 }
 
 export async function getCommitDetails(

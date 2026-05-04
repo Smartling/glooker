@@ -4,6 +4,9 @@ import { useState, useEffect, useMemo } from 'react';
 import useSWR, { preload } from 'swr';
 import { useAuth } from '../auth-context';
 import { findFirstJiraKey } from '@/lib/jira-key-utils';
+// Type-only import keeps the server module out of the client bundle while
+// letting the client fail fast if the shared response shape changes.
+import type { EpicSummaryResult } from '@/lib/projects/epic-summary';
 
 interface ProjectEpic {
   key: string;
@@ -183,7 +186,7 @@ export default function ProjectsContent() {
   // Epic summary expand
   const [expandedEpic, setExpandedEpic] = useState<string | null>(null);
   const [showCommits, setShowCommits] = useState<string | null>(null);
-  const [summaryData, setSummaryData] = useState<Record<string, { summary: string; stats: any; commits: any[]; remaining: { key: string; summary: string }[]; generatedAt: string; cached: boolean } | null>>({});
+  const [summaryData, setSummaryData] = useState<Record<string, EpicSummaryResult | null>>({});
   const [summaryLoading, setSummaryLoading] = useState<Record<string, boolean>>({});
 
   const fetchSummary = (epicKey: string, epicSummaryText: string, refresh = false) => {
@@ -741,7 +744,7 @@ export default function ProjectsContent() {
                                           </svg>
                                         </button>
                                       </div>
-                                      {summaryData[epic.key]!.remaining?.length > 0 && (
+                                      {summaryData[epic.key]!.remaining.length > 0 && (
                                         <div className="mt-2">
                                           <div className="text-[10px] uppercase tracking-wider font-semibold text-gray-500 mb-1">Open Jiras</div>
                                           <ul className="text-[11px] text-gray-500 leading-relaxed space-y-0.5">
@@ -754,12 +757,11 @@ export default function ProjectsContent() {
                                                     rel="noopener noreferrer"
                                                     onClick={e => e.stopPropagation()}
                                                     className="text-amber-400 hover:text-amber-300 hover:underline transition-colors"
-                                                    title={t.summary}
                                                   >
                                                     <span className="font-mono">{t.key}</span> {t.summary}
                                                   </a>
                                                 ) : (
-                                                  <span className="text-amber-400" title={t.summary}>
+                                                  <span className="text-amber-400">
                                                     <span className="font-mono">{t.key}</span> {t.summary}
                                                   </span>
                                                 )}
@@ -768,7 +770,7 @@ export default function ProjectsContent() {
                                           </ul>
                                         </div>
                                       )}
-                                      {summaryData[epic.key]!.commits?.length > 0 && (
+                                      {summaryData[epic.key]!.commits.length > 0 && (
                                         <div className="mt-2">
                                           <button
                                             onClick={(e) => { e.stopPropagation(); setShowCommits(showCommits === epic.key ? null : epic.key); }}
