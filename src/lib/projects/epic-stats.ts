@@ -59,12 +59,9 @@ export async function getEpicRingStats(epicKey: string, org: string): Promise<Ep
   );
   const remaining = children.filter(c => c.statusCategory !== 'Done');
   const allKeys = children.map(c => c.key);
-  const assigneeEmails = [...new Set(
-    children.map(c => c.assigneeEmail).filter((e): e is string => e !== null),
-  )];
 
   // 3. Two-phase commit query (counts only, no full details)
-  const stats = await getCommitCounts(epicKey, allKeys, assigneeEmails, org);
+  const stats = await getCommitCounts(epicKey, allKeys, org);
 
   const result: EpicRingStats = {
     epicKey,
@@ -116,90 +113,81 @@ interface CommitCounts {
 async function getCommitCounts(
   epicKey: string,
   childKeys: string[],
-  assigneeEmails: string[],
   org: string,
 ): Promise<CommitCounts> {
-  // Phase 1: Find repos and developers from commits that reference any issue key.
   const allKeys = [epicKey, ...childKeys];
   const likeClauses = allKeys.map(() => 'ca.commit_message LIKE ?').join(' OR ');
   const likeValues = allKeys.map(k => `%${k}%`);
 
-  const [seedRows] = await db.execute(
-    `SELECT DISTINCT ca.commit_sha, ca.repo, ca.github_login
+  // Phase 1: commits that directly reference the epic or any child issue key.
+  const [phase1Rows] = await db.execute(
+    `SELECT DISTINCT ca.commit_sha, ca.repo, ca.pr_number, ca.github_login,
+            ca.lines_added, ca.lines_removed
      FROM commit_analyses ca
      JOIN reports r ON r.id = ca.report_id
      WHERE r.org = ? AND r.status = 'completed'
-     AND ca.committed_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
-     AND (${likeClauses})`,
+       AND ca.committed_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+       AND (${likeClauses})`,
     [org, ...likeValues],
   ) as [any[], any];
 
-  const seedRepos = new Set<string>();
-  const seedLogins = new Set<string>();
-  for (const row of seedRows) {
-    seedRepos.add(row.repo);
-    seedLogins.add(row.github_login);
-  }
-
-  // Also resolve Jira assignee emails to GitHub logins via user_mappings
-  if (assigneeEmails.length > 0) {
-    const placeholders = assigneeEmails.map(() => '?').join(',');
-    const [mappings] = await db.execute(
-      `SELECT github_login FROM user_mappings WHERE org = ? AND jira_email IN (${placeholders})`,
-      [org, ...assigneeEmails],
-    ) as [any[], any];
-    for (const m of mappings) seedLogins.add(m.github_login);
-  }
-
-  // Phase 2: Count distinct commits by those developers in those repos.
-  if (seedRepos.size === 0 && seedLogins.size === 0) {
+  if (phase1Rows.length === 0) {
     return { commitCount: 0, devCount: 0, linesAdded: 0, linesRemoved: 0, repos: [] };
   }
 
-  const conditions: string[] = [];
-  const params: any[] = [org];
-
-  if (seedRepos.size > 0 && seedLogins.size > 0) {
-    const repoPlaceholders = Array.from(seedRepos).map(() => '?').join(',');
-    const loginPlaceholders = Array.from(seedLogins).map(() => '?').join(',');
-    conditions.push(`(ca.repo IN (${repoPlaceholders}) AND ca.github_login IN (${loginPlaceholders}))`);
-    params.push(...seedRepos, ...seedLogins);
-  } else if (seedLogins.size > 0) {
-    const loginPlaceholders = Array.from(seedLogins).map(() => '?').join(',');
-    conditions.push(`ca.github_login IN (${loginPlaceholders})`);
-    params.push(...seedLogins);
+  // Phase 2: same-PR siblings of phase-1 commits. A PR usually addresses one
+  // logical work item, so commits in the same PR are part of the same effort
+  // even if a teammate's follow-up commit doesn't repeat the key in its message.
+  //
+  // We deliberately do NOT widen by repo×author: that previously pulled in
+  // every commit a Jira assignee made in any seed repo, which conflated
+  // unrelated work (e.g. SPS-662 was attributing 414 commits with zero direct
+  // SPS-662 references — pure assignee+repo bleed).
+  const prTuples: Array<{ repo: string; prNumber: number }> = [];
+  const seenTuple = new Set<string>();
+  for (const row of phase1Rows) {
+    if (row.pr_number == null) continue;
+    const key = `${row.repo}#${row.pr_number}`;
+    if (seenTuple.has(key)) continue;
+    seenTuple.add(key);
+    prTuples.push({ repo: row.repo, prNumber: Number(row.pr_number) });
   }
 
-  // Also include any commits that directly reference issue keys
-  if (likeClauses) {
-    conditions.push(`(${likeClauses})`);
-    params.push(...likeValues);
+  let phase2Rows: any[] = [];
+  if (prTuples.length > 0) {
+    const tupleConds = prTuples.map(() => '(ca.repo = ? AND ca.pr_number = ?)').join(' OR ');
+    const tupleParams: any[] = [];
+    for (const t of prTuples) tupleParams.push(t.repo, t.prNumber);
+    const [rows] = await db.execute(
+      `SELECT ca.commit_sha, ca.repo, ca.github_login, ca.lines_added, ca.lines_removed
+       FROM commit_analyses ca
+       JOIN reports r ON r.id = ca.report_id
+       WHERE r.org = ? AND r.status = 'completed'
+         AND ca.committed_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+         AND (${tupleConds})`,
+      [org, ...tupleParams],
+    ) as [any[], any];
+    phase2Rows = rows;
   }
 
-  const [rows] = await db.execute(
-    `SELECT ca.commit_sha, ca.repo, ca.github_login, ca.lines_added, ca.lines_removed
-     FROM commit_analyses ca
-     JOIN reports r ON r.id = ca.report_id
-     WHERE r.org = ? AND r.status = 'completed'
-     AND ca.committed_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
-     AND (${conditions.join(' OR ')})`,
-    params,
-  ) as [any[], any];
-
-  // Deduplicate by commit_sha
+  // Combine + dedupe by SHA. Phase 1 rows are guaranteed to be a subset of
+  // Phase 2 (when they have a PR number); processing them first keeps their
+  // line counts authoritative.
   const seen = new Set<string>();
   const repos = new Set<string>();
   const logins = new Set<string>();
   let linesAdded = 0;
   let linesRemoved = 0;
 
-  for (const row of rows) {
-    if (seen.has(row.commit_sha)) continue;
-    seen.add(row.commit_sha);
-    repos.add(row.repo);
-    logins.add(row.github_login);
-    linesAdded += Number(row.lines_added);
-    linesRemoved += Number(row.lines_removed);
+  for (const rowSet of [phase1Rows, phase2Rows]) {
+    for (const row of rowSet) {
+      if (seen.has(row.commit_sha)) continue;
+      seen.add(row.commit_sha);
+      repos.add(row.repo);
+      logins.add(row.github_login);
+      linesAdded += Number(row.lines_added) || 0;
+      linesRemoved += Number(row.lines_removed) || 0;
+    }
   }
 
   return {

@@ -17,6 +17,11 @@ export interface CommitDetail {
   committedAt: string;
 }
 
+export interface RemainingTask {
+  key: string;
+  summary: string;
+}
+
 export interface EpicSummaryResult {
   epicKey: string;
   summary: string;
@@ -29,6 +34,10 @@ export interface EpicSummaryResult {
     repos: string[];
   };
   commits: CommitDetail[];
+  // Open Jira children of this epic, sourced directly from Jira (not the LLM).
+  // Rendered as styled "remaining" pills on the client; safe from prompt drift
+  // and from XSS because each summary is rendered as React text.
+  remaining: RemainingTask[];
   generatedAt: string;
   cached: boolean;
 }
@@ -66,7 +75,13 @@ export async function getEpicSummary(
   const { resolved, remaining, allKeys, assigneeEmails } = await getJiraChildData(epicKey);
 
   // 4. Fetch commit details for the expand view
-  const commits = await getCommitDetails(epicKey, allKeys, assigneeEmails, org);
+  const commits = await getCommitDetails(epicKey, allKeys, org);
+
+  // Trim remaining-task objects to just the fields the UI renders.
+  const remainingTasks: RemainingTask[] = remaining.map(r => ({
+    key: r.key,
+    summary: r.summary,
+  }));
 
   // 5. Check epic_summaries cache for LLM summary (unless force refresh)
   if (!forceRefresh) {
@@ -74,6 +89,7 @@ export async function getEpicSummary(
     if (cached) {
       cached.commits = commits;
       cached.stats = stats; // use fresh stats from stats service
+      cached.remaining = remainingTasks; // always fresh from Jira, never cached
       return cached;
     }
   }
@@ -94,6 +110,7 @@ export async function getEpicSummary(
     summary: summaryText,
     stats,
     commits,
+    remaining: remainingTasks,
     generatedAt: new Date().toISOString(),
     cached: false,
   };
@@ -126,6 +143,7 @@ async function getCachedSummary(epicKey: string, org: string): Promise<EpicSumma
       repos: row.repos ? (typeof row.repos === 'string' ? JSON.parse(row.repos) : row.repos) : [],
     },
     commits: [], // populated by caller from live DB query
+    remaining: [], // populated by caller from live Jira fetch
     generatedAt: generatedAt.toISOString(),
     cached: true,
   };
@@ -156,97 +174,81 @@ export async function getJiraChildData(epicKey: string) {
 export async function getCommitDetails(
   epicKey: string,
   childKeys: string[],
-  assigneeEmails: string[],
   org: string,
 ): Promise<CommitDetail[]> {
-  // Phase 1: Find repos and developers from commits that reference any issue key.
   const allKeys = [epicKey, ...childKeys];
   const likeClauses = allKeys.map(() => 'ca.commit_message LIKE ?').join(' OR ');
   const likeValues = allKeys.map(k => `%${k}%`);
 
-  const [seedRows] = await db.execute(
-    `SELECT DISTINCT ca.commit_sha, ca.repo, ca.github_login, ca.lines_added, ca.lines_removed
-     FROM commit_analyses ca
-     JOIN reports r ON r.id = ca.report_id
-     WHERE r.org = ? AND r.status = 'completed'
-     AND ca.committed_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
-     AND (${likeClauses})`,
-    [org, ...likeValues],
-  ) as [any[], any];
-
-  const seedRepos = new Set<string>();
-  const seedLogins = new Set<string>();
-  for (const row of seedRows) {
-    seedRepos.add(row.repo);
-    seedLogins.add(row.github_login);
-  }
-
-  // Also resolve Jira assignee emails to GitHub logins via user_mappings
-  if (assigneeEmails.length > 0) {
-    const placeholders = assigneeEmails.map(() => '?').join(',');
-    const [mappings] = await db.execute(
-      `SELECT github_login FROM user_mappings WHERE org = ? AND jira_email IN (${placeholders})`,
-      [org, ...assigneeEmails],
-    ) as [any[], any];
-    for (const m of mappings) seedLogins.add(m.github_login);
-  }
-
-  // Phase 2: Get ALL commits by those developers in those repos in the 14-day window.
-  if (seedRepos.size === 0 && seedLogins.size === 0) {
-    return [];
-  }
-
-  const conditions: string[] = [];
-  const params: any[] = [org];
-
-  if (seedRepos.size > 0 && seedLogins.size > 0) {
-    const repoPlaceholders = Array.from(seedRepos).map(() => '?').join(',');
-    const loginPlaceholders = Array.from(seedLogins).map(() => '?').join(',');
-    conditions.push(`(ca.repo IN (${repoPlaceholders}) AND ca.github_login IN (${loginPlaceholders}))`);
-    params.push(...seedRepos, ...seedLogins);
-  } else if (seedLogins.size > 0) {
-    // Only have logins (from Jira assignees), search all their commits
-    const loginPlaceholders = Array.from(seedLogins).map(() => '?').join(',');
-    conditions.push(`ca.github_login IN (${loginPlaceholders})`);
-    params.push(...seedLogins);
-  }
-
-  // Also include any commits that directly reference issue keys (from phase 1 seed)
-  if (likeClauses) {
-    conditions.push(`(${likeClauses})`);
-    params.push(...likeValues);
-  }
-
-  const [rows] = await db.execute(
+  // Phase 1: commits that directly reference the epic or any child issue key.
+  const [phase1Rows] = await db.execute(
     `SELECT ca.commit_sha, ca.repo, ca.github_login, ca.commit_message,
             ca.lines_added, ca.lines_removed, ca.pr_number, ca.pr_title, ca.committed_at
      FROM commit_analyses ca
      JOIN reports r ON r.id = ca.report_id
      WHERE r.org = ? AND r.status = 'completed'
-     AND ca.committed_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
-     AND (${conditions.join(' OR ')})
+       AND ca.committed_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+       AND (${likeClauses})
      ORDER BY ca.committed_at DESC`,
-    params,
+    [org, ...likeValues],
   ) as [any[], any];
 
-  // Deduplicate by commit_sha (same commit appears in multiple reports)
+  if (phase1Rows.length === 0) return [];
+
+  // Phase 2: same-PR siblings of phase-1 commits (a PR usually addresses one
+  // logical work item). No repo×author cross-product, no assignee fallback —
+  // those previously bled unrelated commits in (e.g. SPS-662 was attributing
+  // 414 commits with zero direct references).
+  const prTuples: Array<{ repo: string; prNumber: number }> = [];
+  const seenTuple = new Set<string>();
+  for (const row of phase1Rows) {
+    if (row.pr_number == null) continue;
+    const key = `${row.repo}#${row.pr_number}`;
+    if (seenTuple.has(key)) continue;
+    seenTuple.add(key);
+    prTuples.push({ repo: row.repo, prNumber: Number(row.pr_number) });
+  }
+
+  let phase2Rows: any[] = [];
+  if (prTuples.length > 0) {
+    const tupleConds = prTuples.map(() => '(ca.repo = ? AND ca.pr_number = ?)').join(' OR ');
+    const tupleParams: any[] = [];
+    for (const t of prTuples) tupleParams.push(t.repo, t.prNumber);
+    const [rows] = await db.execute(
+      `SELECT ca.commit_sha, ca.repo, ca.github_login, ca.commit_message,
+              ca.lines_added, ca.lines_removed, ca.pr_number, ca.pr_title, ca.committed_at
+       FROM commit_analyses ca
+       JOIN reports r ON r.id = ca.report_id
+       WHERE r.org = ? AND r.status = 'completed'
+         AND ca.committed_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+         AND (${tupleConds})
+       ORDER BY ca.committed_at DESC`,
+      [org, ...tupleParams],
+    ) as [any[], any];
+    phase2Rows = rows;
+  }
+
+  // Combine + dedupe by SHA. Phase-1 first so its row order (newest-first)
+  // wins for ties; Phase-2 then fills in PR-mate commits that didn't tag the key.
   const seen = new Set<string>();
   const commits: CommitDetail[] = [];
 
-  for (const row of rows) {
-    if (seen.has(row.commit_sha)) continue;
-    seen.add(row.commit_sha);
-    commits.push({
-      sha: row.commit_sha,
-      repo: row.repo,
-      author: row.github_login,
-      message: row.commit_message || '',
-      linesAdded: Number(row.lines_added),
-      linesRemoved: Number(row.lines_removed),
-      prNumber: row.pr_number || null,
-      prTitle: row.pr_title || null,
-      committedAt: row.committed_at ? new Date(row.committed_at).toISOString() : '',
-    });
+  for (const rowSet of [phase1Rows, phase2Rows]) {
+    for (const row of rowSet) {
+      if (seen.has(row.commit_sha)) continue;
+      seen.add(row.commit_sha);
+      commits.push({
+        sha: row.commit_sha,
+        repo: row.repo,
+        author: row.github_login,
+        message: row.commit_message || '',
+        linesAdded: Number(row.lines_added) || 0,
+        linesRemoved: Number(row.lines_removed) || 0,
+        prNumber: row.pr_number || null,
+        prTitle: row.pr_title || null,
+        committedAt: row.committed_at ? new Date(row.committed_at).toISOString() : '',
+      });
+    }
   }
 
   return commits;

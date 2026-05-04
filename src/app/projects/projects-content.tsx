@@ -183,7 +183,7 @@ export default function ProjectsContent() {
   // Epic summary expand
   const [expandedEpic, setExpandedEpic] = useState<string | null>(null);
   const [showCommits, setShowCommits] = useState<string | null>(null);
-  const [summaryData, setSummaryData] = useState<Record<string, { summary: string; stats: any; commits: any[]; generatedAt: string; cached: boolean } | null>>({});
+  const [summaryData, setSummaryData] = useState<Record<string, { summary: string; stats: any; commits: any[]; remaining: { key: string; summary: string }[]; generatedAt: string; cached: boolean } | null>>({});
   const [summaryLoading, setSummaryLoading] = useState<Record<string, boolean>>({});
 
   const fetchSummary = (epicKey: string, epicSummaryText: string, refresh = false) => {
@@ -331,8 +331,12 @@ export default function ProjectsContent() {
     return totalJiras > 0 ? totalCommits / totalJiras : 1;
   }, [ringStats]);
 
+  // Sizing weight = commits + jiras. Counting commits alone hides epics that
+  // ship resolved jiras but have no commit attribution (docs, non-code work,
+  // commits the message-key heuristic missed) — they collapsed to the 16px
+  // minimum and looked like the ring was missing.
   const maxVolume = useMemo(() => {
-    return Math.max(1, ...Object.values(ringStats).map(r => Math.log(r.commitCount + 1)));
+    return Math.max(1, ...Object.values(ringStats).map(r => Math.log(r.commitCount + r.totalJiras + 1)));
   }, [ringStats]);
 
   const isOverdue = (dateStr: string | null) => {
@@ -463,9 +467,12 @@ export default function ProjectsContent() {
   };
 
   const ProgressRing = ({ stats }: { stats: EpicRingStats }) => {
-    const volume = Math.log(stats.commitCount + 1);
+    // Match the maxVolume metric (commits + jiras) so jira-only epics size
+    // correctly. Floor bumped to 22px so even a zero-volume epic shows a
+    // legible ring if it has any progress at all.
+    const volume = Math.log(stats.commitCount + stats.totalJiras + 1);
     const sizePct = maxVolume > 0 ? volume / maxVolume : 0;
-    const px = Math.max(16, Math.round(sizePct * 48));
+    const px = Math.max(22, Math.round(sizePct * 48));
 
     const jiraPct = stats.totalJiras > 0 ? stats.resolvedJiras / stats.totalJiras : 0;
     const expectedCommits = stats.totalJiras * avgCommitsPerJira;
@@ -734,6 +741,33 @@ export default function ProjectsContent() {
                                           </svg>
                                         </button>
                                       </div>
+                                      {summaryData[epic.key]!.remaining?.length > 0 && (
+                                        <div className="mt-2">
+                                          <div className="text-[10px] uppercase tracking-wider font-semibold text-gray-500 mb-1">Open Jiras</div>
+                                          <ul className="text-[11px] text-gray-500 leading-relaxed space-y-0.5">
+                                            {summaryData[epic.key]!.remaining.map(t => (
+                                              <li key={t.key}>
+                                                {jiraHost ? (
+                                                  <a
+                                                    href={`https://${jiraHost}/browse/${t.key}`}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    onClick={e => e.stopPropagation()}
+                                                    className="text-amber-400 hover:text-amber-300 hover:underline transition-colors"
+                                                    title={t.summary}
+                                                  >
+                                                    <span className="font-mono">{t.key}</span> {t.summary}
+                                                  </a>
+                                                ) : (
+                                                  <span className="text-amber-400" title={t.summary}>
+                                                    <span className="font-mono">{t.key}</span> {t.summary}
+                                                  </span>
+                                                )}
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        </div>
+                                      )}
                                       {summaryData[epic.key]!.commits?.length > 0 && (
                                         <div className="mt-2">
                                           <button
