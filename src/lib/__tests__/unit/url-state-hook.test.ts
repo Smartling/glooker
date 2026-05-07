@@ -86,3 +86,77 @@ describe('useUrlState — write', () => {
     expect(params.get('other')).toBe('keep');
   });
 });
+
+import { useUrlBatch } from '@/lib/url-state';
+
+const teamSchema: UrlSchema<string | null> = {
+  key: 'team', type: 'string', default: null, history: 'replace',
+};
+const devSchema: UrlSchema<Set<string>> = {
+  key: 'dev', type: 'string-set', default: new Set(), history: 'replace',
+};
+
+describe('useUrlBatch', () => {
+  it('collapses N writes into a single router call', () => {
+    mockSearchParams = new URLSearchParams('dev=alice&dev=bob');
+    const { result } = renderHook(() => ({
+      batch: useUrlBatch(),
+      tab: useUrlState(tabSchema),
+      team: useUrlState(teamSchema),
+      devs: useUrlState(devSchema),
+    }));
+
+    act(() => {
+      result.current.batch(() => {
+        result.current.team[1]('Platform');
+        result.current.devs[1](new Set());
+      });
+    });
+
+    // Only ONE router call total
+    expect(mockReplace).toHaveBeenCalledTimes(1);
+    expect(mockPush).not.toHaveBeenCalled();
+    const url = mockReplace.mock.calls[0][0] as string;
+    const params = new URLSearchParams(url.split('?')[1] || '');
+    expect(params.get('team')).toBe('Platform');
+    expect(params.has('dev')).toBe(false);
+  });
+
+  it('uses push when any participating setter is push', () => {
+    const { result } = renderHook(() => ({
+      batch: useUrlBatch(),
+      tab: useUrlState(tabSchema),
+      team: useUrlState(teamSchema),
+    }));
+
+    act(() => {
+      result.current.batch(() => {
+        result.current.tab[1]('spend');     // history: 'push'
+        result.current.team[1]('Platform'); // history: 'replace'
+      });
+    });
+
+    expect(mockPush).toHaveBeenCalledTimes(1);
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it('nested batch runs inline without re-flushing', () => {
+    const { result } = renderHook(() => ({
+      batch: useUrlBatch(),
+      team: useUrlState(teamSchema),
+      devs: useUrlState(devSchema),
+    }));
+
+    act(() => {
+      result.current.batch(() => {
+        result.current.team[1]('A');
+        result.current.batch(() => {
+          result.current.devs[1](new Set(['x']));
+        });
+      });
+    });
+
+    // Outer batch flushes once; inner batch must not call router
+    expect(mockReplace).toHaveBeenCalledTimes(1);
+  });
+});

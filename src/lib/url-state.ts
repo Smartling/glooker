@@ -3,6 +3,13 @@
 import { useCallback, useMemo } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 
+type BatchPending = {
+  params: URLSearchParams;
+  pathname: string;
+  usePush: boolean;
+};
+let batchPending: BatchPending | null = null;
+
 export type UrlSchema<T> =
   | {
       key: string;
@@ -93,6 +100,11 @@ export function useUrlState<T>(schema: UrlSchema<T>): [T, (next: T) => void] {
 
   const setter = useCallback(
     (next: T) => {
+      if (batchPending) {
+        writeValueIntoParams(batchPending.params, next, schema);
+        if (schema.history === 'push') batchPending.usePush = true;
+        return;
+      }
       const params = new URLSearchParams(searchParams.toString());
       writeValueIntoParams(params, next, schema);
       const queryStr = params.toString();
@@ -108,4 +120,36 @@ export function useUrlState<T>(schema: UrlSchema<T>): [T, (next: T) => void] {
   );
 
   return [value, setter];
+}
+
+export function useUrlBatch(): (fn: () => void) => void {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  return useCallback(
+    (fn: () => void) => {
+      if (batchPending) {
+        // Already batching (nested) — run inline; the outer call flushes.
+        fn();
+        return;
+      }
+      batchPending = {
+        params: new URLSearchParams(searchParams.toString()),
+        pathname,
+        usePush: false,
+      };
+      try {
+        fn();
+        const queryStr = batchPending.params.toString();
+        const newUrl = queryStr ? `${pathname}?${queryStr}` : pathname;
+        const usePush = batchPending.usePush;
+        if (usePush) router.push(newUrl);
+        else router.replace(newUrl);
+      } finally {
+        batchPending = null;
+      }
+    },
+    [router, pathname, searchParams],
+  );
 }
