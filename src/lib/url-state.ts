@@ -1,3 +1,8 @@
+'use client';
+
+import { useCallback, useMemo } from 'react';
+import { useRouter, useSearchParams, usePathname } from 'next/navigation';
+
 export type UrlSchema<T> =
   | {
       key: string;
@@ -73,4 +78,26 @@ export function writeValueIntoParams<T>(
       return;
     }
   }
+}
+
+export function useUrlState<T>(schema: UrlSchema<T>): [T, (next: T) => void] {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const value = useMemo(
+    () => readValue(searchParams, schema),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- schema fields are stable per call site
+    [searchParams, schema.key, schema.type],
+  );
+
+  const setter = useCallback(
+    (next: T) => {
+      // Setter implementation comes in Task 4. For now, no-op so the hook compiles.
+      void router; void pathname; void next;
+    },
+    [router, pathname],
+  );
+
+  return [value, setter];
 }
