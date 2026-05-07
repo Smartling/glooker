@@ -108,6 +108,14 @@ describe('writeValueIntoParams', () => {
     expect(params.has('team')).toBe(false);
   });
 
+  it('string with null default: deletes when value is empty string', () => {
+    const params = new URLSearchParams('team=Platform');
+    writeValueIntoParams(params, '', {
+      key: 'team', type: 'string', default: null, history: 'replace',
+    });
+    expect(params.has('team')).toBe(false);
+  });
+
   it('string-set: deletes key when set is empty', () => {
     const params = new URLSearchParams('dev=alice&other=keep');
     writeValueIntoParams(params, new Set<string>(), {
