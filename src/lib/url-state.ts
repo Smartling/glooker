@@ -93,10 +93,18 @@ export function useUrlState<T>(schema: UrlSchema<T>): [T, (next: T) => void] {
 
   const setter = useCallback(
     (next: T) => {
-      // Setter implementation comes in Task 4. For now, no-op so the hook compiles.
-      void router; void pathname; void next;
+      const params = new URLSearchParams(searchParams.toString());
+      writeValueIntoParams(params, next, schema);
+      const queryStr = params.toString();
+      const newUrl = queryStr ? `${pathname}?${queryStr}` : pathname;
+      if (schema.history === 'push') {
+        router.push(newUrl);
+      } else {
+        router.replace(newUrl);
+      }
     },
-    [router, pathname],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- schema fields are stable per call site
+    [router, pathname, searchParams, schema.key, schema.type, schema.history],
   );
 
   return [value, setter];
