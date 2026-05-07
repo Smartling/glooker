@@ -8,6 +8,10 @@ type BatchPending = {
   pathname: string;
   usePush: boolean;
 };
+// Module-level singleton. Safe because batch() and setters are only ever called
+// from event handlers / effects, never during render. JS single-threaded
+// semantics + the synchronous nature of the batch callback guarantee no two
+// batches can be in-flight at the same time.
 let batchPending: BatchPending | null = null;
 
 export type UrlSchema<T> =

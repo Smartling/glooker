@@ -159,4 +159,28 @@ describe('useUrlBatch', () => {
     // Outer batch flushes once; inner batch must not call router
     expect(mockReplace).toHaveBeenCalledTimes(1);
   });
+
+  it('clears the singleton and skips flush if callback throws', () => {
+    const { result } = renderHook(() => ({
+      batch: useUrlBatch(),
+      team: useUrlState(teamSchema),
+    }));
+
+    expect(() => {
+      act(() => {
+        result.current.batch(() => {
+          result.current.team[1]('Platform');
+          throw new Error('boom');
+        });
+      });
+    }).toThrow('boom');
+
+    // No router call for the failed batch
+    expect(mockReplace).not.toHaveBeenCalled();
+    expect(mockPush).not.toHaveBeenCalled();
+
+    // Singleton is cleared — a subsequent non-batched setter goes directly to router
+    act(() => result.current.team[1]('Frontend'));
+    expect(mockReplace).toHaveBeenCalledTimes(1);
+  });
 });
