@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import useSWR, { preload } from 'swr';
 import { useAuth } from '../auth-context';
 import { findFirstJiraKey } from '@/lib/jira-key-utils';
+import { useUrlState, useUrlBatch } from '@/lib/url-state';
 // Type-only import keeps the server module out of the client bundle while
 // letting the client fail fast if the shared response shape changes.
 import type { EpicSummaryResult } from '@/lib/projects/epic-summary';
@@ -58,16 +59,35 @@ type StatusTab = 'In Progress' | 'Rollout' | 'Done';
 
 export default function ProjectsContent() {
   const { canAct } = useAuth();
-  const [activeTab, setActiveTab] = useState<StatusTab>('In Progress');
+  const [activeTab, setActiveTab] = useUrlState<StatusTab>({
+    key: 'status',
+    type: 'enum',
+    values: ['In Progress', 'Rollout', 'Done'] as const,
+    default: 'In Progress',
+    history: 'push',
+  });
+  // `tabCache` stays as useState — it's a memoization cache, not URL state.
   const [tabCache, setTabCache] = useState<Partial<Record<StatusTab, { epics: ProjectEpic[]; jiraHost: string | null }>>>({});
-  const [org, setOrg] = useState<string | null>(null);
+  const [org, setOrg] = useUrlState<string>({
+    key: 'org', type: 'string', default: '', history: 'replace',
+  });
+  // `jiraHost` stays as useState — comes from the API, not user input.
   const [jiraHost, setJiraHost] = useState<string | null>(null);
 
   // Filters
-  const [filterTeam, setFilterTeam] = useState<string>('');
-  const [filterGoal, setFilterGoal] = useState<string>('');
-  const [filterInitiative, setFilterInitiative] = useState<string>('');
-  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [filterTeam, setFilterTeam] = useUrlState<string>({
+    key: 'team', type: 'string', default: '', history: 'replace',
+  });
+  const [filterGoal, setFilterGoal] = useUrlState<string>({
+    key: 'goal', type: 'string', default: '', history: 'replace',
+  });
+  const [filterInitiative, setFilterInitiative] = useUrlState<string>({
+    key: 'initiative', type: 'string', default: '', history: 'replace',
+  });
+  const [searchQuery, setSearchQuery] = useUrlState<string>({
+    key: 'q', type: 'string', default: '', history: 'replace',
+  });
+  const urlBatch = useUrlBatch();
 
   // Hover state for row highlight
   const [hoveredEpic, setHoveredEpic] = useState<string | null>(null);
@@ -606,7 +626,7 @@ export default function ProjectsContent() {
               </span>
             )}
             {activeFilterCount > 1 && (
-              <button onClick={() => { setFilterTeam(''); setFilterGoal(''); setFilterInitiative(''); setSearchQuery(''); }} className="text-xs text-gray-600 hover:text-gray-400">Clear all</button>
+              <button onClick={() => urlBatch(() => { setFilterTeam(''); setFilterGoal(''); setFilterInitiative(''); setSearchQuery(''); })} className="text-xs text-gray-600 hover:text-gray-400">Clear all</button>
             )}
           </div>
 
