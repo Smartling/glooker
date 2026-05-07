@@ -69,23 +69,38 @@ export default function ProjectsContent() {
   // `tabCache` stays as useState — it's a memoization cache, not URL state.
   const [tabCache, setTabCache] = useState<Partial<Record<StatusTab, { epics: ProjectEpic[]; jiraHost: string | null }>>>({});
   const [org, setOrg] = useUrlState<string>({
-    key: 'org', type: 'string', default: '', history: 'replace',
+    key: 'org',
+    type: 'string',
+    default: '',
+    history: 'replace',
   });
   // `jiraHost` stays as useState — comes from the API, not user input.
   const [jiraHost, setJiraHost] = useState<string | null>(null);
 
   // Filters
   const [filterTeam, setFilterTeam] = useUrlState<string>({
-    key: 'team', type: 'string', default: '', history: 'replace',
+    key: 'team',
+    type: 'string',
+    default: '',
+    history: 'replace',
   });
   const [filterGoal, setFilterGoal] = useUrlState<string>({
-    key: 'goal', type: 'string', default: '', history: 'replace',
+    key: 'goal',
+    type: 'string',
+    default: '',
+    history: 'replace',
   });
   const [filterInitiative, setFilterInitiative] = useUrlState<string>({
-    key: 'initiative', type: 'string', default: '', history: 'replace',
+    key: 'initiative',
+    type: 'string',
+    default: '',
+    history: 'replace',
   });
   const [searchQuery, setSearchQuery] = useUrlState<string>({
-    key: 'q', type: 'string', default: '', history: 'replace',
+    key: 'q',
+    type: 'string',
+    default: '',
+    history: 'replace',
   });
   const urlBatch = useUrlBatch();
 
@@ -240,6 +255,10 @@ export default function ProjectsContent() {
   // Fallback: if orgs fails, try getting org from latest report
   const { data: reportsData } = useSWR(orgsError ? '/api/report' : null);
 
+  // Auto-select the first org when none is set in the URL. setOrg is deliberately
+  // omitted from the deps: the useUrlState setter's identity rotates on every
+  // searchParams change, which would re-fire this effect on every URL update; the
+  // `!org` guard would short-circuit harmlessly, but the churn is wasted work.
   useEffect(() => {
     if (orgsData?.length > 0 && !org) {
       setOrg(orgsData[0].login);

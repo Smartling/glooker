@@ -85,6 +85,13 @@ describe('useUrlState — write', () => {
     expect(params.get('tab')).toBe('spend');
     expect(params.get('other')).toBe('keep');
   });
+
+  it('enum: omits key when value set back to default', () => {
+    mockSearchParams = new URLSearchParams('tab=spend');
+    const { result } = renderHook(() => useUrlState(tabSchema));
+    act(() => result.current[1]('impact'));
+    expect(mockPush).toHaveBeenCalledWith('/projects');
+  });
 });
 
 import { useUrlBatch } from '@/lib/url-state';
