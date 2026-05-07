@@ -40,3 +40,37 @@ export function readValue<T>(params: URLSearchParams, schema: UrlSchema<T>): T {
     }
   }
 }
+
+export function writeValueIntoParams<T>(
+  params: URLSearchParams,
+  value: T,
+  schema: UrlSchema<T>,
+): void {
+  switch (schema.type) {
+    case 'enum': {
+      if (value === schema.default) {
+        params.delete(schema.key);
+      } else {
+        params.set(schema.key, String(value));
+      }
+      return;
+    }
+    case 'string': {
+      const isDefault = value === schema.default;
+      const isEmptyish = value == null || value === '';
+      if (isDefault || isEmptyish) {
+        params.delete(schema.key);
+      } else {
+        params.set(schema.key, String(value));
+      }
+      return;
+    }
+    case 'string-set': {
+      params.delete(schema.key);
+      const set = value as Set<string>;
+      if (set.size === 0) return;
+      for (const v of set) params.append(schema.key, v);
+      return;
+    }
+  }
+}
