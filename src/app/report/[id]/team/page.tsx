@@ -6,6 +6,7 @@ import useSWR from 'swr';
 import { createPortal } from 'react-dom';
 import ChatPanel from '@/app/chat-panel';
 import { useAuth } from '@/app/auth-context';
+import { useUrlState, useUrlBatch } from '@/lib/url-state';
 
 interface Developer {
   github_login:       string;
@@ -73,8 +74,19 @@ export default function TeamSummaryPage() {
 
   const commitCache = useRef<Map<string, any[]>>(new Map());
   const jiraCache = useRef<Map<string, any[]>>(new Map());
-  const [selectedTeamName, setSelectedTeamName] = useState<string | null>(null);
-  const [filterLogins, setFilterLogins] = useState<Set<string>>(new Set());
+  const [selectedTeamName, setSelectedTeamName] = useUrlState<string | null>({
+    key: 'team',
+    type: 'string',
+    default: null,
+    history: 'replace',
+  });
+  const [filterLogins, setFilterLogins] = useUrlState<Set<string>>({
+    key: 'dev',
+    type: 'string-set',
+    default: new Set(),
+    history: 'replace',
+  });
+  const urlBatch = useUrlBatch();
   const [filterQuery, setFilterQuery] = useState('');
   const [filterOpen, setFilterOpen] = useState(false);
   const [filterHighlight, setFilterHighlight] = useState(0);
@@ -211,8 +223,10 @@ export default function TeamSummaryPage() {
                 onChange={e => {
                   const team = teams.find(t => t.id === e.target.value);
                   if (team) {
-                    setFilterLogins(new Set(team.members));
-                    setSelectedTeamName(team.name);
+                    urlBatch(() => {
+                      setFilterLogins(new Set(team.members));
+                      setSelectedTeamName(team.name);
+                    });
                   }
                   e.target.value = '';
                 }}
@@ -230,7 +244,7 @@ export default function TeamSummaryPage() {
                 <span key={login} className="inline-flex items-center gap-1.5 bg-accent/20 text-accent-lighter text-xs font-medium px-2.5 py-1 rounded-lg border border-accent/30">
                   {dev?.avatar_url && <img src={dev.avatar_url} alt="" className="w-4 h-4 rounded-full" />}
                   {dev?.github_name || login}
-                  <button onClick={() => setFilterLogins(prev => { const n = new Set(prev); n.delete(login); return n; })} className="text-accent-light hover:text-white ml-0.5">&times;</button>
+                  <button onClick={() => { const n = new Set(filterLogins); n.delete(login); setFilterLogins(n); }} className="text-accent-light hover:text-white ml-0.5">&times;</button>
                 </span>
               );
             })}
@@ -246,7 +260,7 @@ export default function TeamSummaryPage() {
                     ).slice(0, 8)
                   : [];
                 const selectMatch = (login: string) => {
-                  setFilterLogins(prev => new Set(prev).add(login));
+                  setFilterLogins(new Set(filterLogins).add(login));
                   setFilterQuery('');
                   setFilterOpen(false);
                   setFilterHighlight(0);
@@ -266,7 +280,7 @@ export default function TeamSummaryPage() {
                         else if (e.key === 'Escape') { setFilterOpen(false); }
                         else if (e.key === 'Backspace' && filterQuery === '' && filterLogins.size > 0) {
                           const last = [...filterLogins].pop()!;
-                          setFilterLogins(prev => { const n = new Set(prev); n.delete(last); return n; });
+                          const n = new Set(filterLogins); n.delete(last); setFilterLogins(n);
                         }
                       }}
                       placeholder={filterLogins.size > 0 ? 'Add more...' : 'Filter by developer...'}
@@ -295,7 +309,10 @@ export default function TeamSummaryPage() {
               })()}
             </div>
             {filterLogins.size > 0 && (
-              <button onClick={() => { setFilterLogins(new Set()); setSelectedTeamName(null); }} className="text-xs text-gray-600 hover:text-gray-400">Clear all</button>
+              <button onClick={() => urlBatch(() => {
+                setFilterLogins(new Set());
+                setSelectedTeamName(null);
+              })} className="text-xs text-gray-600 hover:text-gray-400">Clear all</button>
             )}
           </div>
         </div>

@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import ChatPanel from '@/app/chat-panel';
 import { useAuth } from '@/app/auth-context';
+import { useUrlState } from '@/lib/url-state';
 
 const TYPE_COLORS: Record<string, string> = {
   feature:   'bg-blue-500',
@@ -66,7 +67,13 @@ export default function OrgDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const { canAct } = useAuth();
-  const [activeTab, setActiveTab] = useState<'impact' | 'spend'>('impact');
+  const [activeTab, setActiveTab] = useUrlState<'impact' | 'spend'>({
+    key: 'tab',
+    type: 'enum',
+    values: ['impact', 'spend'] as const,
+    default: 'impact',
+    history: 'push',
+  });
 
   const { data, isLoading: loading, error: fetchError } = useSWR(`/api/report/${params.id}/org`);
   const report: ReportMeta | null = data?.report ?? null;

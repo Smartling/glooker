@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import useSWR, { preload } from 'swr';
 import { useAuth } from '../auth-context';
 import { findFirstJiraKey } from '@/lib/jira-key-utils';
+import { useUrlState, useUrlBatch } from '@/lib/url-state';
 // Type-only import keeps the server module out of the client bundle while
 // letting the client fail fast if the shared response shape changes.
 import type { EpicSummaryResult } from '@/lib/projects/epic-summary';
@@ -58,16 +59,50 @@ type StatusTab = 'In Progress' | 'Rollout' | 'Done';
 
 export default function ProjectsContent() {
   const { canAct } = useAuth();
-  const [activeTab, setActiveTab] = useState<StatusTab>('In Progress');
+  const [activeTab, setActiveTab] = useUrlState<StatusTab>({
+    key: 'status',
+    type: 'enum',
+    values: ['In Progress', 'Rollout', 'Done'] as const,
+    default: 'In Progress',
+    history: 'push',
+  });
+  // `tabCache` stays as useState — it's a memoization cache, not URL state.
   const [tabCache, setTabCache] = useState<Partial<Record<StatusTab, { epics: ProjectEpic[]; jiraHost: string | null }>>>({});
-  const [org, setOrg] = useState<string | null>(null);
+  const [org, setOrg] = useUrlState<string>({
+    key: 'org',
+    type: 'string',
+    default: '',
+    history: 'replace',
+  });
+  // `jiraHost` stays as useState — comes from the API, not user input.
   const [jiraHost, setJiraHost] = useState<string | null>(null);
 
   // Filters
-  const [filterTeam, setFilterTeam] = useState<string>('');
-  const [filterGoal, setFilterGoal] = useState<string>('');
-  const [filterInitiative, setFilterInitiative] = useState<string>('');
-  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [filterTeam, setFilterTeam] = useUrlState<string>({
+    key: 'team',
+    type: 'string',
+    default: '',
+    history: 'replace',
+  });
+  const [filterGoal, setFilterGoal] = useUrlState<string>({
+    key: 'goal',
+    type: 'string',
+    default: '',
+    history: 'replace',
+  });
+  const [filterInitiative, setFilterInitiative] = useUrlState<string>({
+    key: 'initiative',
+    type: 'string',
+    default: '',
+    history: 'replace',
+  });
+  const [searchQuery, setSearchQuery] = useUrlState<string>({
+    key: 'q',
+    type: 'string',
+    default: '',
+    history: 'replace',
+  });
+  const urlBatch = useUrlBatch();
 
   // Hover state for row highlight
   const [hoveredEpic, setHoveredEpic] = useState<string | null>(null);
@@ -220,12 +255,32 @@ export default function ProjectsContent() {
   // Fallback: if orgs fails, try getting org from latest report
   const { data: reportsData } = useSWR(orgsError ? '/api/report' : null);
 
+  // Auto-select the first org when none is set in the URL.
+  //
+  // Defensive: read window.location.search live (not the closure `org` derived
+  // from useSearchParams) so we don't fire setOrg if the user has already typed
+  // any URL-owned filter — a setOrg call's closure could otherwise be from an
+  // earlier render and clobber a concurrent ?q=… or ?team=… write.
+  //
+  // setOrg is deliberately omitted from the deps: the useUrlState setter's
+  // identity rotates on every searchParams change, which would re-fire this
+  // effect on every URL update unnecessarily.
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const live = new URLSearchParams(window.location.search);
+      // If any URL-owned key is already present, the user is already engaging.
+      // Don't auto-set the org — they'll see the empty default and can pick.
+      if (live.has('org') || live.has('team') || live.has('goal') ||
+          live.has('initiative') || live.has('q') || live.has('status')) {
+        return;
+      }
+    }
     if (orgsData?.length > 0 && !org) {
       setOrg(orgsData[0].login);
     } else if (orgsError && reportsData?.length > 0 && !org) {
       setOrg(reportsData[0].org);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- setOrg identity churns on URL change; safely omitted
   }, [orgsData, orgsError, reportsData, org]);
 
   // SWR: fetch epics for the active tab
@@ -606,7 +661,7 @@ export default function ProjectsContent() {
               </span>
             )}
             {activeFilterCount > 1 && (
-              <button onClick={() => { setFilterTeam(''); setFilterGoal(''); setFilterInitiative(''); setSearchQuery(''); }} className="text-xs text-gray-600 hover:text-gray-400">Clear all</button>
+              <button onClick={() => urlBatch(() => { setFilterTeam(''); setFilterGoal(''); setFilterInitiative(''); setSearchQuery(''); })} className="text-xs text-gray-600 hover:text-gray-400">Clear all</button>
             )}
           </div>
 
