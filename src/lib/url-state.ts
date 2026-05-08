@@ -179,7 +179,7 @@ export function useUrlBatch(): (fn: () => void) => void {
     (fn: () => void) => {
       if (batchPending) {
         // Already batching (nested) — run inline; the outer call flushes.
-        const result = fn();
+        const result = fn() as unknown;
         if (result && typeof (result as { then?: unknown }).then === 'function') {
           throw new TypeError('useUrlBatch: callback must be synchronous (got a Promise)');
         }
@@ -191,7 +191,7 @@ export function useUrlBatch(): (fn: () => void) => void {
         usePush: false,
       };
       try {
-        const result = fn();
+        const result = fn() as unknown;
         if (result && typeof (result as { then?: unknown }).then === 'function') {
           throw new TypeError('useUrlBatch: callback must be synchronous (got a Promise)');
         }
