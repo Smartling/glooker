@@ -255,16 +255,32 @@ export default function ProjectsContent() {
   // Fallback: if orgs fails, try getting org from latest report
   const { data: reportsData } = useSWR(orgsError ? '/api/report' : null);
 
-  // Auto-select the first org when none is set in the URL. setOrg is deliberately
-  // omitted from the deps: the useUrlState setter's identity rotates on every
-  // searchParams change, which would re-fire this effect on every URL update; the
-  // `!org` guard would short-circuit harmlessly, but the churn is wasted work.
+  // Auto-select the first org when none is set in the URL.
+  //
+  // Defensive: read window.location.search live (not the closure `org` derived
+  // from useSearchParams) so we don't fire setOrg if the user has already typed
+  // any URL-owned filter — a setOrg call's closure could otherwise be from an
+  // earlier render and clobber a concurrent ?q=… or ?team=… write.
+  //
+  // setOrg is deliberately omitted from the deps: the useUrlState setter's
+  // identity rotates on every searchParams change, which would re-fire this
+  // effect on every URL update unnecessarily.
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const live = new URLSearchParams(window.location.search);
+      // If any URL-owned key is already present, the user is already engaging.
+      // Don't auto-set the org — they'll see the empty default and can pick.
+      if (live.has('org') || live.has('team') || live.has('goal') ||
+          live.has('initiative') || live.has('q') || live.has('status')) {
+        return;
+      }
+    }
     if (orgsData?.length > 0 && !org) {
       setOrg(orgsData[0].login);
     } else if (orgsError && reportsData?.length > 0 && !org) {
       setOrg(reportsData[0].org);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- setOrg identity churns on URL change; safely omitted
   }, [orgsData, orgsError, reportsData, org]);
 
   // SWR: fetch epics for the active tab
