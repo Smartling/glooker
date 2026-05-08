@@ -154,6 +154,22 @@ export function useUrlState<T>(schema: UrlSchema<T>): [T, (next: T) => void] {
   return [value, setter];
 }
 
+/**
+ * Atomic multi-key URL writes. Setters called inside `fn` accumulate into
+ * one URLSearchParams and flush as a single router.push/replace.
+ *
+ * @param fn MUST be synchronous. Calling an async function (one that returns
+ *   a Promise) will throw — the synchronous-callback invariant is required
+ *   because the module-level singleton is cleared in `finally`, and any
+ *   awaited setter calls would silently fall through to non-batched writes
+ *   against stale params. Use sequential explicit `batch` calls instead.
+ *
+ * Push wins: if any setter inside the batch has `history: 'push'`, the
+ * combined flush uses `router.push`; otherwise `router.replace`.
+ *
+ * Nested calls: an inner `batch(fn)` runs `fn` inline and inherits the
+ * outer accumulator (no separate flush).
+ */
 export function useUrlBatch(): (fn: () => void) => void {
   const router = useRouter();
   const pathname = usePathname();
@@ -163,7 +179,10 @@ export function useUrlBatch(): (fn: () => void) => void {
     (fn: () => void) => {
       if (batchPending) {
         // Already batching (nested) — run inline; the outer call flushes.
-        fn();
+        const result = fn();
+        if (result && typeof (result as { then?: unknown }).then === 'function') {
+          throw new TypeError('useUrlBatch: callback must be synchronous (got a Promise)');
+        }
         return;
       }
       batchPending = {
@@ -172,7 +191,10 @@ export function useUrlBatch(): (fn: () => void) => void {
         usePush: false,
       };
       try {
-        fn();
+        const result = fn();
+        if (result && typeof (result as { then?: unknown }).then === 'function') {
+          throw new TypeError('useUrlBatch: callback must be synchronous (got a Promise)');
+        }
         const queryStr = batchPending.params.toString();
         const newUrl = queryStr ? `${pathname}?${queryStr}` : pathname;
         const usePush = batchPending.usePush;

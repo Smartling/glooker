@@ -167,6 +167,17 @@ describe('useUrlBatch', () => {
     expect(mockReplace).toHaveBeenCalledTimes(1);
   });
 
+  it('throws when callback returns a Promise (async fn)', () => {
+    const { result } = renderHook(() => useUrlBatch());
+    expect(() => {
+      act(() => {
+        result.current(async () => {
+          // simulate an async-marker return
+        });
+      });
+    }).toThrow(/synchronous/);
+  });
+
   it('clears the singleton and skips flush if callback throws', () => {
     const { result } = renderHook(() => ({
       batch: useUrlBatch(),
