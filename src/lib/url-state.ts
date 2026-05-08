@@ -14,6 +14,15 @@ type BatchPending = {
 // batches can be in-flight at the same time.
 let batchPending: BatchPending | null = null;
 
+// Hoisted singleton for the empty-set common case (referential stability for
+// downstream useMemo/useEffect/React.memo consumers across URL navs).
+const EMPTY_STRING_SET: ReadonlySet<string> = new Set<string>();
+
+// Module-level identity cache for populated string-sets, keyed by
+// "<schema.key> <sorted-values-joined>". Prevents fresh-Set identity
+// rotation when the URL changes for an unrelated key.
+const stringSetCache = new Map<string, Set<string>>();
+
 export type UrlSchema<T> =
   | {
       key: string;
@@ -29,6 +38,13 @@ export type UrlSchema<T> =
       history: 'push' | 'replace';
     }
   | {
+      /**
+       * Note: the Set returned by `useUrlState`/`readValue` for `string-set`
+       * schemas should be treated as read-only. The reader caches Set
+       * instances by sorted contents for referential stability across URL
+       * navs — mutating it directly would corrupt the cache. Always pass a
+       * fresh `new Set(...)` to the setter.
+       */
       key: string;
       type: 'string-set';
       default: Set<string>;
@@ -51,8 +67,20 @@ export function readValue<T>(params: URLSearchParams, schema: UrlSchema<T>): T {
     }
     case 'string-set': {
       const all = params.getAll(schema.key);
-      if (all.length === 0) return schema.default as T;
-      return new Set(all) as T;
+      if (all.length === 0) return EMPTY_STRING_SET as unknown as T;
+      const sorted = [...all].sort();
+      // Use \0 as separator so commas in values don't collide
+      const cacheKey = `${schema.key}\0${sorted.join('\0')}`;
+      const cached = stringSetCache.get(cacheKey);
+      if (cached) return cached as unknown as T;
+      const fresh = new Set(all);
+      stringSetCache.set(cacheKey, fresh);
+      // Trim cache if it grows large (defensive — common usage stays small)
+      if (stringSetCache.size > 64) {
+        const firstKey = stringSetCache.keys().next().value;
+        if (firstKey) stringSetCache.delete(firstKey);
+      }
+      return fresh as unknown as T;
     }
   }
 }

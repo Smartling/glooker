@@ -61,6 +61,28 @@ describe('readValue', () => {
       expect(result.size).toBe(0);
     });
   });
+
+  describe('referential stability (string-set)', () => {
+    const schema: UrlSchema<Set<string>> = {
+      key: 'dev', type: 'string-set', default: new Set(), history: 'replace',
+    };
+    it('returns the same EMPTY set across reads when value is empty', () => {
+      const a = readValue(new URLSearchParams(''), schema);
+      const b = readValue(new URLSearchParams('other=foo'), schema);
+      expect(a).toBe(b);
+    });
+    it('returns the same Set instance when populated values are unchanged', () => {
+      const a = readValue(new URLSearchParams('dev=alice&dev=bob'), schema);
+      const b = readValue(new URLSearchParams('dev=alice&dev=bob&unrelated=x'), schema);
+      expect(a).toBe(b);
+      expect(a).toEqual(new Set(['alice', 'bob']));
+    });
+    it('returns different instances when populated values differ', () => {
+      const a = readValue(new URLSearchParams('dev=alice'), schema);
+      const b = readValue(new URLSearchParams('dev=alice&dev=bob'), schema);
+      expect(a).not.toBe(b);
+    });
+  });
 });
 
 describe('writeValueIntoParams', () => {
