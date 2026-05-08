@@ -14,6 +14,16 @@ type BatchPending = {
 // batches can be in-flight at the same time.
 let batchPending: BatchPending | null = null;
 
+// Same-tick coalescing overlay: when consecutive setters fire in the same
+// React event without an explicit useUrlBatch, each setter reads the same
+// stale `searchParams` from its closure and would otherwise overwrite the
+// prior setter's write. The overlay carries forward each setter's params
+// so the next setter's router call includes all prior writes from this tick.
+// Cleared on the next microtask, by which time React has re-rendered
+// (or will shortly) with fresh `searchParams`.
+type AppliedOverlay = { params: URLSearchParams; baseSearch: string };
+let appliedOverlay: AppliedOverlay | null = null;
+
 // Hoisted singleton for the empty-set common case (referential stability for
 // downstream useMemo/useEffect/React.memo consumers across URL navs).
 const EMPTY_STRING_SET: ReadonlySet<string> = new Set<string>();
@@ -137,7 +147,23 @@ export function useUrlState<T>(schema: UrlSchema<T>): [T, (next: T) => void] {
         if (schema.history === 'push') batchPending.usePush = true;
         return;
       }
-      const params = new URLSearchParams(searchParams.toString());
+      const baseSearch = searchParams.toString();
+      let params: URLSearchParams;
+      if (appliedOverlay && appliedOverlay.baseSearch === baseSearch) {
+        // Same-tick prior write — extend it.
+        params = appliedOverlay.params;
+      } else {
+        // Fresh tick (or first call) — start a new overlay rooted in this snapshot.
+        params = new URLSearchParams(baseSearch);
+        appliedOverlay = { params, baseSearch };
+        // Clear the overlay at end of microtask; by then React has scheduled
+        // a re-render with fresh searchParams (or will).
+        queueMicrotask(() => {
+          if (appliedOverlay && appliedOverlay.baseSearch === baseSearch) {
+            appliedOverlay = null;
+          }
+        });
+      }
       writeValueIntoParams(params, next, schema);
       const queryStr = params.toString();
       const newUrl = queryStr ? `${pathname}?${queryStr}` : pathname;

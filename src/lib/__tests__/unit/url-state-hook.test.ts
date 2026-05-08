@@ -92,6 +92,22 @@ describe('useUrlState — write', () => {
     act(() => result.current[1]('impact'));
     expect(mockPush).toHaveBeenCalledWith('/projects');
   });
+
+  it('coalesces consecutive same-tick writes (no batch needed)', () => {
+    const { result } = renderHook(() => ({
+      tab: useUrlState(tabSchema),
+      q: useUrlState(filterSchema),
+    }));
+    act(() => {
+      result.current.tab[1]('spend');
+      result.current.q[1]('hello');
+    });
+    // Both writes survive — last router call carries both keys.
+    const lastCall = (mockReplace.mock.lastCall ?? mockPush.mock.lastCall)![0] as string;
+    const params = new URLSearchParams(lastCall.split('?')[1] || '');
+    expect(params.get('tab')).toBe('spend');
+    expect(params.get('q')).toBe('hello');
+  });
 });
 
 import { useUrlBatch } from '@/lib/url-state';
