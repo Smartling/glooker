@@ -19,12 +19,17 @@ jest.mock('p-limit', () => ({
   __esModule: true,
   default: () => <T>(fn: () => T) => fn(),
 }));
+jest.mock('@/lib/cc-spend/service', () => ({
+  refreshCcSpendForReport: jest.fn(),
+}));
 
 import { runReport, requestStop } from '@/lib/report-runner';
 import { getGitHubProvider } from '@/lib/github';
 import { analyzeCommit } from '@/lib/analyzer';
 import db from '@/lib/db/index';
 import { updateProgress, addLog } from '@/lib/progress-store';
+import { refreshCcSpendForReport } from '@/lib/cc-spend/service';
+const mockRefreshCc = refreshCcSpendForReport as jest.Mock;
 
 const mockListOrgMembers = jest.fn();
 const mockFetchUserActivity = jest.fn();
@@ -92,6 +97,12 @@ describe('runReport', () => {
     const { getCommitDetail } = require('@/lib/github');
     (getCommitDetail as jest.Mock).mockReset();
     (getCommitDetail as jest.Mock).mockResolvedValue({ additions: 0, deletions: 0, diff: '' });
+
+    mockRefreshCc.mockReset();
+    mockRefreshCc.mockResolvedValue({
+      matched: 0, unmatched: 0, totalApiUsers: 0, totalSpendUsd: 0,
+      periodStart: '2026-01-01', periodEnd: '2026-01-15',
+    });
   });
 
   it('happy path: calls analyzeCommit for each unique commit and writes to DB', async () => {
@@ -394,5 +405,17 @@ describe('runReport', () => {
     );
     expect(inserts.length).toBe(0);
     expect(mockCompareBranchCommits).not.toHaveBeenCalled();
+  });
+
+  describe('runReport — CC spend enrichment', () => {
+    it('invokes refreshCcSpendForReport after Jira phase', async () => {
+      await runReport('r1', 'my-org', 14);
+      expect(mockRefreshCc).toHaveBeenCalledWith('r1', expect.any(Function));
+    });
+
+    it('continues when refreshCcSpendForReport throws (non-fatal)', async () => {
+      mockRefreshCc.mockRejectedValueOnce(new Error('Anthropic 503'));
+      await expect(runReport('r1', 'my-org', 14)).resolves.toBeUndefined();
+    });
   });
 });

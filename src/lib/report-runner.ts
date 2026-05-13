@@ -9,6 +9,7 @@ import { resolveJiraUser } from './jira';
 import { getAppConfig } from './app-config/service';
 
 import { UNMERGED_LOOKBACK_DAYS } from './report/unmerged-window';
+import { refreshCcSpendForReport } from './cc-spend/service';
 
 const CONCURRENCY = Number(process.env.LLM_CONCURRENCY || 5);
 
@@ -497,6 +498,16 @@ export async function runReport(
 
         log(`Jira collection complete: ${[...jiraIssueCountByLogin.values()].reduce((a, b) => a + b, 0)} total issues`);
       }
+    }
+
+    // CC spend enrichment — non-fatal. If Anthropic Admin API key is unset or the
+    // API is down, the report still completes with cc_* columns left at 0.
+    try {
+      log('Pulling Claude Code spend from Anthropic API...');
+      const ccResult = await refreshCcSpendForReport(reportId, log);
+      log(`CC spend: ${ccResult.matched}/${ccResult.totalApiUsers} matched, $${ccResult.totalSpendUsd.toFixed(2)} total (${ccResult.periodStart} → ${ccResult.periodEnd})`);
+    } catch (err) {
+      log(`CC spend: SKIP — ${err instanceof Error ? err.message : String(err)}`);
     }
 
     // 3. Final aggregation with full cross-member view (overwrites per-member stats)
