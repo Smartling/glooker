@@ -146,3 +146,39 @@ describe('AnthropicCcSpendProvider.pullByPeriod', () => {
     expect(logs.some(l => l.includes('2026-04-01') && /skip|fail|retry/i.test(l))).toBe(true);
   });
 });
+
+describe('AnthropicCcSpendProvider.probe', () => {
+  it('returns userCount + sampleEmail on success', async () => {
+    (global.fetch as any).mockResolvedValueOnce(mockOk({
+      data: [
+        buildUserRow('alice@example.com', 1, 100, 10, 5),
+        buildUserRow('bob@example.com', 2, 200, 20, 10),
+      ],
+      next_page: null,
+    }));
+    const provider = createAnthropicCcSpendProvider();
+    const result = await provider.probe('2026-04-15');
+    expect(result.userCount).toBe(2);
+    expect(result.sampleEmail).toBe('alice@example.com');
+  });
+
+  it('returns userCount=0 when the day has no users', async () => {
+    (global.fetch as any).mockResolvedValueOnce(mockOk({ data: [], next_page: null }));
+    const provider = createAnthropicCcSpendProvider();
+    const result = await provider.probe('2026-04-15');
+    expect(result.userCount).toBe(0);
+    expect(result.sampleEmail).toBeUndefined();
+  });
+
+  it('throws on 401', async () => {
+    (global.fetch as any).mockResolvedValueOnce(mockOk({}, 401));
+    const provider = createAnthropicCcSpendProvider();
+    await expect(provider.probe('2026-04-15')).rejects.toThrow(/401/);
+  });
+
+  it('throws when env var is unset', async () => {
+    delete process.env.ANTHROPIC_ADMIN_API_KEY;
+    const provider = createAnthropicCcSpendProvider();
+    await expect(provider.probe('2026-04-15')).rejects.toThrow(/ANTHROPIC_ADMIN_API_KEY/);
+  });
+});
