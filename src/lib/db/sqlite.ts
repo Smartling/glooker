@@ -272,6 +272,8 @@ export function createSQLiteDB(): DB {
   try { db.exec('ALTER TABLE developer_stats DROP COLUMN cc_sessions'); } catch (_) {}
   try { db.exec('ALTER TABLE developer_stats ADD COLUMN cc_total_cost REAL NOT NULL DEFAULT 0'); } catch (_) {}
   try { db.exec('ALTER TABLE developer_stats ADD COLUMN cc_requests INTEGER NOT NULL DEFAULT 0'); } catch (_) {}
+  try { db.exec('ALTER TABLE reports ADD COLUMN cc_period_start TEXT'); } catch (_) {}
+  try { db.exec('ALTER TABLE reports ADD COLUMN cc_period_end TEXT'); } catch (_) {}
 
   return {
     execute: <T = any>(sql: string, params?: any[]): Promise<[T[], any]> => {

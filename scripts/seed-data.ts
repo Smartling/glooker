@@ -21,6 +21,13 @@ function daysAgo(n: number): string {
   return anchor.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
 }
 
+/** YYYY-MM-DD date N days ago from the same anchor (for cc_period columns) */
+function dateDaysAgo(n: number): string {
+  const anchor = new Date('2026-04-01T00:00:00Z');
+  anchor.setDate(anchor.getDate() - n);
+  return anchor.toISOString().slice(0, 10);
+}
+
 /** Deterministic 40-char hex sha built from a seed string */
 function fakeSha(seed: string): string {
   let hash = 0;
@@ -42,9 +49,9 @@ const completedReportIds = [R1, R2];
 // ---------------------------------------------------------------------------
 
 export const seedReports = [
-  { id: R1, org: MOCK_ORG, period_days: 14, status: 'completed', error: null, created_at: daysAgo(14), completed_at: daysAgo(1) },
-  { id: R2, org: MOCK_ORG, period_days: 30, status: 'completed', error: null, created_at: daysAgo(30), completed_at: daysAgo(15) },
-  { id: R3, org: MOCK_ORG, period_days: 14, status: 'running', error: null, created_at: daysAgo(0), completed_at: null },
+  { id: R1, org: MOCK_ORG, period_days: 14, status: 'completed', error: null, created_at: daysAgo(14), completed_at: daysAgo(1), cc_period_start: dateDaysAgo(14), cc_period_end: dateDaysAgo(1) },
+  { id: R2, org: MOCK_ORG, period_days: 30, status: 'completed', error: null, created_at: daysAgo(30), completed_at: daysAgo(15), cc_period_start: dateDaysAgo(30), cc_period_end: dateDaysAgo(15) },
+  { id: R3, org: MOCK_ORG, period_days: 14, status: 'running', error: null, created_at: daysAgo(0), completed_at: null, cc_period_start: null, cc_period_end: null },
 ];
 
 // ---------------------------------------------------------------------------
@@ -79,10 +86,26 @@ const profiles: DevProfile[] = [
   { impact: 1.9, commits: 3,  prs: 1,  complexity: 2.2, linesAdded: 180, linesRemoved: 60,  aiPct: 20, prPct: 60,  jiraIssues: 2, typeBreakdown: { docs: 2, test: 1 }, activeRepos: ['data-pipeline'] },
 ];
 
+// Deterministic per-developer CC spend so seeded reports have realistic
+// cc_total_cost (cents) and cc_requests values. Mirrors the shape of
+// PerEmailAggregate the Analytics provider returns.
+function ccSpendForLogin(login: string): { costCents: number; requests: number } {
+  let h = 2166136261;
+  for (let i = 0; i < login.length; i++) {
+    h ^= login.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  // $200 – $1200 of spend, 500 – 5000 requests
+  const costCents = 20000 + (h % 100000);
+  const requests = 500 + (h % 4500);
+  return { costCents, requests };
+}
+
 export const seedDeveloperStats: Record<string, any>[] = [];
 for (const rid of completedReportIds) {
   MOCK_DEVELOPERS.forEach((dev, i) => {
     const p = profiles[i];
+    const cc = ccSpendForLogin(dev.githubLogin);
     seedDeveloperStats.push({
       report_id: rid,
       github_login: dev.githubLogin,
@@ -99,6 +122,8 @@ for (const rid of completedReportIds) {
       total_jira_issues: p.jiraIssues,
       type_breakdown: JSON.stringify(p.typeBreakdown),
       active_repos: JSON.stringify(p.activeRepos),
+      cc_total_cost: cc.costCents,
+      cc_requests: cc.requests,
     });
   });
 }

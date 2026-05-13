@@ -34,7 +34,7 @@ Glooker is a Next.js 15 web app that generates developer impact reports for a Gi
 - `LLM_PROVIDER` selects backend: `openai` (default), `anthropic`, `openai-compatible`, `smartling`, `bedrock`
 - `DB_TYPE` selects database: `sqlite` (default), `mysql`
 - `JIRA_ENABLED=true` enables Jira integration; requires `JIRA_HOST`, `JIRA_USERNAME`, `JIRA_API_TOKEN`
-- `ANTHROPIC_ADMIN_API_KEY` enables per-developer Claude Code spend pull during report runs. Get it from the Anthropic Console (Admin API keys section). If unset, report runs warn and skip the CC enrichment phase; cc_* columns stay at 0 until backfilled via the Settings → Pull from Anthropic button.
+- `ANTHROPIC_ANALYTICS_API_KEY` enables per-developer spend pull during report runs. This is a `read:analytics`-scoped admin API key generated at `claude.ai/analytics/api-keys` (NOT console.anthropic.com). Hits the Enterprise Analytics endpoint `/v1/organizations/analytics/user_cost_report` — a multi-surface feed (claude.ai + Claude Code + API), not Claude Code-only. Values for any given date may be revised for up to 30 days as late events reconcile, so historical pulls within that window are expected to shift slightly. If unset, report runs warn and skip the CC enrichment phase; `cc_cost_cents` / `cc_requests` stay at 0 until backfilled via the Settings → Pull from Anthropic button.
 - `CC_ANALYTICS_PROVIDER=mock` selects the mock provider for local dev (used by `npm run dev:mock`).
 - GitHub fine-grained token needs: Contents:read, Pull requests:read, Metadata:read, Members:read
 
