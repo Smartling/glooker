@@ -14,10 +14,8 @@ describe('MockCcSpendProvider', () => {
       expect(agg.email).toMatch(/@/);
       expect(agg.costCents).toBeGreaterThanOrEqual(20000);
       expect(agg.costCents).toBeLessThanOrEqual(120000);
-      expect(agg.sessions).toBeGreaterThanOrEqual(5);
-      expect(agg.sessions).toBeLessThanOrEqual(50);
-      expect(agg.inputTokens).toBeGreaterThan(0);
-      expect(agg.outputTokens).toBeGreaterThan(0);
+      expect(agg.requests).toBeGreaterThanOrEqual(100);
+      expect(agg.requests).toBeLessThanOrEqual(10000);
     }
   });
 
@@ -48,14 +46,14 @@ describe('getCcSpendProvider factory', () => {
     process.env.CC_ANALYTICS_PROVIDER = 'mock';
     const provider = getCcSpendProvider();
     // Mock provider doesn't need the Anthropic env var.
-    delete process.env.ANTHROPIC_ADMIN_API_KEY;
+    delete process.env.ANTHROPIC_ANALYTICS_API_KEY;
     const probe = await provider.probe('2026-04-15');
     expect(probe.userCount).toBeGreaterThan(0);
   });
 
   it('returns the Anthropic provider by default', () => {
     delete process.env.CC_ANALYTICS_PROVIDER;
-    process.env.ANTHROPIC_ADMIN_API_KEY = 'sk-ant-admin-test';
+    process.env.ANTHROPIC_ANALYTICS_API_KEY = 'sk-ant-analytics-test';
     const provider = getCcSpendProvider();
     expect(typeof provider.pullByPeriod).toBe('function');
     expect(typeof provider.probe).toBe('function');

@@ -1,9 +1,7 @@
 export interface PerEmailAggregate {
   email: string;
   costCents: number;
-  inputTokens: number;
-  outputTokens: number;
-  sessions: number;
+  requests: number;
 }
 
 export interface CcSpendProbeResult {

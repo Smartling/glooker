@@ -31,6 +31,8 @@ CREATE TABLE IF NOT EXISTS developer_stats (
   total_jira_issues INTEGER NOT NULL DEFAULT 0,
   type_breakdown  TEXT,
   active_repos    TEXT,
+  cc_total_cost   REAL    NOT NULL DEFAULT 0,
+  cc_requests     INTEGER NOT NULL DEFAULT 0,
   FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
   UNIQUE (report_id, github_login)
 );
@@ -263,6 +265,13 @@ export function createSQLiteDB(): DB {
   try { db.exec('ALTER TABLE developer_stats ADD COLUMN total_jira_issues INTEGER NOT NULL DEFAULT 0'); } catch (_) {}
   try { db.exec('ALTER TABLE commit_analyses ADD COLUMN author_email TEXT'); } catch (_) {}
   try { db.exec('ALTER TABLE developer_stats ADD COLUMN total_reviews INTEGER NOT NULL DEFAULT 0'); } catch (_) {}
+  // cc-spend migration: drop tokens+sessions columns (replaced by single requests count),
+  // ensure cc_total_cost + cc_requests columns exist.
+  try { db.exec('ALTER TABLE developer_stats DROP COLUMN cc_input_tokens'); } catch (_) {}
+  try { db.exec('ALTER TABLE developer_stats DROP COLUMN cc_output_tokens'); } catch (_) {}
+  try { db.exec('ALTER TABLE developer_stats DROP COLUMN cc_sessions'); } catch (_) {}
+  try { db.exec('ALTER TABLE developer_stats ADD COLUMN cc_total_cost REAL NOT NULL DEFAULT 0'); } catch (_) {}
+  try { db.exec('ALTER TABLE developer_stats ADD COLUMN cc_requests INTEGER NOT NULL DEFAULT 0'); } catch (_) {}
 
   return {
     execute: <T = any>(sql: string, params?: any[]): Promise<[T[], any]> => {

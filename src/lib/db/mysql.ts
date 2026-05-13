@@ -212,14 +212,19 @@ export function createMySQLDB(): DB {
   pool.execute('ALTER TABLE developer_stats ADD COLUMN cc_total_cost DECIMAL(10,2) NOT NULL DEFAULT 0.00').catch((err) => {
     if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add cc_total_cost:', err);
   });
-  pool.execute('ALTER TABLE developer_stats ADD COLUMN cc_input_tokens BIGINT NOT NULL DEFAULT 0').catch((err) => {
-    if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add cc_input_tokens:', err);
+  // cc-spend migration: drop tokens+sessions columns (replaced by single requests count).
+  // ER_CANT_DROP_FIELD_OR_KEY (1091) means the column is already gone — ignore.
+  pool.execute('ALTER TABLE developer_stats DROP COLUMN cc_input_tokens').catch((err) => {
+    if (err.errno !== 1091 && err.code !== 'ER_CANT_DROP_FIELD_OR_KEY') console.error('[db/mysql] Failed to drop cc_input_tokens:', err);
   });
-  pool.execute('ALTER TABLE developer_stats ADD COLUMN cc_output_tokens BIGINT NOT NULL DEFAULT 0').catch((err) => {
-    if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add cc_output_tokens:', err);
+  pool.execute('ALTER TABLE developer_stats DROP COLUMN cc_output_tokens').catch((err) => {
+    if (err.errno !== 1091 && err.code !== 'ER_CANT_DROP_FIELD_OR_KEY') console.error('[db/mysql] Failed to drop cc_output_tokens:', err);
   });
-  pool.execute('ALTER TABLE developer_stats ADD COLUMN cc_sessions INT NOT NULL DEFAULT 0').catch((err) => {
-    if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add cc_sessions:', err);
+  pool.execute('ALTER TABLE developer_stats DROP COLUMN cc_sessions').catch((err) => {
+    if (err.errno !== 1091 && err.code !== 'ER_CANT_DROP_FIELD_OR_KEY') console.error('[db/mysql] Failed to drop cc_sessions:', err);
+  });
+  pool.execute('ALTER TABLE developer_stats ADD COLUMN cc_requests BIGINT NOT NULL DEFAULT 0').catch((err) => {
+    if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add cc_requests:', err);
   });
   pool.execute('ALTER TABLE reports ADD COLUMN cc_period_start DATE NULL').catch((err) => {
     if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add cc_period_start:', err);

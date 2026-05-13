@@ -13,10 +13,9 @@ function hashEmail(email: string): number {
 function aggregateFor(email: string): PerEmailAggregate {
   const h = hashEmail(email);
   const costCents = 20000 + (h % 100000);
-  const sessions = 5 + (h % 46);
-  const inputTokens = 50000 + ((h >>> 7) % 500000);
-  const outputTokens = 20000 + ((h >>> 11) % 200000);
-  return { email, costCents, sessions, inputTokens, outputTokens };
+  // 100–10000 requests, matching the realistic per-user volume the Analytics API returns.
+  const requests = 100 + (h % 9900);
+  return { email, costCents, requests };
 }
 
 export function createMockCcSpendProvider(): CcSpendProvider {

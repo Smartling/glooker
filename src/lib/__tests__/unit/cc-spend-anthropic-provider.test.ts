@@ -1,19 +1,22 @@
-import { createAnthropicCcSpendProvider } from '@/lib/cc-spend/anthropic-provider';
+import {
+  createAnthropicCcSpendProvider,
+  AnthropicAnalyticsKeyMissingError,
+} from '@/lib/cc-spend/anthropic-provider';
 
 const originalFetch = global.fetch;
-const originalKey = process.env.ANTHROPIC_ADMIN_API_KEY;
+const originalKey = process.env.ANTHROPIC_ANALYTICS_API_KEY;
 
 // Retry path includes a real 2.5s sleep; we stub setTimeout so retry tests don't hang.
 beforeEach(() => {
-  process.env.ANTHROPIC_ADMIN_API_KEY = 'sk-ant-admin-test';
+  process.env.ANTHROPIC_ANALYTICS_API_KEY = 'sk-ant-analytics-test';
   (global.fetch as any) = jest.fn();
   jest.spyOn(global, 'setTimeout').mockImplementation(((cb: any) => { cb(); return 0 as any; }) as any);
 });
 
 afterEach(() => {
   global.fetch = originalFetch;
-  if (originalKey === undefined) delete process.env.ANTHROPIC_ADMIN_API_KEY;
-  else process.env.ANTHROPIC_ADMIN_API_KEY = originalKey;
+  if (originalKey === undefined) delete process.env.ANTHROPIC_ANALYTICS_API_KEY;
+  else process.env.ANTHROPIC_ANALYTICS_API_KEY = originalKey;
   jest.useRealTimers();
   jest.restoreAllMocks();
 });
@@ -22,128 +25,161 @@ function mockOk(body: unknown, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => body };
 }
 
-function buildUserRow(email: string, sessions: number, costCents: number, inputTokens: number, outputTokens: number) {
+function buildUserRow(opts: {
+  email: string;
+  amount: string;
+  requests: number;
+  type?: string;
+  deleted?: boolean;
+}) {
   return {
-    actor: { email_address: email },
-    num_sessions: sessions,
-    model_breakdown: [
-      {
-        tokens: { input: inputTokens, output: outputTokens, cache_read: 0, cache_creation: 0 },
-        estimated_cost: { amount: String(costCents) },
-      },
-    ],
+    product: null,
+    model: null,
+    context_window: null,
+    inference_geo: null,
+    speed: null,
+    actor: {
+      type: opts.type ?? 'user_actor',
+      user_id: `user_${opts.email}`,
+      name: opts.email,
+      email: opts.email,
+      deleted: opts.deleted ?? false,
+    },
+    currency: 'USD',
+    amount: opts.amount,
+    list_amount: opts.amount,
+    cost_type: null,
+    token_type: null,
+    requests: opts.requests,
   };
 }
 
 describe('AnthropicCcSpendProvider.pullByPeriod', () => {
-  it('iterates one day per call over the period (inclusive)', async () => {
-    (global.fetch as any).mockResolvedValue(mockOk({ data: [], next_page: null }));
+  it('sends one request with correct URL params for a 14-day range', async () => {
+    (global.fetch as any).mockResolvedValue(mockOk({ data: [], has_more: false, next_page: null }));
     const provider = createAnthropicCcSpendProvider();
-    await provider.pullByPeriod('2026-04-01', '2026-04-03');
-    expect((global.fetch as any)).toHaveBeenCalledTimes(3);
-    const urls = (global.fetch as any).mock.calls.map((c: unknown[]) => c[0] as string);
-    expect(urls[0]).toContain('starting_at=2026-04-01');
-    expect(urls[1]).toContain('starting_at=2026-04-02');
-    expect(urls[2]).toContain('starting_at=2026-04-03');
+    await provider.pullByPeriod('2026-04-01', '2026-04-14');
+    expect((global.fetch as any)).toHaveBeenCalledTimes(1);
+    const url = (global.fetch as any).mock.calls[0][0] as string;
+    expect(url).toContain('/v1/organizations/analytics/user_cost_report');
+    expect(url).toContain('starting_at=2026-04-01T00%3A00%3A00Z');
+    expect(url).toContain('ending_at=2026-04-14T23%3A59%3A59Z');
+    expect(url).toContain('limit=1000');
   });
 
-  it('sends auth headers on every request', async () => {
-    (global.fetch as any).mockResolvedValue(mockOk({ data: [], next_page: null }));
+  it('sends auth headers', async () => {
+    (global.fetch as any).mockResolvedValue(mockOk({ data: [], has_more: false, next_page: null }));
     const provider = createAnthropicCcSpendProvider();
-    await provider.pullByPeriod('2026-04-01', '2026-04-01');
+    await provider.pullByPeriod('2026-04-01', '2026-04-14');
     const init = (global.fetch as any).mock.calls[0][1] as RequestInit;
     expect(init.headers).toMatchObject({
-      'x-api-key': 'sk-ant-admin-test',
+      'x-api-key': 'sk-ant-analytics-test',
       'anthropic-version': '2023-06-01',
     });
   });
 
-  it('aggregates costCents/tokens/sessions per email across days and model_breakdown', async () => {
-    (global.fetch as any)
-      .mockResolvedValueOnce(mockOk({
-        data: [
-          buildUserRow('alice@example.com', 2, 500, 100, 50),
-          buildUserRow('bob@example.com', 1, 300, 80, 40),
-        ],
-        next_page: null,
-      }))
-      .mockResolvedValueOnce(mockOk({
-        data: [
-          buildUserRow('alice@example.com', 3, 700, 150, 75),
-        ],
-        next_page: null,
-      }));
+  it('aggregates costCents (rounds fractional cents) and requests per email, lowercases email', async () => {
+    (global.fetch as any).mockResolvedValueOnce(mockOk({
+      data: [
+        buildUserRow({ email: 'Bkoval@Smartling.com', amount: '81977.726735', requests: 6968 }),
+        buildUserRow({ email: 'alice@example.com', amount: '500.25', requests: 12 }),
+      ],
+      has_more: false,
+      next_page: null,
+    }));
 
     const provider = createAnthropicCcSpendProvider();
-    const result = await provider.pullByPeriod('2026-04-01', '2026-04-02');
+    const result = await provider.pullByPeriod('2026-04-01', '2026-04-14');
     const byEmail = new Map(result.map(r => [r.email, r]));
+    expect(byEmail.get('bkoval@smartling.com')).toEqual({
+      email: 'bkoval@smartling.com',
+      costCents: 81978, // Math.round(81977.726735)
+      requests: 6968,
+    });
     expect(byEmail.get('alice@example.com')).toEqual({
       email: 'alice@example.com',
-      sessions: 5,
-      costCents: 1200,
-      inputTokens: 250,
-      outputTokens: 125,
-    });
-    expect(byEmail.get('bob@example.com')).toEqual({
-      email: 'bob@example.com',
-      sessions: 1,
-      costCents: 300,
-      inputTokens: 80,
-      outputTokens: 40,
+      costCents: 500, // Math.round(500.25)
+      requests: 12,
     });
   });
 
-  it('follows cursor pagination within a day', async () => {
+  it('follows cursor pagination via page=<next_page> param, combines results', async () => {
     (global.fetch as any)
       .mockResolvedValueOnce(mockOk({
-        data: [buildUserRow('alice@example.com', 1, 100, 10, 5)],
+        data: [buildUserRow({ email: 'alice@example.com', amount: '100', requests: 5 })],
+        has_more: true,
         next_page: 'CURSOR_2',
       }))
       .mockResolvedValueOnce(mockOk({
-        data: [buildUserRow('bob@example.com', 1, 200, 20, 10)],
+        data: [buildUserRow({ email: 'bob@example.com', amount: '200', requests: 9 })],
+        has_more: false,
         next_page: null,
       }));
     const provider = createAnthropicCcSpendProvider();
-    const result = await provider.pullByPeriod('2026-04-01', '2026-04-01');
+    const result = await provider.pullByPeriod('2026-04-01', '2026-04-14');
     expect((global.fetch as any)).toHaveBeenCalledTimes(2);
     expect((global.fetch as any).mock.calls[1][0]).toContain('page=CURSOR_2');
     expect(result.length).toBe(2);
+    const byEmail = new Map(result.map(r => [r.email, r]));
+    expect(byEmail.get('alice@example.com')?.requests).toBe(5);
+    expect(byEmail.get('bob@example.com')?.requests).toBe(9);
   });
 
-  it('retries once on 5xx, then succeeds', async () => {
+  it('skips actor.type !== user_actor (e.g. api_actor)', async () => {
+    (global.fetch as any).mockResolvedValueOnce(mockOk({
+      data: [
+        buildUserRow({ email: 'alice@example.com', amount: '100', requests: 5 }),
+        buildUserRow({ email: 'ci-bot@example.com', amount: '999', requests: 99, type: 'api_actor' }),
+      ],
+      has_more: false,
+      next_page: null,
+    }));
+    const provider = createAnthropicCcSpendProvider();
+    const result = await provider.pullByPeriod('2026-04-01', '2026-04-14');
+    expect(result.length).toBe(1);
+    expect(result[0].email).toBe('alice@example.com');
+  });
+
+  it('skips actor.deleted=true users', async () => {
+    (global.fetch as any).mockResolvedValueOnce(mockOk({
+      data: [
+        buildUserRow({ email: 'alice@example.com', amount: '100', requests: 5 }),
+        buildUserRow({ email: 'former@example.com', amount: '500', requests: 50, deleted: true }),
+      ],
+      has_more: false,
+      next_page: null,
+    }));
+    const provider = createAnthropicCcSpendProvider();
+    const result = await provider.pullByPeriod('2026-04-01', '2026-04-14');
+    expect(result.length).toBe(1);
+    expect(result[0].email).toBe('alice@example.com');
+  });
+
+  it('retries once on 503, then succeeds', async () => {
     (global.fetch as any)
       .mockResolvedValueOnce(mockOk({}, 503))
-      .mockResolvedValueOnce(mockOk({ data: [buildUserRow('alice@example.com', 1, 100, 10, 5)], next_page: null }));
+      .mockResolvedValueOnce(mockOk({
+        data: [buildUserRow({ email: 'alice@example.com', amount: '100', requests: 5 })],
+        has_more: false,
+        next_page: null,
+      }));
     const provider = createAnthropicCcSpendProvider();
-    const result = await provider.pullByPeriod('2026-04-01', '2026-04-01');
+    const result = await provider.pullByPeriod('2026-04-01', '2026-04-14');
     expect((global.fetch as any)).toHaveBeenCalledTimes(2);
     expect(result.length).toBe(1);
   });
 
-  it('aborts the whole pull on 401', async () => {
+  it('throws on 401 with /401/ message', async () => {
     (global.fetch as any).mockResolvedValue(mockOk({ error: 'unauthorized' }, 401));
     const provider = createAnthropicCcSpendProvider();
-    await expect(provider.pullByPeriod('2026-04-01', '2026-04-05')).rejects.toThrow(/401/);
-    expect((global.fetch as any)).toHaveBeenCalledTimes(1);
+    await expect(provider.pullByPeriod('2026-04-01', '2026-04-14')).rejects.toThrow(/401/);
   });
 
-  it('throws AnthropicAdminKeyMissingError before any HTTP call when env var unset', async () => {
-    delete process.env.ANTHROPIC_ADMIN_API_KEY;
+  it('throws AnthropicAnalyticsKeyMissingError before any HTTP when env unset', async () => {
+    delete process.env.ANTHROPIC_ANALYTICS_API_KEY;
     const provider = createAnthropicCcSpendProvider();
-    await expect(provider.pullByPeriod('2026-04-01', '2026-04-01')).rejects.toThrow(/ANTHROPIC_ADMIN_API_KEY/);
+    await expect(provider.pullByPeriod('2026-04-01', '2026-04-14')).rejects.toThrow(AnthropicAnalyticsKeyMissingError);
     expect((global.fetch as any)).not.toHaveBeenCalled();
-  });
-
-  it('skips a day after retry exhaustion (logs but does not abort the period)', async () => {
-    (global.fetch as any)
-      .mockResolvedValueOnce(mockOk({}, 503)) // day 1 first try
-      .mockResolvedValueOnce(mockOk({}, 503)) // day 1 retry
-      .mockResolvedValueOnce(mockOk({ data: [buildUserRow('alice@example.com', 1, 100, 10, 5)], next_page: null })); // day 2
-    const logs: string[] = [];
-    const provider = createAnthropicCcSpendProvider();
-    const result = await provider.pullByPeriod('2026-04-01', '2026-04-02', (m) => logs.push(m));
-    expect(result.length).toBe(1);
-    expect(logs.some(l => l.includes('2026-04-01') && /skip|fail|retry/i.test(l))).toBe(true);
   });
 });
 
@@ -151,9 +187,10 @@ describe('AnthropicCcSpendProvider.probe', () => {
   it('returns userCount + sampleEmail on success', async () => {
     (global.fetch as any).mockResolvedValueOnce(mockOk({
       data: [
-        buildUserRow('alice@example.com', 1, 100, 10, 5),
-        buildUserRow('bob@example.com', 2, 200, 20, 10),
+        buildUserRow({ email: 'alice@example.com', amount: '100', requests: 5 }),
+        buildUserRow({ email: 'bob@example.com', amount: '200', requests: 9 }),
       ],
+      has_more: false,
       next_page: null,
     }));
     const provider = createAnthropicCcSpendProvider();
@@ -162,8 +199,8 @@ describe('AnthropicCcSpendProvider.probe', () => {
     expect(result.sampleEmail).toBe('alice@example.com');
   });
 
-  it('returns userCount=0 when the day has no users', async () => {
-    (global.fetch as any).mockResolvedValueOnce(mockOk({ data: [], next_page: null }));
+  it('returns userCount=0 when no users in date range', async () => {
+    (global.fetch as any).mockResolvedValueOnce(mockOk({ data: [], has_more: false, next_page: null }));
     const provider = createAnthropicCcSpendProvider();
     const result = await provider.probe('2026-04-15');
     expect(result.userCount).toBe(0);
@@ -176,9 +213,9 @@ describe('AnthropicCcSpendProvider.probe', () => {
     await expect(provider.probe('2026-04-15')).rejects.toThrow(/401/);
   });
 
-  it('throws when env var is unset', async () => {
-    delete process.env.ANTHROPIC_ADMIN_API_KEY;
+  it('throws when env var unset', async () => {
+    delete process.env.ANTHROPIC_ANALYTICS_API_KEY;
     const provider = createAnthropicCcSpendProvider();
-    await expect(provider.probe('2026-04-15')).rejects.toThrow(/ANTHROPIC_ADMIN_API_KEY/);
+    await expect(provider.probe('2026-04-15')).rejects.toThrow(AnthropicAnalyticsKeyMissingError);
   });
 });
