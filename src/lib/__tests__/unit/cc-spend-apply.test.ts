@@ -40,7 +40,7 @@ describe('applyCcSpend', () => {
 
     const result = await applyCcSpend({
       reportId: 'rep1',
-      aggregates: [{ email: 'alice@example.com', costCents: 4000, inputTokens: 100, outputTokens: 50, sessions: 3 }],
+      aggregates: [{ email: 'alice@example.com', costCents: 4000, requests: 25 }],
       periodStart: '2026-04-01',
       periodEnd: '2026-04-14',
     });
@@ -54,7 +54,7 @@ describe('applyCcSpend', () => {
       (c) => typeof c[0] === 'string' && c[0].includes('UPDATE developer_stats') && c[0].includes('cc_total_cost = ?'),
     );
     expect(updateCall).toBeDefined();
-    expect(updateCall![1]).toEqual([4000, 100, 50, 3, 'rep1', 'alice']);
+    expect(updateCall![1]).toEqual([4000, 25, 'rep1', 'alice']);
   });
 
   it('falls back to user_mappings when commit_analyses lacks the email', async () => {
@@ -67,7 +67,7 @@ describe('applyCcSpend', () => {
 
     const result = await applyCcSpend({
       reportId: 'rep1',
-      aggregates: [{ email: 'bob@example.com', costCents: 200, inputTokens: 0, outputTokens: 0, sessions: 1 }],
+      aggregates: [{ email: 'bob@example.com', costCents: 200, requests: 4 }],
       periodStart: '2026-04-01',
       periodEnd: '2026-04-14',
     });
@@ -81,7 +81,7 @@ describe('applyCcSpend', () => {
 
     const result = await applyCcSpend({
       reportId: 'rep1',
-      aggregates: [{ email: 'ghost@example.com', costCents: 500, inputTokens: 0, outputTokens: 0, sessions: 1 }],
+      aggregates: [{ email: 'ghost@example.com', costCents: 500, requests: 2 }],
       periodStart: '2026-04-01',
       periodEnd: '2026-04-14',
     });
@@ -102,7 +102,7 @@ describe('applyCcSpend', () => {
 
     const result = await applyCcSpend({
       reportId: 'rep1',
-      aggregates: [{ email: 'MixedCase@Example.com', costCents: 100, inputTokens: 0, outputTokens: 0, sessions: 1 }],
+      aggregates: [{ email: 'MixedCase@Example.com', costCents: 100, requests: 1 }],
       periodStart: '2026-04-01',
       periodEnd: '2026-04-14',
     });

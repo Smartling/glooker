@@ -66,7 +66,7 @@ describe('refreshCcSpendForReport', () => {
     mockExec.mockResolvedValueOnce([{ affectedRows: 1 }, null]);
 
     const pull = jest.fn().mockResolvedValue([
-      { email: 'alice@example.com', costCents: 4000, inputTokens: 100, outputTokens: 50, sessions: 3 },
+      { email: 'alice@example.com', costCents: 4000, requests: 25 },
     ]);
     mockGetProvider.mockReturnValue({ pullByPeriod: pull, probe: jest.fn() });
 

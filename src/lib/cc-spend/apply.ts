@@ -36,7 +36,7 @@ export async function applyCcSpend(input: CcApplyInput): Promise<CcApplyResult> 
   // Reset existing cc_* values for this report so partial pulls don't leave stale data.
   await db.execute(
     `UPDATE developer_stats
-       SET cc_total_cost = 0, cc_input_tokens = 0, cc_output_tokens = 0, cc_sessions = 0
+       SET cc_total_cost = 0, cc_requests = 0
      WHERE report_id = ?`,
     [reportId],
   );
@@ -73,9 +73,9 @@ export async function applyCcSpend(input: CcApplyInput): Promise<CcApplyResult> 
     if (!login) { unmatched++; continue; }
     const [result] = await db.execute(
       `UPDATE developer_stats
-         SET cc_total_cost = ?, cc_input_tokens = ?, cc_output_tokens = ?, cc_sessions = ?
+         SET cc_total_cost = ?, cc_requests = ?
        WHERE report_id = ? AND github_login = ?`,
-      [agg.costCents, agg.inputTokens, agg.outputTokens, agg.sessions, reportId, login],
+      [agg.costCents, agg.requests, reportId, login],
     ) as [any, any];
     if (result.affectedRows > 0) matched++;
     else unmatched++;

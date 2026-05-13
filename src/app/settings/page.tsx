@@ -1109,10 +1109,10 @@ function AppSettingsTab({ org }: { org: string }) {
         )}
       </div>
 
-      {/* Anthropic Admin API key panel */}
+      {/* Anthropic Analytics API key panel */}
       <div className="bg-gray-900 rounded-xl p-5 mb-6 mt-6">
         <div className="flex items-center justify-between mb-3">
-          <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">Anthropic Admin API Key</p>
+          <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">Anthropic Analytics API Key</p>
           <button
             onClick={testAnthropicConnection}
             disabled={anthropicTesting}
@@ -1128,7 +1128,7 @@ function AppSettingsTab({ org }: { org: string }) {
           </button>
         </div>
         <p className="text-xs text-gray-500">
-          Used to pull Claude Code spend from Anthropic. Set <code className="text-gray-400">ANTHROPIC_ADMIN_API_KEY</code> in <code className="text-gray-400">.env.local</code>.
+          Used to pull Claude usage cost from Anthropic. Set <code className="text-gray-400">ANTHROPIC_ANALYTICS_API_KEY</code> in <code className="text-gray-400">.env.local</code> (a <code className="text-gray-400">read:analytics</code>-scoped key from claude.ai/analytics/api-keys).
         </p>
         {anthropicTestResult && (
           <div className="mt-3 text-xs">

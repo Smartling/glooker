@@ -25,7 +25,7 @@ interface DevStats {
   total_jira_issues: number;
   total_reviews?: number;
   cc_total_cost?: number;
-  cc_sessions?: number;
+  cc_requests?: number;
 }
 
 interface JiraIssue {
@@ -247,12 +247,12 @@ export default function DevDetailPage() {
         })}
       </div>
 
-      {/* CC Spend tile (admin only) */}
+      {/* Anthropic Spend tile (admin only) */}
       {canAct && Number(dev.cc_total_cost ?? 0) > 0 && (
         <div className="bg-gray-900 rounded-xl p-4 mb-6">
-          <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">CC Spend</p>
+          <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Anthropic Spend</p>
           <p className="text-xl font-bold text-green-400">${(Number(dev.cc_total_cost) / 100).toFixed(2)}</p>
-          <p className="text-xs text-gray-600 mt-0.5">{dev.cc_sessions ?? 0} sessions</p>
+          <p className="text-xs text-gray-600 mt-0.5">{dev.cc_requests ?? 0} requests</p>
         </div>
       )}
 

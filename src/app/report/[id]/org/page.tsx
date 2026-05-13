@@ -36,9 +36,7 @@ interface Developer {
   type_breakdown: Record<string, number>; active_repos: string[];
   total_jira_issues?: number;
   cc_total_cost?: number;
-  cc_input_tokens?: number;
-  cc_output_tokens?: number;
-  cc_sessions?: number;
+  cc_requests?: number;
 }
 
 interface WeeklyData {
@@ -1121,8 +1119,8 @@ function SpendTab({ developers, reportId, router, report, spendWindow }: {
               const cost = Number(dev.cc_total_cost ?? 0);
               const pctOfTotal = total > 0 ? (cost / total) * 100 : 0;
               cumulative += pctOfTotal;
-              const sessions = Number(dev.cc_sessions ?? 0);
-              const perSession = sessions > 0 ? cost / sessions : 0;
+              const requests = Number(dev.cc_requests ?? 0);
+              const perRequest = requests > 0 ? cost / requests : 0;
               const impact = Number(dev.impact_score) || 0;
               const outlier = isOutlier(dev);
               const win = spendWindow?.perDev[dev.github_login];
@@ -1151,8 +1149,8 @@ function SpendTab({ developers, reportId, router, report, spendWindow }: {
                   <td className="px-4 py-3 text-right font-mono text-green-400">{formatDollars(cost)}</td>
                   <td className="px-4 py-3 text-right text-gray-300">{pctOfTotal.toFixed(1)}%</td>
                   <td className="px-4 py-3 text-right text-gray-300">{cumulative.toFixed(1)}%</td>
-                  <td className="px-4 py-3 text-right text-gray-300">{sessions > 0 ? sessions.toLocaleString() : <span className="text-gray-600">&mdash;</span>}</td>
-                  <td className="px-4 py-3 text-right font-mono text-gray-300">{sessions > 0 ? formatDollars(perSession) : <span className="text-gray-600">&mdash;</span>}</td>
+                  <td className="px-4 py-3 text-right text-gray-300">{requests > 0 ? requests.toLocaleString() : <span className="text-gray-600">&mdash;</span>}</td>
+                  <td className="px-4 py-3 text-right font-mono text-gray-300">{requests > 0 ? formatDollars(perRequest) : <span className="text-gray-600">&mdash;</span>}</td>
                   {spendWindow && (
                     <td className="px-4 py-3 text-right text-gray-300">{winCommits > 0 ? winCommits.toLocaleString() : <span className="text-gray-600">&mdash;</span>}</td>
                   )}

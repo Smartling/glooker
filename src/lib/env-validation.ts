@@ -138,7 +138,7 @@ const conditionalRules: {
     when: () => process.env.CC_ANALYTICS_PROVIDER !== 'mock',
     featureLabel: 'CC_ANALYTICS_PROVIDER!=mock',
     vars: [
-      { name: 'ANTHROPIC_ADMIN_API_KEY', description: 'Anthropic Admin API key — without this, Claude Code spend will not be pulled during report runs (set CC_ANALYTICS_PROVIDER=mock for local dev)' },
+      { name: 'ANTHROPIC_ANALYTICS_API_KEY', description: 'Anthropic Analytics API key (read:analytics scope) — without this, Claude usage cost will not be pulled during report runs (set CC_ANALYTICS_PROVIDER=mock for local dev)' },
     ],
   },
 ];
