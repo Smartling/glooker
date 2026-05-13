@@ -87,7 +87,7 @@ function accumulate(
     entry.sessions += row.num_sessions ?? 0;
     for (const m of row.model_breakdown ?? []) {
       const costStr = m.estimated_cost?.amount;
-      const cost = typeof costStr === 'string' ? parseInt(costStr, 10) : (costStr ?? 0);
+      const cost = typeof costStr === 'string' ? Number(costStr) : (costStr ?? 0);
       entry.costCents += Number.isFinite(cost) ? cost : 0;
       entry.inputTokens += m.tokens?.input ?? 0;
       entry.outputTokens += m.tokens?.output ?? 0;
