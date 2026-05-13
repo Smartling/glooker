@@ -1,5 +1,8 @@
 import { createMockCcSpendProvider } from '@/lib/cc-spend/mock-provider';
+import { getCcSpendProvider, __resetCcSpendProviderForTest } from '@/lib/cc-spend/provider';
 import { MOCK_DEVELOPERS } from '../../../../scripts/mock-identities';
+
+const originalProvider = process.env.CC_ANALYTICS_PROVIDER;
 
 describe('MockCcSpendProvider', () => {
   it('returns an aggregate per MOCK_DEVELOPER with jiraEmail', async () => {
@@ -31,5 +34,40 @@ describe('MockCcSpendProvider', () => {
     const expected = MOCK_DEVELOPERS.filter(d => d.jiraEmail).length;
     expect(probe.userCount).toBe(expected);
     expect(probe.sampleEmail).toMatch(/@/);
+  });
+});
+
+describe('getCcSpendProvider factory', () => {
+  afterEach(() => {
+    __resetCcSpendProviderForTest();
+    if (originalProvider === undefined) delete process.env.CC_ANALYTICS_PROVIDER;
+    else process.env.CC_ANALYTICS_PROVIDER = originalProvider;
+  });
+
+  it('returns the mock provider when CC_ANALYTICS_PROVIDER=mock', async () => {
+    process.env.CC_ANALYTICS_PROVIDER = 'mock';
+    const provider = getCcSpendProvider();
+    // Mock provider doesn't need the Anthropic env var.
+    delete process.env.ANTHROPIC_ADMIN_API_KEY;
+    const probe = await provider.probe('2026-04-15');
+    expect(probe.userCount).toBeGreaterThan(0);
+  });
+
+  it('returns the Anthropic provider by default', () => {
+    delete process.env.CC_ANALYTICS_PROVIDER;
+    process.env.ANTHROPIC_ADMIN_API_KEY = 'sk-ant-admin-test';
+    const provider = getCcSpendProvider();
+    expect(typeof provider.pullByPeriod).toBe('function');
+    expect(typeof provider.probe).toBe('function');
+  });
+
+  it('caches the provider across calls until reset', () => {
+    process.env.CC_ANALYTICS_PROVIDER = 'mock';
+    const a = getCcSpendProvider();
+    const b = getCcSpendProvider();
+    expect(a).toBe(b);
+    __resetCcSpendProviderForTest();
+    const c = getCcSpendProvider();
+    expect(c).not.toBe(a);
   });
 });
