@@ -34,6 +34,8 @@ Glooker is a Next.js 15 web app that generates developer impact reports for a Gi
 - `LLM_PROVIDER` selects backend: `openai` (default), `anthropic`, `openai-compatible`, `smartling`, `bedrock`
 - `DB_TYPE` selects database: `sqlite` (default), `mysql`
 - `JIRA_ENABLED=true` enables Jira integration; requires `JIRA_HOST`, `JIRA_USERNAME`, `JIRA_API_TOKEN`
+- `ANTHROPIC_ADMIN_API_KEY` enables per-developer Claude Code spend pull during report runs. Get it from the Anthropic Console (Admin API keys section). If unset, report runs warn and skip the CC enrichment phase; cc_* columns stay at 0 until backfilled via the Settings → Pull from Anthropic button.
+- `CC_ANALYTICS_PROVIDER=mock` selects the mock provider for local dev (used by `npm run dev:mock`).
 - GitHub fine-grained token needs: Contents:read, Pull requests:read, Metadata:read, Members:read
 
 ## Gotchas
