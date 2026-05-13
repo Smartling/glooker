@@ -1111,17 +1111,25 @@ function AppSettingsTab({ org }: { org: string }) {
 
       {/* Anthropic Admin API key panel */}
       <div className="bg-gray-900 rounded-xl p-5 mb-6 mt-6">
-        <h2 className="text-sm font-semibold text-white mb-1">Anthropic Admin API key</h2>
-        <p className="text-xs text-gray-500 mb-4">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">Anthropic Admin API Key</p>
+          <button
+            onClick={testAnthropicConnection}
+            disabled={anthropicTesting}
+            className="px-3 py-1.5 text-xs font-medium bg-accent hover:bg-accent-dark disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg transition-colors flex items-center gap-2"
+          >
+            {anthropicTesting && (
+              <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+            )}
+            {anthropicTesting ? 'Testing...' : 'Test Connection'}
+          </button>
+        </div>
+        <p className="text-xs text-gray-500">
           Used to pull Claude Code spend from Anthropic. Set <code className="text-gray-400">ANTHROPIC_ADMIN_API_KEY</code> in <code className="text-gray-400">.env.local</code>.
         </p>
-        <button
-          onClick={testAnthropicConnection}
-          disabled={anthropicTesting}
-          className="px-3 py-1.5 text-xs font-medium bg-accent hover:bg-accent-hover text-white rounded transition-colors disabled:opacity-50"
-        >
-          {anthropicTesting ? 'Testing...' : 'Test connection'}
-        </button>
         {anthropicTestResult && (
           <div className="mt-3 text-xs">
             {anthropicTestResult.success ? (
