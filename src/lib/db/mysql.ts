@@ -168,7 +168,16 @@ export function createMySQLDB(): DB {
 
   // Schema creation + migrations run sequentially to avoid InnoDB deadlocks
   // when multiple ALTER TABLE statements target the same table concurrently.
-  (async () => {
+  //
+  // The `ready` promise gates all queries until migrations complete. Without
+  // this, createMySQLDB would return a DB object while ALTER TABLE statements
+  // were still in flight, allowing the first pool.execute from any module
+  // imported at startup (report-runner, applyCcSpend, etc.) to race against
+  // migration writes. Cross-replica safety (e.g. GET_LOCK advisory locks) is
+  // intentionally deferred — Glooker today runs single-replica via
+  // docker-compose, so this in-process gate is sufficient. Revisit when/if
+  // horizontal scaling lands.
+  const ready: Promise<void> = (async () => {
   await pool.execute(SCHEDULES_SCHEMA).catch((err) => {
     console.error('[db/mysql] Failed to create schedules table:', err);
   });
@@ -237,7 +246,9 @@ export function createMySQLDB(): DB {
   })();
 
   return {
-    execute: <T = any>(sql: string, params?: any[]): Promise<[T[], any]> =>
-      pool.execute(sql, params) as Promise<[T[], any]>,
+    execute: async <T = any>(sql: string, params?: any[]): Promise<[T[], any]> => {
+      await ready;
+      return pool.execute(sql, params) as Promise<[T[], any]>;
+    },
   };
 }
