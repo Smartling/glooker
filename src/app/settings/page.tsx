@@ -834,7 +834,7 @@ function AppSettingsTab({ org }: { org: string }) {
     success: boolean;
     error?: string;
     userCount?: number;
-    sampleEmail?: string;
+    sampleEmailMasked?: string;
     probeDate?: string;
     latencyMs?: number;
   } | null>(null);
@@ -1135,7 +1135,7 @@ function AppSettingsTab({ org }: { org: string }) {
             {anthropicTestResult.success ? (
               <div className="text-emerald-400">
                 ✓ Connected — {anthropicTestResult.userCount} active CC users
-                {anthropicTestResult.sampleEmail && <> (e.g. {anthropicTestResult.sampleEmail})</>}
+                {anthropicTestResult.sampleEmailMasked && <> (e.g. {anthropicTestResult.sampleEmailMasked})</>}
                 {' '}on {anthropicTestResult.probeDate} • {anthropicTestResult.latencyMs}ms
               </div>
             ) : (

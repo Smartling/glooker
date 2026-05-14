@@ -1,9 +1,29 @@
 // src/app/api/settings/anthropic/test-connection/route.ts
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getCcSpendProvider } from '@/lib/cc-spend/provider';
+import { requireAdmin } from '@/lib/auth';
 import { withRequestLog } from '@/lib/logger';
 
-async function postHandler() {
+/**
+ * Mask an email so the response preserves the "we got a real user back" signal
+ * without leaking a corporate identity over devtools / screen share / logs.
+ * Example: `bob.smith@smartling.com` → `b*********@smartling.com`.
+ */
+function maskEmail(email: string | undefined): string | undefined {
+  if (!email) return undefined;
+  const at = email.indexOf('@');
+  if (at <= 0) return undefined;
+  const local = email.slice(0, at);
+  const domain = email.slice(at); // includes the '@'
+  const first = local[0];
+  const stars = '*'.repeat(Math.max(local.length - 1, 1));
+  return `${first}${stars}${domain}`;
+}
+
+async function postHandler(req: NextRequest) {
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
+
   const start = Date.now();
   try {
     const provider = getCcSpendProvider();
@@ -14,7 +34,7 @@ async function postHandler() {
     return NextResponse.json({
       success: true,
       userCount: probe.userCount,
-      sampleEmail: probe.sampleEmail,
+      sampleEmailMasked: maskEmail(probe.sampleEmail),
       probeDate: date,
       latencyMs,
     });
