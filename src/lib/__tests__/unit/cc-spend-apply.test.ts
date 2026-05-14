@@ -40,6 +40,7 @@ describe('applyCcSpend', () => {
 
     const result = await applyCcSpend({
       reportId: 'rep1',
+      org: 'my-org',
       aggregates: [{ email: 'alice@example.com', costCents: 4000, requests: 25 }],
       periodStart: '2026-04-01',
       periodEnd: '2026-04-14',
@@ -67,6 +68,7 @@ describe('applyCcSpend', () => {
 
     const result = await applyCcSpend({
       reportId: 'rep1',
+      org: 'my-org',
       aggregates: [{ email: 'bob@example.com', costCents: 200, requests: 4 }],
       periodStart: '2026-04-01',
       periodEnd: '2026-04-14',
@@ -81,6 +83,7 @@ describe('applyCcSpend', () => {
 
     const result = await applyCcSpend({
       reportId: 'rep1',
+      org: 'my-org',
       aggregates: [{ email: 'ghost@example.com', costCents: 500, requests: 2 }],
       periodStart: '2026-04-01',
       periodEnd: '2026-04-14',
@@ -102,6 +105,7 @@ describe('applyCcSpend', () => {
 
     const result = await applyCcSpend({
       reportId: 'rep1',
+      org: 'my-org',
       aggregates: [{ email: 'MixedCase@Example.com', costCents: 100, requests: 1 }],
       periodStart: '2026-04-01',
       periodEnd: '2026-04-14',
@@ -115,9 +119,36 @@ describe('applyCcSpend', () => {
 
     await expect(applyCcSpend({
       reportId: 'missing',
+      org: 'my-org',
       aggregates: [],
       periodStart: '2026-04-01',
       periodEnd: '2026-04-14',
     })).rejects.toThrow(/Report not found/);
+  });
+
+  it('scopes the user_mappings fallback query by org', async () => {
+    arrangeDbCalls(
+      [],
+      [{ email: 'bob@example.com', github_login: 'bob-gh' }],
+    );
+    mockExec.mockResolvedValueOnce([{ affectedRows: 1 }, null]); // UPDATE devstats
+    mockExec.mockResolvedValueOnce([{ affectedRows: 1 }, null]); // UPDATE reports
+
+    await applyCcSpend({
+      reportId: 'rep1',
+      org: 'acme-org',
+      aggregates: [{ email: 'bob@example.com', costCents: 200, requests: 4 }],
+      periodStart: '2026-04-01',
+      periodEnd: '2026-04-14',
+    });
+
+    const mappingsCall = mockExec.mock.calls.find(
+      (c) =>
+        typeof c[0] === 'string' &&
+        c[0].includes('FROM user_mappings') &&
+        c[0].includes('WHERE org = ?'),
+    );
+    expect(mappingsCall).toBeDefined();
+    expect(mappingsCall![1]).toEqual(['acme-org']);
   });
 });

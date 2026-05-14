@@ -11,7 +11,7 @@ export async function refreshCcSpendForReport(
   log?: (msg: string) => void,
 ): Promise<CcApplyResult> {
   const [rows] = await db.execute(
-    `SELECT id, created_at, period_days FROM reports WHERE id = ?`,
+    `SELECT id, org, created_at, period_days FROM reports WHERE id = ?`,
     [reportId],
   ) as [any[], any];
   if (!rows.length) throw new ReportNotFoundError(reportId);
@@ -39,6 +39,7 @@ export async function refreshCcSpendForReport(
 
   return applyCcSpend({
     reportId,
+    org: String(rows[0].org),
     aggregates,
     periodStart: startStr,
     periodEnd: endStr,

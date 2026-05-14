@@ -28,6 +28,7 @@ describe('refreshCcSpendForReport', () => {
   it('computes the right period from report.created_at and period_days', async () => {
     mockExec.mockResolvedValueOnce([[{
       id: 'rep1',
+      org: 'my-org',
       created_at: '2026-04-15T00:00:00Z',
       period_days: 14,
     }], null]);
@@ -55,6 +56,7 @@ describe('refreshCcSpendForReport', () => {
   it('returns the aggregated result from applyCcSpend', async () => {
     mockExec.mockResolvedValueOnce([[{
       id: 'rep1',
+      org: 'my-org',
       created_at: '2026-04-15T00:00:00Z',
       period_days: 14,
     }], null]);
@@ -87,6 +89,7 @@ describe('refreshCcSpendForReport', () => {
   it('propagates provider errors', async () => {
     mockExec.mockResolvedValueOnce([[{
       id: 'rep1',
+      org: 'my-org',
       created_at: '2026-04-15T00:00:00Z',
       period_days: 14,
     }], null]);
@@ -101,6 +104,7 @@ describe('refreshCcSpendForReport', () => {
   it('clamps period_days=30 to a 30-day window without truncation log', async () => {
     mockExec.mockResolvedValueOnce([[{
       id: 'rep1',
+      org: 'my-org',
       created_at: '2026-05-01T00:00:00Z',
       period_days: 30,
     }], null]);
@@ -125,6 +129,7 @@ describe('refreshCcSpendForReport', () => {
   it('truncates period_days>30 to 30 days and logs', async () => {
     mockExec.mockResolvedValueOnce([[{
       id: 'rep1',
+      org: 'my-org',
       created_at: '2026-05-01T00:00:00Z',
       period_days: 60,
     }], null]);
@@ -149,6 +154,7 @@ describe('refreshCcSpendForReport', () => {
   it('defaults invalid period_days=0 to 14 and logs', async () => {
     mockExec.mockResolvedValueOnce([[{
       id: 'rep1',
+      org: 'my-org',
       created_at: '2026-05-01T00:00:00Z',
       period_days: 0,
     }], null]);
@@ -195,6 +201,7 @@ describe('refreshCcSpendForReport', () => {
       mockExec.mockReset();
       mockExec.mockResolvedValueOnce([[{
         id: 'rep1',
+        org: 'my-org',
         created_at: createdAt,
         period_days: 14,
       }], null]);

@@ -19,13 +19,14 @@ export interface CcApplyResult {
 
 export interface CcApplyInput {
   reportId: string;
+  org: string;
   aggregates: PerEmailAggregate[];
   periodStart: string;
   periodEnd: string;
 }
 
 export async function applyCcSpend(input: CcApplyInput): Promise<CcApplyResult> {
-  const { reportId, aggregates, periodStart, periodEnd } = input;
+  const { reportId, org, aggregates, periodStart, periodEnd } = input;
 
   const [reportRows] = await db.execute(
     `SELECT id FROM reports WHERE id = ?`,
@@ -55,7 +56,8 @@ export async function applyCcSpend(input: CcApplyInput): Promise<CcApplyResult> 
   const [jiraMappings] = await db.execute(
     `SELECT LOWER(jira_email) AS email, github_login
      FROM user_mappings
-     WHERE jira_email IS NOT NULL AND jira_email <> ''`,
+     WHERE org = ? AND jira_email IS NOT NULL AND jira_email <> ''`,
+    [org],
   ) as [any[], any];
   for (const r of jiraMappings) {
     if (r.email && r.github_login && !emailToLogin.has(r.email)) {
