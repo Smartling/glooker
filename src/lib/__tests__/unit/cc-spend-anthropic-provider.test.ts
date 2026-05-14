@@ -6,11 +6,23 @@ import {
 const originalFetch = global.fetch;
 const originalKey = process.env.ANTHROPIC_ANALYTICS_API_KEY;
 
+// Tracks setTimeout(ms) values from the module under test. Filled in beforeEach.
+let setTimeoutDelays: number[] = [];
+
 // Retry path includes a real 2.5s sleep; we stub setTimeout so retry tests don't hang.
+// We DON'T fire the abort-timer callback (the 30s one); we fire only the short retry sleeps
+// so the abort signal never trips during a fetch that's already resolved.
 beforeEach(() => {
   process.env.ANTHROPIC_ANALYTICS_API_KEY = 'sk-ant-analytics-test';
   (global.fetch as any) = jest.fn();
-  jest.spyOn(global, 'setTimeout').mockImplementation(((cb: any) => { cb(); return 0 as any; }) as any);
+  setTimeoutDelays = [];
+  jest.spyOn(global, 'setTimeout').mockImplementation(((cb: any, ms?: number) => {
+    setTimeoutDelays.push(typeof ms === 'number' ? ms : 0);
+    // The abort-timer is exactly 30_000ms — never fire it (would abort the mocked fetch).
+    // Everything else (retry sleeps, up to 60_000ms cap) fires immediately.
+    if (ms !== 30_000) cb();
+    return 0 as any;
+  }) as any);
 });
 
 afterEach(() => {
@@ -22,7 +34,12 @@ afterEach(() => {
 });
 
 function mockOk(body: unknown, status = 200) {
-  return { ok: status >= 200 && status < 300, status, json: async () => body };
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: { get: (_k: string) => null as string | null },
+    json: async () => body,
+  };
 }
 
 function buildUserRow(opts: {
@@ -169,6 +186,137 @@ describe('AnthropicCcSpendProvider.pullByPeriod', () => {
     expect(result.length).toBe(1);
   });
 
+  it('retries twice on 429 (MAX_RETRIES=2), succeeds on third attempt', async () => {
+    (global.fetch as any)
+      .mockResolvedValueOnce(mockOk({}, 429))
+      .mockResolvedValueOnce(mockOk({}, 429))
+      .mockResolvedValueOnce(mockOk({
+        data: [buildUserRow({ email: 'alice@example.com', amount: '100', requests: 5 })],
+        has_more: false,
+        next_page: null,
+      }));
+    const provider = createAnthropicCcSpendProvider();
+    const result = await provider.pullByPeriod('2026-04-01', '2026-04-14');
+    expect((global.fetch as any)).toHaveBeenCalledTimes(3);
+    expect(result.length).toBe(1);
+  });
+
+  it('honors Retry-After: <seconds> header (caps at 60s)', async () => {
+    const headersWith = (h: Record<string, string>) => ({
+      get: (k: string) => h[k.toLowerCase()] ?? null,
+    });
+    (global.fetch as any)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        headers: headersWith({ 'retry-after': '5' }),
+        json: async () => ({}),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        headers: headersWith({ 'retry-after': '999' }), // should clamp to 60_000
+        json: async () => ({}),
+      })
+      .mockResolvedValueOnce(mockOk({
+        data: [],
+        has_more: false,
+        next_page: null,
+      }));
+    const provider = createAnthropicCcSpendProvider();
+    await provider.pullByPeriod('2026-04-01', '2026-04-14');
+    // First retry sleep should be 5000ms, second should clamp to 60000ms.
+    // Filter out the 30_000ms abort timer; keep everything else.
+    const retryDelays = setTimeoutDelays.filter(d => d > 0 && d !== 30_000);
+    expect(retryDelays).toContain(5000);
+    expect(retryDelays).toContain(60_000);
+  });
+
+  it('honors Retry-After: <HTTP-date> header (clamps to 60s)', async () => {
+    const realNow = Date.now();
+    jest.spyOn(Date, 'now').mockReturnValue(realNow);
+    const fiveSecLater = new Date(realNow + 5_000).toUTCString();
+    const fiveMinLater = new Date(realNow + 5 * 60_000).toUTCString();
+
+    const headersWith = (h: Record<string, string>) => ({
+      get: (k: string) => h[k.toLowerCase()] ?? null,
+    });
+    (global.fetch as any)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        headers: headersWith({ 'retry-after': fiveSecLater }),
+        json: async () => ({}),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        headers: headersWith({ 'retry-after': fiveMinLater }),
+        json: async () => ({}),
+      })
+      .mockResolvedValueOnce(mockOk({ data: [], has_more: false, next_page: null }));
+
+    const provider = createAnthropicCcSpendProvider();
+    await provider.pullByPeriod('2026-04-01', '2026-04-14');
+    const retryDelays = setTimeoutDelays.filter(d => d > 0 && d !== 30_000);
+    // 5s in future -> ~5000ms (allow ±1s for parsing slop).
+    expect(retryDelays.some(d => Math.abs(d - 5000) < 1500)).toBe(true);
+    // 5 min in future -> clamped to 60_000.
+    expect(retryDelays).toContain(60_000);
+  });
+
+  it('retries on AbortError (network-level rejection)', async () => {
+    const abortErr = Object.assign(new Error('aborted'), { name: 'AbortError' });
+    (global.fetch as any)
+      .mockRejectedValueOnce(abortErr)
+      .mockResolvedValueOnce(mockOk({
+        data: [buildUserRow({ email: 'alice@example.com', amount: '100', requests: 5 })],
+        has_more: false,
+        next_page: null,
+      }));
+    const provider = createAnthropicCcSpendProvider();
+    const result = await provider.pullByPeriod('2026-04-01', '2026-04-14');
+    expect((global.fetch as any)).toHaveBeenCalledTimes(2);
+    expect(result.length).toBe(1);
+  });
+
+  it('retries on ECONNRESET (network-level rejection)', async () => {
+    const netErr = Object.assign(new Error('ECONNRESET'), { code: 'ECONNRESET' });
+    (global.fetch as any)
+      .mockRejectedValueOnce(netErr)
+      .mockResolvedValueOnce(mockOk({
+        data: [buildUserRow({ email: 'alice@example.com', amount: '100', requests: 5 })],
+        has_more: false,
+        next_page: null,
+      }));
+    const provider = createAnthropicCcSpendProvider();
+    const result = await provider.pullByPeriod('2026-04-01', '2026-04-14');
+    expect((global.fetch as any)).toHaveBeenCalledTimes(2);
+    expect(result.length).toBe(1);
+  });
+
+  it('exhausts retry budget on persistent network errors, then throws', async () => {
+    const netErr = Object.assign(new Error('ETIMEDOUT'), { code: 'ETIMEDOUT' });
+    (global.fetch as any)
+      .mockRejectedValueOnce(netErr)
+      .mockRejectedValueOnce(netErr)
+      .mockRejectedValueOnce(netErr);
+    const provider = createAnthropicCcSpendProvider();
+    await expect(provider.pullByPeriod('2026-04-01', '2026-04-14')).rejects.toThrow(/ETIMEDOUT/);
+    expect((global.fetch as any)).toHaveBeenCalledTimes(3); // initial + 2 retries
+  });
+
+  it('aborts after MAX_PAGES (100) cursor pages', async () => {
+    // Every fetch returns a page with a next_page cursor — should hit the cap.
+    (global.fetch as any).mockResolvedValue(mockOk({
+      data: [buildUserRow({ email: 'alice@example.com', amount: '1', requests: 1 })],
+      has_more: true,
+      next_page: 'CURSOR',
+    }));
+    const provider = createAnthropicCcSpendProvider();
+    await expect(provider.pullByPeriod('2026-04-01', '2026-04-14')).rejects.toThrow(/100 pages/);
+  });
+
   it('throws on 401 with /401/ message', async () => {
     (global.fetch as any).mockResolvedValue(mockOk({ error: 'unauthorized' }, 401));
     const provider = createAnthropicCcSpendProvider();
@@ -197,6 +345,21 @@ describe('AnthropicCcSpendProvider.probe', () => {
     const result = await provider.probe('2026-04-15');
     expect(result.userCount).toBe(2);
     expect(result.sampleEmail).toBe('alice@example.com');
+  });
+
+  it('dedupes users by email (counts distinct, not rows)', async () => {
+    (global.fetch as any).mockResolvedValueOnce(mockOk({
+      data: [
+        buildUserRow({ email: 'alice@example.com', amount: '100', requests: 5 }),
+        buildUserRow({ email: 'Alice@Example.com', amount: '50', requests: 2 }), // same after lowercase
+        buildUserRow({ email: 'bob@example.com', amount: '200', requests: 9 }),
+      ],
+      has_more: false,
+      next_page: null,
+    }));
+    const provider = createAnthropicCcSpendProvider();
+    const result = await provider.probe('2026-04-15');
+    expect(result.userCount).toBe(2);
   });
 
   it('returns userCount=0 when no users in date range', async () => {
