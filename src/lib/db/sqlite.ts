@@ -288,9 +288,16 @@ export function createSQLiteDB(): DB {
           const rows = stmt.all(...normalizedParams) as T[];
           return Promise.resolve([rows, null]);
         } else {
+          // Match the mysql2/promise shape for non-SELECT queries: the first
+          // element of the tuple is a ResultSetHeader-like object (not an
+          // array of rows). Callers do `const [r] = await db.execute(...)`
+          // followed by `r.affectedRows`, which only works if `r` is the
+          // header object directly. Wrapping it in `[{...}]` was a pre-existing
+          // bug that silently broke matched-count logic in apply.ts and
+          // affectedRows checks in report/service.ts under SQLite.
           const result = stmt.run(...normalizedParams);
           return Promise.resolve([
-            [{ affectedRows: result.changes, insertId: result.lastInsertRowid }] as any,
+            { affectedRows: result.changes, insertId: result.lastInsertRowid } as any,
             null,
           ]);
         }
