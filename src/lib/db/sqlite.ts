@@ -275,7 +275,7 @@ export function createSQLiteDB(): DB {
   try { db.exec('ALTER TABLE reports ADD COLUMN cc_period_start TEXT'); } catch (_) {}
   try { db.exec('ALTER TABLE reports ADD COLUMN cc_period_end TEXT'); } catch (_) {}
 
-  return {
+  const dbApi: DB = {
     execute: <T = any>(sql: string, params?: any[]): Promise<[T[], any]> => {
       const translated = translateSQL(sql);
       const normalizedParams = (params || []).map((p) =>
@@ -298,7 +298,21 @@ export function createSQLiteDB(): DB {
         return Promise.reject(err);
       }
     },
+    transaction: async <T>(fn: (tx: DB) => Promise<T>): Promise<T> => {
+      // better-sqlite3 is synchronous and serializes queries; using async fn
+      // here is safe because the underlying handle is single-threaded.
+      db.exec('BEGIN');
+      try {
+        const result = await fn(dbApi);
+        db.exec('COMMIT');
+        return result;
+      } catch (err) {
+        try { db.exec('ROLLBACK'); } catch (_) {}
+        throw err;
+      }
+    },
   };
+  return dbApi;
 }
 
 function translateSQL(sql: string): string {

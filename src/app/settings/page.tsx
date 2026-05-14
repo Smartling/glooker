@@ -1416,8 +1416,9 @@ function CcSpendRefreshBlock() {
   const [selectedReportId, setSelectedReportId] = useState<string>('');
   const [refreshing, setRefreshing] = useState(false);
   const [result, setResult] = useState<{
-    matched: number; unmatched: number; totalApiUsers: number;
-    totalSpendUsd: number; periodStart: string; periodEnd: string;
+    matched: number; unmappedEmail: number; noDevStatsRow: number;
+    totalApiUsers: number; totalSpendUsd: number;
+    periodStart: string; periodEnd: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -1481,7 +1482,7 @@ function CcSpendRefreshBlock() {
         {error && <div className="text-xs text-red-400">{error}</div>}
         {result && (
           <div className="text-xs text-emerald-400">
-            ✓ Pulled {result.totalApiUsers} users, matched {result.matched} (${result.totalSpendUsd.toFixed(2)} total for {result.periodStart} → {result.periodEnd})
+            ✓ Pulled {result.totalApiUsers} users → {result.matched} matched, {result.unmappedEmail} unmapped, {result.noDevStatsRow} no commits — ${result.totalSpendUsd.toFixed(2)} total ({result.periodStart} → {result.periodEnd})
           </div>
         )}
       </div>

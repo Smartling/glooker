@@ -257,5 +257,30 @@ export function createMySQLDB(): DB {
       await ready;
       return pool.execute(sql, params) as Promise<[T[], any]>;
     },
+    transaction: async <T>(fn: (tx: DB) => Promise<T>): Promise<T> => {
+      await ready;
+      const conn = await pool.getConnection();
+      try {
+        await conn.beginTransaction();
+        const txDb: DB = {
+          execute: async <U = any>(sql: string, params?: any[]): Promise<[U[], any]> => {
+            return conn.execute(sql, params) as Promise<[U[], any]>;
+          },
+          transaction: async () => {
+            throw new Error('Nested transactions are not supported');
+          },
+        };
+        try {
+          const result = await fn(txDb);
+          await conn.commit();
+          return result;
+        } catch (err) {
+          try { await conn.rollback(); } catch (_) {}
+          throw err;
+        }
+      } finally {
+        conn.release();
+      }
+    },
   };
 }

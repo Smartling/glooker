@@ -505,7 +505,11 @@ export async function runReport(
     try {
       log('Pulling Claude Code spend from Anthropic API...');
       const ccResult = await refreshCcSpendForReport(reportId, log);
-      log(`CC spend: ${ccResult.matched}/${ccResult.totalApiUsers} matched, $${ccResult.totalSpendUsd.toFixed(2)} total (${ccResult.periodStart} → ${ccResult.periodEnd})`);
+      const extras: string[] = [];
+      if (ccResult.unmappedEmail > 0) extras.push(`${ccResult.unmappedEmail} unmapped`);
+      if (ccResult.noDevStatsRow > 0) extras.push(`${ccResult.noDevStatsRow} no commits`);
+      const tail = extras.length ? ` [${extras.join(', ')}]` : '';
+      log(`CC spend: ${ccResult.matched}/${ccResult.totalApiUsers} matched, $${ccResult.totalSpendUsd.toFixed(2)} total (${ccResult.periodStart} → ${ccResult.periodEnd})${tail}`);
     } catch (err) {
       log(`CC spend: SKIP — ${err instanceof Error ? err.message : String(err)}`);
     }

@@ -100,7 +100,8 @@ describe('runReport', () => {
 
     mockRefreshCc.mockReset();
     mockRefreshCc.mockResolvedValue({
-      matched: 0, unmatched: 0, totalApiUsers: 0, totalSpendUsd: 0,
+      matched: 0, unmappedEmail: 0, noDevStatsRow: 0,
+      totalApiUsers: 0, totalSpendUsd: 0,
       periodStart: '2026-01-01', periodEnd: '2026-01-15',
     });
   });

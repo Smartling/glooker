@@ -1,7 +1,13 @@
 jest.mock('@octokit/rest', () => ({ Octokit: jest.fn() }));
 jest.mock('@/lib/db/index', () => ({
   __esModule: true,
-  default: { execute: jest.fn().mockResolvedValue([[], null]) },
+  default: {
+    execute: jest.fn().mockResolvedValue([[], null]),
+    // applyCcSpend wraps the reset + per-user updates in a transaction. By
+    // default, invoke the callback with the same db handle so existing
+    // .execute mocks continue to apply.
+    transaction: jest.fn(async (fn: any) => fn(require('@/lib/db/index').default)),
+  },
 }));
 jest.mock('@/lib/cc-spend/provider', () => {
   const realModule = jest.requireActual('@/lib/cc-spend/provider');
