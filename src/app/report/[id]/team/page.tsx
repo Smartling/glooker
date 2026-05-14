@@ -22,7 +22,7 @@ interface Developer {
   ai_percentage:      number;
   total_jira_issues?: number;
   cc_total_cost?:     number;
-  cc_sessions?:       number;
+  cc_requests?:       number;
   type_breakdown:     Record<string, number>;
   active_repos:       string[];
 }
@@ -345,7 +345,7 @@ export default function TeamSummaryPage() {
                 <th className="px-4 py-3 text-right w-[5%]">PR%</th>
                 <th className="px-4 py-3 text-right w-[5%]">AI%</th>
                 {hasJira && <th className="px-4 py-3 text-right w-[5%]">Jira</th>}
-                {hasSpend && <th className="px-4 py-3 text-right w-[7%]" title="Claude Code spend (last uploaded period)">CC Spend</th>}
+                {hasSpend && <th className="px-4 py-3 text-right w-[7%]" title="Anthropic API spend (last uploaded period)">Spend</th>}
                 <th className="px-4 py-3 w-[24%]">Types</th>
                 <th className="px-4 py-3 text-right w-[7%]" title="Impact = Commits (2.0) + PRs (2.7) + Complexity (3.5) + PR% (1.1) + Jira (0.5) + Reviews (0.5). Max: 9.3">Impact &#9432;</th>
               </tr>

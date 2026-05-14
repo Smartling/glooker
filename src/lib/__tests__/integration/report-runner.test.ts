@@ -19,12 +19,19 @@ jest.mock('p-limit', () => ({
   __esModule: true,
   default: () => <T>(fn: () => T) => fn(),
 }));
+jest.mock('@/lib/cc-spend/service', () => ({
+  refreshCcSpendForReport: jest.fn(),
+}));
 
 import { runReport, requestStop } from '@/lib/report-runner';
 import { getGitHubProvider } from '@/lib/github';
 import { analyzeCommit } from '@/lib/analyzer';
 import db from '@/lib/db/index';
 import { updateProgress, addLog } from '@/lib/progress-store';
+import { refreshCcSpendForReport } from '@/lib/cc-spend/service';
+import { AnthropicAnalyticsKeyMissingError } from '@/lib/cc-spend/anthropic-provider';
+const mockRefreshCc = refreshCcSpendForReport as jest.Mock;
+const mockAddLog = addLog as jest.Mock;
 
 const mockListOrgMembers = jest.fn();
 const mockFetchUserActivity = jest.fn();
@@ -92,6 +99,13 @@ describe('runReport', () => {
     const { getCommitDetail } = require('@/lib/github');
     (getCommitDetail as jest.Mock).mockReset();
     (getCommitDetail as jest.Mock).mockResolvedValue({ additions: 0, deletions: 0, diff: '' });
+
+    mockRefreshCc.mockReset();
+    mockRefreshCc.mockResolvedValue({
+      matched: 0, unmappedEmail: 0, noDevStatsRow: 0,
+      totalApiUsers: 0, totalSpendUsd: 0,
+      periodStart: '2026-01-01', periodEnd: '2026-01-15',
+    });
   });
 
   it('happy path: calls analyzeCommit for each unique commit and writes to DB', async () => {
@@ -394,5 +408,87 @@ describe('runReport', () => {
     );
     expect(inserts.length).toBe(0);
     expect(mockCompareBranchCommits).not.toHaveBeenCalled();
+  });
+
+  describe('runReport — CC spend enrichment', () => {
+    it('invokes refreshCcSpendForReport after Jira phase', async () => {
+      await runReport('r1', 'my-org', 14);
+      expect(mockRefreshCc).toHaveBeenCalledWith('r1', expect.any(Function));
+    });
+
+    it('continues when refreshCcSpendForReport throws (non-fatal)', async () => {
+      mockRefreshCc.mockRejectedValueOnce(new Error('Anthropic 503'));
+      await expect(runReport('r1', 'my-org', 14)).resolves.toBeUndefined();
+    });
+
+    it('surfaces the env-var name when AnthropicAnalyticsKeyMissingError is thrown', async () => {
+      mockAddLog.mockClear();
+      mockRefreshCc.mockRejectedValueOnce(new AnthropicAnalyticsKeyMissingError());
+
+      await runReport('r1', 'my-org', 14);
+
+      const skipLogs = mockAddLog.mock.calls
+        .map((c) => c[1])
+        .filter((m: string) => typeof m === 'string' && m.includes('CC spend: SKIP'));
+      expect(skipLogs.length).toBeGreaterThan(0);
+      const keyMissingLog = skipLogs.find((m: string) => m.includes('ANTHROPIC_ANALYTICS_API_KEY not set'));
+      expect(keyMissingLog).toBeDefined();
+    });
+
+    it('does NOT mention the env-var name for a transient 5xx', async () => {
+      mockAddLog.mockClear();
+      mockRefreshCc.mockRejectedValueOnce(new Error('Anthropic Analytics API 503'));
+
+      await runReport('r1', 'my-org', 14);
+
+      const skipLogs = mockAddLog.mock.calls
+        .map((c) => c[1])
+        .filter((m: string) => typeof m === 'string' && m.includes('CC spend: SKIP'));
+      expect(skipLogs.length).toBeGreaterThan(0);
+      // Generic skip log must include the upstream error message, not the env var.
+      const transientLog = skipLogs.find((m: string) => m.includes('Anthropic Analytics API 503'));
+      expect(transientLog).toBeDefined();
+      for (const m of skipLogs) {
+        expect(m).not.toContain('ANTHROPIC_ANALYTICS_API_KEY');
+      }
+    });
+
+    it('skips re-pull on resume when cc_period_end is already set', async () => {
+      // Mock DB to return cc_period_end populated for the report row lookup.
+      mockDbExecute.mockImplementation(async (sql: string) => {
+        if (typeof sql === 'string' && sql.includes('SELECT commit_sha')) {
+          return [[], null]; // no existing analyses
+        }
+        if (typeof sql === 'string' && sql.includes('SELECT cc_period_end FROM reports')) {
+          return [[{ cc_period_end: '2026-04-15' }], null];
+        }
+        return [[], null];
+      });
+      mockAddLog.mockClear();
+
+      await runReport('rResume1', 'my-org', 14, true);
+
+      expect(mockRefreshCc).not.toHaveBeenCalled();
+      const skipLogs = mockAddLog.mock.calls
+        .map((c) => c[1])
+        .filter((m: string) => typeof m === 'string' && m.includes('already pulled (resume)'));
+      expect(skipLogs.length).toBeGreaterThan(0);
+    });
+
+    it('re-pulls on resume when cc_period_end is NULL', async () => {
+      mockDbExecute.mockImplementation(async (sql: string) => {
+        if (typeof sql === 'string' && sql.includes('SELECT commit_sha')) {
+          return [[], null];
+        }
+        if (typeof sql === 'string' && sql.includes('SELECT cc_period_end FROM reports')) {
+          return [[{ cc_period_end: null }], null];
+        }
+        return [[], null];
+      });
+
+      await runReport('rResume2', 'my-org', 14, true);
+
+      expect(mockRefreshCc).toHaveBeenCalledWith('rResume2', expect.any(Function));
+    });
   });
 });

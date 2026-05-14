@@ -30,7 +30,7 @@ export async function getDevReport(reportId: string, login: string) {
             total_prs, total_commits, lines_added, lines_removed,
             avg_complexity, impact_score, pr_percentage, ai_percentage,
             total_jira_issues, total_reviews,
-            cc_total_cost, cc_input_tokens, cc_output_tokens, cc_sessions,
+            cc_total_cost, cc_requests,
             type_breakdown, active_repos
      FROM developer_stats
      WHERE report_id = ? AND github_login = ?`,

@@ -9,7 +9,7 @@ async function getHandler(req: NextRequest, { params }: { params: Promise<{ id: 
   try {
     const result = await getOrgReport(id);
     if (!isAdmin(req)) {
-      result.developers = result.developers.map(({ cc_total_cost, cc_input_tokens, cc_output_tokens, cc_sessions, ...rest }: any) => rest);
+      result.developers = result.developers.map(({ cc_total_cost, cc_requests, ...rest }: any) => rest);
       const { cc_period_start, cc_period_end, ...reportRest } = result.report;
       result.report = reportRest;
       (result as any).spendWindow = null;

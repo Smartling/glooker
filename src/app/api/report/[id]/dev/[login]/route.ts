@@ -5,7 +5,7 @@ import { DeveloperNotFoundError } from '@/lib/report/dev';
 import { isAdmin } from '@/lib/auth';
 import { withRequestLog } from '@/lib/logger';
 
-const CC_FIELDS = ['cc_total_cost', 'cc_input_tokens', 'cc_output_tokens', 'cc_sessions'] as const;
+const CC_FIELDS = ['cc_total_cost', 'cc_requests'] as const;
 
 function stripCc<T extends Record<string, any>>(obj: T): T {
   const copy: any = { ...obj };

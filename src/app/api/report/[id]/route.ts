@@ -12,7 +12,7 @@ async function getHandler(
   try {
     const result = await getReport(id);
     if (!isAdmin(req)) {
-      result.developers = result.developers.map(({ cc_total_cost, cc_input_tokens, cc_output_tokens, cc_sessions, ...rest }: any) => rest);
+      result.developers = result.developers.map(({ cc_total_cost, cc_requests, ...rest }: any) => rest);
     }
     return NextResponse.json(result);
   } catch (err) {

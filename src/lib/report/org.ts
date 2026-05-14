@@ -23,7 +23,7 @@ export async function getOrgReport(reportId: string) {
             avg_complexity, impact_score, pr_percentage, ai_percentage,
             total_jira_issues,
             type_breakdown, active_repos,
-            cc_total_cost, cc_input_tokens, cc_output_tokens, cc_sessions
+            cc_total_cost, cc_requests
      FROM developer_stats WHERE report_id = ? ORDER BY impact_score DESC`,
     [reportId],
   ) as [any[], any];

@@ -134,6 +134,13 @@ const conditionalRules: {
       { name: 'AUTH_ADMIN_GROUP', description: 'Okta group for admin role (without this, no one can run reports or manage settings)' },
     ],
   },
+  {
+    when: () => process.env.CC_ANALYTICS_PROVIDER !== 'mock',
+    featureLabel: 'CC_ANALYTICS_PROVIDER!=mock',
+    vars: [
+      { name: 'ANTHROPIC_ANALYTICS_API_KEY', description: 'Anthropic Analytics API key (read:analytics scope) — without this, Claude usage cost will not be pulled during report runs (set CC_ANALYTICS_PROVIDER=mock for local dev)' },
+    ],
+  },
 ];
 
 export function validateEnv(): void {
