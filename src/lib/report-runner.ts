@@ -10,6 +10,7 @@ import { getAppConfig } from './app-config/service';
 
 import { UNMERGED_LOOKBACK_DAYS } from './report/unmerged-window';
 import { refreshCcSpendForReport } from './cc-spend/service';
+import { AnthropicAnalyticsKeyMissingError } from './cc-spend/anthropic-provider';
 
 const CONCURRENCY = Number(process.env.LLM_CONCURRENCY || 5);
 
@@ -502,16 +503,36 @@ export async function runReport(
 
     // CC spend enrichment — non-fatal. If Anthropic Admin API key is unset or the
     // API is down, the report still completes with cc_* columns left at 0.
-    try {
-      log('Pulling Claude Code spend from Anthropic API...');
-      const ccResult = await refreshCcSpendForReport(reportId, log);
-      const extras: string[] = [];
-      if (ccResult.unmappedEmail > 0) extras.push(`${ccResult.unmappedEmail} unmapped`);
-      if (ccResult.noDevStatsRow > 0) extras.push(`${ccResult.noDevStatsRow} no commits`);
-      const tail = extras.length ? ` [${extras.join(', ')}]` : '';
-      log(`CC spend: ${ccResult.matched}/${ccResult.totalApiUsers} matched, $${ccResult.totalSpendUsd.toFixed(2)} total (${ccResult.periodStart} → ${ccResult.periodEnd})${tail}`);
-    } catch (err) {
-      log(`CC spend: SKIP — ${err instanceof Error ? err.message : String(err)}`);
+    //
+    // Resume guard: a resumed run whose original execution already populated
+    // cc_period_end means applyCcSpend already ran. Re-invoking would reset
+    // cc_total_cost/cc_requests to 0 inside the transaction (visible $0 in the
+    // Spend tab for the duration) and burn an Anthropic API pull. Skip and
+    // direct the operator to the explicit refresh path.
+    const [ccReportRows] = await db.execute(
+      `SELECT cc_period_end FROM reports WHERE id = ?`,
+      [reportId],
+    ) as [any[], any];
+    const ccAlreadyPulled = ccReportRows[0]?.cc_period_end != null;
+
+    if (resume && ccAlreadyPulled) {
+      log('CC spend: SKIP — already pulled (resume); use Settings → Pull from Anthropic to re-pull');
+    } else {
+      try {
+        log('Pulling Claude Code spend from Anthropic API...');
+        const ccResult = await refreshCcSpendForReport(reportId, log);
+        const extras: string[] = [];
+        if (ccResult.unmappedEmail > 0) extras.push(`${ccResult.unmappedEmail} unmapped`);
+        if (ccResult.noDevStatsRow > 0) extras.push(`${ccResult.noDevStatsRow} no commits`);
+        const tail = extras.length ? ` [${extras.join(', ')}]` : '';
+        log(`CC spend: ${ccResult.matched}/${ccResult.totalApiUsers} matched, $${ccResult.totalSpendUsd.toFixed(2)} total (${ccResult.periodStart} → ${ccResult.periodEnd})${tail}`);
+      } catch (err) {
+        if (err instanceof AnthropicAnalyticsKeyMissingError) {
+          log('CC spend: SKIP — ANTHROPIC_ANALYTICS_API_KEY not set (configure in .env.local or container env)');
+        } else {
+          log(`CC spend: SKIP — ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
     }
 
     // 3. Final aggregation with full cross-member view (overwrites per-member stats)
