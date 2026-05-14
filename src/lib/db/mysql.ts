@@ -166,72 +166,75 @@ export function createMySQLDB(): DB {
     connectionLimit:    10,
   });
 
-  // Auto-create schedules table if it doesn't exist
-  pool.execute(SCHEDULES_SCHEMA).catch((err) => {
+  // Schema creation + migrations run sequentially to avoid InnoDB deadlocks
+  // when multiple ALTER TABLE statements target the same table concurrently.
+  (async () => {
+  await pool.execute(SCHEDULES_SCHEMA).catch((err) => {
     console.error('[db/mysql] Failed to create schedules table:', err);
   });
-  pool.execute(JIRA_SCHEMA).catch((err) => {
+  await pool.execute(JIRA_SCHEMA).catch((err) => {
     console.error('[db/mysql] Failed to create jira_issues table:', err);
   });
-  pool.execute(USER_MAPPINGS_SCHEMA).catch((err) => {
+  await pool.execute(USER_MAPPINGS_SCHEMA).catch((err) => {
     console.error('[db/mysql] Failed to create user_mappings table:', err);
   });
-  pool.execute(EPIC_SUMMARIES_SCHEMA).catch((err) => {
+  await pool.execute(EPIC_SUMMARIES_SCHEMA).catch((err) => {
     console.error('[db/mysql] Failed to create epic_summaries table:', err);
   });
-  pool.execute(UNTRACKED_SUMMARIES_SCHEMA).catch((err) => {
+  await pool.execute(UNTRACKED_SUMMARIES_SCHEMA).catch((err) => {
     console.error('[db/mysql] Failed to create untracked_summaries table:', err);
   });
-  pool.execute(EPIC_STATS_SCHEMA).catch((err) => {
+  await pool.execute(EPIC_STATS_SCHEMA).catch((err) => {
     console.error('[db/mysql] Failed to create epic_stats table:', err);
   });
-  pool.execute(TEAM_PULSE_SCHEMA).catch((err) => {
+  await pool.execute(TEAM_PULSE_SCHEMA).catch((err) => {
     console.error('[db/mysql] Failed to create team_pulse_summaries table:', err);
   });
-  pool.execute(UNMERGED_PRS_SCHEMA).catch((err) => {
+  await pool.execute(UNMERGED_PRS_SCHEMA).catch((err) => {
     console.error('[db/mysql] Failed to create unmerged_prs table:', err);
   });
-  pool.execute(UNMERGED_COMMITS_SCHEMA).catch((err) => {
+  await pool.execute(UNMERGED_COMMITS_SCHEMA).catch((err) => {
     console.error('[db/mysql] Failed to create unmerged_commits table:', err);
   });
-  pool.execute('DROP TABLE IF EXISTS unmerged_work').catch((err) => {
+  await pool.execute('DROP TABLE IF EXISTS unmerged_work').catch((err) => {
     console.error('[db/mysql] Failed to drop unmerged_work table:', err);
   });
 
   // Migrations
-  pool.execute('ALTER TABLE developer_stats ADD COLUMN total_jira_issues INT NOT NULL DEFAULT 0').catch((err) => {
+  await pool.execute('ALTER TABLE developer_stats ADD COLUMN total_jira_issues INT NOT NULL DEFAULT 0').catch((err) => {
     if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add total_jira_issues:', err);
   });
-  pool.execute('ALTER TABLE commit_analyses ADD COLUMN author_email VARCHAR(255) NULL AFTER github_login').catch((err) => {
+  await pool.execute('ALTER TABLE commit_analyses ADD COLUMN author_email VARCHAR(255) NULL AFTER github_login').catch((err) => {
     if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add author_email:', err);
   });
-  pool.execute('ALTER TABLE untracked_summaries MODIFY COLUMN groups_json MEDIUMTEXT NOT NULL').catch(() => {});
-  pool.execute('ALTER TABLE developer_stats ADD COLUMN total_reviews INT NOT NULL DEFAULT 0').catch((err) => {
+  await pool.execute('ALTER TABLE untracked_summaries MODIFY COLUMN groups_json MEDIUMTEXT NOT NULL').catch(() => {});
+  await pool.execute('ALTER TABLE developer_stats ADD COLUMN total_reviews INT NOT NULL DEFAULT 0').catch((err) => {
     if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add total_reviews:', err);
   });
-  pool.execute('ALTER TABLE developer_stats ADD COLUMN cc_total_cost DECIMAL(10,2) NOT NULL DEFAULT 0.00').catch((err) => {
+  await pool.execute('ALTER TABLE developer_stats ADD COLUMN cc_total_cost DECIMAL(10,2) NOT NULL DEFAULT 0.00').catch((err) => {
     if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add cc_total_cost:', err);
   });
   // cc-spend migration: drop tokens+sessions columns (replaced by single requests count).
   // ER_CANT_DROP_FIELD_OR_KEY (1091) means the column is already gone — ignore.
-  pool.execute('ALTER TABLE developer_stats DROP COLUMN cc_input_tokens').catch((err) => {
+  await pool.execute('ALTER TABLE developer_stats DROP COLUMN cc_input_tokens').catch((err) => {
     if (err.errno !== 1091 && err.code !== 'ER_CANT_DROP_FIELD_OR_KEY') console.error('[db/mysql] Failed to drop cc_input_tokens:', err);
   });
-  pool.execute('ALTER TABLE developer_stats DROP COLUMN cc_output_tokens').catch((err) => {
+  await pool.execute('ALTER TABLE developer_stats DROP COLUMN cc_output_tokens').catch((err) => {
     if (err.errno !== 1091 && err.code !== 'ER_CANT_DROP_FIELD_OR_KEY') console.error('[db/mysql] Failed to drop cc_output_tokens:', err);
   });
-  pool.execute('ALTER TABLE developer_stats DROP COLUMN cc_sessions').catch((err) => {
+  await pool.execute('ALTER TABLE developer_stats DROP COLUMN cc_sessions').catch((err) => {
     if (err.errno !== 1091 && err.code !== 'ER_CANT_DROP_FIELD_OR_KEY') console.error('[db/mysql] Failed to drop cc_sessions:', err);
   });
-  pool.execute('ALTER TABLE developer_stats ADD COLUMN cc_requests BIGINT NOT NULL DEFAULT 0').catch((err) => {
+  await pool.execute('ALTER TABLE developer_stats ADD COLUMN cc_requests BIGINT NOT NULL DEFAULT 0').catch((err) => {
     if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add cc_requests:', err);
   });
-  pool.execute('ALTER TABLE reports ADD COLUMN cc_period_start DATE NULL').catch((err) => {
+  await pool.execute('ALTER TABLE reports ADD COLUMN cc_period_start DATE NULL').catch((err) => {
     if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add cc_period_start:', err);
   });
-  pool.execute('ALTER TABLE reports ADD COLUMN cc_period_end DATE NULL').catch((err) => {
+  await pool.execute('ALTER TABLE reports ADD COLUMN cc_period_end DATE NULL').catch((err) => {
     if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add cc_period_end:', err);
   });
+  })();
 
   return {
     execute: <T = any>(sql: string, params?: any[]): Promise<[T[], any]> =>

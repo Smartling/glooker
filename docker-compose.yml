@@ -45,6 +45,10 @@ services:
       AUTH_HEADER: ${AUTH_HEADER:-x-amzn-oidc-data}
       AUTH_ADMIN_GROUP: ${AUTH_ADMIN_GROUP:-}
       AUTH_TEST_USER: ${AUTH_TEST_USER:-}
+
+      # Anthropic Analytics API (Claude usage cost ingestion)
+      ANTHROPIC_ANALYTICS_API_KEY: ${ANTHROPIC_ANALYTICS_API_KEY:-}
+      CC_ANALYTICS_PROVIDER: ${CC_ANALYTICS_PROVIDER:-}
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
       interval: 30s
