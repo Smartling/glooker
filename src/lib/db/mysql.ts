@@ -164,6 +164,13 @@ export function createMySQLDB(): DB {
     database: process.env.DB_NAME     || 'glooker',
     waitForConnections: true,
     connectionLimit:    10,
+    // Parse DATETIME/TIMESTAMP columns as UTC instead of the JS engine's
+    // local TZ. Without this, callers that do `new Date(row.created_at)`
+    // followed by `.toISOString().slice(0,10)` get period boundaries that
+    // drift by a day under non-UTC container TZs — the same report
+    // refreshed in two different timezones would produce different
+    // periodStart/periodEnd values for downstream API pulls.
+    timezone: 'Z',
   });
 
   // Schema creation + migrations run sequentially to avoid InnoDB deadlocks

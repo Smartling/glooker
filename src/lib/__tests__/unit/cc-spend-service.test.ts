@@ -97,4 +97,51 @@ describe('refreshCcSpendForReport', () => {
 
     await expect(refreshCcSpendForReport('rep1')).rejects.toThrow(/401/);
   });
+
+  // Regression: created_at is read by `new Date(...)` and then formatted via
+  // .toISOString().slice(0,10). The result must be the same UTC date whether
+  // mysql2 (with timezone:'Z') hands us a Date built from a UTC ISO string,
+  // or better-sqlite3 hands us the raw ISO string. Both shapes must produce
+  // the same periodStart / periodEnd — otherwise the same report refreshed
+  // in two different container TZs disagrees on the analysis window.
+  describe.each([
+    ['raw ISO string (sqlite shape)', '2026-04-15T00:00:00Z' as any],
+    ['Date built from UTC ISO (mysql2 timezone:Z shape)', new Date('2026-04-15T00:00:00Z')],
+  ])('TZ-stable period boundaries with %s', (_label, createdAt) => {
+    const originalTZ = process.env.TZ;
+    afterAll(() => {
+      if (originalTZ === undefined) delete process.env.TZ;
+      else process.env.TZ = originalTZ;
+    });
+    beforeAll(() => {
+      // Best-effort: even though Node caches the TZ at startup, setting this
+      // gives a stronger signal to anyone reading the test that we care.
+      process.env.TZ = 'America/Los_Angeles';
+    });
+
+    it('derives the same UTC YYYY-MM-DD window from either shape', async () => {
+      mockExec.mockReset();
+      mockExec.mockResolvedValueOnce([[{
+        id: 'rep1',
+        created_at: createdAt,
+        period_days: 14,
+      }], null]);
+      // Subsequent calls inside applyCcSpend: report lookup, UPDATE reset,
+      // SELECT commit_analyses, SELECT user_mappings, UPDATE reports cc_period.
+      mockExec.mockResolvedValueOnce([[{ id: 'rep1' }], null]);
+      mockExec.mockResolvedValueOnce([{ affectedRows: 1 }, null]);
+      mockExec.mockResolvedValueOnce([[], null]);
+      mockExec.mockResolvedValueOnce([[], null]);
+      mockExec.mockResolvedValueOnce([{ affectedRows: 1 }, null]);
+
+      const pull = jest.fn().mockResolvedValue([]);
+      mockGetProvider.mockReturnValue({ pullByPeriod: pull, probe: jest.fn() });
+
+      const result = await refreshCcSpendForReport('rep1');
+
+      expect(pull).toHaveBeenCalledWith('2026-04-01', '2026-04-15', undefined);
+      expect(result.periodStart).toBe('2026-04-01');
+      expect(result.periodEnd).toBe('2026-04-15');
+    });
+  });
 });
