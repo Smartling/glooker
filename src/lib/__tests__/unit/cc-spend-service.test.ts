@@ -98,6 +98,78 @@ describe('refreshCcSpendForReport', () => {
     await expect(refreshCcSpendForReport('rep1')).rejects.toThrow(/401/);
   });
 
+  it('clamps period_days=30 to a 30-day window without truncation log', async () => {
+    mockExec.mockResolvedValueOnce([[{
+      id: 'rep1',
+      created_at: '2026-05-01T00:00:00Z',
+      period_days: 30,
+    }], null]);
+    mockExec.mockResolvedValueOnce([[{ id: 'rep1' }], null]);
+    mockExec.mockResolvedValueOnce([{ affectedRows: 1 }, null]);
+    mockExec.mockResolvedValueOnce([[], null]);
+    mockExec.mockResolvedValueOnce([[], null]);
+    mockExec.mockResolvedValueOnce([{ affectedRows: 1 }, null]);
+
+    const pull = jest.fn().mockResolvedValue([]);
+    mockGetProvider.mockReturnValue({ pullByPeriod: pull, probe: jest.fn() });
+    const log = jest.fn();
+
+    await refreshCcSpendForReport('rep1', log);
+
+    const [start, end] = pull.mock.calls[0];
+    expect(end).toBe('2026-05-01');
+    expect(start).toBe('2026-04-01'); // 30 days before
+    expect(log.mock.calls.flat().some(m => typeof m === 'string' && m.includes('truncating'))).toBe(false);
+  });
+
+  it('truncates period_days>30 to 30 days and logs', async () => {
+    mockExec.mockResolvedValueOnce([[{
+      id: 'rep1',
+      created_at: '2026-05-01T00:00:00Z',
+      period_days: 60,
+    }], null]);
+    mockExec.mockResolvedValueOnce([[{ id: 'rep1' }], null]);
+    mockExec.mockResolvedValueOnce([{ affectedRows: 1 }, null]);
+    mockExec.mockResolvedValueOnce([[], null]);
+    mockExec.mockResolvedValueOnce([[], null]);
+    mockExec.mockResolvedValueOnce([{ affectedRows: 1 }, null]);
+
+    const pull = jest.fn().mockResolvedValue([]);
+    mockGetProvider.mockReturnValue({ pullByPeriod: pull, probe: jest.fn() });
+    const log = jest.fn();
+
+    await refreshCcSpendForReport('rep1', log);
+
+    const [start, end] = pull.mock.calls[0];
+    expect(end).toBe('2026-05-01');
+    expect(start).toBe('2026-04-01'); // 30 days, not 60
+    expect(log.mock.calls.flat().some(m => typeof m === 'string' && /period_days=60.*30-day max/.test(m))).toBe(true);
+  });
+
+  it('defaults invalid period_days=0 to 14 and logs', async () => {
+    mockExec.mockResolvedValueOnce([[{
+      id: 'rep1',
+      created_at: '2026-05-01T00:00:00Z',
+      period_days: 0,
+    }], null]);
+    mockExec.mockResolvedValueOnce([[{ id: 'rep1' }], null]);
+    mockExec.mockResolvedValueOnce([{ affectedRows: 1 }, null]);
+    mockExec.mockResolvedValueOnce([[], null]);
+    mockExec.mockResolvedValueOnce([[], null]);
+    mockExec.mockResolvedValueOnce([{ affectedRows: 1 }, null]);
+
+    const pull = jest.fn().mockResolvedValue([]);
+    mockGetProvider.mockReturnValue({ pullByPeriod: pull, probe: jest.fn() });
+    const log = jest.fn();
+
+    await refreshCcSpendForReport('rep1', log);
+
+    const [start, end] = pull.mock.calls[0];
+    expect(end).toBe('2026-05-01');
+    expect(start).toBe('2026-04-17'); // 14 days
+    expect(log.mock.calls.flat().some(m => typeof m === 'string' && /period_days invalid/.test(m))).toBe(true);
+  });
+
   // Regression: created_at is read by `new Date(...)` and then formatted via
   // .toISOString().slice(0,10). The result must be the same UTC date whether
   // mysql2 (with timezone:'Z') hands us a Date built from a UTC ISO string,

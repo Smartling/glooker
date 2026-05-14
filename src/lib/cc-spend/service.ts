@@ -16,9 +16,21 @@ export async function refreshCcSpendForReport(
   ) as [any[], any];
   if (!rows.length) throw new ReportNotFoundError(reportId);
 
-  const periodDays = Number(rows[0].period_days) || 14;
+  const parsed = Number(rows[0].period_days);
+  const periodDays = Number.isFinite(parsed) && parsed > 0 ? parsed : 14;
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    log?.(`CC spend: report.period_days invalid (${rows[0].period_days}); defaulting to 14`);
+  }
+
+  // Anthropic Analytics API allows up to 31 days inclusive; keep 1 day of safety.
+  const MAX_PERIOD_DAYS = 30;
+  const effectivePeriodDays = Math.min(periodDays, MAX_PERIOD_DAYS);
+  if (periodDays > MAX_PERIOD_DAYS) {
+    log?.(`CC spend: report.period_days=${periodDays} exceeds Anthropic ${MAX_PERIOD_DAYS}-day max; truncating window`);
+  }
+
   const periodEnd = new Date(rows[0].created_at);
-  const periodStart = new Date(periodEnd.getTime() - periodDays * 86400_000);
+  const periodStart = new Date(periodEnd.getTime() - effectivePeriodDays * 86400_000);
   const startStr = periodStart.toISOString().slice(0, 10);
   const endStr = periodEnd.toISOString().slice(0, 10);
 
