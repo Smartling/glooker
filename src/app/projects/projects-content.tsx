@@ -120,12 +120,17 @@ export default function ProjectsContent() {
 
   // Status editing
   const [editingStatus, setEditingStatus] = useState<string | null>(null);
+  const [statusDropdownPos, setStatusDropdownPos] = useState<{ top: number; left: number } | null>(null);
   const [transitionsCache, setTransitionsCache] = useState<Record<string, Array<{ id: string; name: string; to: { name: string } }>>>({});
   const [transitionsLoading, setTransitionsLoading] = useState(false);
   const [savingStatus, setSavingStatus] = useState<string | null>(null);
 
-  const openStatusEditor = async (epicKey: string) => {
-    if (editingStatus === epicKey) { setEditingStatus(null); return; }
+  const openStatusEditor = async (epicKey: string, triggerEl?: HTMLElement) => {
+    if (editingStatus === epicKey) { setEditingStatus(null); setStatusDropdownPos(null); return; }
+    if (triggerEl) {
+      const rect = triggerEl.getBoundingClientRect();
+      setStatusDropdownPos({ top: rect.bottom + window.scrollY + 2, left: rect.left + window.scrollX });
+    }
     setEditingStatus(epicKey);
     if (transitionsCache[epicKey]) return; // already cached
     setTransitionsLoading(true);
@@ -168,6 +173,7 @@ export default function ProjectsContent() {
     } finally {
       setSavingStatus(null);
       setEditingStatus(null);
+      setStatusDropdownPos(null);
       // Invalidate transitions cache for this epic (status changed, transitions differ)
       setTransitionsCache(prev => { const n = { ...prev }; delete n[epicKey]; return n; });
     }
@@ -911,59 +917,64 @@ export default function ProjectsContent() {
                             </>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-gray-300 relative">
+                        <td className="px-4 py-3 text-gray-300">
                           <div>{epic.assignee || '—'}</div>
-                          {canAct ? (
-                            <div
-                              onClick={(e) => { e.stopPropagation(); openStatusEditor(epic.key); }}
-                              className={`flex items-center gap-1 mt-0.5 cursor-pointer text-[10px] transition-colors ${
-                                editingStatus === epic.key ? 'text-accent-lighter' : 'text-gray-500 hover:text-gray-300'
-                              }`}
-                            >
-                              <span className="w-[6px] h-[6px] rounded-full shrink-0" style={{
-                                background: savingStatus === epic.key ? '#6B7280' :
-                                  epic.status === 'Done' ? '#10B981' : epic.status === 'Rollout' ? '#3B82F6' :
-                                  epic.status === 'In Progress' ? '#D97706' : '#6B7280'
-                              }} />
-                              {savingStatus === epic.key ? 'Saving...' : epic.status}
-                              <svg className="w-2 h-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" /></svg>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-1 mt-0.5 text-[10px] text-gray-600">
-                              <span className="w-[6px] h-[6px] rounded-full shrink-0" style={{
-                                background: epic.status === 'Done' ? '#10B981' : epic.status === 'Rollout' ? '#3B82F6' :
-                                  epic.status === 'In Progress' ? '#D97706' : '#6B7280'
-                              }} />
-                              {epic.status}
-                            </div>
-                          )}
-                          {editingStatus === epic.key && (
-                            <>
-                              <div className="fixed inset-0 z-20" onClick={() => setEditingStatus(null)} />
-                              <div className="absolute top-full left-2 mt-0 z-30 bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden min-w-[140px]">
-                                {transitionsLoading && !transitionsCache[epic.key] ? (
-                                  <div className="px-3 py-2 text-xs text-gray-500 animate-pulse">Loading...</div>
-                                ) : (transitionsCache[epic.key] || []).length === 0 ? (
-                                  <div className="px-3 py-2 text-xs text-gray-600">No transitions</div>
-                                ) : (
-                                  (transitionsCache[epic.key] || []).map(t => (
-                                    <button
-                                      key={t.id}
-                                      onClick={(e) => { e.stopPropagation(); if (t.to.name === epic.status) { setEditingStatus(null); } else { executeTransition(epic.key, t.id, t.to.name); } }}
-                                      className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center gap-2 ${
-                                        t.to.name === epic.status ? 'text-accent-lighter font-medium' : 'text-gray-300 hover:bg-gray-700'
-                                      }`}
-                                    >
-                                      <span className="w-[6px] h-[6px] rounded-full shrink-0" style={{
-                                        background: t.to.name === 'Done' ? '#10B981' : t.to.name === 'Rollout' ? '#3B82F6' : t.to.name === 'In Progress' ? '#D97706' : '#6B7280'
-                                      }} />
-                                      {t.to.name}
-                                    </button>
-                                  ))
-                                )}
+                          <div className="mt-0.5">
+                            {canAct ? (
+                              <div
+                                onClick={(e) => { e.stopPropagation(); openStatusEditor(epic.key, e.currentTarget as HTMLElement); }}
+                                className={`flex items-center gap-1 cursor-pointer text-[10px] transition-colors ${
+                                  editingStatus === epic.key ? 'text-accent-lighter' : 'text-gray-500 hover:text-gray-300'
+                                }`}
+                              >
+                                <span className="w-[6px] h-[6px] rounded-full shrink-0" style={{
+                                  background: savingStatus === epic.key ? '#6B7280' :
+                                    epic.status === 'Done' ? '#10B981' : epic.status === 'Rollout' ? '#3B82F6' :
+                                    epic.status === 'In Progress' ? '#D97706' : '#6B7280'
+                                }} />
+                                {savingStatus === epic.key ? 'Saving...' : epic.status}
+                                <svg className="w-2 h-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" /></svg>
                               </div>
-                            </>
-                          )}
+                            ) : (
+                              <div className="flex items-center gap-1 text-[10px] text-gray-600">
+                                <span className="w-[6px] h-[6px] rounded-full shrink-0" style={{
+                                  background: epic.status === 'Done' ? '#10B981' : epic.status === 'Rollout' ? '#3B82F6' :
+                                    epic.status === 'In Progress' ? '#D97706' : '#6B7280'
+                                }} />
+                                {epic.status}
+                              </div>
+                            )}
+                            {editingStatus === epic.key && statusDropdownPos && (
+                              <>
+                                <div className="fixed inset-0 z-20" onClick={() => { setEditingStatus(null); setStatusDropdownPos(null); }} />
+                                <div
+                                  className="fixed z-30 bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden min-w-[140px]"
+                                  style={{ top: statusDropdownPos.top, left: statusDropdownPos.left }}
+                                >
+                                  {transitionsLoading && !transitionsCache[epic.key] ? (
+                                    <div className="px-3 py-2 text-xs text-gray-500 animate-pulse">Loading...</div>
+                                  ) : (transitionsCache[epic.key] || []).length === 0 ? (
+                                    <div className="px-3 py-2 text-xs text-gray-600">No transitions</div>
+                                  ) : (
+                                    (transitionsCache[epic.key] || []).map(t => (
+                                      <button
+                                        key={t.id}
+                                        onClick={(e) => { e.stopPropagation(); if (t.to.name === epic.status) { setEditingStatus(null); setStatusDropdownPos(null); } else { executeTransition(epic.key, t.id, t.to.name); } }}
+                                        className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center gap-2 ${
+                                          t.to.name === epic.status ? 'text-accent-lighter font-medium' : 'text-gray-300 hover:bg-gray-700'
+                                        }`}
+                                      >
+                                        <span className="w-[6px] h-[6px] rounded-full shrink-0" style={{
+                                          background: t.to.name === 'Done' ? '#10B981' : t.to.name === 'Rollout' ? '#3B82F6' : t.to.name === 'In Progress' ? '#D97706' : '#6B7280'
+                                        }} />
+                                        {t.to.name}
+                                      </button>
+                                    ))
+                                  )}
+                                </div>
+                              </>
+                            )}
+                          </div>
                         </td>
                         <td className="px-4 py-3">
                           {epic.team ? (
