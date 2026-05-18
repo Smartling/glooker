@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import useSWR, { preload } from 'swr';
 import { useAuth } from '../auth-context';
 import { findFirstJiraKey } from '@/lib/jira-key-utils';
@@ -121,15 +121,17 @@ export default function ProjectsContent() {
   // Status editing
   const [editingStatus, setEditingStatus] = useState<string | null>(null);
   const [statusDropdownPos, setStatusDropdownPos] = useState<{ top: number; left: number } | null>(null);
+  const statusTriggerRef = useRef<HTMLElement | null>(null);
   const [transitionsCache, setTransitionsCache] = useState<Record<string, Array<{ id: string; name: string; to: { name: string } }>>>({});
   const [transitionsLoading, setTransitionsLoading] = useState(false);
   const [savingStatus, setSavingStatus] = useState<string | null>(null);
 
   const openStatusEditor = async (epicKey: string, triggerEl?: HTMLElement) => {
-    if (editingStatus === epicKey) { setEditingStatus(null); setStatusDropdownPos(null); return; }
+    if (editingStatus === epicKey) { setEditingStatus(null); setStatusDropdownPos(null); statusTriggerRef.current = null; return; }
     if (triggerEl) {
+      statusTriggerRef.current = triggerEl;
       const rect = triggerEl.getBoundingClientRect();
-      setStatusDropdownPos({ top: rect.bottom + window.scrollY + 2, left: rect.left + window.scrollX });
+      setStatusDropdownPos({ top: rect.bottom + 2, left: rect.left });
     }
     setEditingStatus(epicKey);
     if (transitionsCache[epicKey]) return; // already cached
@@ -174,6 +176,7 @@ export default function ProjectsContent() {
       setSavingStatus(null);
       setEditingStatus(null);
       setStatusDropdownPos(null);
+      statusTriggerRef.current = null;
       // Invalidate transitions cache for this epic (status changed, transitions differ)
       setTransitionsCache(prev => { const n = { ...prev }; delete n[epicKey]; return n; });
     }
@@ -181,9 +184,21 @@ export default function ProjectsContent() {
 
   useEffect(() => {
     if (!editingStatus) return;
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setEditingStatus(null); };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
+    const close = () => { setEditingStatus(null); setStatusDropdownPos(null); statusTriggerRef.current = null; };
+    const reposition = () => {
+      if (!statusTriggerRef.current) return;
+      const rect = statusTriggerRef.current.getBoundingClientRect();
+      setStatusDropdownPos({ top: rect.bottom + 2, left: rect.left });
+    };
+    const keyHandler = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+    window.addEventListener('keydown', keyHandler);
+    window.addEventListener('scroll', reposition, { capture: true, passive: true });
+    window.addEventListener('resize', reposition);
+    return () => {
+      window.removeEventListener('keydown', keyHandler);
+      window.removeEventListener('scroll', reposition, { capture: true });
+      window.removeEventListener('resize', reposition);
+    };
   }, [editingStatus]);
 
   useEffect(() => {
@@ -946,7 +961,7 @@ export default function ProjectsContent() {
                             )}
                             {editingStatus === epic.key && statusDropdownPos && (
                               <>
-                                <div className="fixed inset-0 z-20" onClick={() => { setEditingStatus(null); setStatusDropdownPos(null); }} />
+                                <div className="fixed inset-0 z-20" onClick={() => { setEditingStatus(null); setStatusDropdownPos(null); statusTriggerRef.current = null; }} />
                                 <div
                                   className="fixed z-30 bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden min-w-[140px]"
                                   style={{ top: statusDropdownPos.top, left: statusDropdownPos.left }}
@@ -959,7 +974,7 @@ export default function ProjectsContent() {
                                     (transitionsCache[epic.key] || []).map(t => (
                                       <button
                                         key={t.id}
-                                        onClick={(e) => { e.stopPropagation(); if (t.to.name === epic.status) { setEditingStatus(null); setStatusDropdownPos(null); } else { executeTransition(epic.key, t.id, t.to.name); } }}
+                                        onClick={(e) => { e.stopPropagation(); if (t.to.name === epic.status) { setEditingStatus(null); setStatusDropdownPos(null); statusTriggerRef.current = null; } else { executeTransition(epic.key, t.id, t.to.name); } }}
                                         className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center gap-2 ${
                                           t.to.name === epic.status ? 'text-accent-lighter font-medium' : 'text-gray-300 hover:bg-gray-700'
                                         }`}
