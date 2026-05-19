@@ -83,6 +83,16 @@ export function aggregateTeams(
       cc_total_cost     += Number(d.cc_total_cost ?? 0);
     }
 
+    let weightedComplexity = 0, weightedPrPct = 0, weightedAiPct = 0;
+    for (const d of activeDevs) {
+      weightedComplexity += d.avg_complexity * d.total_commits;
+      weightedPrPct      += d.pr_percentage  * d.total_commits;
+      weightedAiPct      += d.ai_percentage  * d.total_commits;
+    }
+    const avg_complexity = total_commits > 0 ? weightedComplexity / total_commits : 0;
+    const pr_percentage  = total_commits > 0 ? weightedPrPct      / total_commits : 0;
+    const ai_percentage  = total_commits > 0 ? weightedAiPct      / total_commits : 0;
+
     rows.push({
       team_id: team.id,
       name:    team.name,
@@ -94,7 +104,7 @@ export function aggregateTeams(
       total_jira_issues, cc_total_cost,
       active_repos_count: 0,
       type_breakdown:     {},
-      avg_complexity: 0, pr_percentage: 0, ai_percentage: 0,
+      avg_complexity, pr_percentage, ai_percentage,
       impact_total: 0, impact_avg: 0, impact_weighted: 0,
     });
   }

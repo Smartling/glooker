@@ -39,3 +39,29 @@ describe('aggregateTeams — sum aggregation', () => {
     expect(row.cc_total_cost).toBe(0);
   });
 });
+
+describe('aggregateTeams — commit-weighted ratios', () => {
+  it('weights complexity, pr_percentage, ai_percentage by per-dev commits', () => {
+    const devs: AggregatorDeveloper[] = [
+      { ...DEV_BASE, github_login: 'a', total_commits: 30, avg_complexity: 4, pr_percentage: 80, ai_percentage: 20 },
+      { ...DEV_BASE, github_login: 'b', total_commits: 10, avg_complexity: 8, pr_percentage: 40, ai_percentage: 50 },
+    ];
+    const teams: AggregatorTeam[] = [{ ...TEAM_BASE, members: ['a', 'b'] }];
+    const [row] = aggregateTeams(devs, teams);
+    // (4*30 + 8*10) / 40 = 5.0
+    expect(row.avg_complexity).toBeCloseTo(5.0, 5);
+    // (80*30 + 40*10) / 40 = 70
+    expect(row.pr_percentage).toBeCloseTo(70, 5);
+    // (20*30 + 50*10) / 40 = 27.5
+    expect(row.ai_percentage).toBeCloseTo(27.5, 5);
+  });
+
+  it('returns zero ratios when the team has zero commits', () => {
+    const devs: AggregatorDeveloper[] = [{ ...DEV_BASE, github_login: 'a', avg_complexity: 5, pr_percentage: 100 }];
+    const teams: AggregatorTeam[] = [{ ...TEAM_BASE, members: ['a'] }];
+    const [row] = aggregateTeams(devs, teams);
+    expect(row.avg_complexity).toBe(0);
+    expect(row.pr_percentage).toBe(0);
+    expect(row.ai_percentage).toBe(0);
+  });
+});
