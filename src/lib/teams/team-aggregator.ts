@@ -103,6 +103,36 @@ export function aggregateTeams(
     }
     const active_repos_count = repoSet.size;
 
+    const total_reviews = 0;       // not exposed via /api/report today; documented in spec
+    const total_story_points = 0;  // ditto
+
+    const impact_total = computeImpactScore({
+      totalCommits:     total_commits,
+      totalPRs:         total_prs,
+      avgComplexity:    avg_complexity,
+      prPercentage:     pr_percentage,
+      totalStoryPoints: total_story_points,
+      totalJiraIssues:  total_jira_issues,
+      totalReviews:     total_reviews,
+    });
+
+    const impact_avg = activeDevs.length === 0
+      ? 0
+      : Math.round((activeDevs.reduce((s, d) => s + (Number(d.impact_score) || 0), 0) / activeDevs.length) * 10) / 10;
+
+    const teamSize = team.members.length;
+    const impact_weighted = teamSize === 0
+      ? 0
+      : computeImpactScore({
+          totalCommits:     total_commits     / teamSize,
+          totalPRs:         total_prs         / teamSize,
+          avgComplexity:    avg_complexity,
+          prPercentage:     pr_percentage,
+          totalStoryPoints: total_story_points / teamSize,
+          totalJiraIssues:  total_jira_issues / teamSize,
+          totalReviews:     total_reviews     / teamSize,
+        });
+
     rows.push({
       team_id: team.id,
       name:    team.name,
@@ -115,7 +145,7 @@ export function aggregateTeams(
       active_repos_count,
       type_breakdown,
       avg_complexity, pr_percentage, ai_percentage,
-      impact_total: 0, impact_avg: 0, impact_weighted: 0,
+      impact_total, impact_avg, impact_weighted,
     });
   }
   return rows;
