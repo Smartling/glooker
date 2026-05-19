@@ -135,7 +135,7 @@ export default function TeamTable({ developers, teams, reportId, canAct }: TeamT
               <td className="px-4 py-3 text-right text-gray-300 tabular-nums">{row.active_count > 0 ? `${Math.round(row.pr_percentage)}%` : '—'}</td>
               <td className="px-4 py-3 text-right text-gray-300 tabular-nums">{row.active_count > 0 ? `${Math.round(row.ai_percentage)}%` : '—'}</td>
               {hasJira  && <td className="px-4 py-3 text-right text-gray-300 tabular-nums">{row.total_jira_issues}</td>}
-              {hasSpend && <td className="px-4 py-3 text-right text-gray-300 tabular-nums">${row.cc_total_cost.toFixed(2)}</td>}
+              {hasSpend && <td className="px-4 py-3 text-right text-green-400 font-mono text-sm tabular-nums">${Math.round(row.cc_total_cost / 100).toLocaleString()}</td>}
               <td className="px-4 py-3 text-right text-white tabular-nums font-semibold">{row.impact_weighted.toFixed(1)}</td>
               <td className="px-4 py-3 text-right text-gray-400 tabular-nums">{row.impact_avg.toFixed(1)}</td>
               <td className="px-4 py-3 text-right text-gray-400 tabular-nums">{row.impact_total.toFixed(1)}</td>
