@@ -56,8 +56,47 @@ export interface AggregatorTeam {
 }
 
 export function aggregateTeams(
-  _developers: AggregatorDeveloper[],
-  _teams:      AggregatorTeam[],
+  developers: AggregatorDeveloper[],
+  teams:      AggregatorTeam[],
 ): TeamRow[] {
-  return [];
+  const devByLogin = new Map(developers.map(d => [d.github_login, d]));
+
+  const rows: TeamRow[] = [];
+  for (const team of teams) {
+    if (team.members.length === 0) {
+      if (typeof console !== 'undefined') console.warn(`[team-aggregator] team ${team.id} (${team.name}) has 0 members; skipping`);
+      continue;
+    }
+
+    const activeDevs = team.members
+      .map(login => devByLogin.get(login))
+      .filter((d): d is AggregatorDeveloper => d !== undefined);
+
+    let total_prs = 0, total_commits = 0, lines_added = 0, lines_removed = 0;
+    let total_jira_issues = 0, cc_total_cost = 0;
+    for (const d of activeDevs) {
+      total_prs         += d.total_prs;
+      total_commits     += d.total_commits;
+      lines_added       += d.lines_added;
+      lines_removed     += d.lines_removed;
+      total_jira_issues += d.total_jira_issues ?? 0;
+      cc_total_cost     += Number(d.cc_total_cost ?? 0);
+    }
+
+    rows.push({
+      team_id: team.id,
+      name:    team.name,
+      color:   team.color,
+      size:           team.members.length,
+      active_count:   activeDevs.length,
+      members:        activeDevs.map(d => ({ github_login: d.github_login, impact_score: Number(d.impact_score) || 0, total_commits: d.total_commits })),
+      total_prs, total_commits, lines_added, lines_removed,
+      total_jira_issues, cc_total_cost,
+      active_repos_count: 0,
+      type_breakdown:     {},
+      avg_complexity: 0, pr_percentage: 0, ai_percentage: 0,
+      impact_total: 0, impact_avg: 0, impact_weighted: 0,
+    });
+  }
+  return rows;
 }
