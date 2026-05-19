@@ -8,6 +8,7 @@ import { useUrlState, useUrlBatch } from '@/lib/url-state';
 // Type-only import keeps the server module out of the client bundle while
 // letting the client fail fast if the shared response shape changes.
 import type { EpicSummaryResult } from '@/lib/projects/epic-summary';
+import { applyPendingTransitions, type PendingTransition } from '@/lib/projects/transition-state';
 
 interface ProjectEpic {
   key: string;
@@ -131,7 +132,7 @@ export default function ProjectsContent() {
   // is patched through this map before populating `tabCache`, so optimistic
   // moves stay applied regardless of Jira's JQL index lag. Cleared only on
   // page reload — by then Jira's state will have reconciled.
-  const pendingTransitionsRef = useRef<Map<string, { targetTab: StatusTab; movedEpic: ProjectEpic }>>(new Map());
+  const pendingTransitionsRef = useRef<Map<string, PendingTransition<ProjectEpic>>>(new Map());
 
   const openStatusEditor = async (epicKey: string, triggerEl?: HTMLElement) => {
     if (editingStatus === epicKey) { setEditingStatus(null); setStatusDropdownPos(null); statusTriggerRef.current = null; setTransitionError(null); return; }
@@ -354,16 +355,7 @@ export default function ProjectsContent() {
   // a lagging search index) is reconciled with the user's optimistic moves.
   useEffect(() => {
     if (tabData?.epics) {
-      let epics = [...tabData.epics];
-      for (const [key, p] of pendingTransitionsRef.current) {
-        if (p.targetTab === activeTab) {
-          if (!epics.find(e => e.key === key)) {
-            epics = [p.movedEpic, ...epics];
-          }
-        } else {
-          epics = epics.filter(e => e.key !== key);
-        }
-      }
+      const epics = applyPendingTransitions(tabData.epics, activeTab, pendingTransitionsRef.current);
       setTabCache(prev => ({ ...prev, [activeTab]: { epics, jiraHost: tabData.jiraHost } }));
       setJiraHost(tabData.jiraHost);
     }
