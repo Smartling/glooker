@@ -332,6 +332,12 @@ export default function TeamSummaryPage() {
         const filteredDevs = filterLogins.size > 0 ? developers.filter(d => filterLogins.has(d.github_login)) : developers;
         const hasJira = developers.some(d => (d.total_jira_issues ?? 0) > 0);
         const hasSpend = canAct && developers.some(d => Number(d.cc_total_cost ?? 0) > 0);
+        // Absolute rank across the full server-sorted developer list — shown
+        // alongside the filter-relative rank so users can still see where a
+        // developer sits across the whole team even when filtered down.
+        const absoluteRanks = new Map<string, number>();
+        developers.forEach((d, idx) => absoluteRanks.set(d.github_login, idx + 1));
+        const showAbsolute = filterLogins.size > 0;
         return filteredDevs.length > 0 && (
         <div className="bg-gray-900 rounded-xl overflow-hidden">
           <table className="w-full text-sm table-fixed">
@@ -359,7 +365,16 @@ export default function TeamSummaryPage() {
                 >
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
-                      <span className="text-gray-600 text-xs w-5 shrink-0 text-right">{i + 1}</span>
+                      <span
+                        className="text-gray-600 text-xs shrink-0 text-right tabular-nums"
+                        style={{ minWidth: showAbsolute ? '3rem' : '1.25rem' }}
+                        title={showAbsolute ? `Position within filter (overall: #${absoluteRanks.get(dev.github_login)})` : undefined}
+                      >
+                        {i + 1}
+                        {showAbsolute && absoluteRanks.has(dev.github_login) && (
+                          <span className="text-gray-700 ml-0.5">({absoluteRanks.get(dev.github_login)})</span>
+                        )}
+                      </span>
                       {dev.avatar_url && (
                         <img
                           src={dev.avatar_url}
