@@ -146,3 +146,42 @@ describe('aggregateTeams — impact strategies', () => {
     expect(row.impact_weighted).toBe(0);
   });
 });
+
+describe('aggregateTeams — edge cases', () => {
+  it('counts a dev in every team they belong to (no de-duping for v1)', () => {
+    const devs: AggregatorDeveloper[] = [
+      { ...DEV_BASE, github_login: 'shared', total_commits: 10 },
+    ];
+    const teams: AggregatorTeam[] = [
+      { ...TEAM_BASE, id: 't1', name: 'T1', members: ['shared'] },
+      { ...TEAM_BASE, id: 't2', name: 'T2', members: ['shared'] },
+    ];
+    const rows = aggregateTeams(devs, teams);
+    expect(rows).toHaveLength(2);
+    expect(rows[0].total_commits).toBe(10);
+    expect(rows[1].total_commits).toBe(10);
+  });
+
+  it('silently excludes devs that belong to no team', () => {
+    const devs: AggregatorDeveloper[] = [
+      { ...DEV_BASE, github_login: 'orphan', total_commits: 5 },
+    ];
+    const teams: AggregatorTeam[] = [{ ...TEAM_BASE, members: [] }];
+    const rows = aggregateTeams(devs, teams);
+    expect(rows).toEqual([]);
+  });
+
+  it('skips teams that have zero members', () => {
+    const consoleSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const teams: AggregatorTeam[] = [
+      { ...TEAM_BASE, id: 't-empty', name: 'Empty', members: [] },
+      { ...TEAM_BASE, id: 't-real',  name: 'Real',  members: ['a'] },
+    ];
+    const devs: AggregatorDeveloper[] = [{ ...DEV_BASE, github_login: 'a', total_commits: 1 }];
+    const rows = aggregateTeams(devs, teams);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].team_id).toBe('t-real');
+    expect(consoleSpy).toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+});
