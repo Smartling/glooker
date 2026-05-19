@@ -1,7 +1,8 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import { useUrlState } from '@/lib/url-state';
 import { aggregateTeams, type AggregatorDeveloper, type AggregatorTeam, type TeamRow } from '@/lib/teams/team-aggregator';
 
 interface TeamTableProps {
@@ -11,18 +12,33 @@ interface TeamTableProps {
   canAct:     boolean;
 }
 
-type SortKey =
-  | 'name' | 'size' | 'active_count' | 'total_prs' | 'total_commits'
-  | 'lines_added' | 'avg_complexity' | 'pr_percentage' | 'ai_percentage'
-  | 'total_jira_issues' | 'cc_total_cost'
-  | 'impact_total' | 'impact_avg' | 'impact_weighted';
+const SORT_KEYS = [
+  'name', 'size', 'active_count', 'total_prs', 'total_commits',
+  'lines_added', 'avg_complexity', 'pr_percentage', 'ai_percentage',
+  'total_jira_issues', 'cc_total_cost',
+  'impact_total', 'impact_avg', 'impact_weighted',
+] as const;
+type SortKey = typeof SORT_KEYS[number];
 
 export default function TeamTable({ developers, teams, reportId, canAct }: TeamTableProps) {
   const router = useRouter();
   const rows: TeamRow[] = useMemo(() => aggregateTeams(developers, teams), [developers, teams]);
 
-  const [sortKey, setSortKey] = useState<SortKey>('impact_weighted');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  // URL-stated so sort survives reload and shareable links.
+  const [sortKey, setSortKey] = useUrlState<SortKey>({
+    key: 'sort',
+    type: 'enum',
+    values: SORT_KEYS,
+    default: 'impact_weighted',
+    history: 'replace',
+  });
+  const [sortDir, setSortDir] = useUrlState<'asc' | 'desc'>({
+    key: 'dir',
+    type: 'enum',
+    values: ['asc', 'desc'] as const,
+    default: 'desc',
+    history: 'replace',
+  });
 
   const hasJira  = rows.some(r => r.total_jira_issues > 0);
   const hasSpend = canAct && rows.some(r => r.cc_total_cost > 0);
@@ -47,8 +63,18 @@ export default function TeamTable({ developers, teams, reportId, canAct }: TeamT
     }
   };
 
-  const onRowClick = (teamName: string) => {
-    router.push(`/report/${reportId}/team?view=individuals&team=${encodeURIComponent(teamName)}`);
+  const onRowClick = (row: TeamRow) => {
+    // Look up the authoritative member list from the team object (TeamRow.members
+    // only carries active devs). Mirrors what the in-page team-filter dropdown does:
+    // it sets BOTH the `team` URL state (drives TeamPulseCard) and the `dev` URL
+    // state (drives the dev-filter chips and the IC table). The `dev` URL state
+    // is encoded as repeated `?dev=…&dev=…` params, not comma-joined.
+    const team = teams.find(t => t.id === row.team_id);
+    const params = new URLSearchParams();
+    params.set('view', 'individuals');
+    params.set('team', row.name);
+    for (const login of team?.members ?? []) params.append('dev', login);
+    router.push(`/report/${reportId}/team?${params.toString()}`);
   };
 
   if (rows.length === 0) {
@@ -86,7 +112,7 @@ export default function TeamTable({ developers, teams, reportId, canAct }: TeamT
           {sortedRows.map(row => (
             <tr
               key={row.team_id}
-              onClick={() => onRowClick(row.name)}
+              onClick={() => onRowClick(row)}
               className={`border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors cursor-pointer ${row.active_count === 0 ? 'opacity-50' : ''}`}
             >
               <td className="px-4 py-3 font-medium text-white">
