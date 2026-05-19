@@ -55,14 +55,15 @@ interface UntrackedTeam {
   totalCommits: number;
 }
 
-type StatusTab = 'In Progress' | 'Rollout' | 'Done';
+const STATUS_TABS = ['In Progress', 'Rollout', 'Done'] as const;
+type StatusTab = typeof STATUS_TABS[number];
 
 export default function ProjectsContent() {
   const { canAct } = useAuth();
   const [activeTab, setActiveTab] = useUrlState<StatusTab>({
     key: 'status',
     type: 'enum',
-    values: ['In Progress', 'Rollout', 'Done'] as const,
+    values: STATUS_TABS,
     default: 'In Progress',
     history: 'push',
   });
@@ -125,9 +126,15 @@ export default function ProjectsContent() {
   const [transitionsCache, setTransitionsCache] = useState<Record<string, Array<{ id: string; name: string; to: { name: string } }>>>({});
   const [transitionsLoading, setTransitionsLoading] = useState(false);
   const [savingStatus, setSavingStatus] = useState<string | null>(null);
+  const [transitionError, setTransitionError] = useState<string | null>(null);
+  // Pending transitions registry: every fetch response (useSWR, preload, etc.)
+  // is patched through this map before populating `tabCache`, so optimistic
+  // moves stay applied regardless of Jira's JQL index lag. Cleared only on
+  // page reload — by then Jira's state will have reconciled.
+  const pendingTransitionsRef = useRef<Map<string, { targetTab: StatusTab; movedEpic: ProjectEpic }>>(new Map());
 
   const openStatusEditor = async (epicKey: string, triggerEl?: HTMLElement) => {
-    if (editingStatus === epicKey) { setEditingStatus(null); setStatusDropdownPos(null); statusTriggerRef.current = null; return; }
+    if (editingStatus === epicKey) { setEditingStatus(null); setStatusDropdownPos(null); statusTriggerRef.current = null; setTransitionError(null); return; }
     if (triggerEl) {
       statusTriggerRef.current = triggerEl;
       const rect = triggerEl.getBoundingClientRect();
@@ -147,6 +154,7 @@ export default function ProjectsContent() {
 
   const executeTransition = async (epicKey: string, transitionId: string, toStatus: string) => {
     setSavingStatus(epicKey);
+    setTransitionError(null);
     try {
       const res = await fetch(`/api/projects/${encodeURIComponent(epicKey)}/status`, {
         method: 'PATCH',
@@ -154,29 +162,56 @@ export default function ProjectsContent() {
         body: JSON.stringify({ transitionId }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      // Remove from current tab cache, invalidate target tab
-      setTabCache(prev => {
-        const updated = { ...prev };
-        for (const tab of Object.keys(updated) as StatusTab[]) {
-          const entry = updated[tab];
-          if (entry) {
-            updated[tab] = { ...entry, epics: entry.epics.filter(e => e.key !== epicKey) };
+
+      // Pure optimistic move. The PATCH succeeded, so Jira has accepted the
+      // transition — only its JQL search index lags. We record the move in
+      // `pendingTransitionsRef` and update tabCache directly. Any future
+      // tabData (from useSWR / preload / refetch) is patched through the
+      // registry in the populate-tabCache useEffect, so the move sticks
+      // regardless of Jira's index lag.
+      const targetTab = toStatus as StatusTab;
+      let movedEpic: ProjectEpic | null = null;
+      for (const tab of Object.keys(tabCache) as StatusTab[]) {
+        const entry = tabCache[tab];
+        if (!entry) continue;
+        const found = entry.epics.find(e => e.key === epicKey);
+        if (found && !movedEpic) movedEpic = { ...found, status: toStatus };
+      }
+
+      if (movedEpic) {
+        pendingTransitionsRef.current.set(epicKey, { targetTab, movedEpic });
+
+        // Optimistic tabCache update for the tabs we already have data for.
+        // Tabs we have NOT cached yet stay unset; when the user navigates to
+        // one, the tabData useEffect applies pendingTransitions to whatever
+        // Jira returns and seeds tabCache with the patched full list.
+        setTabCache(prev => {
+          const updated: typeof prev = { ...prev };
+          for (const tab of Object.keys(updated) as StatusTab[]) {
+            const entry = updated[tab];
+            if (entry) {
+              updated[tab] = { ...entry, epics: entry.epics.filter(e => e.key !== epicKey) };
+            }
           }
-        }
-        // Invalidate the target tab so it re-fetches
-        const targetTab = (['In Progress', 'Rollout', 'Done'] as StatusTab[]).find(t => t === toStatus);
-        if (targetTab && updated[targetTab]) {
-          delete updated[targetTab];
-        }
-        return updated;
-      });
-    } catch (err) {
-      console.error('Failed to transition:', err);
-    } finally {
-      setSavingStatus(null);
+          const targetEntry = updated[targetTab];
+          if (targetEntry) {
+            updated[targetTab] = { ...targetEntry, epics: [movedEpic!, ...targetEntry.epics] };
+          }
+          return updated;
+        });
+      }
+
+      // Close the dropdown now that the move is in place.
       setEditingStatus(null);
       setStatusDropdownPos(null);
       statusTriggerRef.current = null;
+    } catch (err) {
+      // Surface the error to the user instead of silently swallowing it.
+      // Keep the dropdown open so they can retry with the same trigger.
+      console.error('Failed to transition:', err);
+      setTransitionError(err instanceof Error ? err.message : 'Failed to change status');
+    } finally {
+      setSavingStatus(null);
       // Invalidate transitions cache for this epic (status changed, transitions differ)
       setTransitionsCache(prev => { const n = { ...prev }; delete n[epicKey]; return n; });
     }
@@ -184,7 +219,7 @@ export default function ProjectsContent() {
 
   useEffect(() => {
     if (!editingStatus) return;
-    const close = () => { setEditingStatus(null); setStatusDropdownPos(null); statusTriggerRef.current = null; };
+    const close = () => { setEditingStatus(null); setStatusDropdownPos(null); statusTriggerRef.current = null; setTransitionError(null); };
     const reposition = () => {
       if (!statusTriggerRef.current) return;
       const rect = statusTriggerRef.current.getBoundingClientRect();
@@ -306,37 +341,65 @@ export default function ProjectsContent() {
 
   // SWR: fetch epics for the active tab
   const tabUrl = org ? `/api/projects?org=${encodeURIComponent(org)}&status=${encodeURIComponent(activeTab)}` : null;
-  const { data: tabData, isLoading: tabLoading, error: tabError } = useSWR(tabUrl);
+  // `revalidateIfStale: false` is essential here. With the default (true), a
+  // background revalidation fires every time `useSWR` rebinds (e.g. on tab
+  // switch). That revalidation can race optimistic transitions: the response
+  // arrives during Jira's index-propagation window and overwrites the cache
+  // entry we just mutated. We trust our optimistic state until a page reload
+  // or an explicit `mutate(url)` call invalidates it.
+  const { data: tabData, isLoading: tabLoading, error: tabError } = useSWR(tabUrl, { revalidateIfStale: false });
 
-  // When tabData arrives, populate the tabCache (for optimistic mutations)
+  // When tabData arrives, populate the tabCache after applying any pending
+  // transitions. This is the single point where Jira's view (possibly with
+  // a lagging search index) is reconciled with the user's optimistic moves.
   useEffect(() => {
     if (tabData?.epics) {
-      setTabCache(prev => ({ ...prev, [activeTab]: { epics: tabData.epics, jiraHost: tabData.jiraHost } }));
+      let epics = [...tabData.epics];
+      for (const [key, p] of pendingTransitionsRef.current) {
+        if (p.targetTab === activeTab) {
+          if (!epics.find(e => e.key === key)) {
+            epics = [p.movedEpic, ...epics];
+          }
+        } else {
+          epics = epics.filter(e => e.key !== key);
+        }
+      }
+      setTabCache(prev => ({ ...prev, [activeTab]: { epics, jiraHost: tabData.jiraHost } }));
       setJiraHost(tabData.jiraHost);
     }
   }, [tabData, activeTab]);
 
-  // Prefetch other tabs in background after active tab loads
+  // Prefetch other tabs in background after the active tab loads.
+  // We only preload once per org because preload's fetch responses would
+  // otherwise race optimistic transitions: a re-fire after a `mutate` returns
+  // Jira's still-lagging list and overwrites the optimistic state.
   const fetcher = (url: string) => fetch(url).then(r => {
     if (!r.ok) throw new Error(`${r.status}`);
     return r.json();
   });
+  const preloadedOrgRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (org && tabData) {
-      const otherTabs = (['In Progress', 'Rollout', 'Done'] as StatusTab[]).filter(t => t !== activeTab);
-      for (const tab of otherTabs) {
-        preload(`/api/projects?org=${encodeURIComponent(org)}&status=${encodeURIComponent(tab)}`, fetcher);
-      }
+    if (!org || !tabData) return;
+    if (preloadedOrgRef.current === org) return;
+    preloadedOrgRef.current = org;
+    const otherTabs = STATUS_TABS.filter(t => t !== activeTab);
+    for (const tab of otherTabs) {
+      preload(`/api/projects?org=${encodeURIComponent(org)}&status=${encodeURIComponent(tab)}`, fetcher);
     }
-  }, [org, tabData, activeTab]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally one-shot per org; re-running on tabData/activeTab changes would race optimistic mutations
+  }, [org, tabData]);
 
   // Derive epics from tab cache
   const epics = useMemo(() => tabCache[activeTab]?.epics || [], [tabCache, activeTab]);
 
   useEffect(() => {
     if (!org || epics.length === 0) return;
+    // Skip epics we've already fetched stats for. Without this, optimistic
+    // tabCache updates (which change the `epics` array reference) refire
+    // this effect and re-fetch stats for every epic on the page.
     for (const epic of epics) {
+      if (ringStats[epic.key]) continue;
       fetch(`/api/projects/${encodeURIComponent(epic.key)}/stats?org=${encodeURIComponent(org)}`)
         .then(r => r.ok ? r.json() : null)
         .then(data => {
@@ -344,6 +407,7 @@ export default function ProjectsContent() {
         })
         .catch(() => {});
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ringStats is a read-only guard; including it would refire the effect each fetch
   }, [org, epics]);
 
   const loadUntracked = (refresh = false) => {
@@ -688,7 +752,7 @@ export default function ProjectsContent() {
 
           {/* Status tabs — below filters */}
           <div className="flex border-b border-gray-800 mb-4">
-            {(['In Progress', 'Rollout', 'Done'] as StatusTab[]).map(tab => (
+            {STATUS_TABS.map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -961,11 +1025,16 @@ export default function ProjectsContent() {
                             )}
                             {editingStatus === epic.key && statusDropdownPos && (
                               <>
-                                <div className="fixed inset-0 z-20" onClick={() => { setEditingStatus(null); setStatusDropdownPos(null); statusTriggerRef.current = null; }} />
+                                <div className="fixed inset-0 z-20" onClick={() => { setEditingStatus(null); setStatusDropdownPos(null); statusTriggerRef.current = null; setTransitionError(null); }} />
                                 <div
                                   className="fixed z-30 bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden min-w-[140px]"
                                   style={{ top: statusDropdownPos.top, left: statusDropdownPos.left }}
                                 >
+                                  {transitionError && (
+                                    <div className="px-3 py-2 text-xs text-red-400 border-b border-gray-700 bg-red-950/30">
+                                      {transitionError}
+                                    </div>
+                                  )}
                                   {transitionsLoading && !transitionsCache[epic.key] ? (
                                     <div className="px-3 py-2 text-xs text-gray-500 animate-pulse">Loading...</div>
                                   ) : (transitionsCache[epic.key] || []).length === 0 ? (
@@ -974,7 +1043,7 @@ export default function ProjectsContent() {
                                     (transitionsCache[epic.key] || []).map(t => (
                                       <button
                                         key={t.id}
-                                        onClick={(e) => { e.stopPropagation(); if (t.to.name === epic.status) { setEditingStatus(null); setStatusDropdownPos(null); statusTriggerRef.current = null; } else { executeTransition(epic.key, t.id, t.to.name); } }}
+                                        onClick={(e) => { e.stopPropagation(); if (t.to.name === epic.status) { setEditingStatus(null); setStatusDropdownPos(null); statusTriggerRef.current = null; setTransitionError(null); } else { executeTransition(epic.key, t.id, t.to.name); } }}
                                         className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center gap-2 ${
                                           t.to.name === epic.status ? 'text-accent-lighter font-medium' : 'text-gray-300 hover:bg-gray-700'
                                         }`}
