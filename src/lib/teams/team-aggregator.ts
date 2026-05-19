@@ -93,6 +93,16 @@ export function aggregateTeams(
     const pr_percentage  = total_commits > 0 ? weightedPrPct      / total_commits : 0;
     const ai_percentage  = total_commits > 0 ? weightedAiPct      / total_commits : 0;
 
+    const type_breakdown: Record<string, number> = {};
+    const repoSet = new Set<string>();
+    for (const d of activeDevs) {
+      for (const [k, v] of Object.entries(d.type_breakdown ?? {})) {
+        type_breakdown[k] = (type_breakdown[k] ?? 0) + v;
+      }
+      for (const r of d.active_repos ?? []) repoSet.add(r);
+    }
+    const active_repos_count = repoSet.size;
+
     rows.push({
       team_id: team.id,
       name:    team.name,
@@ -102,8 +112,8 @@ export function aggregateTeams(
       members:        activeDevs.map(d => ({ github_login: d.github_login, impact_score: Number(d.impact_score) || 0, total_commits: d.total_commits })),
       total_prs, total_commits, lines_added, lines_removed,
       total_jira_issues, cc_total_cost,
-      active_repos_count: 0,
-      type_breakdown:     {},
+      active_repos_count,
+      type_breakdown,
       avg_complexity, pr_percentage, ai_percentage,
       impact_total: 0, impact_avg: 0, impact_weighted: 0,
     });

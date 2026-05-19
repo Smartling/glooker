@@ -65,3 +65,25 @@ describe('aggregateTeams — commit-weighted ratios', () => {
     expect(row.ai_percentage).toBe(0);
   });
 });
+
+describe('aggregateTeams — type_breakdown and active_repos_count', () => {
+  it('sums type_breakdown counts across active members', () => {
+    const devs: AggregatorDeveloper[] = [
+      { ...DEV_BASE, github_login: 'a', type_breakdown: { feature: 3, fix: 2 } },
+      { ...DEV_BASE, github_login: 'b', type_breakdown: { feature: 1, docs: 4 } },
+    ];
+    const teams: AggregatorTeam[] = [{ ...TEAM_BASE, members: ['a', 'b'] }];
+    const [row] = aggregateTeams(devs, teams);
+    expect(row.type_breakdown).toEqual({ feature: 4, fix: 2, docs: 4 });
+  });
+
+  it('counts distinct active_repos across active members', () => {
+    const devs: AggregatorDeveloper[] = [
+      { ...DEV_BASE, github_login: 'a', active_repos: ['x', 'y'] },
+      { ...DEV_BASE, github_login: 'b', active_repos: ['y', 'z'] },
+    ];
+    const teams: AggregatorTeam[] = [{ ...TEAM_BASE, members: ['a', 'b'] }];
+    const [row] = aggregateTeams(devs, teams);
+    expect(row.active_repos_count).toBe(3);
+  });
+});
