@@ -207,7 +207,4 @@ Renders `<TeamTable />` (new component, `src/app/report/[id]/team/team-table.tsx
 
 ## Hand-off
 
-This spec is intended for two follow-up workflows:
-
-1. **Visual design polish** — the user has requested handing off to *Claude Design* for visual treatment of the new tab/table. Implementation will follow whatever Claude Design produces, scoped to the column set and interaction model defined above.
-2. **Implementation plan** — once the spec is approved (and visual design returns), a plan will be drafted via `superpowers:writing-plans` and executed.
+Implementation plan will be drafted via `superpowers:writing-plans` and executed directly — visual treatment follows the existing IC table's styling (no external design pass required).
