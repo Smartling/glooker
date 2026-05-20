@@ -8,7 +8,7 @@ The four `TimelineChart` instances on `/report/{id}/dev/{login}` position data p
 
 Single file: `src/app/report/[id]/dev/[login]/page.tsx`, `TimelineChart` function (lines 652–804).
 
-The org report page (`src/app/report/[id]/org/page.tsx`) has a separate `TimelineChart` copy with the same bug; it is out of scope for this ticket.
+The org report page (`src/app/report/[id]/org/page.tsx`) has a separate `TimelineChart` copy with the same bug; it is explicitly out of scope for this ticket.
 
 ## Design
 
@@ -20,7 +20,7 @@ Replace the SVG line + area fill with `<rect>` bars. This makes gaps structural 
 
 The X-axis always spans `[cutoff, today]` in milliseconds, where `cutoff` is today minus 90 days (unchanged). The right edge always represents the current week.
 
-Point x-position:
+Bar x-position:
 ```ts
 const today = new Date();
 const totalMs = today.getTime() - cutoff.getTime();
@@ -42,6 +42,8 @@ const barH = ((v - min) / range) * chartH;
 const barY = padT + chartH - barH;  // top-left corner of rect
 ```
 
+All four metrics (commits, lines changed, avg complexity, AI %) are non-negative, so `min = Math.min(...values, 0)` always equals 0 and bars always start from the baseline.
+
 ### X-axis labels
 
 Three labels:
@@ -51,11 +53,14 @@ Three labels:
 
 ### Hover interaction
 
-The invisible hit target switches from `<circle>` to `<rect>` covering the bar's column. Tooltip content and positioning logic are unchanged.
+The invisible hit target is a full-column `<rect>` spanning `padT` to `padT + chartH` (full chart height), centered on the bar's x-position with width equal to `barWidth`. This maximises discoverability. Tooltip content and positioning logic are unchanged.
+
+### Empty state guard
+
+Changed from `filtered.length < 2` to `filtered.length < 1` — a single bar is valid and should render.
 
 ### Unchanged
 
 - Y-axis ticks, grid lines, and label formatting
 - Trend indicator and latest-value display in the card header
 - `filtered` array construction (still last-90-days filter)
-- The `if (filtered.length < 2) return null` guard
