@@ -114,6 +114,27 @@ export function aggregateInflight(
   };
 }
 
+async function fetchInflight(reportId: string, teamMembers: string[]): Promise<Inflight> {
+  if (teamMembers.length === 0) return EMPTY_INFLIGHT;
+  const memberPlaceholders = teamMembers.map(() => '?').join(',');
+
+  const [prRows] = await db.execute(
+    `SELECT github_login, repo, is_draft, pr_additions, pr_deletions, pr_updated_at
+       FROM unmerged_prs
+      WHERE report_id = ? AND github_login IN (${memberPlaceholders})`,
+    [reportId, ...teamMembers],
+  ) as [any[], any];
+
+  const [commitRows] = await db.execute(
+    `SELECT github_login, repo, branch
+       FROM unmerged_commits
+      WHERE report_id = ? AND github_login IN (${memberPlaceholders})`,
+    [reportId, ...teamMembers],
+  ) as [any[], any];
+
+  return aggregateInflight(prRows, commitRows, new Date());
+}
+
 export interface TeamPulseData {
   teamName: string;
   members: Map<string, MemberWindowData>;
@@ -254,5 +275,7 @@ export async function extractTeamPulseData(
   const trendingPct = totalPriorCommits > 0 ? Math.round(((totalCurrentCommits - totalPriorCommits) / totalPriorCommits) * 100) : totalCurrentCommits > 0 ? 100 : 0;
   const trendDirection: 'up' | 'down' | 'stable' = trendingPct > 5 ? 'up' : trendingPct < -5 ? 'down' : 'stable';
 
-  return { teamName: '', members, currentDays, priorDays, teamAvgCommits, teamAvgPrs, activeCount, totalCount, trendingPct, trendDirection, inflight: EMPTY_INFLIGHT };
+  const inflight = await fetchInflight(reportId, teamMembers);
+
+  return { teamName: '', members, currentDays, priorDays, teamAvgCommits, teamAvgPrs, activeCount, totalCount, trendingPct, trendDirection, inflight };
 }
