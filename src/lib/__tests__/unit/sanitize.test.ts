@@ -67,3 +67,46 @@ describe('sanitizeAuthorName', () => {
     expect(sanitizeAuthorName('abcdefghij', 5)).toBe('abcde');
   });
 });
+
+import { buildAnalyzerUserMessage } from '@/lib/analyzer';
+
+describe('buildAnalyzerUserMessage — injection hardening', () => {
+  const baseCommit = {
+    sha: 'abc123', repo: 'r1', author: 'a',
+    authorName: 'Alice', message: 'hello', diff: 'diff --git a/b.ts b/b.ts',
+  };
+
+  it('wraps the diff in <untrusted_data> tags', () => {
+    const msg = buildAnalyzerUserMessage(baseCommit as any);
+    expect(msg).toContain('<untrusted_data>');
+    expect(msg).toContain('</untrusted_data>');
+  });
+
+  it('strips invisible chars from the diff (PI-05)', () => {
+    const injected = 'normal diff\u{E0049}\u{E0067}\u{E006E}\u{E006F}\u{E0072}\u{E0065}';
+    const msg = buildAnalyzerUserMessage({ ...baseCommit, diff: injected } as any);
+    expect(msg).toContain('normal diff');
+    expect(msg).not.toMatch(/[\u{E0020}-\u{E007F}]/u);
+  });
+
+  it('strips invisible chars from the message', () => {
+    const injected = 'fix bug\u{E0049}\u{E0067}\u{E006E}';
+    const msg = buildAnalyzerUserMessage({ ...baseCommit, message: injected } as any);
+    expect(msg).toContain('fix bug');
+    expect(msg).not.toMatch(/[\u{E0020}-\u{E007F}]/u);
+  });
+
+  it('sanitizes authorName (PI-06)', () => {
+    const injected = 'Alice\u{E0049}\u{E0067}\u{E006E}\u{E006F}\u{E0072}\u{E0065}';
+    const msg = buildAnalyzerUserMessage({ ...baseCommit, authorName: injected } as any);
+    expect(msg).toContain('Author: Alice');
+    expect(msg).not.toMatch(/[\u{E0020}-\u{E007F}]/u);
+  });
+
+  it('emits the (no diff available) fallback when diff is empty, still wrapped', () => {
+    const msg = buildAnalyzerUserMessage({ ...baseCommit, diff: '' } as any);
+    expect(msg).toContain('<untrusted_data>');
+    expect(msg).toContain('(no diff available)');
+    expect(msg).toContain('</untrusted_data>');
+  });
+});

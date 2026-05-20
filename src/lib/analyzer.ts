@@ -1,6 +1,7 @@
 import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, promptTag } from './llm-provider';
 import { loadPrompt } from './prompt-loader';
 import { getAppConfig } from './app-config/service';
+import { stripInvisible, sanitizeAuthorName } from './sanitize';
 import type { CommitData } from './github';
 
 export interface CommitAnalysis {
@@ -22,12 +23,7 @@ export async function analyzeCommit(commit: CommitData): Promise<CommitAnalysis>
     ? loadPrompt('analyzer-system-ai-confirmed.txt', { COMPLEXITY_CALIBRATION: calibration })
     : loadPrompt('analyzer-system.txt', { COMPLEXITY_CALIBRATION: calibration });
 
-  const userMessage = `Repository: ${commit.repo}
-Author: ${commit.authorName} (@${commit.author})
-Commit message: ${commit.message}
-
-Diff:
-${commit.diff || '(no diff available)'}`;
+  const userMessage = buildAnalyzerUserMessage(commit);
 
   const response = await client.chat.completions.create({
     model:       LLM_MODEL,
@@ -60,6 +56,20 @@ ${commit.diff || '(no diff available)'}`;
     riskLevel:     validateRisk(String(parsed.risk_level || 'low')),
     maybeAi:       aiAlreadyConfirmed ? false : Boolean(parsed.maybe_ai),
   };
+}
+
+export function buildAnalyzerUserMessage(commit: CommitData): string {
+  const safeAuthor  = sanitizeAuthorName(commit.authorName);
+  const safeMessage = stripInvisible(commit.message);
+  const safeDiff    = stripInvisible(commit.diff || '(no diff available)');
+  return `Repository: ${commit.repo}
+Author: ${safeAuthor} (@${commit.author})
+Commit message: ${safeMessage}
+
+Diff:
+<untrusted_data>
+${safeDiff}
+</untrusted_data>`;
 }
 
 function clamp(n: number, min: number, max: number): number {

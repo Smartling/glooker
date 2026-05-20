@@ -59,6 +59,8 @@ Author: Test User (@testuser)
 Commit message: feat: add feature
 
 Diff:
+<untrusted_data>
 --- file.ts
-+console.log("hello")"
++console.log("hello")
+</untrusted_data>"
 `;
