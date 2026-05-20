@@ -714,7 +714,7 @@ function TimelineChart({
   const bars = filtered.map((d, i) => {
     const x = padL + ((new Date(d.week + 'T00:00:00').getTime() - cutoff.getTime()) / totalMs) * chartW;
     const v = values[i];
-    const barH = ((v - min) / range) * chartH;
+    const barH = Math.max(((v - min) / range) * chartH, 1);
     const barY = padT + chartH - barH;
     return { x, barY, barH, v, week: d.week };
   });
@@ -727,7 +727,7 @@ function TimelineChart({
 
   // X-axis labels: left = cutoff (axis origin), middle = midpoint of range, right = "This week"
   const middleDate = new Date(cutoff.getTime() + totalMs / 2);
-  const middleLabel = formatWeek(middleDate.toISOString().split('T')[0]);
+  const middleLabel = middleDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
   const latest = values[values.length - 1];
   const prev = values.length >= 2 ? values[values.length - 2] : latest;
