@@ -207,6 +207,7 @@ CREATE TABLE IF NOT EXISTS team_pulse_summaries (
   org          TEXT    NOT NULL,
   summary_text TEXT    NOT NULL,
   health_json  TEXT    NOT NULL,
+  prompt_version TEXT  NOT NULL DEFAULT 'v1',
   generated_at TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
   FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
   UNIQUE (report_id, team_name)
@@ -274,6 +275,7 @@ export function createSQLiteDB(): DB {
   try { db.exec('ALTER TABLE developer_stats ADD COLUMN cc_requests INTEGER NOT NULL DEFAULT 0'); } catch (_) {}
   try { db.exec('ALTER TABLE reports ADD COLUMN cc_period_start TEXT'); } catch (_) {}
   try { db.exec('ALTER TABLE reports ADD COLUMN cc_period_end TEXT'); } catch (_) {}
+  try { db.exec("ALTER TABLE team_pulse_summaries ADD COLUMN prompt_version TEXT NOT NULL DEFAULT 'v1'"); } catch (_) {}
 
   const dbApi: DB = {
     execute: <T = any>(sql: string, params?: any[]): Promise<[T[], any]> => {

@@ -250,6 +250,9 @@ export function createMySQLDB(): DB {
   await pool.execute('ALTER TABLE reports ADD COLUMN cc_period_end DATE NULL').catch((err) => {
     if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add cc_period_end:', err);
   });
+  await pool.execute("ALTER TABLE team_pulse_summaries ADD COLUMN prompt_version VARCHAR(16) NOT NULL DEFAULT 'v1'").catch((err) => {
+    if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add prompt_version:', err);
+  });
   })();
 
   return {
