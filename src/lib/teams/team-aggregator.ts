@@ -26,7 +26,7 @@ export interface TeamRow {
   pr_percentage:  number;             // commit-weighted
   ai_percentage:  number;             // commit-weighted
 
-  impact_sum:      number;            // (Σ) sum of active devs' impact_score — "cumulative team impact"
+  impact_sum:      number;            // (Σ) sum of active devs' impact_score. NOT equal to impact_avg × active_count — both are rounded independently to 1 decimal.
   impact_avg:      number;            // (A) arithmetic mean of active impact_score
   impact_weighted: number;            // (W) per-capita-then-apply, default sort
 }
@@ -111,7 +111,7 @@ export function aggregateTeams(
     // saturate at the IC formula's `min(x/N, 1)` caps, so it actually reflects
     // team scale: a 12-person team will land roughly twice as high as a
     // 6-person team of similar per-IC quality. Each IC's contribution is
-    // capped at the IC max (~9.3), so the column is bounded by team_size × 9.3.
+    // capped at the IC max (~9.3), so the column is bounded by active_count × 9.3.
     const impact_score_sum = activeDevs.reduce((s, d) => s + (Number(d.impact_score) || 0), 0);
     const impact_sum = Math.round(impact_score_sum * 10) / 10;
 

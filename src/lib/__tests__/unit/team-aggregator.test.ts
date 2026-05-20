@@ -111,6 +111,19 @@ describe('aggregateTeams — impact strategies', () => {
     expect(row.impact_sum).toBe(18.0);
   });
 
+  it('(Σ) impact_sum rounds to one decimal place', () => {
+    // 3.35 × 3 = 10.05; banker's rounding would round to 10.0, but
+    // Math.round rounds half away from zero → 10.1
+    const devs: AggregatorDeveloper[] = [
+      { ...DEV_BASE, github_login: 'x', impact_score: 3.35 },
+      { ...DEV_BASE, github_login: 'y', impact_score: 3.35 },
+      { ...DEV_BASE, github_login: 'z', impact_score: 3.35 },
+    ];
+    const teams: AggregatorTeam[] = [{ ...TEAM_BASE, members: ['x', 'y', 'z'] }];
+    const [row] = aggregateTeams(devs, teams);
+    expect(row.impact_sum).toBe(10.1);
+  });
+
   it('(W) impact_weighted divides additive metrics by team size, then runs the formula', () => {
     // size = 4, only 2 devs active with 10 commits each → per-capita = 20/4 = 5
     // min(5/20, 1) * 2 = 0.5; min(0/10,1) * 2.7 = 0
