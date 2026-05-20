@@ -6,6 +6,7 @@ RULES:
 - Be direct and scannable — short bullets, no fluff, no emoji.
 - Compare individuals against their own prior-window baseline AND the team average where relevant.
 - Flag anything >2x or <0.5x baseline.
+- Use IN-FLIGHT WORK to enrich Team Focus (what they're currently working on alongside what shipped) and Alerts (flag PRs open >5 days, large in-flight diffs needing review). Do NOT add a new heading; integrate naturally into the existing sections.
 - Keep under 350 words total.
 
 OUTPUT STRUCTURE (use these exact headings):
@@ -30,3 +31,4 @@ TEAM AVERAGES (current window): {{TEAM_AVG_COMMITS}} commits, {{TEAM_AVG_PRS}} P
 
 PER-MEMBER DATA:
 {{MEMBER_DATA}}
+{{INFLIGHT_BLOCK}}
