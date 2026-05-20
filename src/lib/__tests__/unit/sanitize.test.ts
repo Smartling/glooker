@@ -1,4 +1,5 @@
 import { stripInvisible, sanitizeAuthorName } from '@/lib/sanitize';
+import { buildAnalyzerUserMessage } from '@/lib/analyzer';
 
 describe('stripInvisible', () => {
   it('returns empty string for empty / null / undefined input', () => {
@@ -29,7 +30,8 @@ describe('stripInvisible', () => {
   });
 
   it('strips C0 control chars (U+0001 — U+001F) except \\t \\n \\r', () => {
-    expect(stripInvisible('abcd')).toBe('abcd');
+    expect(stripInvisible('a\x01b\x07c\x1Fd')).toBe('abcd');    // strips SOH, BEL, US
+    expect(stripInvisible('a\tb\nc\rd')).toBe('a\tb\nc\rd');     // preserves tab/LF/CR
   });
 
   it('preserves non-ASCII printable characters (e.g. accented, CJK)', () => {
@@ -67,8 +69,6 @@ describe('sanitizeAuthorName', () => {
     expect(sanitizeAuthorName('abcdefghij', 5)).toBe('abcde');
   });
 });
-
-import { buildAnalyzerUserMessage } from '@/lib/analyzer';
 
 describe('buildAnalyzerUserMessage — injection hardening', () => {
   const baseCommit = {

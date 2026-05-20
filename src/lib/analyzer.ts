@@ -59,10 +59,13 @@ export async function analyzeCommit(commit: CommitData): Promise<CommitAnalysis>
 }
 
 export function buildAnalyzerUserMessage(commit: CommitData): string {
+  const safeRepo    = stripInvisible(commit.repo);
   const safeAuthor  = sanitizeAuthorName(commit.authorName);
   const safeMessage = stripInvisible(commit.message);
   const safeDiff    = stripInvisible(commit.diff || '(no diff available)');
-  return `Repository: ${commit.repo}
+  // commit.author is a GitHub login — constrained to [a-zA-Z0-9-] by GitHub,
+  // no sanitization needed.
+  return `Repository: ${safeRepo}
 Author: ${safeAuthor} (@${commit.author})
 Commit message: ${safeMessage}
 
