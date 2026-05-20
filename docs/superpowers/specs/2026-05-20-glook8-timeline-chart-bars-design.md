@@ -20,7 +20,7 @@ Replace the SVG line + area fill with `<rect>` bars. This makes gaps structural 
 
 The X-axis always spans `[cutoff, today]` in milliseconds, where `cutoff` is today minus 90 days (unchanged). The right edge always represents the current week.
 
-Bar x-position:
+Bar x-position (`d.week` is a Monday-anchored ISO date string `YYYY-MM-DD`, produced by `weekKeyForDate()` in `timeline.ts`):
 ```ts
 const today = new Date();
 const totalMs = today.getTime() - cutoff.getTime();
@@ -42,18 +42,20 @@ const barH = ((v - min) / range) * chartH;
 const barY = padT + chartH - barH;  // top-left corner of rect
 ```
 
-All four metrics (commits, lines changed, avg complexity, AI %) are non-negative, so `min = Math.min(...values, 0)` always equals 0 and bars always start from the baseline.
+All four metrics (commits, lines changed, avg complexity, AI %) are non-negative, so `min = Math.min(...values, 0)` always equals 0 and bars always start from the baseline. No explicit clamping at the right axis edge is required.
+
+Bars are rendered using the `color` prop, opacity 1, no corner radius.
 
 ### X-axis labels
 
 Three labels:
-- **Left:** first data point's week, formatted as `"Mon D"` (e.g. "Feb 24")
+- **Left:** cutoff date, formatted as `"Mon D"` (e.g. "Feb 19") — anchored to the axis origin, not the first data point
 - **Middle:** the date at `cutoff + totalMs / 2`, formatted as `"Mon D"`
 - **Right:** fixed string `"This week"`
 
 ### Hover interaction
 
-The invisible hit target is a full-column `<rect>` spanning `padT` to `padT + chartH` (full chart height), centered on the bar's x-position with width equal to `barWidth`. This maximises discoverability. Tooltip content and positioning logic are unchanged.
+The invisible hit target is a full-column `<rect>` spanning `padT` to `padT + chartH` (full chart height), centered on the bar's x-position with width equal to `barWidth`. The vertical guide line x-position is the bar's `x`. The tooltip vertical position anchor is `barY` (top of the bar). Tooltip content is unchanged.
 
 ### Empty state guard
 
