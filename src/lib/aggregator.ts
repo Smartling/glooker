@@ -1,5 +1,8 @@
 import type { CommitData } from './github';
 import type { CommitAnalysis } from './analyzer';
+import { computeImpactScore } from './impact-score';
+
+export { computeImpactScore, type ImpactScoreInputs } from './impact-score';
 
 export interface DeveloperStats {
   githubLogin:    string;
@@ -18,28 +21,6 @@ export interface DeveloperStats {
   totalReviews: number;
   typeBreakdown:  Record<string, number>;
   activeRepos:    string[];
-}
-
-/**
- * Compute impact score from developer metrics.
- * Exported so report-runner can recalculate after Jira data is attached.
- */
-export function computeImpactScore(s: {
-  totalCommits: number; totalPRs: number; avgComplexity: number;
-  prPercentage: number; totalStoryPoints: number; totalJiraIssues: number;
-  totalReviews: number;
-}): number {
-  const jiraFactor = s.totalStoryPoints > 0
-    ? Math.min(s.totalStoryPoints / 15, 1)
-    : Math.min(s.totalJiraIssues / 10, 1);
-  const raw =
-    Math.min(s.totalCommits / 20, 1) * 2 +
-    Math.min(s.totalPRs / 10, 1)     * 2.7 +
-    (s.avgComplexity / 10)            * 3.5 +
-    (s.prPercentage / 100)            * 1.1 +
-    jiraFactor                        * 0.5 +
-    Math.min(s.totalReviews / 15, 1)  * 0.5;
-  return Math.round(raw * 10) / 10;
 }
 
 export function aggregate(

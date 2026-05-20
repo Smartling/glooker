@@ -7,6 +7,7 @@ import { createPortal } from 'react-dom';
 import ChatPanel from '@/app/chat-panel';
 import { useAuth } from '@/app/auth-context';
 import { useUrlState, useUrlBatch } from '@/lib/url-state';
+import TeamTable from './team-table';
 
 interface Developer {
   github_login:       string;
@@ -39,6 +40,7 @@ interface Report {
 interface Team {
   id:      string;
   name:    string;
+  color:   string;
   members: string[];
 }
 
@@ -74,6 +76,13 @@ export default function TeamSummaryPage() {
 
   const commitCache = useRef<Map<string, any[]>>(new Map());
   const jiraCache = useRef<Map<string, any[]>>(new Map());
+  const [view, setView] = useUrlState<'individuals' | 'teams'>({
+    key: 'view',
+    type: 'enum',
+    values: ['individuals', 'teams'] as const,
+    default: 'individuals',
+    history: 'push',
+  });
   const [selectedTeamName, setSelectedTeamName] = useUrlState<string | null>({
     key: 'team',
     type: 'string',
@@ -212,6 +221,22 @@ export default function TeamSummaryPage() {
         </div>
       )}
 
+      {/* Tabs */}
+      <div className="border-b border-gray-800 mb-6">
+        <div className="flex gap-6">
+          <button
+            onClick={() => setView('individuals')}
+            className={`pb-2 text-sm font-medium transition-colors ${view === 'individuals' ? 'text-white border-b-2 border-accent -mb-px' : 'text-gray-500 hover:text-gray-300'}`}
+          >Individuals</button>
+          <button
+            onClick={() => setView('teams')}
+            className={`pb-2 text-sm font-medium transition-colors ${view === 'teams' ? 'text-white border-b-2 border-accent -mb-px' : 'text-gray-500 hover:text-gray-300'}`}
+          >Teams</button>
+        </div>
+      </div>
+
+      {view === 'individuals' && (
+      <>
       {/* User filter */}
       {developers.length > 0 && (
         <div className="mb-3 relative">
@@ -448,6 +473,17 @@ export default function TeamSummaryPage() {
         </div>
       );
       })()}
+      </>
+      )}
+
+      {view === 'teams' && activeReport && teamsData !== undefined && (
+        <TeamTable
+          developers={developers}
+          teams={teams}
+          reportId={params.id}
+          canAct={canAct}
+        />
+      )}
 
       {activeReport && developers.length === 0 && activeReport.status === 'completed' && (
         <div className="text-center text-gray-500 py-16">
