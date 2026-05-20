@@ -49,5 +49,21 @@ export function buildTeamPulsePrompt(data: TeamPulseData): string {
     ACTIVE_COUNT: String(data.activeCount),
     TOTAL_COUNT: String(data.totalCount),
     MEMBER_DATA: lines.join('\n'),
+    INFLIGHT_BLOCK: renderInflightBlock(data.inflight),
   });
+}
+
+function renderInflightBlock(i: { open_prs: { total: number; draft: number; ready: number; oldest_days: number; lines_added: number; lines_removed: number; by_author: { login: string; count: number }[]; by_repo: { repo: string; count: number }[] }; unmerged_branches: { total_branches: number; total_commits: number } }): string {
+  if (i.open_prs.total === 0 && i.unmerged_branches.total_commits === 0) {
+    return 'IN-FLIGHT WORK (snapshot at report time): (none)';
+  }
+  const byRepo   = i.open_prs.by_repo.length === 0   ? '(none)' : i.open_prs.by_repo.map(r => `${r.repo} (${r.count})`).join(', ');
+  const byAuthor = i.open_prs.by_author.length === 0 ? '(none)' : i.open_prs.by_author.map(a => `@${a.login} (${a.count})`).join(', ');
+  return [
+    'IN-FLIGHT WORK (snapshot at report time):',
+    `- Open PRs: ${i.open_prs.total} (${i.open_prs.draft} draft, ${i.open_prs.ready} ready); oldest ${i.open_prs.oldest_days}d; +${i.open_prs.lines_added}/-${i.open_prs.lines_removed} lines`,
+    `- Unmerged branches: ${i.unmerged_branches.total_branches} branches, ${i.unmerged_branches.total_commits} commits`,
+    `- In-flight by repo:   ${byRepo}`,
+    `- In-flight by author: ${byAuthor}`,
+  ].join('\n');
 }

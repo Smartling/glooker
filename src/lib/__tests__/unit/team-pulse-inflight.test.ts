@@ -1,4 +1,6 @@
 import { aggregateInflight, type Inflight } from '@/lib/team-pulse/data';
+import { buildTeamPulsePrompt } from '@/lib/team-pulse/prompt';
+import type { TeamPulseData } from '@/lib/team-pulse/data';
 
 interface PrRow {
   github_login: string;
@@ -104,5 +106,45 @@ describe('aggregateInflight', () => {
     const out = aggregateInflight([], commits, NOW);
     expect(out.unmerged_branches.total_commits).toBe(5);
     expect(out.unmerged_branches.total_branches).toBe(4);
+  });
+});
+
+function makeData(inflight: Inflight): TeamPulseData {
+  return {
+    teamName: 'X',
+    members: new Map(),
+    currentDays: ['2026-05-19', '2026-05-20'],
+    priorDays:   ['2026-05-15', '2026-05-16'],
+    teamAvgCommits: 0, teamAvgPrs: 0,
+    activeCount: 0, totalCount: 0,
+    trendingPct: 0, trendDirection: 'stable',
+    inflight,
+  };
+}
+
+describe('buildTeamPulsePrompt — inflight', () => {
+  it('renders an empty block (literal "(none)") when in-flight is empty', () => {
+    const json = JSON.parse(buildTeamPulsePrompt(makeData(aggregateInflight([], [], NOW))));
+    expect(json.INFLIGHT_BLOCK).toBe('IN-FLIGHT WORK (snapshot at report time): (none)');
+  });
+
+  it('renders the structured block when in-flight is populated', () => {
+    const inflight: Inflight = {
+      open_prs: {
+        total: 6, draft: 2, ready: 4,
+        by_author: [{ login: 'alice', count: 3 }, { login: 'bob', count: 2 }],
+        by_repo:   [{ repo: 'frontend', count: 4 }, { repo: 'api', count: 2 }],
+        oldest_days: 7, lines_added: 250, lines_removed: 40,
+      },
+      unmerged_branches: { total_branches: 5, total_commits: 18 },
+    };
+    const json = JSON.parse(buildTeamPulsePrompt(makeData(inflight)));
+    expect(json.INFLIGHT_BLOCK).toBe(
+      'IN-FLIGHT WORK (snapshot at report time):\n' +
+      '- Open PRs: 6 (2 draft, 4 ready); oldest 7d; +250/-40 lines\n' +
+      '- Unmerged branches: 5 branches, 18 commits\n' +
+      '- In-flight by repo:   frontend (4), api (2)\n' +
+      '- In-flight by author: @alice (3), @bob (2)'
+    );
   });
 });
