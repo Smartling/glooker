@@ -38,15 +38,15 @@ const barWidth = (chartW / totalWeeks) * 0.85;
 Each bar is centered on its week's Monday x-position:
 ```ts
 const barX = x - barWidth / 2;
-const barY = padT + chartH - ((v - min) / range) * chartH;
 const barH = ((v - min) / range) * chartH;
+const barY = padT + chartH - barH;  // top-left corner of rect
 ```
 
 ### X-axis labels
 
 Three labels:
 - **Left:** first data point's week, formatted as `"Mon D"` (e.g. "Feb 24")
-- **Middle:** the week whose Monday is closest to the midpoint of the full `[cutoff, today]` date range — computed from dates, not array index
+- **Middle:** the date at `cutoff + totalMs / 2`, formatted as `"Mon D"`
 - **Right:** fixed string `"This week"`
 
 ### Hover interaction
