@@ -674,7 +674,7 @@ function TimelineChart({
   const cutoffStr = cutoff.toISOString().split('T')[0];
   const filtered = data.filter(d => d.week >= cutoffStr);
 
-  if (filtered.length < 2) return null;
+  if (filtered.length < 1) return null;
 
   const values = filtered.map(d => computeValue ? computeValue(d) : (d as any)[valueKey] as number);
   const max = Math.max(...values, 1);
@@ -696,29 +696,38 @@ function TimelineChart({
 
   const W = 400;
   const H = 130;
-  const padL = 40; // left padding for Y-axis labels
+  const padL = 40;
   const padR = 12;
   const padT = 12;
-  const padB = 24; // bottom for X labels
+  const padB = 24;
   const chartW = W - padL - padR;
   const chartH = H - padT - padB;
 
-  const points = values.map((v, i) => {
-    const x = padL + (i / (values.length - 1)) * chartW;
-    const y = padT + chartH - ((v - min) / range) * chartH;
-    return { x, y, v };
+  // Fixed X-axis range: [cutoff, today].
+  // d.week is a Monday-anchored ISO date string (YYYY-MM-DD) from weekKeyForDate() in timeline.ts.
+  // Parse with T00:00:00 to stay in local time, consistent with formatWeek below.
+  const today = new Date();
+  const totalMs = today.getTime() - cutoff.getTime();
+  const totalWeeks = totalMs / (7 * 24 * 3600 * 1000);
+  const barWidth = (chartW / totalWeeks) * 0.85;
+
+  const bars = filtered.map((d, i) => {
+    const x = padL + ((new Date(d.week + 'T00:00:00').getTime() - cutoff.getTime()) / totalMs) * chartW;
+    const v = values[i];
+    const barH = ((v - min) / range) * chartH;
+    const barY = padT + chartH - barH;
+    return { x, barY, barH, v, week: d.week };
   });
 
-  const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
-  const areaPath = `${linePath} L${points[points.length - 1].x},${padT + chartH} L${points[0].x},${padT + chartH} Z`;
-
-  // X-axis labels: first, middle, last week
-  const labelIndices = [...new Set([0, Math.floor(filtered.length / 2), filtered.length - 1])];
   const formatWeek = (w: string) => {
     const d = new Date(w + 'T00:00:00');
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
   const formatVal = (v: number) => (decimals > 0 ? v.toFixed(decimals) : String(Math.round(v))) + suffix;
+
+  // X-axis labels: left = cutoff (axis origin), middle = midpoint of range, right = "This week"
+  const middleDate = new Date(cutoff.getTime() + totalMs / 2);
+  const middleLabel = formatWeek(middleDate.toISOString().split('T')[0]);
 
   const latest = values[values.length - 1];
   const prev = values.length >= 2 ? values[values.length - 2] : latest;
@@ -753,36 +762,45 @@ function TimelineChart({
             </g>
           );
         })}
-        {/* Area fill */}
-        <path d={areaPath} fill={color} opacity="0.1" />
-        {/* Line */}
-        <path d={linePath} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        {/* Data points + hover targets */}
-        {points.map((p, i) => (
-          <g key={i}
+        {/* Bars — color prop, opacity 1, no corner radius */}
+        {bars.map((bar, i) => (
+          <rect
+            key={i}
+            x={bar.x - barWidth / 2}
+            y={bar.barY}
+            width={barWidth}
+            height={bar.barH}
+            fill={color}
+            opacity={1}
+          />
+        ))}
+        {/* Full-column invisible hover targets (rendered after bars to sit on top) */}
+        {bars.map((bar, i) => (
+          <rect
+            key={i}
+            x={bar.x - barWidth / 2}
+            y={padT}
+            width={barWidth}
+            height={chartH}
+            fill="transparent"
             onMouseEnter={() => setHoverIdx(i)}
             onMouseLeave={() => setHoverIdx(null)}
-          >
-            {/* Invisible wider hit target */}
-            <circle cx={p.x} cy={p.y} r="10" fill="transparent" />
-            {/* Visible dot */}
-            <circle cx={p.x} cy={p.y} r={hoverIdx === i ? 5 : 3} fill={color} opacity={hoverIdx === i ? 1 : i === points.length - 1 ? 1 : 0.5} />
-          </g>
+          />
         ))}
         {/* Hover tooltip */}
         {hoverIdx !== null && (() => {
-          const p = points[hoverIdx];
-          const weekLabel = formatWeek(filtered[hoverIdx].week);
-          const valLabel = formatVal(p.v);
+          const bar = bars[hoverIdx];
+          const weekLabel = formatWeek(bar.week);
+          const valLabel = formatVal(bar.v);
           const text = `${weekLabel}: ${valLabel}`;
           const textW = text.length * 6 + 16;
-          const tooltipX = Math.min(Math.max(p.x - textW / 2, 2), W - textW - 2);
-          const above = p.y > padT + 30;
-          const tooltipY = above ? p.y - 28 : p.y + 12;
+          const tooltipX = Math.min(Math.max(bar.x - textW / 2, 2), W - textW - 2);
+          const above = bar.barY > padT + 30;
+          const tooltipY = above ? bar.barY - 28 : bar.barY + 12;
           return (
             <g>
               {/* Vertical guide line */}
-              <line x1={p.x} y1={padT} x2={p.x} y2={padT + chartH} stroke={color} strokeWidth="1" opacity="0.3" strokeDasharray="3,3" />
+              <line x1={bar.x} y1={padT} x2={bar.x} y2={padT + chartH} stroke={color} strokeWidth="1" opacity="0.3" strokeDasharray="3,3" />
               {/* Tooltip background */}
               <rect x={tooltipX} y={tooltipY} width={textW} height={20} rx="4" fill="#1F2937" stroke="#374151" strokeWidth="1" />
               {/* Tooltip text */}
@@ -792,12 +810,16 @@ function TimelineChart({
             </g>
           );
         })()}
-        {/* X-axis labels */}
-        {labelIndices.map(idx => (
-          <text key={idx} x={points[idx].x} y={H - 4} textAnchor="middle" className="fill-gray-600" fontSize="10">
-            {formatWeek(filtered[idx].week)}
-          </text>
-        ))}
+        {/* X-axis labels: left = cutoff, middle = midpoint, right = "This week" */}
+        <text x={padL} y={H - 4} textAnchor="start" className="fill-gray-600" fontSize="10">
+          {formatWeek(cutoffStr)}
+        </text>
+        <text x={padL + chartW / 2} y={H - 4} textAnchor="middle" className="fill-gray-600" fontSize="10">
+          {middleLabel}
+        </text>
+        <text x={padL + chartW} y={H - 4} textAnchor="end" className="fill-gray-600" fontSize="10">
+          This week
+        </text>
       </svg>
     </div>
   );
