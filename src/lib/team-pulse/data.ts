@@ -38,6 +38,82 @@ const EMPTY_INFLIGHT: Inflight = {
   unmerged_branches: { total_branches: 0, total_commits: 0 },
 };
 
+interface InflightPrRow {
+  github_login: string;
+  repo: string;
+  is_draft: 0 | 1 | boolean | null;
+  pr_additions: number | null;
+  pr_deletions: number | null;
+  pr_updated_at: string | Date | null;
+}
+
+interface InflightCommitRow {
+  github_login: string;
+  repo: string;
+  branch: string | null;
+}
+
+export function aggregateInflight(
+  prRows: InflightPrRow[],
+  commitRows: InflightCommitRow[],
+  now: Date,
+): Inflight {
+  if (prRows.length === 0 && commitRows.length === 0) return EMPTY_INFLIGHT;
+
+  let draft = 0;
+  let ready = 0;
+  let lines_added = 0;
+  let lines_removed = 0;
+  let oldest_ms = 0;
+  const prByAuthor = new Map<string, number>();
+  const prByRepo   = new Map<string, number>();
+
+  for (const r of prRows) {
+    if (r.is_draft === true || r.is_draft === 1) draft++;
+    else ready++;
+    lines_added   += Number(r.pr_additions ?? 0);
+    lines_removed += Number(r.pr_deletions ?? 0);
+    if (r.pr_updated_at) {
+      const t = new Date(r.pr_updated_at).getTime();
+      const age = now.getTime() - t;
+      if (age > oldest_ms) oldest_ms = age;
+    }
+    prByAuthor.set(r.github_login, (prByAuthor.get(r.github_login) ?? 0) + 1);
+    prByRepo.set(r.repo, (prByRepo.get(r.repo) ?? 0) + 1);
+  }
+
+  const oldest_days = oldest_ms > 0 ? Math.floor(oldest_ms / 86_400_000) : 0;
+
+  const sortDesc = <T extends { count: number }>(items: T[], tieKey: (x: T) => string) =>
+    items.sort((a, b) => b.count - a.count || tieKey(a).localeCompare(tieKey(b)));
+
+  const by_author = sortDesc(
+    [...prByAuthor].map(([login, count]) => ({ login, count })),
+    x => x.login,
+  ).slice(0, 5);
+
+  const by_repo = sortDesc(
+    [...prByRepo].map(([repo, count]) => ({ repo, count })),
+    x => x.repo,
+  ).slice(0, 3);
+
+  const branchKeys = new Set<string>();
+  for (const c of commitRows) branchKeys.add(`${c.repo} ${c.branch ?? ''}`);
+
+  return {
+    open_prs: {
+      total: prRows.length,
+      draft, ready,
+      by_author, by_repo,
+      oldest_days, lines_added, lines_removed,
+    },
+    unmerged_branches: {
+      total_branches: branchKeys.size,
+      total_commits: commitRows.length,
+    },
+  };
+}
+
 export interface TeamPulseData {
   teamName: string;
   members: Map<string, MemberWindowData>;
