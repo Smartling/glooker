@@ -31,4 +31,5 @@ TEAM AVERAGES (current window): {{TEAM_AVG_COMMITS}} commits, {{TEAM_AVG_PRS}} P
 
 PER-MEMBER DATA:
 {{MEMBER_DATA}}
+
 {{INFLIGHT_BLOCK}}

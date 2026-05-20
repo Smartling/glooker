@@ -29,15 +29,6 @@ export interface Inflight {
   unmerged_branches: InflightBranches;
 }
 
-const EMPTY_INFLIGHT: Inflight = {
-  open_prs: {
-    total: 0, draft: 0, ready: 0,
-    by_author: [], by_repo: [],
-    oldest_days: 0, lines_added: 0, lines_removed: 0,
-  },
-  unmerged_branches: { total_branches: 0, total_commits: 0 },
-};
-
 interface InflightPrRow {
   github_login: string;
   repo: string;
@@ -53,12 +44,24 @@ interface InflightCommitRow {
   branch: string | null;
 }
 
+function emptyInflight(): Inflight {
+  return {
+    open_prs: {
+      total: 0, draft: 0, ready: 0,
+      by_author: [], by_repo: [],
+      oldest_days: 0, lines_added: 0, lines_removed: 0,
+    },
+    unmerged_branches: { total_branches: 0, total_commits: 0 },
+  };
+}
+
 export function aggregateInflight(
   prRows: InflightPrRow[],
   commitRows: InflightCommitRow[],
   now: Date,
 ): Inflight {
-  if (prRows.length === 0 && commitRows.length === 0) return EMPTY_INFLIGHT;
+  // Return a fresh object — callers must never share a module-level constant.
+  if (prRows.length === 0 && commitRows.length === 0) return emptyInflight();
 
   let draft = 0;
   let ready = 0;
@@ -84,15 +87,16 @@ export function aggregateInflight(
 
   const oldest_days = oldest_ms > 0 ? Math.floor(oldest_ms / 86_400_000) : 0;
 
-  const sortDesc = <T extends { count: number }>(items: T[], tieKey: (x: T) => string) =>
-    items.sort((a, b) => b.count - a.count || tieKey(a).localeCompare(tieKey(b)));
+  // Returns a sorted copy; never mutates input.
+  const sortedDesc = <T extends { count: number }>(items: T[], tieKey: (x: T) => string) =>
+    [...items].sort((a, b) => b.count - a.count || tieKey(a).localeCompare(tieKey(b)));
 
-  const by_author = sortDesc(
+  const by_author = sortedDesc(
     [...prByAuthor].map(([login, count]) => ({ login, count })),
     x => x.login,
   ).slice(0, 5);
 
-  const by_repo = sortDesc(
+  const by_repo = sortedDesc(
     [...prByRepo].map(([repo, count]) => ({ repo, count })),
     x => x.repo,
   ).slice(0, 3);
@@ -115,7 +119,7 @@ export function aggregateInflight(
 }
 
 async function fetchInflight(reportId: string, teamMembers: string[]): Promise<Inflight> {
-  if (teamMembers.length === 0) return EMPTY_INFLIGHT;
+  if (teamMembers.length === 0) return emptyInflight();
   const memberPlaceholders = teamMembers.map(() => '?').join(',');
 
   const [prRows] = await db.execute(

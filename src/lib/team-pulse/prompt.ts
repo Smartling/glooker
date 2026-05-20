@@ -1,4 +1,4 @@
-import type { TeamPulseData } from './data';
+import type { TeamPulseData, Inflight } from './data';
 
 export function buildTeamPulsePrompt(data: TeamPulseData): string {
   const lines: string[] = [];
@@ -53,7 +53,7 @@ export function buildTeamPulsePrompt(data: TeamPulseData): string {
   });
 }
 
-function renderInflightBlock(i: { open_prs: { total: number; draft: number; ready: number; oldest_days: number; lines_added: number; lines_removed: number; by_author: { login: string; count: number }[]; by_repo: { repo: string; count: number }[] }; unmerged_branches: { total_branches: number; total_commits: number } }): string {
+function renderInflightBlock(i: Inflight): string {
   if (i.open_prs.total === 0 && i.unmerged_branches.total_commits === 0) {
     return 'IN-FLIGHT WORK (snapshot at report time): (none)';
   }

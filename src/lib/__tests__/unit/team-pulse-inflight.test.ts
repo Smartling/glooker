@@ -1,6 +1,5 @@
-import { aggregateInflight, type Inflight } from '@/lib/team-pulse/data';
+import { aggregateInflight, type Inflight, type TeamPulseData } from '@/lib/team-pulse/data';
 import { buildTeamPulsePrompt } from '@/lib/team-pulse/prompt';
-import type { TeamPulseData } from '@/lib/team-pulse/data';
 
 interface PrRow {
   github_login: string;
@@ -18,6 +17,19 @@ interface CommitRow {
 }
 
 const NOW = new Date('2026-05-20T12:00:00Z');
+
+function makeData(inflight: Inflight): TeamPulseData {
+  return {
+    teamName: 'X',
+    members: new Map(),
+    currentDays: ['2026-05-19', '2026-05-20'],
+    priorDays:   ['2026-05-15', '2026-05-16'],
+    teamAvgCommits: 0, teamAvgPrs: 0,
+    activeCount: 0, totalCount: 0,
+    trendingPct: 0, trendDirection: 'stable',
+    inflight,
+  };
+}
 
 describe('aggregateInflight', () => {
   it('returns the empty struct for empty inputs', () => {
@@ -95,32 +107,22 @@ describe('aggregateInflight', () => {
     expect(out.open_prs.oldest_days).toBe(5);
   });
 
-  it('counts unmerged branches and commits', () => {
+  it('counts unmerged branches (distinct repo+branch) and total commits', () => {
     const commits: CommitRow[] = [
       { github_login: 'alice', repo: 'frontend', branch: 'feature/x' },
-      { github_login: 'alice', repo: 'frontend', branch: 'feature/x' },
+      { github_login: 'alice', repo: 'frontend', branch: 'feature/x' },   // dup branch → 1 slot
       { github_login: 'alice', repo: 'frontend', branch: 'feature/y' },
       { github_login: 'bob',   repo: 'api',      branch: 'fix/z' },
-      { github_login: 'bob',   repo: 'api',      branch: null },
+      { github_login: 'bob',   repo: 'api',      branch: null },          // branchless commits in same repo dedupe
+      { github_login: 'bob',   repo: 'api',      branch: null },          // ↑ still one branch slot, not two
     ];
     const out = aggregateInflight([], commits, NOW);
-    expect(out.unmerged_branches.total_commits).toBe(5);
+    // 6 raw commits across 4 distinct (repo, branch) keys:
+    //   (frontend, feature/x), (frontend, feature/y), (api, fix/z), (api, '')
+    expect(out.unmerged_branches.total_commits).toBe(6);
     expect(out.unmerged_branches.total_branches).toBe(4);
   });
 });
-
-function makeData(inflight: Inflight): TeamPulseData {
-  return {
-    teamName: 'X',
-    members: new Map(),
-    currentDays: ['2026-05-19', '2026-05-20'],
-    priorDays:   ['2026-05-15', '2026-05-16'],
-    teamAvgCommits: 0, teamAvgPrs: 0,
-    activeCount: 0, totalCount: 0,
-    trendingPct: 0, trendDirection: 'stable',
-    inflight,
-  };
-}
 
 describe('buildTeamPulsePrompt — inflight', () => {
   it('renders an empty block (literal "(none)") when in-flight is empty', () => {

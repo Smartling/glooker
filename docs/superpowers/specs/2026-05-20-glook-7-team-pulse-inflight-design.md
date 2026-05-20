@@ -72,8 +72,8 @@ inflight: {
 
 ### Aggregation rules
 
-- **Team scope**: rows are filtered by `author_login IN (team_members)`. The team member list comes from the existing `team_members` table query already in the team-pulse pipeline.
-- **Author identity**: GitHub login (the existing `unmerged_prs.author_login` / `unmerged_commits.author_login` column).
+- **Team scope**: rows are filtered by `github_login IN (team_members)`. The team member list comes from the existing `team_members` table query already in the team-pulse pipeline.
+- **Author identity**: GitHub login (the existing `unmerged_prs.github_login` / `unmerged_commits.github_login` column).
 - **Top-N**: by_author limited to top 5; by_repo limited to top 3. Ties broken alphabetically. Same convention used elsewhere in the codebase where we surface "top contributors" in a narrative context.
 - **Drafts**: `unmerged_prs.is_draft` boolean already populated by the report runner.
 - **`oldest_days`**: derived from `unmerged_prs.updated_at`. If zero open PRs, set to `0`.
@@ -131,8 +131,7 @@ When `inflight.open_prs.total === 0`:
 
 Strategy: add a `prompt_version VARCHAR(16) NOT NULL DEFAULT 'v1'` column. Set `const PROMPT_VERSION = 'v2-inflight';` in `service.ts`. Include the version in the SELECT lookup and INSERT/UPDATE.
 
-- Old rows survive as historical records but never satisfy the new SELECT (they're `'v1'`).
-- The first access to any team's pulse after deploy is a cache miss → regenerates with the new prompt → inserts a `v2-inflight` row.
+- The `(report_id, team_name)` UNIQUE KEY is unchanged. The first access after deploy is a cache miss (the old row's `prompt_version='v1'` doesn't satisfy the new SELECT filter), so the LLM regenerates and the `ON DUPLICATE KEY UPDATE` overwrites the old row's `summary_text`, `health_json`, and `prompt_version` in place. This means we **don't** keep an audit trail of old summaries — we accept overwrite semantics for simplicity. If a future change needs to preserve history, add `prompt_version` to the UNIQUE KEY.
 - Subsequent prompt iterations just bump the constant; no migration needed each time.
 
 ## Testing
