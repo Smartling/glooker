@@ -8,6 +8,137 @@ export interface MemberWindowData {
   totalReviews: number;
 }
 
+export interface InflightOpenPrs {
+  total: number;
+  draft: number;
+  ready: number;
+  by_author: { login: string; count: number }[];   // top 5 desc
+  by_repo:   { repo: string;  count: number }[];   // top 3 desc
+  oldest_days: number;        // max(now - updated_at) across open PRs; 0 if none
+  lines_added: number;
+  lines_removed: number;
+}
+
+export interface InflightBranches {
+  total_branches: number;
+  total_commits: number;
+}
+
+export interface Inflight {
+  open_prs: InflightOpenPrs;
+  unmerged_branches: InflightBranches;
+}
+
+interface InflightPrRow {
+  github_login: string;
+  repo: string;
+  is_draft: 0 | 1 | boolean | null;
+  pr_additions: number | null;
+  pr_deletions: number | null;
+  pr_updated_at: string | Date | null;
+}
+
+interface InflightCommitRow {
+  github_login: string;
+  repo: string;
+  branch: string | null;
+}
+
+function emptyInflight(): Inflight {
+  return {
+    open_prs: {
+      total: 0, draft: 0, ready: 0,
+      by_author: [], by_repo: [],
+      oldest_days: 0, lines_added: 0, lines_removed: 0,
+    },
+    unmerged_branches: { total_branches: 0, total_commits: 0 },
+  };
+}
+
+export function aggregateInflight(
+  prRows: InflightPrRow[],
+  commitRows: InflightCommitRow[],
+  now: Date,
+): Inflight {
+  // Return a fresh object — callers must never share a module-level constant.
+  if (prRows.length === 0 && commitRows.length === 0) return emptyInflight();
+
+  let draft = 0;
+  let ready = 0;
+  let lines_added = 0;
+  let lines_removed = 0;
+  let oldest_ms = 0;
+  const prByAuthor = new Map<string, number>();
+  const prByRepo   = new Map<string, number>();
+
+  for (const r of prRows) {
+    if (r.is_draft === true || r.is_draft === 1) draft++;
+    else ready++;
+    lines_added   += Number(r.pr_additions ?? 0);
+    lines_removed += Number(r.pr_deletions ?? 0);
+    if (r.pr_updated_at) {
+      const t = new Date(r.pr_updated_at).getTime();
+      const age = now.getTime() - t;
+      if (age > oldest_ms) oldest_ms = age;
+    }
+    prByAuthor.set(r.github_login, (prByAuthor.get(r.github_login) ?? 0) + 1);
+    prByRepo.set(r.repo, (prByRepo.get(r.repo) ?? 0) + 1);
+  }
+
+  const oldest_days = oldest_ms > 0 ? Math.floor(oldest_ms / 86_400_000) : 0;
+
+  // Returns a sorted copy; never mutates input.
+  const sortedDesc = <T extends { count: number }>(items: T[], tieKey: (x: T) => string) =>
+    [...items].sort((a, b) => b.count - a.count || tieKey(a).localeCompare(tieKey(b)));
+
+  const by_author = sortedDesc(
+    [...prByAuthor].map(([login, count]) => ({ login, count })),
+    x => x.login,
+  ).slice(0, 5);
+
+  const by_repo = sortedDesc(
+    [...prByRepo].map(([repo, count]) => ({ repo, count })),
+    x => x.repo,
+  ).slice(0, 3);
+
+  const branchKeys = new Set<string>();
+  for (const c of commitRows) branchKeys.add(`${c.repo} ${c.branch ?? ''}`);
+
+  return {
+    open_prs: {
+      total: prRows.length,
+      draft, ready,
+      by_author, by_repo,
+      oldest_days, lines_added, lines_removed,
+    },
+    unmerged_branches: {
+      total_branches: branchKeys.size,
+      total_commits: commitRows.length,
+    },
+  };
+}
+
+async function fetchInflight(reportId: string, teamMembers: string[]): Promise<Inflight> {
+  if (teamMembers.length === 0) return emptyInflight();
+  const memberPlaceholders = teamMembers.map(() => '?').join(',');
+
+  const [prRows] = await db.execute(
+    `SELECT github_login, repo, is_draft, pr_additions, pr_deletions, pr_updated_at
+       FROM unmerged_prs
+      WHERE report_id = ? AND github_login IN (${memberPlaceholders})`,
+    [reportId, ...teamMembers],
+  ) as [any[], any];
+
+  const [commitRows] = await db.execute(
+    `SELECT github_login, repo, branch
+       FROM unmerged_commits
+      WHERE report_id = ? AND github_login IN (${memberPlaceholders})`,
+    [reportId, ...teamMembers],
+  ) as [any[], any];
+
+  return aggregateInflight(prRows, commitRows, new Date());
+}
+
 export interface TeamPulseData {
   teamName: string;
   members: Map<string, MemberWindowData>;
@@ -19,6 +150,7 @@ export interface TeamPulseData {
   totalCount: number;
   trendingPct: number;
   trendDirection: 'up' | 'down' | 'stable';
+  inflight: Inflight;
 }
 
 function formatLocalDate(d: Date): string {
@@ -147,5 +279,7 @@ export async function extractTeamPulseData(
   const trendingPct = totalPriorCommits > 0 ? Math.round(((totalCurrentCommits - totalPriorCommits) / totalPriorCommits) * 100) : totalCurrentCommits > 0 ? 100 : 0;
   const trendDirection: 'up' | 'down' | 'stable' = trendingPct > 5 ? 'up' : trendingPct < -5 ? 'down' : 'stable';
 
-  return { teamName: '', members, currentDays, priorDays, teamAvgCommits, teamAvgPrs, activeCount, totalCount, trendingPct, trendDirection };
+  const inflight = await fetchInflight(reportId, teamMembers);
+
+  return { teamName: '', members, currentDays, priorDays, teamAvgCommits, teamAvgPrs, activeCount, totalCount, trendingPct, trendDirection, inflight };
 }

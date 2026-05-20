@@ -4,6 +4,8 @@ import { loadPrompt } from '@/lib/prompt-loader';
 import { extractTeamPulseData } from './data';
 import { buildTeamPulsePrompt } from './prompt';
 
+const PROMPT_VERSION = 'v2-inflight';
+
 export interface TeamPulseResult {
   summary: string;
   health: {
@@ -23,8 +25,8 @@ export async function getTeamPulse(
 ): Promise<TeamPulseResult> {
   // Check cache
   const [cached] = await db.execute(
-    `SELECT summary_text, health_json, generated_at FROM team_pulse_summaries WHERE report_id = ? AND team_name = ?`,
-    [reportId, teamName],
+    `SELECT summary_text, health_json, generated_at FROM team_pulse_summaries WHERE report_id = ? AND team_name = ? AND prompt_version = ?`,
+    [reportId, teamName, PROMPT_VERSION],
   ) as [any[], any];
 
   if (cached.length > 0) {
@@ -80,10 +82,10 @@ export async function getTeamPulse(
 
   // Cache
   await db.execute(
-    `INSERT INTO team_pulse_summaries (report_id, team_name, org, summary_text, health_json)
-     VALUES (?, ?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE summary_text = VALUES(summary_text), health_json = VALUES(health_json), generated_at = NOW()`,
-    [reportId, teamName, org, summary, JSON.stringify(health)],
+    `INSERT INTO team_pulse_summaries (report_id, team_name, org, summary_text, health_json, prompt_version)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE summary_text = VALUES(summary_text), health_json = VALUES(health_json), prompt_version = VALUES(prompt_version), generated_at = NOW()`,
+    [reportId, teamName, org, summary, JSON.stringify(health), PROMPT_VERSION],
   );
 
   return { summary, health, generatedAt: new Date().toISOString(), cached: false };
