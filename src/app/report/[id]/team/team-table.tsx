@@ -43,16 +43,24 @@ export default function TeamTable({ developers, teams, reportId, canAct }: TeamT
   const hasJira  = rows.some(r => r.total_jira_issues > 0);
   const hasSpend = canAct && rows.some(r => r.cc_total_cost > 0);
 
+  // If the URL points at a sort column we won't render (Spend hidden for
+  // non-admins, Jira hidden when nobody has Jira issues), silently fall back
+  // to the default sort so the user isn't looking at an invisible sort key.
+  const effectiveSortKey: SortKey =
+    (!hasSpend && sortKey === 'cc_total_cost') || (!hasJira && sortKey === 'total_jira_issues')
+      ? 'impact_weighted'
+      : sortKey;
+
   const sortedRows = useMemo(() => {
     const sign = sortDir === 'asc' ? 1 : -1;
     return [...rows].sort((a, b) => {
-      if (sortKey === 'name') return a.name.localeCompare(b.name) * sign;
-      const av = a[sortKey] as number;
-      const bv = b[sortKey] as number;
+      if (effectiveSortKey === 'name') return a.name.localeCompare(b.name) * sign;
+      const av = a[effectiveSortKey] as number;
+      const bv = b[effectiveSortKey] as number;
       if (av === bv) return a.name.localeCompare(b.name);
       return (av - bv) * sign;
     });
-  }, [rows, sortKey, sortDir]);
+  }, [rows, effectiveSortKey, sortDir]);
 
   const onSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -85,7 +93,7 @@ export default function TeamTable({ developers, teams, reportId, canAct }: TeamT
     );
   }
 
-  const sortCaret = (key: SortKey) => sortKey === key ? (sortDir === 'desc' ? ' ▼' : ' ▲') : '';
+  const sortCaret = (key: SortKey) => effectiveSortKey === key ? (sortDir === 'desc' ? ' ▼' : ' ▲') : '';
 
   return (
     <div className="bg-gray-900 rounded-xl overflow-hidden">
@@ -127,9 +135,9 @@ export default function TeamTable({ developers, teams, reportId, canAct }: TeamT
               <td className="px-4 py-3 text-right text-gray-300 tabular-nums">{row.total_prs}</td>
               <td className="px-4 py-3 text-right text-gray-300 tabular-nums">{row.total_commits}</td>
               <td className="px-4 py-3 text-right text-gray-300 tabular-nums">
-                <span className="text-green-400/80">+{row.lines_added}</span>
+                <span className="text-green-400/80">+{row.lines_added.toLocaleString()}</span>
                 <span className="text-gray-500 mx-1">/</span>
-                <span className="text-red-400/80">−{row.lines_removed}</span>
+                <span className="text-red-400/80">−{row.lines_removed.toLocaleString()}</span>
               </td>
               <td className="px-4 py-3 text-right text-gray-300 tabular-nums">{row.active_count > 0 ? row.avg_complexity.toFixed(1) : '—'}</td>
               <td className="px-4 py-3 text-right text-gray-300 tabular-nums">{row.active_count > 0 ? `${Math.round(row.pr_percentage)}%` : '—'}</td>

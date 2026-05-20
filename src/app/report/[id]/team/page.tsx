@@ -8,7 +8,6 @@ import ChatPanel from '@/app/chat-panel';
 import { useAuth } from '@/app/auth-context';
 import { useUrlState, useUrlBatch } from '@/lib/url-state';
 import TeamTable from './team-table';
-import type { AggregatorTeam } from '@/lib/teams/team-aggregator';
 
 interface Developer {
   github_login:       string;
@@ -41,6 +40,7 @@ interface Report {
 interface Team {
   id:      string;
   name:    string;
+  color:   string;
   members: string[];
 }
 
@@ -476,11 +476,10 @@ export default function TeamSummaryPage() {
       </>
       )}
 
-      {view === 'teams' && activeReport && (
+      {view === 'teams' && activeReport && teamsData !== undefined && (
         <TeamTable
           developers={developers}
-          // Cast: local Team interface omits `color`, but the /api/teams response includes it.
-          teams={teams as AggregatorTeam[]}
+          teams={teams}
           reportId={params.id}
           canAct={canAct}
         />
