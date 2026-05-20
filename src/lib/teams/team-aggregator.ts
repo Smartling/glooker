@@ -26,7 +26,7 @@ export interface TeamRow {
   pr_percentage:  number;             // commit-weighted
   ai_percentage:  number;             // commit-weighted
 
-  impact_total:    number;            // (T) sum-then-apply
+  impact_sum:      number;            // (Σ) sum of active devs' impact_score. NOT equal to impact_avg × active_count — both are rounded independently to 1 decimal.
   impact_avg:      number;            // (A) arithmetic mean of active impact_score
   impact_weighted: number;            // (W) per-capita-then-apply, default sort
 }
@@ -106,19 +106,18 @@ export function aggregateTeams(
     const total_reviews = 0;       // not exposed via /api/report today; documented in spec
     const total_story_points = 0;  // ditto
 
-    const impact_total = computeImpactScore({
-      totalCommits:     total_commits,
-      totalPRs:         total_prs,
-      avgComplexity:    avg_complexity,
-      prPercentage:     pr_percentage,
-      totalStoryPoints: total_story_points,
-      totalJiraIssues:  total_jira_issues,
-      totalReviews:     total_reviews,
-    });
+    // Σ — cumulative team impact: sum of active developers' individual impact
+    // scores. Unlike the previous sum-then-apply variant, this does not
+    // saturate at the IC formula's `min(x/N, 1)` caps, so it actually reflects
+    // team scale: a 12-person team will land roughly twice as high as a
+    // 6-person team of similar per-IC quality. Each IC's contribution is
+    // capped at the IC max (~9.3), so the column is bounded by active_count × 9.3.
+    const impact_score_sum = activeDevs.reduce((s, d) => s + (Number(d.impact_score) || 0), 0);
+    const impact_sum = Math.round(impact_score_sum * 10) / 10;
 
     const impact_avg = activeDevs.length === 0
       ? 0
-      : Math.round((activeDevs.reduce((s, d) => s + (Number(d.impact_score) || 0), 0) / activeDevs.length) * 10) / 10;
+      : Math.round((impact_score_sum / activeDevs.length) * 10) / 10;
 
     const teamSize = team.members.length;
     const impact_weighted = teamSize === 0
@@ -145,7 +144,7 @@ export function aggregateTeams(
       active_repos_count,
       type_breakdown,
       avg_complexity, pr_percentage, ai_percentage,
-      impact_total, impact_avg, impact_weighted,
+      impact_sum, impact_avg, impact_weighted,
     });
   }
   return rows;

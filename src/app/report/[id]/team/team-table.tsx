@@ -16,7 +16,7 @@ const SORT_KEYS = [
   'name', 'size', 'active_count', 'total_prs', 'total_commits',
   'lines_added', 'avg_complexity', 'pr_percentage', 'ai_percentage',
   'total_jira_issues', 'cc_total_cost',
-  'impact_total', 'impact_avg', 'impact_weighted',
+  'impact_sum', 'impact_avg', 'impact_weighted',
 ] as const;
 type SortKey = typeof SORT_KEYS[number];
 
@@ -113,7 +113,7 @@ export default function TeamTable({ developers, teams, reportId, canAct }: TeamT
             {hasSpend && <th className="px-4 py-3 text-right w-[6%]"><button onClick={() => onSort('cc_total_cost')} className="hover:text-gray-300">Spend{sortCaret('cc_total_cost')}</button></th>}
             <th className="px-4 py-3 text-right w-[7%]" title="Per-capita-then-apply: team-level metrics ÷ team size, run through the IC impact formula"><button onClick={() => onSort('impact_weighted')} className="hover:text-gray-300">Impact (W){sortCaret('impact_weighted')}</button></th>
             <th className="px-4 py-3 text-right w-[6%]" title="Arithmetic mean of active developers' impact scores"><button onClick={() => onSort('impact_avg')} className="hover:text-gray-300">(A){sortCaret('impact_avg')}</button></th>
-            <th className="px-4 py-3 text-right w-[6%]" title="Sum-then-apply: team-level totals run through the IC impact formula. Saturates fast — use as a context column, not a primary sort."><button onClick={() => onSort('impact_total')} className="hover:text-gray-300">(T){sortCaret('impact_total')}</button></th>
+            <th className="px-4 py-3 text-right w-[6%]" title="Cumulative team impact: sum of active developers' individual impact scores. Scales with team size — sort by (A) or (W) to compare quality independent of team size."><button onClick={() => onSort('impact_sum')} className="hover:text-gray-300">(Σ){sortCaret('impact_sum')}</button></th>
           </tr>
         </thead>
         <tbody>
@@ -144,9 +144,9 @@ export default function TeamTable({ developers, teams, reportId, canAct }: TeamT
               <td className="px-4 py-3 text-right text-gray-300 tabular-nums">{row.active_count > 0 ? `${Math.round(row.ai_percentage)}%` : '—'}</td>
               {hasJira  && <td className="px-4 py-3 text-right text-gray-300 tabular-nums">{row.total_jira_issues}</td>}
               {hasSpend && <td className="px-4 py-3 text-right text-green-400 font-mono text-sm tabular-nums">${Math.round(row.cc_total_cost / 100).toLocaleString()}</td>}
-              <td className="px-4 py-3 text-right text-white tabular-nums font-semibold">{row.impact_weighted.toFixed(1)}</td>
-              <td className="px-4 py-3 text-right text-gray-400 tabular-nums">{row.impact_avg.toFixed(1)}</td>
-              <td className="px-4 py-3 text-right text-gray-400 tabular-nums">{row.impact_total.toFixed(1)}</td>
+              <td className="px-4 py-3 text-right text-white tabular-nums font-semibold">{row.active_count > 0 ? row.impact_weighted.toFixed(1) : '—'}</td>
+              <td className="px-4 py-3 text-right text-gray-400 tabular-nums">{row.active_count > 0 ? row.impact_avg.toFixed(1) : '—'}</td>
+              <td className="px-4 py-3 text-right text-gray-400 tabular-nums">{row.active_count > 0 ? row.impact_sum.toFixed(1) : '—'}</td>
             </tr>
           ))}
         </tbody>

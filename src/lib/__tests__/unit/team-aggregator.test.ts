@@ -100,16 +100,28 @@ describe('aggregateTeams — impact strategies', () => {
     expect(row.impact_avg).toBe(6.0);
   });
 
-  it('(T) impact_total runs the IC formula on sums', () => {
-    // Two devs, 10 commits each → 20 total, saturates min(20/20,1)*2 = 2.0
-    // Two devs, 5 PRs each → 10 total, saturates min(10/10,1)*2.7 = 2.7
+  it('(Σ) impact_sum is the sum of active devs impact_score (no saturation)', () => {
     const devs: AggregatorDeveloper[] = [
-      { ...DEV_BASE, github_login: 'a', total_commits: 10, total_prs: 5 },
-      { ...DEV_BASE, github_login: 'b', total_commits: 10, total_prs: 5 },
+      { ...DEV_BASE, github_login: 'a', impact_score: 7.0 },
+      { ...DEV_BASE, github_login: 'b', impact_score: 6.0 },
+      { ...DEV_BASE, github_login: 'c', impact_score: 5.0 },
     ];
-    const teams: AggregatorTeam[] = [{ ...TEAM_BASE, members: ['a', 'b'] }];
+    const teams: AggregatorTeam[] = [{ ...TEAM_BASE, members: ['a', 'b', 'c'] }];
     const [row] = aggregateTeams(devs, teams);
-    expect(row.impact_total).toBe(4.7);
+    expect(row.impact_sum).toBe(18.0);
+  });
+
+  it('(Σ) impact_sum rounds to one decimal place', () => {
+    // 3.35 × 3 = 10.05; banker's rounding would round to 10.0, but
+    // Math.round rounds half away from zero → 10.1
+    const devs: AggregatorDeveloper[] = [
+      { ...DEV_BASE, github_login: 'x', impact_score: 3.35 },
+      { ...DEV_BASE, github_login: 'y', impact_score: 3.35 },
+      { ...DEV_BASE, github_login: 'z', impact_score: 3.35 },
+    ];
+    const teams: AggregatorTeam[] = [{ ...TEAM_BASE, members: ['x', 'y', 'z'] }];
+    const [row] = aggregateTeams(devs, teams);
+    expect(row.impact_sum).toBe(10.1);
   });
 
   it('(W) impact_weighted divides additive metrics by team size, then runs the formula', () => {
@@ -126,13 +138,14 @@ describe('aggregateTeams — impact strategies', () => {
     expect(row.impact_weighted).toBe(0.5);
   });
 
-  it('single-member team where the dev IS active: W == T (per-capita-with-size-1 collapses to total)', () => {
+  it('single-member team where the dev IS active: Σ == A == the dev\'s own impact_score', () => {
     const devs: AggregatorDeveloper[] = [
       { ...DEV_BASE, github_login: 'solo', total_commits: 8, total_prs: 4, avg_complexity: 5, pr_percentage: 50, impact_score: 9.9 },
     ];
     const teams: AggregatorTeam[] = [{ ...TEAM_BASE, members: ['solo'] }];
     const [row] = aggregateTeams(devs, teams);
-    expect(row.impact_weighted).toBe(row.impact_total);
+    expect(row.impact_sum).toBe(9.9);
+    expect(row.impact_avg).toBe(9.9);
   });
 
   it('zero active devs: all three impact scores are 0', () => {
@@ -141,7 +154,7 @@ describe('aggregateTeams — impact strategies', () => {
     const [row] = aggregateTeams(devs, teams);
     expect(row.size).toBe(2);
     expect(row.active_count).toBe(0);
-    expect(row.impact_total).toBe(0);
+    expect(row.impact_sum).toBe(0);
     expect(row.impact_avg).toBe(0);
     expect(row.impact_weighted).toBe(0);
   });
