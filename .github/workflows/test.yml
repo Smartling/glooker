@@ -15,4 +15,12 @@ jobs:
           node-version: 20
           cache: 'npm'
       - run: npm ci
+      - name: Detect invisible Unicode in prompts
+        run: |
+          if perl -CSD -ne 'exit 1 if /[\x{E0020}-\x{E007F}\x{200B}-\x{200F}\x{202A}-\x{202E}\x{2060}\x{FEFF}]/' prompts/*.txt; then
+            echo "OK — no invisible Unicode in prompts/"
+          else
+            echo "ERROR — invisible Unicode detected in a prompt file"
+            exit 1
+          fi
       - run: npm test -- --ci --coverage
