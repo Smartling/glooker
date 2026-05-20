@@ -8,6 +8,36 @@ export interface MemberWindowData {
   totalReviews: number;
 }
 
+export interface InflightOpenPrs {
+  total: number;
+  draft: number;
+  ready: number;
+  by_author: { login: string; count: number }[];   // top 5 desc
+  by_repo:   { repo: string;  count: number }[];   // top 3 desc
+  oldest_days: number;        // max(now - updated_at) across open PRs; 0 if none
+  lines_added: number;
+  lines_removed: number;
+}
+
+export interface InflightBranches {
+  total_branches: number;
+  total_commits: number;
+}
+
+export interface Inflight {
+  open_prs: InflightOpenPrs;
+  unmerged_branches: InflightBranches;
+}
+
+const EMPTY_INFLIGHT: Inflight = {
+  open_prs: {
+    total: 0, draft: 0, ready: 0,
+    by_author: [], by_repo: [],
+    oldest_days: 0, lines_added: 0, lines_removed: 0,
+  },
+  unmerged_branches: { total_branches: 0, total_commits: 0 },
+};
+
 export interface TeamPulseData {
   teamName: string;
   members: Map<string, MemberWindowData>;
@@ -19,6 +49,7 @@ export interface TeamPulseData {
   totalCount: number;
   trendingPct: number;
   trendDirection: 'up' | 'down' | 'stable';
+  inflight: Inflight;
 }
 
 function formatLocalDate(d: Date): string {
@@ -147,5 +178,5 @@ export async function extractTeamPulseData(
   const trendingPct = totalPriorCommits > 0 ? Math.round(((totalCurrentCommits - totalPriorCommits) / totalPriorCommits) * 100) : totalCurrentCommits > 0 ? 100 : 0;
   const trendDirection: 'up' | 'down' | 'stable' = trendingPct > 5 ? 'up' : trendingPct < -5 ? 'down' : 'stable';
 
-  return { teamName: '', members, currentDays, priorDays, teamAvgCommits, teamAvgPrs, activeCount, totalCount, trendingPct, trendDirection };
+  return { teamName: '', members, currentDays, priorDays, teamAvgCommits, teamAvgPrs, activeCount, totalCount, trendingPct, trendDirection, inflight: EMPTY_INFLIGHT };
 }
