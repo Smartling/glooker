@@ -40,7 +40,7 @@ interface Developer {
 }
 
 interface WeeklyData {
-  week: string; commits: number; linesAdded: number; linesRemoved: number;
+  week: string; commits: number; prs: number; linesAdded: number; linesRemoved: number;
   linesP95Added?: number; linesP95Removed?: number;
   avgComplexity: number; aiPercent: number; types: Record<string, number>; activeDevs: number;
   inFlightLinesAdded?: number; inFlightLinesRemoved?: number;
@@ -274,6 +274,12 @@ export default function OrgDetailPage() {
               label="Commits / Week"
               color="#3B82F6"
               inFlightValue={d => d.types?.in_flight ?? 0}
+            />
+            <TimelineChart
+              data={timeline}
+              valueKey="prs"
+              label="PRs / Week"
+              color="#A78BFA"
             />
             <TimelineChart data={timeline} valueKey="activeDevs" label="Active Developers / Week" color="#10B981" />
             <LinesChangedChart data={timeline} />
