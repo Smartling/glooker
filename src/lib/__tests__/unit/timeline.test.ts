@@ -109,4 +109,16 @@ describe('aggregateWeekly — avgLinesPerPr field', () => {
     ]);
     expect(out[0].avgLinesPerPr).toBe(10);
   });
+
+  it('excludes outlier PRs above P95 from the average', () => {
+    const rows: any[] = [];
+    for (let i = 1; i <= 20; i++) {
+      rows.push(row({ pr_number: i, lines_added: 50, lines_removed: 0 }));
+    }
+    // One huge PR — above P95 of the 21-PR population, should be excluded from the avg.
+    rows.push(row({ pr_number: 999, lines_added: 10000, lines_removed: 0 }));
+    const out = aggregateWeekly(rows);
+    expect(out[0].prs).toBe(21);
+    expect(out[0].avgLinesPerPr).toBe(50);
+  });
 });

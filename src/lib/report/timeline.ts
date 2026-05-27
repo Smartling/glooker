@@ -50,6 +50,19 @@ export function aggregateWeekly(commits: any[], opts?: { trackDevs?: boolean }):
     ? commitLineTotals[Math.floor(commitLineTotals.length * 0.95)]
     : Infinity;
 
+  // Total lines per PR across all weeks — used to apply a P95 outlier filter to the
+  // per-week avgLinesPerPr so one giant refactor PR can't dominate the chart.
+  const prLineTotals = new Map<string, number>();
+  for (const c of commits) {
+    if (c.pr_number == null || !c.committed_at) continue;
+    const key = String(c.pr_number);
+    prLineTotals.set(key, (prLineTotals.get(key) ?? 0) + (Number(c.lines_added) || 0) + (Number(c.lines_removed) || 0));
+  }
+  const sortedPrTotals = [...prLineTotals.values()].sort((a, b) => a - b);
+  const prP95Threshold = sortedPrTotals.length > 0
+    ? sortedPrTotals[Math.floor(sortedPrTotals.length * 0.95)]
+    : Infinity;
+
   const weeklyMap = new Map<string, {
     week: string;
     commits: number;
@@ -63,7 +76,8 @@ export function aggregateWeekly(commits: any[], opts?: { trackDevs?: boolean }):
     types: Record<string, number>;
     activeDevs: Set<string>;
     prNumbers: Set<string>;
-    prLines: number;
+    prNumbersP95: Set<string>;
+    prLinesP95: number;
   }>();
 
   for (const c of commits) {
@@ -78,7 +92,7 @@ export function aggregateWeekly(commits: any[], opts?: { trackDevs?: boolean }):
         linesP95Added: 0, linesP95Removed: 0,
         totalComplexity: 0, complexityCount: 0, aiCount: 0,
         types: {}, activeDevs: new Set(), prNumbers: new Set(),
-        prLines: 0,
+        prNumbersP95: new Set(), prLinesP95: 0,
       });
     }
     const w = weeklyMap.get(weekKey)!;
@@ -100,8 +114,13 @@ export function aggregateWeekly(commits: any[], opts?: { trackDevs?: boolean }):
     if (c.type) w.types[c.type] = (w.types[c.type] || 0) + 1;
     if (c.github_login) w.activeDevs.add(c.github_login);
     if (c.pr_number != null) {
-      w.prNumbers.add(String(c.pr_number));
-      w.prLines += la + lr;
+      const key = String(c.pr_number);
+      w.prNumbers.add(key);
+      // Exclude PRs whose total size exceeds P95 from the avgLinesPerPr signal.
+      if ((prLineTotals.get(key) ?? 0) <= prP95Threshold) {
+        w.prNumbersP95.add(key);
+        w.prLinesP95 += la + lr;
+      }
     }
   }
 
@@ -112,7 +131,7 @@ export function aggregateWeekly(commits: any[], opts?: { trackDevs?: boolean }):
         week: w.week,
         commits: w.commits,
         prs: w.prNumbers.size,
-        avgLinesPerPr: w.prNumbers.size > 0 ? Math.round(w.prLines / w.prNumbers.size) : 0,
+        avgLinesPerPr: w.prNumbersP95.size > 0 ? Math.round(w.prLinesP95 / w.prNumbersP95.size) : 0,
         linesAdded: w.linesAdded,
         linesRemoved: w.linesRemoved,
         linesP95Added: w.linesP95Added,
