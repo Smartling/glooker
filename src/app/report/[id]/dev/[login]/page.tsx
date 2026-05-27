@@ -59,6 +59,8 @@ interface ReportMeta {
 interface WeeklyData {
   week: string;
   commits: number;
+  prs: number;
+  avgLinesPerPr: number;
   linesAdded: number;
   linesRemoved: number;
   avgComplexity: number;
@@ -314,6 +316,19 @@ export default function DevDetailPage() {
               valueKey="commits"
               label="Commits / Week"
               color="#3B82F6"
+            />
+            <TimelineChart
+              data={timeline}
+              valueKey="prs"
+              label="PRs / Week"
+              color="#06B6D4"
+            />
+            <TimelineChart
+              data={timeline}
+              valueKey="avgLinesPerPr"
+              label="Avg Lines Changed / PR (outliers excluded)"
+              color="#EC4899"
+              suffix=" lines"
             />
             <TimelineChart
               data={timeline}
