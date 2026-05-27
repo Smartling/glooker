@@ -60,6 +60,7 @@ interface WeeklyData {
   week: string;
   commits: number;
   prs: number;
+  avgLinesPerPr: number;
   linesAdded: number;
   linesRemoved: number;
   avgComplexity: number;
@@ -321,6 +322,12 @@ export default function DevDetailPage() {
               valueKey="prs"
               label="PRs / Week"
               color="#A78BFA"
+            />
+            <TimelineChart
+              data={timeline}
+              valueKey="avgLinesPerPr"
+              label="Avg Lines Changed / PR"
+              color="#EC4899"
             />
             <TimelineChart
               data={timeline}

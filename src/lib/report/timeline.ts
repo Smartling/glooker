@@ -2,6 +2,7 @@ export interface WeeklyBucket {
   week: string;
   commits: number;
   prs: number;
+  avgLinesPerPr: number;
   linesAdded: number;
   linesRemoved: number;
   linesP95Added: number;
@@ -62,6 +63,7 @@ export function aggregateWeekly(commits: any[], opts?: { trackDevs?: boolean }):
     types: Record<string, number>;
     activeDevs: Set<string>;
     prNumbers: Set<string>;
+    prLines: number;
   }>();
 
   for (const c of commits) {
@@ -76,6 +78,7 @@ export function aggregateWeekly(commits: any[], opts?: { trackDevs?: boolean }):
         linesP95Added: 0, linesP95Removed: 0,
         totalComplexity: 0, complexityCount: 0, aiCount: 0,
         types: {}, activeDevs: new Set(), prNumbers: new Set(),
+        prLines: 0,
       });
     }
     const w = weeklyMap.get(weekKey)!;
@@ -96,7 +99,10 @@ export function aggregateWeekly(commits: any[], opts?: { trackDevs?: boolean }):
     if (c.ai_co_authored || c.maybe_ai) w.aiCount++;
     if (c.type) w.types[c.type] = (w.types[c.type] || 0) + 1;
     if (c.github_login) w.activeDevs.add(c.github_login);
-    if (c.pr_number != null) w.prNumbers.add(String(c.pr_number));
+    if (c.pr_number != null) {
+      w.prNumbers.add(String(c.pr_number));
+      w.prLines += la + lr;
+    }
   }
 
   return [...weeklyMap.values()]
@@ -106,6 +112,7 @@ export function aggregateWeekly(commits: any[], opts?: { trackDevs?: boolean }):
         week: w.week,
         commits: w.commits,
         prs: w.prNumbers.size,
+        avgLinesPerPr: w.prNumbers.size > 0 ? Math.round(w.prLines / w.prNumbers.size) : 0,
         linesAdded: w.linesAdded,
         linesRemoved: w.linesRemoved,
         linesP95Added: w.linesP95Added,
