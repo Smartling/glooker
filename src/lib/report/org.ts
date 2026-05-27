@@ -45,7 +45,7 @@ export async function getOrgReport(reportId: string) {
     const placeholders = reportIds.map(() => '?').join(',');
     const [tlRows] = await db.execute(
       `SELECT commit_sha, github_login, committed_at, lines_added, lines_removed,
-              complexity, type, ai_co_authored, maybe_ai
+              complexity, type, ai_co_authored, maybe_ai, pr_number
        FROM commit_analyses WHERE report_id IN (${placeholders}) ORDER BY committed_at ASC`,
       [...reportIds],
     ) as [any[], any];

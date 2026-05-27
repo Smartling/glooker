@@ -77,7 +77,7 @@ export async function getDevReport(reportId: string, login: string) {
     const placeholders = reportIds.map(() => '?').join(',');
     const [tlRows] = await db.execute(
       `SELECT commit_sha, committed_at, lines_added, lines_removed,
-              complexity, type, ai_co_authored, maybe_ai
+              complexity, type, ai_co_authored, maybe_ai, pr_number
        FROM commit_analyses
        WHERE github_login = ? AND report_id IN (${placeholders})
        ORDER BY committed_at ASC`,
