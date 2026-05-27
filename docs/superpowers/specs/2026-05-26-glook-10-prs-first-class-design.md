@@ -1,8 +1,10 @@
 # GLOOK-10 — Surface PR count as a first-class metric in graphs
 
+> **Scope note (post-implementation):** Initial design called for a single `PRs / Week` chart. During implementation the user requested a companion `Avg Lines Changed / PR` chart (sized to give the "throughput vs size" story), with a P95 outlier filter mirroring the existing Lines Changed chart's smoothing. Both ship together. This doc has been updated below to reflect what landed.
+
 ## Goal
 
-PR count is the most heavily weighted contributor to the IC impact score (`min(PRs/10, 1) × 2.7`), but it's currently invisible in every time-series chart on the org and engineer pages. Add a `PRs / Week` chart on each page, mirroring the existing `Commits / Week` chart, so the metric that drives impact is also visible in the time-series story.
+PR count is the most heavily weighted contributor to the IC impact score (`min(PRs/10, 1) × 2.7`), but it's currently invisible in every time-series chart on the org and engineer pages. Add a `PRs / Week` chart **and a companion `Avg Lines Changed / PR (outliers excluded)` chart** on each page, mirroring the existing `Commits / Week` and `Lines Changed / Week` charts respectively, so the metric that drives impact is also visible in the time-series story — both as throughput (count) and as size (avg).
 
 ## Non-goals
 
@@ -44,20 +46,19 @@ Extend the `WeeklyBucket` interface and the `aggregateWeekly()` implementation:
 export interface WeeklyBucket {
   week: string;
   commits: number;
-  prs: number;           // NEW: distinct pr_number values that week
+  prs: number;              // NEW: distinct pr_number values that week
+  avgLinesPerPr: number;    // NEW: avg lines per PR active in week (outliers excluded)
   linesAdded: number;
   linesRemoved: number;
   // ... (rest unchanged)
 }
 ```
 
-Implementation: in the per-week accumulator, add a `prNumbers: Set<string>` alongside the existing `activeDevs: Set<string>`. For each commit row:
+**`prs`** — in the per-week accumulator, add `prNumbers: Set<string>` alongside the existing `activeDevs: Set<string>`. For each commit row: `if (c.pr_number != null) w.prNumbers.add(String(c.pr_number))`. Emit `prs: w.prNumbers.size`.
 
-```ts
-if (c.pr_number != null) w.prNumbers.add(String(c.pr_number));
-```
+**`avgLinesPerPr`** — first-pass compute `prLineTotals: Map<pr_number, totalLines>` across all weeks. Derive a P95 threshold over distinct PRs using `sortedPrTotals[Math.ceil(N * 0.95) - 1]` (NOT `floor` — `floor` returns the max at N≤20 and the filter degenerates to a no-op). In the per-week accumulator, track `prNumbersP95: Set<string>` and `prLinesP95: number`; only add a commit's lines to these if its PR's total ≤ threshold. Emit `avgLinesPerPr = prNumbersP95.size > 0 ? round(prLinesP95 / prNumbersP95.size) : 0`.
 
-Emit `prs: w.prNumbers.size` from the final `.map(...)`.
+**Semantic of `avgLinesPerPr`** — per-week slice of activity. A PR's *total* across all weeks decides whether it's an outlier (stable filter across the chart), but only the lines from this week's commits go into this week's numerator, and the denominator is the count of PRs active in this week. A 400-line PR split 200/200 across two weeks shows avg=200 in each; a 400-line PR landing in one week shows avg=400 there. This is "average per-PR activity in week W," not "size of the average PR overall."
 
 ### Definition
 
@@ -73,28 +74,27 @@ The `commit_analyses` rows already carry `pr_number` and they're already passed 
 
 ### Both pages: `org/page.tsx` and `dev/[login]/page.tsx`
 
-1. Add `prs: number` to the local `WeeklyData` interface (mirrors `WeeklyBucket`).
-2. Add **one new `<TimelineChart>` invocation** immediately after the existing `Commits / Week` chart:
+1. Add `prs: number` and `avgLinesPerPr: number` to the local `WeeklyData` interface (mirrors `WeeklyBucket`).
+2. Add **two new `<TimelineChart>` invocations** immediately after the existing `Commits / Week` chart:
 
 ```tsx
+<TimelineChart data={timeline} valueKey="prs" label="PRs / Week" color="#06B6D4" />
 <TimelineChart
   data={timeline}
-  valueKey="prs"
-  label="PRs / Week"
-  color="#A78BFA"   // purple-400 — distinct from greens (commits) and amber (lines)
+  valueKey="avgLinesPerPr"
+  label="Avg Lines Changed / PR (outliers excluded)"
+  color="#EC4899"
+  suffix=" lines"
 />
 ```
 
-3. No `computeValue` or `inFlightValue` props — `prs` is a direct numeric field.
-4. Tooltip / scale / height all inherit from the existing `TimelineChart` defaults.
+3. No `computeValue` or `inFlightValue` props — both are direct numeric fields.
+4. Tooltip / scale / height inherit from `TimelineChart` defaults.
 
 ### Color choice
 
-`#A78BFA` (Tailwind purple-400). Reasoning:
-- Greens are already taken by commits / lines-added.
-- Ambers / reds are lines-removed.
-- Blues are sometimes used for AI%.
-- Purple sits cleanly in the unused part of the existing palette and won't clash on either page.
+- `#06B6D4` (Tailwind cyan-500) for **PRs / Week** — distinct from `#A855F7` (purple-500) used by AI Assisted % on the same grid; earlier purple-400 (`#A78BFA`) was too close to the AI hue.
+- `#EC4899` (Tailwind pink-500) for **Avg Lines Changed / PR** — reads as "size, not count," and doesn't collide with amber (used by Avg Complexity on the dev page).
 
 ### Placement
 
@@ -104,21 +104,26 @@ The new chart goes **immediately after** Commits/Week on both pages. Rationale: 
 
 | Layer | What | Where |
 |---|---|---|
-| Unit — aggregator | `aggregateWeekly()` emits `prs` = distinct `pr_number` count per week. Cases: rows with no `pr_number` → 0; rows with duplicate `pr_number` → counted once; rows with multiple distinct PRs → all counted; PR spanning two weeks → counted in each. | New file `src/lib/__tests__/unit/timeline.test.ts` (no existing tests on `timeline.ts`; verified via `ls`). |
-| Visual / interactive | None. Repo has no RTL/Playwright harness; the chart is a copy of an existing chart with a different field. Manual smoke. | n/a |
+| Unit — `prs` aggregation | Cases: rows with no `pr_number` → 0; duplicates → counted once; multiple distinct PRs; PR spanning two weeks → counted in each; mixed PR + direct-push rows. | `src/lib/__tests__/unit/timeline.test.ts` |
+| Unit — `avgLinesPerPr` aggregation | Cases: zero PRs → 0; single-PR-multi-commit sum; avg across distinct PRs; direct-push lines excluded from numerator; integer rounding; **P95 outlier exclusion at N=20 boundary**; **degrades to no-filter at N<20**; **cross-week semantic lockdown** (per-week slice / per-week distinct count). | same file |
+| Visual / interactive | None. Repo has no RTL/Playwright harness. Manual smoke. | n/a |
 
 ## Edge cases
 
 | Case | Behavior |
 |---|---|
 | Week with 0 commits and 0 PRs | Renders as empty bar (same as Commits/Week handles the no-commits case today). |
-| Commit row has `pr_number = null` (direct push) | Contributes to commits count, contributes 0 to PRs count. Correctly reflects: "this work landed without a PR." |
-| Many small PRs in one week | Bar is tall — same visual treatment as a high commit count. |
-| PR with 50 commits across one week | Counted as 1 PR — distinct on pr_number. The volume is visible in the Commits/Week chart; this chart specifically tells the story of PR throughput, not commit volume per PR. |
+| Commit row has `pr_number = null` (direct push) | Contributes to commits count, contributes 0 to PRs count, contributes 0 to `avgLinesPerPr` numerator. Correctly reflects: "this work landed without a PR." |
+| Many small PRs in one week | PRs/Week bar is tall; Avg Lines/PR stays low. |
+| PR with 50 commits across one week | Counted as 1 PR. Total of its lines / 1 = the avg. |
+| Org-wide week has only in-flight commits (no shipped) | In-flight overlay creates a bucket with `prs: 0, avgLinesPerPr: 0` — both new charts render as zero, no NaN/undefined. |
+| < 20 PRs in the lookback window | `avgLinesPerPr` P95 filter degenerates to no-filter (you can't meaningfully exclude top 5% of a tiny population). Chart shows raw average. |
 
 ## Files touched
 
-- **Modify** `src/lib/report/timeline.ts` — `prs` field on `WeeklyBucket`, `prNumbers` set in the accumulator, `prs: w.prNumbers.size` in the final map.
-- **Modify** `src/app/report/[id]/org/page.tsx` — `WeeklyData` interface gains `prs`; one new `<TimelineChart>` invocation after Commits/Week.
+- **Modify** `src/lib/report/timeline.ts` — `prs` + `avgLinesPerPr` on `WeeklyBucket`, accumulator state, PR-level P95 threshold.
+- **Modify** `src/lib/report/org.ts` — add `pr_number` to the `commit_analyses` SELECT; zero-default `prs`/`avgLinesPerPr` in the in-flight overlay bucket initializer.
+- **Modify** `src/lib/report/dev.ts` — add `pr_number` to the `commit_analyses` SELECT.
+- **Modify** `src/app/report/[id]/org/page.tsx` — `WeeklyData` interface gains both fields; two new `<TimelineChart>` invocations after Commits/Week.
 - **Modify** `src/app/report/[id]/dev/[login]/page.tsx` — same two changes.
-- **Modify or Create** `src/lib/__tests__/unit/timeline.test.ts` — unit tests for the new `prs` aggregation.
+- **Create** `src/lib/__tests__/unit/timeline.test.ts` — unit tests for both aggregations.

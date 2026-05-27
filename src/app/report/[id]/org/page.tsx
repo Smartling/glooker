@@ -279,13 +279,14 @@ export default function OrgDetailPage() {
               data={timeline}
               valueKey="prs"
               label="PRs / Week"
-              color="#A78BFA"
+              color="#06B6D4"
             />
             <TimelineChart
               data={timeline}
               valueKey="avgLinesPerPr"
-              label="Avg Lines Changed / PR"
+              label="Avg Lines Changed / PR (outliers excluded)"
               color="#EC4899"
+              suffix=" lines"
             />
             <TimelineChart data={timeline} valueKey="activeDevs" label="Active Developers / Week" color="#10B981" />
             <LinesChangedChart data={timeline} />

@@ -110,15 +110,54 @@ describe('aggregateWeekly — avgLinesPerPr field', () => {
     expect(out[0].avgLinesPerPr).toBe(10);
   });
 
-  it('excludes outlier PRs above P95 from the average', () => {
+  it('excludes outlier PRs above P95 from the average (N=21)', () => {
     const rows: any[] = [];
     for (let i = 1; i <= 20; i++) {
       rows.push(row({ pr_number: i, lines_added: 50, lines_removed: 0 }));
     }
-    // One huge PR — above P95 of the 21-PR population, should be excluded from the avg.
     rows.push(row({ pr_number: 999, lines_added: 10000, lines_removed: 0 }));
     const out = aggregateWeekly(rows);
     expect(out[0].prs).toBe(21);
     expect(out[0].avgLinesPerPr).toBe(50);
+  });
+
+  it('excludes outlier PRs at the N=20 boundary (where the old floor() math was a no-op)', () => {
+    const rows: any[] = [];
+    for (let i = 1; i <= 19; i++) {
+      rows.push(row({ pr_number: i, lines_added: 50, lines_removed: 0 }));
+    }
+    rows.push(row({ pr_number: 999, lines_added: 10000, lines_removed: 0 }));
+    const out = aggregateWeekly(rows);
+    expect(out[0].prs).toBe(20);
+    expect(out[0].avgLinesPerPr).toBe(50);
+  });
+
+  it('degrades to no-filter for N<20 (cannot meaningfully exclude top 5% of tiny populations)', () => {
+    // N=10: 9 small + 1 huge. With <20 samples, all are included.
+    const rows: any[] = [];
+    for (let i = 1; i <= 9; i++) {
+      rows.push(row({ pr_number: i, lines_added: 50, lines_removed: 0 }));
+    }
+    rows.push(row({ pr_number: 999, lines_added: 9550, lines_removed: 0 }));
+    const out = aggregateWeekly(rows);
+    expect(out[0].prs).toBe(10);
+    expect(out[0].avgLinesPerPr).toBe(1000); // (9*50 + 9550) / 10
+  });
+
+  it('cross-week semantic: a PR spanning two weeks contributes only its per-week slice to each week\'s avg', () => {
+    // PR 42: 200 lines week A, 200 lines week B (total 400)
+    // PR 99: 100 lines week A only
+    // Week A: 2 PRs (42, 99), slice lines = 200 + 100 = 300, avg = 150
+    // Week B: 1 PR  (42),     slice lines = 200,          avg = 200
+    const out = aggregateWeekly([
+      row({ pr_number: 42, committed_at: MON_A, lines_added: 200, lines_removed: 0 }),
+      row({ pr_number: 99, committed_at: MON_A, lines_added: 100, lines_removed: 0 }),
+      row({ pr_number: 42, committed_at: MON_B, lines_added: 200, lines_removed: 0 }),
+    ]);
+    expect(out).toHaveLength(2);
+    expect(out[0].prs).toBe(2);
+    expect(out[0].avgLinesPerPr).toBe(150);
+    expect(out[1].prs).toBe(1);
+    expect(out[1].avgLinesPerPr).toBe(200);
   });
 });

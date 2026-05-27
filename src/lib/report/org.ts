@@ -89,6 +89,8 @@ export async function getOrgReport(reportId: string) {
         bucket = {
           week: weekKey,
           commits: 0,
+          prs: 0,
+          avgLinesPerPr: 0,
           linesAdded: 0,
           linesRemoved: 0,
           linesP95Added: 0,

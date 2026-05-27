@@ -2,6 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Scope expansion (post-implementation):** Tasks 1–4 below cover the original PRs / Week chart. During the smoke step the user requested:
+> - A companion **Avg Lines Changed / PR** chart (added alongside PRs / Week on both pages).
+> - A **P95 outlier filter** on that chart, mirroring the existing Lines Changed smoothing.
+> - A **fix** for the `pr_number` column missing from the org/dev timeline `SELECT` (made the new chart render zeros until corrected).
+>
+> All four shipped together. The spec at `docs/superpowers/specs/2026-05-26-glook-10-prs-first-class-design.md` has been updated to reflect what landed (algorithm, colors, semantics, edge cases). The task list below is preserved as the original plan; treat it as historical.
+
 **Goal:** Add a `PRs / Week` time-series chart on the org and engineer pages, mirroring the existing `Commits / Week` chart.
 
 **Architecture:** Single data-aggregator change (extend `WeeklyBucket.prs`) cascades to both pages, which each get one new `<TimelineChart>` invocation. No new endpoint, no schema change.

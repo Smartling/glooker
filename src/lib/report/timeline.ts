@@ -52,6 +52,10 @@ export function aggregateWeekly(commits: any[], opts?: { trackDevs?: boolean }):
 
   // Total lines per PR across all weeks — used to apply a P95 outlier filter to the
   // per-week avgLinesPerPr so one giant refactor PR can't dominate the chart.
+  //
+  // Threshold math: index = ceil(N * 0.95) - 1. With <= comparison this excludes
+  // the top ~5% even at small N (floor(N*0.95) returns the max itself at N≤20,
+  // making the filter a no-op for typical dev pages).
   const prLineTotals = new Map<string, number>();
   for (const c of commits) {
     if (c.pr_number == null || !c.committed_at) continue;
@@ -60,7 +64,7 @@ export function aggregateWeekly(commits: any[], opts?: { trackDevs?: boolean }):
   }
   const sortedPrTotals = [...prLineTotals.values()].sort((a, b) => a - b);
   const prP95Threshold = sortedPrTotals.length > 0
-    ? sortedPrTotals[Math.floor(sortedPrTotals.length * 0.95)]
+    ? sortedPrTotals[Math.ceil(sortedPrTotals.length * 0.95) - 1]
     : Infinity;
 
   const weeklyMap = new Map<string, {
@@ -116,7 +120,13 @@ export function aggregateWeekly(commits: any[], opts?: { trackDevs?: boolean }):
     if (c.pr_number != null) {
       const key = String(c.pr_number);
       w.prNumbers.add(key);
-      // Exclude PRs whose total size exceeds P95 from the avgLinesPerPr signal.
+      // avgLinesPerPr semantic: per-week slice of activity. A PR's TOTAL across all weeks
+      // decides whether it's an outlier (so the filter is stable across the chart), but
+      // only the lines from this week's commits go into this week's numerator, and the
+      // denominator is the count of PRs active in this week. A 400-line PR split 200/200
+      // across two weeks shows avg=200 in each; a 400-line PR landing in one week shows
+      // avg=400 there. This is "average per-PR activity in week W," not "size of the
+      // average PR overall."
       if ((prLineTotals.get(key) ?? 0) <= prP95Threshold) {
         w.prNumbersP95.add(key);
         w.prLinesP95 += la + lr;
