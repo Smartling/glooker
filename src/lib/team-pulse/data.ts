@@ -283,3 +283,77 @@ export async function extractTeamPulseData(
 
   return { teamName: '', members, currentDays, priorDays, teamAvgCommits, teamAvgPrs, activeCount, totalCount, trendingPct, trendDirection, inflight };
 }
+
+// ────────────────────────────────────────────────────────────────────
+// GLOOK-11: extractor for the per-team Current Projects card.
+// Pulls commits + jira issues filtered to the team across the full
+// report window. Window is implicit: report_id FK on commit_analyses
+// and jira_issues already scopes to the report's date range.
+// ────────────────────────────────────────────────────────────────────
+
+export interface TeamProjectCommit {
+  sha: string;
+  repo: string;
+  pr_number: number | null;
+  message_first_line: string;
+  github_login: string;
+  lines: number;
+  committed_at: string;
+}
+
+export interface TeamProjectJiraIssue {
+  issue_key: string;
+  project_key: string;
+  summary: string;
+  github_login: string;
+  type: string | null;
+  status: string | null;
+}
+
+export interface TeamProjectsInput {
+  commits: TeamProjectCommit[];
+  jira_issues: TeamProjectJiraIssue[];
+  team_members: string[];
+}
+
+export async function extractTeamProjectsData(
+  reportId: string,
+  teamMembers: string[],
+): Promise<TeamProjectsInput> {
+  if (teamMembers.length === 0) {
+    return { commits: [], jira_issues: [], team_members: [] };
+  }
+
+  const placeholders = teamMembers.map(() => '?').join(',');
+
+  const [commitRows] = await db.execute(
+    `SELECT commit_sha AS sha,
+            repo,
+            pr_number,
+            SUBSTRING_INDEX(commit_message, '\n', 1) AS message_first_line,
+            github_login,
+            (lines_added + lines_removed) AS lines,
+            committed_at
+       FROM commit_analyses
+      WHERE report_id = ?
+        AND github_login IN (${placeholders})
+        AND committed_at IS NOT NULL
+      ORDER BY committed_at DESC
+      LIMIT 200`,
+    [reportId, ...teamMembers],
+  ) as [any[], any];
+
+  const [jiraRows] = await db.execute(
+    `SELECT issue_key, project_key, summary, github_login, issue_type AS type, status
+       FROM jira_issues
+      WHERE report_id = ?
+        AND github_login IN (${placeholders})`,
+    [reportId, ...teamMembers],
+  ) as [any[], any];
+
+  return {
+    commits: (commitRows as TeamProjectCommit[]).slice(0, 200),
+    jira_issues: jiraRows as TeamProjectJiraIssue[],
+    team_members: [...teamMembers],
+  };
+}
