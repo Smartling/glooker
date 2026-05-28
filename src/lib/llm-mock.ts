@@ -41,6 +41,28 @@ const FIXTURES: Record<string, string> = {
   }),
   'chat-agent-system': 'Based on the report data, the team had a productive sprint with 8 active contributors. The highest impact came from platform infrastructure work.',
   'team-pulse-system': '## Activity Changes\n- @dev1 up 40% in commits, focused on api-service\n- @dev2 steady output, shifted from frontend to infra\n\n## Silent Members\n- @dev3 had zero commits in current window. 2 PR reviews noted.\n\n## Team Focus (Past 2 Days)\n- Primary repos: api-service, web-app\n- Mix of feature and bug-fix work\n- 3 PRs merged, 2 Jira tickets resolved\n\n## Alerts\n- @dev3 went silent after active prior window — check in recommended.',
+  'team-pulse-projects': JSON.stringify({
+    projects: [
+      {
+        name: 'Multi-tenant Jobs UI',
+        summary: 'Refactor of the jobs list page to support per-tenant filtering',
+        developers: ['alice', 'bob'],
+        jira_count: 4,
+        estimated_commits: 14,
+        estimated_prs: 5,
+        last_activity: '2026-05-25T14:00:00Z',
+      },
+      {
+        name: 'Auth Token Cleanup',
+        summary: 'Migration off legacy session tokens to OIDC-only flow',
+        developers: ['alice'],
+        jira_count: 2,
+        estimated_commits: 6,
+        estimated_prs: 2,
+        last_activity: '2026-05-22T09:30:00Z',
+      },
+    ],
+  }),
   'llm-config-test-system': 'OK',
 };
 
