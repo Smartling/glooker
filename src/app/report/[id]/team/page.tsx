@@ -8,6 +8,8 @@ import ChatPanel from '@/app/chat-panel';
 import { useAuth } from '@/app/auth-context';
 import { useUrlState, useUrlBatch } from '@/lib/url-state';
 import TeamTable from './team-table';
+import ProjectsCard from '@/components/ProjectsCard';
+import type { TeamProject } from '@/lib/team-pulse/types';
 
 interface Developer {
   github_login:       string;
@@ -99,6 +101,21 @@ export default function TeamSummaryPage() {
   const [filterQuery, setFilterQuery] = useState('');
   const [filterOpen, setFilterOpen] = useState(false);
   const [filterHighlight, setFilterHighlight] = useState(0);
+
+  // Team pulse + projects. The inner <TeamPulseCard> issues the same SWR key
+  // (only when periodDays >= 14), so this call dedupes with it. We need
+  // `projects` here at the parent level to feed <ProjectsCard> regardless of
+  // the pulse-summary period gate.
+  const pulseUrl = (activeReport && selectedTeamName)
+    ? `/api/report/${params.id}/team-pulse?team=${encodeURIComponent(selectedTeamName)}&org=${encodeURIComponent(activeReport.org)}`
+    : null;
+  const { data: teamPulse, isLoading: teamPulseLoading } = useSWR<{
+    summary: string;
+    health: { activeRatio: string; trending: string; trendDirection: 'up' | 'down' | 'stable' };
+    projects: TeamProject[];
+    generatedAt: string;
+    cached: boolean;
+  }>(pulseUrl, { revalidateOnFocus: false });
 
   function exportCsv(devs: Developer[], report: Report) {
     const headers = ['Rank','Developer','Login','PRs','Commits','Lines Added','Lines Removed','Avg Complexity','PR%','AI%','Impact Score','Types','Active Repos'];
@@ -350,6 +367,18 @@ export default function TeamSummaryPage() {
           org={activeReport.org}
           periodDays={activeReport.period_days}
         />
+      )}
+
+      {selectedTeamName && activeReport && (
+        <div className="mb-4">
+          <ProjectsCard
+            projects={teamPulse?.projects ?? []}
+            loading={teamPulseLoading && !teamPulse}
+            title="Current Projects"
+            subtitle={`${selectedTeamName} · ${activeReport.period_days}d`}
+            developerHref={(login) => `/report/${params.id}/dev/${login}`}
+          />
+        </div>
       )}
 
       {/* Developer table */}
