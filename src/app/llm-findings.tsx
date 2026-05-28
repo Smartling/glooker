@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import ProjectsCard from '@/components/ProjectsCard';
 
 interface Highlight {
   icon: string;
@@ -135,78 +136,35 @@ export default function LlmFindings() {
       )}
 
       {/* Project Insights */}
-      {projectsLoading && (
-        <div className="bg-white/[0.03] border border-white/[0.07] rounded-2xl p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-lg">🏗️</span>
-            <span className="text-xs font-bold tracking-widest uppercase text-white/40">Top Projects</span>
-          </div>
-          <div className="flex items-center gap-2 text-gray-500 text-sm">
-            <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
-            Analyzing projects...
-          </div>
-        </div>
+      {(projectsLoading || (projects.length > 0 && projectsMeta)) && (
+        <ProjectsCard
+          projects={projects}
+          loading={projectsLoading}
+          title="Top Projects"
+          subtitle={projectsMeta ? `${projectsMeta.org} · ${projectsMeta.periodDays}d · ${formatDate(projectsMeta.createdAt)}` : undefined}
+          developerHref={projectsMeta ? (login) => `/report/${projectsMeta.id}/dev/${login}` : undefined}
+        />
       )}
-      {!projectsLoading && projects.length > 0 && projectsMeta && (
-        <div className="bg-white/[0.03] border border-white/[0.07] rounded-2xl p-5">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <span className="text-lg">🏗️</span>
-              <span className="text-xs font-bold tracking-widest uppercase text-white/40">
-                Top Projects · {projectsMeta.org} · {projectsMeta.periodDays}d · {formatDate(projectsMeta.createdAt)}
-              </span>
-            </div>
-          </div>
 
-          {/* Project list */}
-          <div className="space-y-3 mb-4">
-            {projects.map((p, i) => (
-              <div key={i} className="bg-white/[0.02] rounded-lg p-3">
-                <div className="flex items-start justify-between gap-3 mb-1">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-xs text-gray-600 w-4 shrink-0 text-right">{i + 1}</span>
-                    <span className="text-sm font-semibold text-white">{p.name}</span>
+      {/* Untracked Work (sibling card) */}
+      {untrackedWork.length > 0 && projectsMeta && (
+        <div className="bg-white/[0.03] border border-white/[0.07] rounded-2xl p-5">
+          <p className="text-[10px] text-white/25 uppercase tracking-widest font-bold mb-2">Top {untrackedWork.length} with no Jiras</p>
+          <div className="space-y-2">
+            {untrackedWork.map((w, i) => (
+              <div key={i} className="flex items-start gap-3 bg-amber-500/5 border border-amber-500/10 rounded-lg p-2.5">
+                <span className="text-xs text-amber-400/80 font-semibold shrink-0">{w.repo}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs text-gray-400">{w.summary}</p>
+                  <div className="flex items-center gap-2 mt-1 text-[10px] text-gray-600">
+                    <span>{w.commits} commits</span>
+                    <span>·</span>
+                    <span>{w.developers.map((d, di) => (<span key={d}>{di > 0 && ', '}<a href={`/report/${projectsMeta!.id}/dev/${d}`} className="hover:opacity-80 transition-opacity" style={{ color: 'var(--accent-dark)' }}>@{d}</a></span>))}</span>
                   </div>
-                  <div className="flex items-center gap-3 shrink-0 text-[11px] text-gray-500">
-                    <span>{p.jira_count} jiras</span>
-                    <span>~{p.estimated_commits} commits</span>
-                    <span>~{p.estimated_prs} PRs</span>
-                  </div>
-                </div>
-                <p className="text-xs text-gray-500 pl-6 mb-1.5">{p.summary}</p>
-                <div className="flex gap-1 pl-6 flex-wrap">
-                  {p.developers.map(d => (
-                    <a key={d} href={`/report/${projectsMeta.id}/dev/${d}`} className="text-[10px] px-1.5 py-0.5 rounded hover:opacity-80 transition-opacity" style={{ color: 'var(--accent-dark)', backgroundColor: 'color-mix(in srgb, var(--accent) 8%, transparent)' }}>@{d}</a>
-                  ))}
                 </div>
               </div>
             ))}
           </div>
-
-          {/* Work with no Jiras */}
-          {untrackedWork.length > 0 && (
-            <div className="border-t border-white/[0.06] pt-3 mt-3">
-              <p className="text-[10px] text-white/25 uppercase tracking-widest font-bold mb-2">Top {untrackedWork.length} with no Jiras</p>
-              <div className="space-y-2">
-                {untrackedWork.map((w, i) => (
-                  <div key={i} className="flex items-start gap-3 bg-amber-500/5 border border-amber-500/10 rounded-lg p-2.5">
-                    <span className="text-xs text-amber-400/80 font-semibold shrink-0">{w.repo}</span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs text-gray-400">{w.summary}</p>
-                      <div className="flex items-center gap-2 mt-1 text-[10px] text-gray-600">
-                        <span>{w.commits} commits</span>
-                        <span>·</span>
-                        <span>{w.developers.map((d, di) => (<span key={d}>{di > 0 && ', '}<a href={`/report/${projectsMeta!.id}/dev/${d}`} className="hover:opacity-80 transition-opacity" style={{ color: 'var(--accent-dark)' }}>@{d}</a></span>))}</span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       )}
 
