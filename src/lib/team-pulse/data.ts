@@ -330,7 +330,7 @@ export async function extractTeamProjectsData(
     `SELECT commit_sha AS sha,
             repo,
             pr_number,
-            SUBSTRING_INDEX(commit_message, '\n', 1) AS message_first_line,
+            commit_message,
             github_login,
             (lines_added + lines_removed) AS lines,
             committed_at
@@ -351,8 +351,20 @@ export async function extractTeamProjectsData(
     [reportId, ...teamMembers],
   ) as [any[], any];
 
+  const commits: TeamProjectCommit[] = (commitRows as any[]).map(r => ({
+    sha: r.sha,
+    repo: r.repo,
+    pr_number: r.pr_number,
+    message_first_line: typeof r.commit_message === 'string'
+      ? r.commit_message.split('\n', 1)[0].slice(0, 500)
+      : '',
+    github_login: r.github_login,
+    lines: r.lines,
+    committed_at: r.committed_at,
+  })).slice(0, 200);
+
   return {
-    commits: (commitRows as TeamProjectCommit[]).slice(0, 200),
+    commits,
     jira_issues: jiraRows as TeamProjectJiraIssue[],
     team_members: [...teamMembers],
   };

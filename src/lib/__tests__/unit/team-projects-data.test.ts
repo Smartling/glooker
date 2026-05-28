@@ -22,8 +22,8 @@ describe('extractTeamProjectsData', () => {
   it('filters commits + jira to team members for this report', async () => {
     exec
       .mockResolvedValueOnce([[
-        { sha: 'aaa', repo: 'svc', pr_number: 1, message_first_line: 'fix bug', github_login: 'alice', lines: 50, committed_at: '2026-05-20T10:00:00Z' },
-        { sha: 'bbb', repo: 'svc', pr_number: null, message_first_line: 'wip', github_login: 'bob', lines: 5, committed_at: '2026-05-21T10:00:00Z' },
+        { sha: 'aaa', repo: 'svc', pr_number: 1, commit_message: 'fix bug', github_login: 'alice', lines: 50, committed_at: '2026-05-20T10:00:00Z' },
+        { sha: 'bbb', repo: 'svc', pr_number: null, commit_message: 'wip', github_login: 'bob', lines: 5, committed_at: '2026-05-21T10:00:00Z' },
       ], []])
       .mockResolvedValueOnce([[
         { issue_key: 'PROJ-1', project_key: 'PROJ', summary: 'Auth bug', github_login: 'alice', type: 'Bug', status: 'Done' },
@@ -33,6 +33,7 @@ describe('extractTeamProjectsData', () => {
 
     expect(result.commits).toHaveLength(2);
     expect(result.commits[0].github_login).toBe('alice');
+    expect(result.commits[0].message_first_line).toBe('fix bug');
     expect(result.jira_issues).toHaveLength(1);
     expect(result.team_members).toEqual(['alice', 'bob']);
 
@@ -45,7 +46,7 @@ describe('extractTeamProjectsData', () => {
   it('caps commits at 200 (most recent first)', async () => {
     const many = Array.from({ length: 250 }, (_, i) => ({
       sha: `sha${i}`, repo: 'svc', pr_number: null,
-      message_first_line: `c${i}`, github_login: 'alice',
+      commit_message: `c${i}`, github_login: 'alice',
       lines: 1, committed_at: `2026-05-${String(i + 1).padStart(2, '0')}T10:00:00Z`,
     }));
     exec
