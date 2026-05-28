@@ -207,6 +207,7 @@ CREATE TABLE IF NOT EXISTS team_pulse_summaries (
   org          TEXT    NOT NULL,
   summary_text TEXT    NOT NULL,
   health_json  TEXT    NOT NULL,
+  projects     TEXT,
   prompt_version TEXT  NOT NULL DEFAULT 'v1',
   generated_at TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
   FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
@@ -276,6 +277,8 @@ export function createSQLiteDB(): DB {
   try { db.exec('ALTER TABLE reports ADD COLUMN cc_period_start TEXT'); } catch (_) {}
   try { db.exec('ALTER TABLE reports ADD COLUMN cc_period_end TEXT'); } catch (_) {}
   try { db.exec("ALTER TABLE team_pulse_summaries ADD COLUMN prompt_version TEXT NOT NULL DEFAULT 'v1'"); } catch (_) {}
+  // GLOOK-11: add projects column for per-team Current Projects card
+  try { db.exec('ALTER TABLE team_pulse_summaries ADD COLUMN projects TEXT'); } catch (_) {}
 
   const dbApi: DB = {
     execute: <T = any>(sql: string, params?: any[]): Promise<[T[], any]> => {
