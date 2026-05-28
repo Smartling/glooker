@@ -1,0 +1,38 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`team-pulse-projects prompt template renders with substituted placeholders 1`] = `
+"You are a software project clustering assistant. Group the provided commits and Jira issues into 2-6 named "projects" — coherent threads of work that the team is currently shipping.
+
+RULES:
+- ONLY use data provided below. Do NOT infer, hallucinate, or add data not given.
+- Each project name MUST be human-readable and descriptive (e.g. "Multi-tenant Jobs UI"), NOT a raw Jira key.
+- Each project's \`developers\` array MUST contain ONLY github logins from ["alice","bob"]. Reject any other login.
+- Drop singleton clusters: every project must have at least 2 commits OR 1 Jira issue.
+- \`last_activity\` MUST be a real ISO-8601 date copied from the most recent committed_at in the cluster.
+- Output is a JSON object with a single key "projects" whose value is the array.
+
+OUTPUT JSON SCHEMA (one entry per project):
+{
+  "projects": [
+    {
+      "name": "string",
+      "summary": "string, one line, max 120 chars",
+      "developers": ["github_login", ...],
+      "jira_count": 0,
+      "estimated_commits": 0,
+      "estimated_prs": 0,
+      "last_activity": "YYYY-MM-DDTHH:MM:SSZ"
+    }
+  ]
+}
+
+TEAM: Alpha
+TEAM MEMBERS (github logins): ["alice","bob"]
+
+COMMITS (most recent first, capped at 200):
+[]
+
+JIRA ISSUES:
+[]
+"
+`;
