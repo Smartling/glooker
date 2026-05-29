@@ -360,7 +360,12 @@ export async function extractTeamProjectsData(
       : '',
     github_login: r.github_login,
     lines: r.total_lines,
-    committed_at: r.committed_at,
+    // MySQL returns TIMESTAMP/DATETIME as JS Date; normalize to ISO string
+    // here so downstream consumers (sort, JSON serialization, last_activity
+    // override) all operate on a single string type.
+    committed_at: r.committed_at instanceof Date
+      ? r.committed_at.toISOString()
+      : String(r.committed_at ?? ''),
   })).slice(0, 200);
 
   return {
