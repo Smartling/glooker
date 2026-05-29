@@ -22,8 +22,8 @@ describe('extractTeamProjectsData', () => {
   it('filters commits + jira to team members for this report', async () => {
     exec
       .mockResolvedValueOnce([[
-        { sha: 'aaa', repo: 'svc', pr_number: 1, commit_message: 'fix bug', github_login: 'alice', lines: 50, committed_at: '2026-05-20T10:00:00Z' },
-        { sha: 'bbb', repo: 'svc', pr_number: null, commit_message: 'wip', github_login: 'bob', lines: 5, committed_at: '2026-05-21T10:00:00Z' },
+        { sha: 'aaa', repo: 'svc', pr_number: 1, commit_message: 'fix bug', github_login: 'alice', total_total_lines: 50, committed_at: '2026-05-20T10:00:00Z' },
+        { sha: 'bbb', repo: 'svc', pr_number: null, commit_message: 'wip', github_login: 'bob', total_lines: 5, committed_at: '2026-05-21T10:00:00Z' },
       ], []])
       .mockResolvedValueOnce([[
         { issue_key: 'PROJ-1', project_key: 'PROJ', summary: 'Auth bug', github_login: 'alice', type: 'Bug', status: 'Done' },
@@ -47,7 +47,7 @@ describe('extractTeamProjectsData', () => {
     const many = Array.from({ length: 250 }, (_, i) => ({
       sha: `sha${i}`, repo: 'svc', pr_number: null,
       commit_message: `c${i}`, github_login: 'alice',
-      lines: 1, committed_at: `2026-05-${String(i + 1).padStart(2, '0')}T10:00:00Z`,
+      total_lines: 1, committed_at: `2026-05-${String(i + 1).padStart(2, '0')}T10:00:00Z`,
     }));
     exec
       .mockResolvedValueOnce([many, []])

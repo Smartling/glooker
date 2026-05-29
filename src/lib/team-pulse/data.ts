@@ -332,7 +332,7 @@ export async function extractTeamProjectsData(
             pr_number,
             commit_message,
             github_login,
-            (lines_added + lines_removed) AS lines,
+            (lines_added + lines_removed) AS total_lines,
             committed_at
        FROM commit_analyses
       WHERE report_id = ?
@@ -359,7 +359,7 @@ export async function extractTeamProjectsData(
       ? r.commit_message.split('\n', 1)[0].slice(0, 500)
       : '',
     github_login: r.github_login,
-    lines: r.lines,
+    lines: r.total_lines,
     committed_at: r.committed_at,
   })).slice(0, 200);
 
