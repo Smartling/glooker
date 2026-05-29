@@ -46,7 +46,10 @@ const FIXTURES: Record<string, string> = {
       {
         name: 'Multi-tenant Jobs UI',
         summary: 'Refactor of the jobs list page to support per-tenant filtering',
-        developers: ['alice', 'bob'],
+        // Developers listed broadly across the seed team rosters in
+        // scripts/mock-identities.ts. The validator in projects.ts intersects
+        // this with the request's team_members, so only matching logins remain.
+        developers: ['alice-mock', 'bob-mock', 'carol-mock', 'dave-mock', 'eve-mock', 'frank-mock'],
         jira_count: 4,
         estimated_commits: 14,
         estimated_prs: 5,
@@ -55,7 +58,7 @@ const FIXTURES: Record<string, string> = {
       {
         name: 'Auth Token Cleanup',
         summary: 'Migration off legacy session tokens to OIDC-only flow',
-        developers: ['alice'],
+        developers: ['alice-mock', 'bob-mock', 'carol-mock', 'dave-mock', 'eve-mock', 'frank-mock'],
         jira_count: 2,
         estimated_commits: 6,
         estimated_prs: 2,
