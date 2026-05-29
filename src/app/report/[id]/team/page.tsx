@@ -102,12 +102,13 @@ export default function TeamSummaryPage() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [filterHighlight, setFilterHighlight] = useState(0);
 
-  // Team pulse + projects. The inner <TeamPulseCard> issues the same SWR key
-  // (only when periodDays >= 14), so this call dedupes with it. We need
-  // `projects` here at the parent level to feed <ProjectsCard> regardless of
-  // the pulse-summary period gate.
-  const pulseUrl = (activeReport && selectedTeamName)
-    ? `/api/report/${params.id}/team-pulse?team=${encodeURIComponent(selectedTeamName)}&org=${encodeURIComponent(activeReport.org)}`
+  // Projects card is lazy: no fetch (and no LLM call) until the user expands
+  // the card. The pulse summary continues to use its own SWR fetch inside
+  // <TeamPulseCard>. When expanded, we hit the same endpoint with
+  // ?withProjects=true so the service tops up the cached row's projects field.
+  const [projectsExpanded, setProjectsExpanded] = useState(false);
+  const projectsUrl = (activeReport && selectedTeamName && projectsExpanded)
+    ? `/api/report/${params.id}/team-pulse?team=${encodeURIComponent(selectedTeamName)}&org=${encodeURIComponent(activeReport.org)}&withProjects=true`
     : null;
   const { data: teamPulse, isLoading: teamPulseLoading } = useSWR<{
     summary: string;
@@ -115,7 +116,7 @@ export default function TeamSummaryPage() {
     projects: TeamProject[];
     generatedAt: string;
     cached: boolean;
-  }>(pulseUrl, { revalidateOnFocus: false });
+  }>(projectsUrl, { revalidateOnFocus: false });
 
   function exportCsv(devs: Developer[], report: Report) {
     const headers = ['Rank','Developer','Login','PRs','Commits','Lines Added','Lines Removed','Avg Complexity','PR%','AI%','Impact Score','Types','Active Repos'];
@@ -373,10 +374,13 @@ export default function TeamSummaryPage() {
         <div className="mb-4">
           <ProjectsCard
             projects={teamPulse?.projects ?? []}
-            loading={teamPulseLoading && !teamPulse}
+            loading={projectsExpanded && teamPulseLoading && !teamPulse}
             title="Current Projects"
             subtitle={`${selectedTeamName} · ${activeReport.period_days}d`}
             developerHref={(login) => `/report/${params.id}/dev/${login}`}
+            collapsible
+            expanded={projectsExpanded}
+            onExpandedChange={setProjectsExpanded}
           />
         </div>
       )}
