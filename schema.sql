@@ -181,5 +181,22 @@ CREATE TABLE IF NOT EXISTS epic_stats (
   UNIQUE KEY uq_epic_stats_org (epic_key, org)
 );
 
+CREATE TABLE IF NOT EXISTS team_pulse_summaries (
+  id              INT AUTO_INCREMENT PRIMARY KEY,
+  report_id       VARCHAR(36)  NOT NULL,
+  team_name       VARCHAR(255) NOT NULL,
+  org             VARCHAR(255) NOT NULL,
+  summary_text    TEXT         NOT NULL,
+  health_json     JSON         NOT NULL,
+  projects        JSON         NULL,
+  prompt_version  VARCHAR(50)  NOT NULL,
+  generated_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
+  -- One row per (report, team). prompt_version acts as a content invalidator,
+  -- not a row discriminator — the runtime modules use the same shape. Bumping
+  -- the version forces the SELECT in getTeamPulse to miss-and-replace this row.
+  UNIQUE KEY uq_report_team_pulse (report_id, team_name)
+);
+
 CREATE INDEX idx_devstats_login ON developer_stats(github_login);
 CREATE INDEX idx_reports_org_status_created ON reports(org, status, created_at);

@@ -283,3 +283,94 @@ export async function extractTeamPulseData(
 
   return { teamName: '', members, currentDays, priorDays, teamAvgCommits, teamAvgPrs, activeCount, totalCount, trendingPct, trendDirection, inflight };
 }
+
+// ────────────────────────────────────────────────────────────────────
+// GLOOK-11: extractor for the per-team Current Projects card.
+// Pulls commits + jira issues filtered to the team across the full
+// report window. Window is implicit: report_id FK on commit_analyses
+// and jira_issues already scopes to the report's date range.
+// ────────────────────────────────────────────────────────────────────
+
+export interface TeamProjectCommit {
+  sha: string;
+  repo: string;
+  pr_number: number | null;
+  message_first_line: string;
+  github_login: string;
+  lines: number;
+  committed_at: string;
+}
+
+export interface TeamProjectJiraIssue {
+  issue_key: string;
+  project_key: string;
+  summary: string;
+  github_login: string;
+  type: string | null;
+  status: string | null;
+}
+
+export interface TeamProjectsInput {
+  commits: TeamProjectCommit[];
+  jira_issues: TeamProjectJiraIssue[];
+  team_members: string[];
+}
+
+export async function extractTeamProjectsData(
+  reportId: string,
+  teamMembers: string[],
+): Promise<TeamProjectsInput> {
+  if (teamMembers.length === 0) {
+    return { commits: [], jira_issues: [], team_members: [] };
+  }
+
+  const placeholders = teamMembers.map(() => '?').join(',');
+
+  const [commitRows] = await db.execute(
+    `SELECT commit_sha AS sha,
+            repo,
+            pr_number,
+            commit_message,
+            github_login,
+            (lines_added + lines_removed) AS total_lines,
+            committed_at
+       FROM commit_analyses
+      WHERE report_id = ?
+        AND github_login IN (${placeholders})
+        AND committed_at IS NOT NULL
+      ORDER BY committed_at DESC
+      LIMIT 200`,
+    [reportId, ...teamMembers],
+  ) as [any[], any];
+
+  const [jiraRows] = await db.execute(
+    `SELECT issue_key, project_key, summary, github_login, issue_type AS type, status
+       FROM jira_issues
+      WHERE report_id = ?
+        AND github_login IN (${placeholders})`,
+    [reportId, ...teamMembers],
+  ) as [any[], any];
+
+  const commits: TeamProjectCommit[] = (commitRows as any[]).map(r => ({
+    sha: r.sha,
+    repo: r.repo,
+    pr_number: r.pr_number,
+    message_first_line: typeof r.commit_message === 'string'
+      ? r.commit_message.split('\n', 1)[0].slice(0, 500)
+      : '',
+    github_login: r.github_login,
+    lines: r.total_lines,
+    // MySQL returns TIMESTAMP/DATETIME as JS Date; normalize to ISO string
+    // here so downstream consumers (sort, JSON serialization, last_activity
+    // override) all operate on a single string type.
+    committed_at: r.committed_at instanceof Date
+      ? r.committed_at.toISOString()
+      : String(r.committed_at ?? ''),
+  })).slice(0, 200);
+
+  return {
+    commits,
+    jira_issues: jiraRows as TeamProjectJiraIssue[],
+    team_members: [...teamMembers],
+  };
+}

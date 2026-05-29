@@ -8,6 +8,8 @@ import ChatPanel from '@/app/chat-panel';
 import { useAuth } from '@/app/auth-context';
 import { useUrlState, useUrlBatch } from '@/lib/url-state';
 import TeamTable from './team-table';
+import ProjectsCard from '@/components/ProjectsCard';
+import type { TeamProject } from '@/lib/team-pulse/types';
 
 interface Developer {
   github_login:       string;
@@ -99,6 +101,25 @@ export default function TeamSummaryPage() {
   const [filterQuery, setFilterQuery] = useState('');
   const [filterOpen, setFilterOpen] = useState(false);
   const [filterHighlight, setFilterHighlight] = useState(0);
+
+  // Projects card is lazy: no fetch (and no LLM call) until the user expands
+  // the card. The pulse summary continues to use its own SWR fetch inside
+  // <TeamPulseCard>. When expanded, we hit the same endpoint with
+  // ?withProjects=true so the service tops up the cached row's projects field.
+  const [projectsExpanded, setProjectsExpanded] = useState(false);
+  // Same gate as <TeamPulseCard>: the endpoint refuses period_days < 14 with a
+  // 400. Don't bother rendering or firing SWR on short-window reports.
+  const projectsAvailable = !!activeReport && activeReport.period_days >= 14;
+  const projectsUrl = (projectsAvailable && selectedTeamName && projectsExpanded)
+    ? `/api/report/${params.id}/team-pulse?team=${encodeURIComponent(selectedTeamName!)}&org=${encodeURIComponent(activeReport!.org)}&withProjects=true`
+    : null;
+  const { data: teamPulse, isLoading: teamPulseLoading } = useSWR<{
+    summary: string;
+    health: { activeRatio: string; trending: string; trendDirection: 'up' | 'down' | 'stable' };
+    projects: TeamProject[];
+    generatedAt: string;
+    cached: boolean;
+  }>(projectsUrl, { revalidateOnFocus: false });
 
   function exportCsv(devs: Developer[], report: Report) {
     const headers = ['Rank','Developer','Login','PRs','Commits','Lines Added','Lines Removed','Avg Complexity','PR%','AI%','Impact Score','Types','Active Repos'];
@@ -350,6 +371,21 @@ export default function TeamSummaryPage() {
           org={activeReport.org}
           periodDays={activeReport.period_days}
         />
+      )}
+
+      {selectedTeamName && projectsAvailable && (
+        <div className="mb-4">
+          <ProjectsCard
+            projects={teamPulse?.projects ?? []}
+            loading={projectsExpanded && teamPulseLoading && !teamPulse}
+            title="Current Projects"
+            subtitle={`${selectedTeamName} · ${activeReport!.period_days}d`}
+            developerHref={(login) => `/report/${params.id}/dev/${login}`}
+            collapsible
+            expanded={projectsExpanded}
+            onExpandedChange={setProjectsExpanded}
+          />
+        </div>
       )}
 
       {/* Developer table */}

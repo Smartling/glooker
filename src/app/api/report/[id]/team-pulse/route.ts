@@ -11,6 +11,7 @@ async function getHandler(
   const { id } = await params;
   const team = req.nextUrl.searchParams.get('team');
   const org = req.nextUrl.searchParams.get('org');
+  const withProjects = req.nextUrl.searchParams.get('withProjects') === 'true';
 
   if (!team || !org) {
     return NextResponse.json({ error: 'team and org query params required' }, { status: 400 });
@@ -46,7 +47,7 @@ async function getHandler(
   const members = memberRows.map((r: any) => r.github_login);
 
   try {
-    const result = await getTeamPulse(id, team, org, members);
+    const result = await getTeamPulse(id, team, org, members, { withProjects });
     return NextResponse.json(result);
   } catch (err) {
     return NextResponse.json(

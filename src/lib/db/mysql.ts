@@ -111,6 +111,7 @@ CREATE TABLE IF NOT EXISTS team_pulse_summaries (
   org          VARCHAR(255) NOT NULL,
   summary_text TEXT         NOT NULL,
   health_json  TEXT         NOT NULL,
+  projects     JSON         NULL,
   generated_at TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
   UNIQUE KEY uq_report_team_pulse (report_id, team_name)
@@ -252,6 +253,10 @@ export function createMySQLDB(): DB {
   });
   await pool.execute("ALTER TABLE team_pulse_summaries ADD COLUMN prompt_version VARCHAR(16) NOT NULL DEFAULT 'v1'").catch((err) => {
     if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add prompt_version:', err);
+  });
+  // GLOOK-11: add projects column for per-team Current Projects card
+  await pool.execute('ALTER TABLE team_pulse_summaries ADD COLUMN projects JSON NULL').catch((err) => {
+    if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add projects:', err);
   });
   })();
 
