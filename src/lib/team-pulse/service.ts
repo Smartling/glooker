@@ -62,9 +62,11 @@ export async function getTeamPulse(
       try {
         const projectsInput = await extractTeamProjectsData(reportId, teamMembers);
         projects = await generateTeamProjects(projectsInput, teamName);
+        // Only the projects column is being filled — leave generated_at alone
+        // so a lazy top-up doesn't look like a fresh pulse regeneration.
         await db.execute(
           `UPDATE team_pulse_summaries
-              SET projects = ?, generated_at = NOW()
+              SET projects = ?
             WHERE report_id = ? AND team_name = ? AND prompt_version = ?`,
           [JSON.stringify(projects), reportId, teamName, PROMPT_VERSION],
         );
@@ -141,10 +143,13 @@ export async function getTeamPulse(
   }
 
   // Cache
+  // COALESCE on projects: a race where TeamPulseCard fires the no-withProjects
+  // path concurrent with an expand-triggered withProjects=true path must NOT
+  // clobber a successfully-generated projects value back to NULL.
   await db.execute(
     `INSERT INTO team_pulse_summaries (report_id, team_name, org, summary_text, health_json, projects, prompt_version)
      VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE summary_text = VALUES(summary_text), health_json = VALUES(health_json), projects = VALUES(projects), prompt_version = VALUES(prompt_version), generated_at = NOW()`,
+     ON DUPLICATE KEY UPDATE summary_text = VALUES(summary_text), health_json = VALUES(health_json), projects = COALESCE(VALUES(projects), projects), prompt_version = VALUES(prompt_version), generated_at = NOW()`,
     [reportId, teamName, org, summary, JSON.stringify(health), projectsForDb, PROMPT_VERSION],
   );
 

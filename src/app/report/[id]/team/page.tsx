@@ -107,8 +107,11 @@ export default function TeamSummaryPage() {
   // <TeamPulseCard>. When expanded, we hit the same endpoint with
   // ?withProjects=true so the service tops up the cached row's projects field.
   const [projectsExpanded, setProjectsExpanded] = useState(false);
-  const projectsUrl = (activeReport && selectedTeamName && projectsExpanded)
-    ? `/api/report/${params.id}/team-pulse?team=${encodeURIComponent(selectedTeamName)}&org=${encodeURIComponent(activeReport.org)}&withProjects=true`
+  // Same gate as <TeamPulseCard>: the endpoint refuses period_days < 14 with a
+  // 400. Don't bother rendering or firing SWR on short-window reports.
+  const projectsAvailable = !!activeReport && activeReport.period_days >= 14;
+  const projectsUrl = (projectsAvailable && selectedTeamName && projectsExpanded)
+    ? `/api/report/${params.id}/team-pulse?team=${encodeURIComponent(selectedTeamName!)}&org=${encodeURIComponent(activeReport!.org)}&withProjects=true`
     : null;
   const { data: teamPulse, isLoading: teamPulseLoading } = useSWR<{
     summary: string;
@@ -370,13 +373,13 @@ export default function TeamSummaryPage() {
         />
       )}
 
-      {selectedTeamName && activeReport && (
+      {selectedTeamName && projectsAvailable && (
         <div className="mb-4">
           <ProjectsCard
             projects={teamPulse?.projects ?? []}
             loading={projectsExpanded && teamPulseLoading && !teamPulse}
             title="Current Projects"
-            subtitle={`${selectedTeamName} · ${activeReport.period_days}d`}
+            subtitle={`${selectedTeamName} · ${activeReport!.period_days}d`}
             developerHref={(login) => `/report/${params.id}/dev/${login}`}
             collapsible
             expanded={projectsExpanded}
