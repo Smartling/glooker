@@ -19,7 +19,10 @@ function stripJsonFences(s: string): string {
   return s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
 }
 
-export async function generateTeamProjects(data: TeamProjectsInput): Promise<TeamProject[]> {
+export async function generateTeamProjects(
+  data: TeamProjectsInput,
+  teamName: string = '',
+): Promise<TeamProject[]> {
   // Short-circuit: nothing to cluster.
   if (data.commits.length === 0 && data.jira_issues.length === 0) {
     return [];
@@ -35,7 +38,7 @@ export async function generateTeamProjects(data: TeamProjectsInput): Promise<Tea
   for (const arr of commitByLogin.values()) arr.sort((a, b) => b.localeCompare(a));
 
   const systemPrompt = loadPrompt('team-pulse-projects.txt', {
-    TEAM_NAME: '',
+    TEAM_NAME: teamName,
     TEAM_MEMBERS_JSON: JSON.stringify(data.team_members),
     COMMITS_JSON: JSON.stringify(data.commits),
     JIRA_ISSUES_JSON: JSON.stringify(data.jira_issues),
@@ -61,18 +64,20 @@ export async function generateTeamProjects(data: TeamProjectsInput): Promise<Tea
   let parsed: { projects?: any[] };
   try {
     parsed = JSON.parse(cleaned);
-  } catch {
+  } catch (e) {
+    console.warn(`[team-pulse-projects] parse error for team=${teamName}; raw=${cleaned.slice(0, 500)}`);
     return [];
   }
 
   const teamSet = new Set(data.team_members);
   const out: TeamProject[] = [];
+  let droppedNoDevs = 0;
 
   for (const p of parsed.projects ?? []) {
     const developers: string[] = Array.isArray(p.developers)
       ? p.developers.filter((d: unknown) => typeof d === 'string' && teamSet.has(d))
       : [];
-    if (developers.length === 0) continue;
+    if (developers.length === 0) { droppedNoDevs++; continue; }
 
     // Override last_activity with the most recent commit by any of the cluster's developers.
     // Best-effort proxy: max committed_at across all commits authored by these developers.
@@ -93,6 +98,17 @@ export async function generateTeamProjects(data: TeamProjectsInput): Promise<Tea
       estimated_prs:     Number.isFinite(p.estimated_prs) ? Number(p.estimated_prs) : 0,
       last_activity:     lastActivity,
     });
+  }
+
+  // Diagnostic: log when the LLM-clustering ends up empty so we can tell whether
+  // the model returned nothing or the validator dropped everything.
+  const llmProjectCount = Array.isArray(parsed.projects) ? parsed.projects.length : 0;
+  if (out.length === 0) {
+    console.warn(
+      `[team-pulse-projects] empty result for team=${teamName} ` +
+      `(llm_returned=${llmProjectCount}, dropped_no_devs=${droppedNoDevs}, ` +
+      `team_members=${data.team_members.length}, commits=${data.commits.length}, jira=${data.jira_issues.length})`,
+    );
   }
 
   return out;

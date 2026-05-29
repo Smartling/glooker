@@ -6,7 +6,7 @@ import { buildTeamPulsePrompt } from './prompt';
 import { generateTeamProjects } from './projects';
 import type { TeamProject } from './types';
 
-const PROMPT_VERSION = 'v2-inflight';
+const PROMPT_VERSION = 'v3-projects';
 
 export interface TeamPulseResult {
   summary: string;
@@ -99,7 +99,7 @@ export async function getTeamPulse(
   let projects: TeamProject[] = [];
   try {
     const projectsInput = await extractTeamProjectsData(reportId, teamMembers);
-    projects = await generateTeamProjects(projectsInput);
+    projects = await generateTeamProjects(projectsInput, teamName);
   } catch (err) {
     // Don't fail the whole pulse if projects gen fails — log and continue with [].
     console.warn(`[team-pulse] projects generation failed for team=${teamName}:`, err);
