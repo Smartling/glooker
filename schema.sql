@@ -7,9 +7,20 @@ CREATE TABLE IF NOT EXISTS reports (
   period_days  INT          NOT NULL,
   status       ENUM('pending','running','completed','failed','stopped') NOT NULL DEFAULT 'pending',
   error        TEXT         NULL,
+  run_metadata JSON         NULL,
   created_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   completed_at TIMESTAMP    NULL
 );
+
+CREATE TABLE IF NOT EXISTS report_skip_allowlist (
+  github_login  VARCHAR(255) NOT NULL PRIMARY KEY,
+  reason        TEXT         NOT NULL,
+  added_by      VARCHAR(255) NULL,
+  added_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT IGNORE INTO report_skip_allowlist (github_login, reason, added_by) VALUES
+  ('oshpak', 'Private GitHub profile; not in org-visible members for non-mutual permissions', 'seed');
 
 CREATE TABLE IF NOT EXISTS developer_stats (
   id              INT AUTO_INCREMENT PRIMARY KEY,

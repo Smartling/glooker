@@ -45,7 +45,7 @@ describe('createMySQLDB ready gate', () => {
 
     // Every preceding call must be a schema/migration statement.
     for (let i = 0; i < selectIdx; i++) {
-      expect(calls[i]).toMatch(/^(CREATE\s+TABLE|ALTER\s+TABLE|DROP\s+TABLE)/i);
+      expect(calls[i]).toMatch(/^(CREATE\s+TABLE|ALTER\s+TABLE|DROP\s+TABLE|INSERT\s+IGNORE)/i);
     }
 
     // Cross-check via invocationCallOrder: the SELECT's order number must be

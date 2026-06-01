@@ -258,6 +258,22 @@ export function createMySQLDB(): DB {
   await pool.execute('ALTER TABLE team_pulse_summaries ADD COLUMN projects JSON NULL').catch((err) => {
     if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add projects:', err);
   });
+  // GLOOK-13: report integrity (run_metadata column + skip-allowlist table)
+  await pool.execute('ALTER TABLE reports ADD COLUMN run_metadata JSON NULL').catch((err) => {
+    if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add run_metadata:', err);
+  });
+  await pool.execute(`CREATE TABLE IF NOT EXISTS report_skip_allowlist (
+    github_login  VARCHAR(255) NOT NULL PRIMARY KEY,
+    reason        TEXT         NOT NULL,
+    added_by      VARCHAR(255) NULL,
+    added_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`).catch((err) => {
+    console.error('[db/mysql] Failed to create report_skip_allowlist:', err);
+  });
+  await pool.execute(
+    `INSERT IGNORE INTO report_skip_allowlist (github_login, reason, added_by) VALUES (?, ?, ?)`,
+    ['oshpak', 'Private GitHub profile; not in org-visible members for non-mutual permissions', 'seed'],
+  ).catch(() => {});
   })();
 
   return {
