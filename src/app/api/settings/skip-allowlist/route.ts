@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
-import { requireAdmin } from '@/lib/auth';
+import { requireAdmin, extractUser } from '@/lib/auth';
 import { withRequestLog } from '@/lib/logger';
 
 async function getHandler(req: NextRequest) {
@@ -44,20 +44,21 @@ async function postHandler(req: NextRequest) {
   if (denied) return denied;
 
   const { github_login, reason } = await req.json();
-  if (!github_login || typeof github_login !== 'string') {
+  const normalizedLogin = typeof github_login === 'string' ? github_login.trim() : '';
+  if (!normalizedLogin) {
     return NextResponse.json({ error: 'github_login required' }, { status: 400 });
   }
-  if (!reason || typeof reason !== 'string') {
+  if (!reason || typeof reason !== 'string' || !reason.trim()) {
     return NextResponse.json({ error: 'reason required' }, { status: 400 });
   }
 
-  // Extract admin login from auth header if present; null otherwise.
-  const addedBy = req.headers.get('x-amzn-oidc-identity') || null;
+  // Identity comes from the OIDC JWT in x-amzn-oidc-data, parsed by extractUser().
+  const addedBy = extractUser(req.headers)?.email ?? null;
 
   await db.execute(
     `INSERT INTO report_skip_allowlist (github_login, reason, added_by) VALUES (?, ?, ?)
      ON DUPLICATE KEY UPDATE reason = VALUES(reason), added_by = VALUES(added_by), added_at = CURRENT_TIMESTAMP`,
-    [github_login, reason, addedBy],
+    [normalizedLogin, reason, addedBy],
   );
 
   return NextResponse.json({ ok: true });

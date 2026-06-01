@@ -383,6 +383,7 @@ function translateSQL(sql: string): string {
       team_pulse_summaries: 'report_id, team_name',
       unmerged_prs: 'report_id, repo, pr_number',
       unmerged_commits: 'report_id, repo, commit_sha',
+      report_skip_allowlist: 'github_login',
     };
     const conflict = conflictCols[table] || 'id';
 

@@ -99,17 +99,23 @@ const NETWORK_ERROR_CODES = new Set(['ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN', 'EN
 const TRANSIENT_MAX_ATTEMPTS = 3;
 const TRANSIENT_BACKOFF_MS = [1000, 2000, 4000]; // attempt 1, 2, 3
 
+const TOTAL_MAX_ATTEMPTS = 12; // hard cap across all error types (5xx/429/network mix)
+
 export async function withRetry<T>(
   fn: () => Promise<T>,
   log?: (msg: string) => void,
   maxRetries = 5,
 ): Promise<T> {
   let transientAttempt = 0;
+  let totalAttempts = 0;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await fn();
     } catch (err: any) {
+      totalAttempts++;
+      if (totalAttempts > TOTAL_MAX_ATTEMPTS) throw err;
+
       const status = err?.status || err?.response?.status;
       const networkCode = err?.code as string | undefined;
       const isRateLimit = status === 403 || status === 429;

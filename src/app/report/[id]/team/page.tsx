@@ -212,13 +212,15 @@ export default function TeamSummaryPage() {
             <span className="text-gray-500 text-sm ml-2">
               last {activeReport.period_days} days &middot; {developers.length} developers
             </span>
-            <IntegrityBadge
-              metadata={activeReport.run_metadata ?? null}
-              developerCount={developers.length}
-            />
+            {activeReport.run_metadata?.state !== 'failed' && (
+              <IntegrityBadge
+                metadata={activeReport.run_metadata ?? null}
+                developerCount={developers.length}
+              />
+            )}
           </div>
           <div className="flex items-center gap-3">
-            {developers.length > 0 && (
+            {developers.length > 0 && activeReport.run_metadata?.state !== 'failed' && (
               <>
                 <button
                   onClick={() => exportCsv(developers, activeReport)}
@@ -523,13 +525,17 @@ export default function TeamSummaryPage() {
       </>
       )}
 
-      {view === 'teams' && activeReport && teamsData !== undefined && (
+      {view === 'teams' && activeReport && teamsData !== undefined && activeReport?.run_metadata?.state !== 'failed' && (
         <TeamTable
           developers={developers}
           teams={teams}
           reportId={params.id}
           canAct={canAct}
         />
+      )}
+
+      {view === 'teams' && activeReport?.run_metadata?.state === 'failed' && (
+        <IntegrityBadge metadata={activeReport.run_metadata ?? null} developerCount={developers.length} />
       )}
 
       {activeReport && developers.length === 0 && activeReport.status === 'completed' && (
