@@ -11,6 +11,9 @@ import { getAppConfig } from './app-config/service';
 import { UNMERGED_LOOKBACK_DAYS } from './report/unmerged-window';
 import { refreshCcSpendForReport } from './cc-spend/service';
 import { AnthropicAnalyticsKeyMissingError } from './cc-spend/anthropic-provider';
+import { IntegrityTracker } from './report-runner/integrity-tracker';
+import { loadSkipClassifier, evaluateIntegrity } from './report-runner/skip-classifier';
+import { DEFAULT_THRESHOLDS, type RunMetadata } from './report-runner/types';
 
 const CONCURRENCY = Number(process.env.LLM_CONCURRENCY || 5);
 
@@ -79,6 +82,14 @@ export async function runReport(
     updateProgress(reportId, {
       totalRepos: members.length,
       step: `Fetching activity for ${members.length} members...`,
+    });
+
+    // GLOOK-13: load skip classifier (allowlist + recent-history) and start the
+    // integrity tracker. Both are scoped to this single run.
+    const classifySkip = await loadSkipClassifier();
+    const integrity = new IntegrityTracker({
+      expectedCount: members.length,
+      thresholds: DEFAULT_THRESHOLDS,
     });
 
     // Per-member tracking for pipelined processing
@@ -189,8 +200,11 @@ export async function runReport(
           const reviews = await github.countReviewedPRs(org, member.login, since);
           reviewCounts.set(member.login, reviews);
           if (reviews > 0) log(`@${member.login}: ${reviews} PRs reviewed`);
-        } catch {
+        } catch (err) {
           reviewCounts.set(member.login, 0);
+          const message = err instanceof Error ? err.message : String(err);
+          log(`@${member.login} countReviewedPRs failed: ${message}`);
+          integrity.recordError({ context: 'other', login: member.login, message });
         }
 
         // Fetch open PRs for this member (in-flight metadata, not counted in impact)
@@ -211,7 +225,9 @@ export async function runReport(
             );
           }
         } catch (err) {
-          log(`@${member.login} openPRs failed: ${err instanceof Error ? err.message : String(err)}`);
+          const message = err instanceof Error ? err.message : String(err);
+          log(`@${member.login} openPRs failed: ${message}`);
+          integrity.recordError({ context: 'openPRs', login: member.login, message });
         }
 
         // Dedup commits against global seen set
@@ -305,7 +321,9 @@ export async function runReport(
                 // isn't in default (squash created a new SHA there), but the work shipped via
                 // a merged PR. Without this, the original branch commits would be re-inserted
                 // every report run as fake in-flight.
-                if (await github.isShaInMergedPR(org, repo, headSha, log)) continue;
+                if (await github.isShaInMergedPR(org, repo, headSha, log, ({ sha, message }) =>
+                  integrity.recordError({ context: 'sha-merge-check', sha, message })
+                )) continue;
 
                 const branchCommits = await github.compareBranchCommits(org, repo, headSha, log);
                 for (const c of branchCommits) {
@@ -317,7 +335,9 @@ export async function runReport(
                   queue.push({ repo, sha: c.sha, message: c.message, committedAt: c.committedAt, branch: branchName, prNumber: null });
                 }
               } catch (err) {
-                log(`branch compare failed for ${repo}/${ev.ref}: ${err instanceof Error ? err.message : String(err)}`);
+                const message = err instanceof Error ? err.message : String(err);
+                log(`branch compare failed for ${repo}/${ev.ref}: ${message}`);
+                integrity.recordError({ context: 'other', login: member.login, message });
               }
             }
           }
@@ -337,7 +357,9 @@ export async function runReport(
                 ],
               );
             } catch (err) {
-              log(`unmerged-commit detail failed for ${item.sha.slice(0, 7)}: ${err instanceof Error ? err.message : String(err)}`);
+              const message = err instanceof Error ? err.message : String(err);
+              log(`unmerged-commit detail failed for ${item.sha.slice(0, 7)}: ${message}`);
+              integrity.recordError({ context: 'unmerged-commit-detail', login: member.login, sha: item.sha, message });
             }
           }
         } catch (err) {
@@ -405,7 +427,9 @@ export async function runReport(
           checkMemberComplete(member.login);
         }
       } catch (err) {
-        log(`SKIP @${member.login}: ${err instanceof Error ? err.message : String(err)}`);
+        const message = err instanceof Error ? err.message : String(err);
+        log(`SKIP @${member.login}: ${message}`);
+        integrity.recordSkip(member.login, message, classifySkip(member.login));
       }
     }
 
@@ -419,6 +443,36 @@ export async function runReport(
 
     // Wait for remaining LLM work
     await Promise.all(pendingLLM);
+
+    // GLOOK-13: evaluate integrity AFTER the gather loop is drained but BEFORE
+    // we spend more time on Jira / report aggregation. On 'failed' we still
+    // proceed to persist run_metadata (forensics), then short-circuit before
+    // marking 'completed'.
+    const integritySnapshot = integrity.snapshot();
+    const integrityState = evaluateIntegrity(integritySnapshot);
+
+    if (integrityState === 'failed') {
+      const unknownCount = integritySnapshot.skipped.filter(s => s.classification === 'unknown').length;
+      const expectedCount = integritySnapshot.expectedCount;
+      const pct = expectedCount > 0 ? Math.round((unknownCount / expectedCount) * 100) : 0;
+      const abortReason = `GitHub API degraded: ${unknownCount} of ${expectedCount} engineers couldn't be fetched (${pct}%). Likely upstream auth/permission regression.`;
+      log(`ABORT (GLOOK-13): ${abortReason}`);
+
+      const runMetadata: RunMetadata = {
+        state: 'failed',
+        skipped: integritySnapshot.skipped,
+        errors: integritySnapshot.errors,
+        expectedCount: integritySnapshot.expectedCount,
+        thresholds: integritySnapshot.thresholds,
+        abortReason,
+      };
+      await db.execute(
+        `UPDATE reports SET status = 'failed', error = ?, run_metadata = ?, completed_at = NOW() WHERE id = ?`,
+        [abortReason, JSON.stringify(runMetadata), reportId],
+      );
+      updateProgress(reportId, { status: 'failed', step: abortReason });
+      return;
+    }
 
     if (shouldStop(reportId)) throw new Error('Stopped by user');
 
@@ -614,10 +668,19 @@ export async function runReport(
       );
     }
 
+    // GLOOK-13: persist run_metadata for ok/degraded outcomes too.
+    const runMetadata: RunMetadata = {
+      state: integrityState,
+      skipped: integritySnapshot.skipped,
+      errors: integritySnapshot.errors,
+      expectedCount: integritySnapshot.expectedCount,
+      thresholds: integritySnapshot.thresholds,
+    };
+
     // 4. Mark complete
     await db.execute(
-      `UPDATE reports SET status = 'completed', completed_at = NOW() WHERE id = ?`,
-      [reportId],
+      `UPDATE reports SET status = 'completed', run_metadata = ?, completed_at = NOW() WHERE id = ?`,
+      [JSON.stringify(runMetadata), reportId],
     );
     log(`Report complete: ${stats.length} developers`);
     updateProgress(reportId, { status: 'completed', step: 'Done', totalDevelopers: membersWithCommits, completedDevelopers: membersWithCommits });

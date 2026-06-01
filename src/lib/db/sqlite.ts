@@ -279,6 +279,20 @@ export function createSQLiteDB(): DB {
   try { db.exec("ALTER TABLE team_pulse_summaries ADD COLUMN prompt_version TEXT NOT NULL DEFAULT 'v1'"); } catch (_) {}
   // GLOOK-11: add projects column for per-team Current Projects card
   try { db.exec('ALTER TABLE team_pulse_summaries ADD COLUMN projects TEXT'); } catch (_) {}
+  // GLOOK-13: report integrity (run_metadata column + skip-allowlist table)
+  try { db.exec('ALTER TABLE reports ADD COLUMN run_metadata TEXT'); } catch (_) {}
+  try {
+    db.exec(`CREATE TABLE IF NOT EXISTS report_skip_allowlist (
+      github_login  TEXT NOT NULL PRIMARY KEY,
+      reason        TEXT NOT NULL,
+      added_by      TEXT,
+      added_at      TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+    )`);
+  } catch (_) {}
+  try {
+    db.exec(`INSERT OR IGNORE INTO report_skip_allowlist (github_login, reason, added_by)
+             VALUES ('oshpak', 'Private GitHub profile; not in org-visible members for non-mutual permissions', 'seed')`);
+  } catch (_) {}
 
   const dbApi: DB = {
     execute: <T = any>(sql: string, params?: any[]): Promise<[T[], any]> => {
@@ -369,6 +383,7 @@ function translateSQL(sql: string): string {
       team_pulse_summaries: 'report_id, team_name',
       unmerged_prs: 'report_id, repo, pr_number',
       unmerged_commits: 'report_id, repo, commit_sha',
+      report_skip_allowlist: 'github_login',
     };
     const conflict = conflictCols[table] || 'id';
 

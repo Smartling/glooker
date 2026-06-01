@@ -83,7 +83,7 @@ export async function createReport(input: {
 
 export async function getReport(id: string) {
   const [reportRows] = await db.execute(
-    `SELECT id, org, period_days, status, error, created_at, completed_at
+    `SELECT id, org, period_days, status, error, run_metadata, created_at, completed_at
      FROM reports WHERE id = ?`,
     [id],
   ) as [any[], any];
@@ -114,6 +114,18 @@ export async function getReport(id: string) {
       ? JSON.parse(row.active_repos || '[]')
       : (row.active_repos || []),
   }));
+
+  // GLOOK-13: deserialize run_metadata for the UI (legacy rows have NULL).
+  const rawMeta = reportRows[0].run_metadata;
+  if (rawMeta) {
+    try {
+      reportRows[0].run_metadata = typeof rawMeta === 'string' ? JSON.parse(rawMeta) : rawMeta;
+    } catch {
+      reportRows[0].run_metadata = null;
+    }
+  } else {
+    reportRows[0].run_metadata = null;
+  }
 
   return {
     report: reportRows[0],

@@ -75,7 +75,7 @@ export interface GitHubProvider {
   getBranchHeadSha(owner: string, repo: string, branchName: string, log?: (msg: string) => void): Promise<string | null>;
   fetchPullRequestCommits(owner: string, repo: string, pullNumber: number, log?: (msg: string) => void): Promise<UnmergedCommitInfo[]>;
   compareBranchCommits(owner: string, repo: string, headSha: string, log?: (msg: string) => void): Promise<UnmergedCommitInfo[]>;
-  isShaInMergedPR(owner: string, repo: string, sha: string, log?: (msg: string) => void): Promise<boolean>;
+  isShaInMergedPR(owner: string, repo: string, sha: string, log?: (msg: string) => void, onError?: (info: { sha: string; message: string }) => void): Promise<boolean>;
 }
 
 let octokit: InstanceType<typeof Octokit> | null = null;
@@ -95,31 +95,66 @@ function getOctokit(): InstanceType<typeof Octokit> {
 
 // ---------- Rate limit helpers ----------
 
-async function withRetry<T>(
+const NETWORK_ERROR_CODES = new Set(['ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND']);
+const TRANSIENT_MAX_ATTEMPTS = 3;
+const TRANSIENT_BACKOFF_MS = [1000, 2000, 4000]; // attempt 1, 2, 3
+
+const TOTAL_MAX_ATTEMPTS = 12; // hard cap across all error types (5xx/429/network mix)
+
+export async function withRetry<T>(
   fn: () => Promise<T>,
   log?: (msg: string) => void,
   maxRetries = 5,
 ): Promise<T> {
+  let transientAttempt = 0;
+  let totalAttempts = 0;
+
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await fn();
     } catch (err: any) {
-      const status = err?.status || err?.response?.status;
-      const isRateLimit = status === 403 || status === 429;
-      if (!isRateLimit || attempt === maxRetries) throw err;
+      totalAttempts++;
+      if (totalAttempts > TOTAL_MAX_ATTEMPTS) throw err;
 
-      const retryAfter = err?.response?.headers?.['retry-after'];
-      const resetEpoch = err?.response?.headers?.['x-ratelimit-reset'];
-      let waitSec: number;
-      if (retryAfter) {
-        waitSec = Number(retryAfter) || 60;
-      } else if (resetEpoch) {
-        waitSec = Math.max(Number(resetEpoch) - Math.floor(Date.now() / 1000), 10);
-      } else {
-        waitSec = 30 * Math.pow(2, attempt);
+      const status = err?.status || err?.response?.status;
+      const networkCode = err?.code as string | undefined;
+      const isRateLimit = status === 403 || status === 429;
+      const is5xx = typeof status === 'number' && status >= 500 && status < 600;
+      const isNetwork = !!networkCode && NETWORK_ERROR_CODES.has(networkCode);
+
+      // 1. Rate limit — existing behavior preserved (longer backoffs, header-aware)
+      if (isRateLimit) {
+        if (attempt === maxRetries) throw err;
+        const retryAfter = err?.response?.headers?.['retry-after'];
+        const resetEpoch = err?.response?.headers?.['x-ratelimit-reset'];
+        let waitSec: number;
+        if (retryAfter) {
+          waitSec = Number(retryAfter) || 60;
+        } else if (resetEpoch) {
+          waitSec = Math.max(Number(resetEpoch) - Math.floor(Date.now() / 1000), 10);
+        } else {
+          waitSec = 30 * Math.pow(2, attempt);
+        }
+        log?.(`Rate limited (attempt ${attempt + 1}/${maxRetries}). Waiting ${waitSec}s…`);
+        await sleep(waitSec * 1000);
+        continue;
       }
-      log?.(`Rate limited (attempt ${attempt + 1}/${maxRetries}). Waiting ${waitSec}s…`);
-      await sleep(waitSec * 1000);
+
+      // 2. Transient 5xx + network — shallow shared budget (3 attempts × ≤4s)
+      if (is5xx || isNetwork) {
+        if (transientAttempt >= TRANSIENT_MAX_ATTEMPTS) throw err;
+        const waitMs = TRANSIENT_BACKOFF_MS[transientAttempt] ?? 4000;
+        const label = is5xx ? `HTTP ${status}` : `network ${networkCode}`;
+        log?.(`Transient ${label} (attempt ${transientAttempt + 1}/${TRANSIENT_MAX_ATTEMPTS}). Retrying in ${waitMs}ms…`);
+        await sleep(waitMs);
+        transientAttempt++;
+        attempt--; // transient retries don't consume the rate-limit budget
+        continue;
+      }
+
+      // 3. Everything else (404, 401, validation errors, …) — propagate immediately.
+      // 404 is the deterministic signal the threshold logic depends on.
+      throw err;
     }
   }
   throw new Error('withRetry: unreachable');
@@ -720,6 +755,7 @@ export async function isShaInMergedPR(
   repo:  string,
   sha:   string,
   log?:  (msg: string) => void,
+  onError?: (info: { sha: string; message: string }) => void,
 ): Promise<boolean> {
   try {
     const res: any = await withRetry(
@@ -730,7 +766,9 @@ export async function isShaInMergedPR(
     );
     return (res?.data || []).some((pr: any) => pr.merged_at != null);
   } catch (err) {
-    log?.(`isShaInMergedPR: ${owner}/${repo} ${sha.slice(0, 8)} failed (${err instanceof Error ? err.message : String(err)}); treating as not-merged`);
+    const message = err instanceof Error ? err.message : String(err);
+    log?.(`isShaInMergedPR: ${owner}/${repo} ${sha.slice(0, 8)} failed (${message}); treating as not-merged`);
+    onError?.({ sha, message });
     return false;
   }
 }
