@@ -4,8 +4,6 @@ import type { RunMetadata, SkippedMember, IntegrityError } from '@/lib/report-ru
 
 export interface IntegrityBadgeProps {
   metadata: RunMetadata | null;
-  /** Total developers in the visible report (denominator complement to expectedCount). */
-  developerCount: number;
 }
 
 const PILL_BASE = 'inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold ml-2';
@@ -14,10 +12,12 @@ function classificationLabel(c: SkippedMember['classification']): string {
   return c === 'expected' ? 'expected' : c === 'auto-flagged' ? 'auto-flagged' : 'unknown';
 }
 
-export default function IntegrityBadge({ metadata, developerCount }: IntegrityBadgeProps) {
+export default function IntegrityBadge({ metadata }: IntegrityBadgeProps) {
   const [open, setOpen] = useState(false);
 
   if (!metadata || metadata.state === 'ok') return null;
+
+  const expectedCount = metadata.expectedCount ?? 0;
 
   if (metadata.state === 'failed') {
     return (
@@ -38,7 +38,7 @@ export default function IntegrityBadge({ metadata, developerCount }: IntegrityBa
             >
               {open ? 'Hide details' : 'Show details'}
             </button>
-            {open && <IntegrityDetail skipped={metadata.skipped} errors={metadata.errors} />}
+            {open && <IntegrityDetail skipped={metadata.skipped} errors={metadata.errors} expectedCount={expectedCount} />}
           </div>
         </div>
       </div>
@@ -60,19 +60,21 @@ export default function IntegrityBadge({ metadata, developerCount }: IntegrityBa
       </button>
       {open && (
         <div className="mt-3 bg-amber-500/5 border border-amber-500/20 rounded-lg p-3">
-          <IntegrityDetail skipped={metadata.skipped} errors={metadata.errors} />
+          <IntegrityDetail skipped={metadata.skipped} errors={metadata.errors} expectedCount={expectedCount} />
         </div>
       )}
     </>
   );
 }
 
-function IntegrityDetail({ skipped, errors }: { skipped: SkippedMember[]; errors: IntegrityError[] }) {
+function IntegrityDetail({ skipped, errors, expectedCount }: { skipped: SkippedMember[]; errors: IntegrityError[]; expectedCount: number }) {
   return (
     <div className="text-xs space-y-3 mt-2">
       {skipped.length > 0 && (
         <div>
-          <p className="text-gray-400 font-semibold mb-1">Skipped engineers ({skipped.length})</p>
+          <p className="text-gray-400 font-semibold mb-1">
+            Skipped engineers ({skipped.length} of {expectedCount} org members)
+          </p>
           <ul className="space-y-0.5 text-gray-300">
             {skipped.map(s => (
               <li key={s.login}>

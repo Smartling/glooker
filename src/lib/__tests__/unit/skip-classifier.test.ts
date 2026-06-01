@@ -74,10 +74,10 @@ describe('loadSkipClassifier', () => {
 });
 
 describe('evaluateIntegrity', () => {
-  function trackerWith(opts: { expectedCount: number; skips: Array<[string, 'expected'|'auto-flagged'|'unknown']> }): IntegrityTracker {
+  function trackerWith(opts: { expectedCount: number; skips: Array<[string, 'expected'|'auto-flagged'|'unknown']> }) {
     const t = new IntegrityTracker({ expectedCount: opts.expectedCount, thresholds: DEFAULT_THRESHOLDS });
     for (const [login, classification] of opts.skips) t.recordSkip(login, 'err', classification);
-    return t;
+    return t.snapshot();
   }
 
   it("returns 'ok' when no SKIPs", () => {

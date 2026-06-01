@@ -215,7 +215,6 @@ export default function TeamSummaryPage() {
             {activeReport.run_metadata?.state !== 'failed' && (
               <IntegrityBadge
                 metadata={activeReport.run_metadata ?? null}
-                developerCount={developers.length}
               />
             )}
           </div>
@@ -266,7 +265,7 @@ export default function TeamSummaryPage() {
       </div>
 
       {view === 'individuals' && activeReport?.run_metadata?.state === 'failed' && (
-        <IntegrityBadge metadata={activeReport.run_metadata ?? null} developerCount={developers.length} />
+        <IntegrityBadge metadata={activeReport.run_metadata ?? null} />
       )}
 
       {view === 'individuals' && activeReport?.run_metadata?.state !== 'failed' && (
@@ -535,7 +534,7 @@ export default function TeamSummaryPage() {
       )}
 
       {view === 'teams' && activeReport?.run_metadata?.state === 'failed' && (
-        <IntegrityBadge metadata={activeReport.run_metadata ?? null} developerCount={developers.length} />
+        <IntegrityBadge metadata={activeReport.run_metadata ?? null} />
       )}
 
       {activeReport && developers.length === 0 && activeReport.status === 'completed' && (

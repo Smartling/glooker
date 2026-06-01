@@ -166,7 +166,7 @@ export default function OrgDetailPage() {
             <p className="text-gray-500 mt-1">
               {report.period_days} days &middot; {developers.length} developers &middot; {new Date(report.created_at).toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' })}
             </p>
-            <IntegrityBadge metadata={report.run_metadata ?? null} developerCount={developers.length} />
+            <IntegrityBadge metadata={report.run_metadata ?? null} />
           </div>
           <button
             onClick={() => window.print()}

@@ -55,8 +55,8 @@ export class IntegrityTracker {
   /** Frozen snapshot for evaluator + persistence. Independent of tracker state. */
   snapshot(): Pick<RunMetadata, 'skipped' | 'errors' | 'expectedCount' | 'thresholds'> {
     return Object.freeze({
-      skipped: Object.freeze([...this.skipsByLogin.values()]) as readonly SkippedMember[] as SkippedMember[],
-      errors: Object.freeze([...this.errors]) as readonly IntegrityError[] as IntegrityError[],
+      skipped: Object.freeze([...this.skipsByLogin.values()]) as SkippedMember[],
+      errors: Object.freeze([...this.errors]) as IntegrityError[],
       expectedCount: this.expectedCount,
       thresholds: this.thresholds,
     });

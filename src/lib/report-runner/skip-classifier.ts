@@ -4,35 +4,29 @@
 // the integrity state from a tracker snapshot.
 
 import db from '@/lib/db';
-import type { IntegrityTracker } from './integrity-tracker';
-import type { IntegrityState, SkipClassification } from './types';
+import type { IntegrityState, RunMetadata, SkipClassification } from './types';
 
-const AUTO_FLAG_RECENT_RUNS = 5;
-const AUTO_FLAG_THRESHOLD = 4;
+export const AUTO_FLAG_RECENT_RUNS = 5;
+export const AUTO_FLAG_THRESHOLD = 4;
 
 /**
- * Loads the allowlist + recent-history once and returns a synchronous
- * classifier closure that is hot during the report run.
+ * Loads per-login skip counts across the last N completed reports.
+ * Shared by the classifier and the settings API (auto-flagged candidate
+ * list). Tolerates malformed run_metadata rows.
  */
-export async function loadSkipClassifier(): Promise<(login: string) => SkipClassification> {
-  // 1. Allowlist
-  const [allowlistRows] = await db.execute(
-    `SELECT github_login FROM report_skip_allowlist`,
-  ) as [any[], any];
-  const allowlisted = new Set<string>(allowlistRows.map((r: any) => r.github_login));
-
-  // 2. Last N completed reports' run_metadata. LIMIT is inlined: mysql2's
-  // prepared-statement binary protocol rejects bound LIMIT params with
-  // "Incorrect arguments to mysqld_stmt_execute". AUTO_FLAG_RECENT_RUNS is a
-  // hardcoded module constant, not user input, so inlining is safe.
+export async function loadRecentSkipCounts(limit = AUTO_FLAG_RECENT_RUNS): Promise<Map<string, number>> {
+  // LIMIT is inlined: mysql2's prepared-statement binary protocol rejects
+  // bound LIMIT params. `limit` is sanitized via Number() — callers pass
+  // a hardcoded module constant, never user input.
+  const safeLimit = Number(limit) || AUTO_FLAG_RECENT_RUNS;
   const [recentRows] = await db.execute(
     `SELECT run_metadata FROM reports
       WHERE status = 'completed' AND run_metadata IS NOT NULL
       ORDER BY completed_at DESC
-      LIMIT ${AUTO_FLAG_RECENT_RUNS}`,
+      LIMIT ${safeLimit}`,
   ) as [any[], any];
 
-  const skipCountsByLogin = new Map<string, number>();
+  const counts = new Map<string, number>();
   for (const row of recentRows) {
     let parsed: any = null;
     try {
@@ -45,10 +39,26 @@ export async function loadSkipClassifier(): Promise<(login: string) => SkipClass
     const skipped: Array<{ login?: unknown }> = Array.isArray(parsed?.skipped) ? parsed.skipped : [];
     for (const s of skipped) {
       if (typeof s?.login === 'string') {
-        skipCountsByLogin.set(s.login, (skipCountsByLogin.get(s.login) ?? 0) + 1);
+        counts.set(s.login, (counts.get(s.login) ?? 0) + 1);
       }
     }
   }
+  return counts;
+}
+
+/**
+ * Loads the allowlist + recent-history once and returns a synchronous
+ * classifier closure that is hot during the report run.
+ */
+export async function loadSkipClassifier(): Promise<(login: string) => SkipClassification> {
+  // 1. Allowlist
+  const [allowlistRows] = await db.execute(
+    `SELECT github_login FROM report_skip_allowlist`,
+  ) as [any[], any];
+  const allowlisted = new Set<string>(allowlistRows.map((r: any) => r.github_login));
+
+  // 2. Recent skip counts (shared helper)
+  const skipCountsByLogin = await loadRecentSkipCounts();
 
   const autoFlagged = new Set<string>(
     [...skipCountsByLogin.entries()]
@@ -67,11 +77,12 @@ export async function loadSkipClassifier(): Promise<(login: string) => SkipClass
  * Only unknown SKIPs count toward thresholds; expected + auto-flagged are
  * surfaced in run_metadata but ignored here.
  */
-export function evaluateIntegrity(tracker: IntegrityTracker): IntegrityState {
-  const snap = tracker.snapshot();
-  const T = snap.thresholds;
-  const unknownCount = snap.skipped.filter(s => s.classification === 'unknown').length;
-  const expected = snap.expectedCount;
+export function evaluateIntegrity(
+  snapshot: Pick<RunMetadata, 'skipped' | 'expectedCount' | 'thresholds'>,
+): IntegrityState {
+  const T = snapshot.thresholds;
+  const unknownCount = snapshot.skipped.filter(s => s.classification === 'unknown').length;
+  const expected = snapshot.expectedCount;
   const unknownPct = expected > 0 ? unknownCount / expected : 0;
 
   if (unknownCount >= T.abortUnknownCount && unknownPct >= T.abortUnknownPct) return 'failed';

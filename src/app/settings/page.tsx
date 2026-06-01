@@ -1499,6 +1499,7 @@ function SkipAllowlistTab() {
   const [login, setLogin] = useState('');
   const [reason, setReason] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -1514,16 +1515,28 @@ function SkipAllowlistTab() {
   useEffect(() => { load(); }, []);
 
   async function add(loginToAdd: string, reasonToAdd: string) {
-    await fetch('/api/settings/skip-allowlist', {
+    setError(null);
+    const res = await fetch('/api/settings/skip-allowlist', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ github_login: loginToAdd, reason: reasonToAdd }),
     });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data?.error || `Request failed: ${res.status}`);
+      return;
+    }
     await load();
   }
 
   async function remove(loginToRemove: string) {
-    await fetch(`/api/settings/skip-allowlist/${encodeURIComponent(loginToRemove)}`, { method: 'DELETE' });
+    setError(null);
+    const res = await fetch(`/api/settings/skip-allowlist/${encodeURIComponent(loginToRemove)}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data?.error || `Delete failed: ${res.status}`);
+      return;
+    }
     await load();
   }
 
@@ -1534,6 +1547,12 @@ function SkipAllowlistTab() {
         Engineers in this list always SKIP from report generation (e.g. private GitHub profiles).
         SKIPs of allowlisted users do not count toward the abort threshold.
       </p>
+
+      {error && (
+        <div className="bg-red-900/30 border border-red-700/50 rounded-lg p-3 mb-4 text-sm text-red-300">
+          {error}
+        </div>
+      )}
 
       {/* Add form */}
       <div className="bg-gray-900 rounded-lg p-4 mb-4 flex gap-2">
@@ -1567,7 +1586,7 @@ function SkipAllowlistTab() {
                 <td className="px-4 py-2 font-mono">@{e.github_login}</td>
                 <td className="px-4 py-2">{e.reason}</td>
                 <td className="px-4 py-2 text-gray-500">{e.added_by ?? '—'}</td>
-                <td className="px-4 py-2 text-gray-500">{e.added_at}</td>
+                <td className="px-4 py-2 text-gray-500">{new Date(e.added_at).toLocaleString()}</td>
                 <td className="px-4 py-2 text-right">
                   <button type="button" onClick={() => remove(e.github_login)} className="text-red-400 hover:text-red-300 text-xs">Remove</button>
                 </td>
@@ -1592,7 +1611,7 @@ function SkipAllowlistTab() {
                 <span className="font-mono text-gray-200">@{c}</span>
                 <button
                   type="button"
-                  onClick={() => add(c, 'auto-promoted after 4+ consecutive SKIPs')}
+                  onClick={() => add(c, 'auto-promoted: SKIPped in 4+ of the last 5 runs')}
                   className="text-xs px-2 py-1 bg-amber-500/20 text-amber-200 rounded hover:bg-amber-500/30"
                 >Promote</button>
               </li>

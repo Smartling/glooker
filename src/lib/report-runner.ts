@@ -449,7 +449,7 @@ export async function runReport(
     // proceed to persist run_metadata (forensics), then short-circuit before
     // marking 'completed'.
     const integritySnapshot = integrity.snapshot();
-    const integrityState = evaluateIntegrity(integrity);
+    const integrityState = evaluateIntegrity(integritySnapshot);
 
     if (integrityState === 'failed') {
       const unknownCount = integritySnapshot.skipped.filter(s => s.classification === 'unknown').length;

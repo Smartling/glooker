@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
 import { requireAdmin, extractUser } from '@/lib/auth';
 import { withRequestLog } from '@/lib/logger';
+import { loadRecentSkipCounts, AUTO_FLAG_THRESHOLD } from '@/lib/report-runner/skip-classifier';
 
 async function getHandler(req: NextRequest) {
   const denied = await requireAdmin(req);
@@ -11,29 +12,11 @@ async function getHandler(req: NextRequest) {
     `SELECT github_login, reason, added_by, added_at FROM report_skip_allowlist ORDER BY added_at ASC`,
   ) as [any[], any];
 
-  // Compute auto-flagged candidates from the last 5 completed reports.
-  const [recentRows] = await db.execute(
-    `SELECT run_metadata FROM reports
-      WHERE status = 'completed' AND run_metadata IS NOT NULL
-      ORDER BY completed_at DESC LIMIT 5`,
-  ) as [any[], any];
-
-  const counts = new Map<string, number>();
-  for (const r of recentRows) {
-    let parsed: any = null;
-    try {
-      parsed = typeof r.run_metadata === 'string' ? JSON.parse(r.run_metadata) : r.run_metadata;
-    } catch {
-      continue;
-    }
-    const skipped: Array<{ login?: unknown }> = Array.isArray(parsed?.skipped) ? parsed.skipped : [];
-    for (const s of skipped) {
-      if (typeof s?.login === 'string') counts.set(s.login, (counts.get(s.login) ?? 0) + 1);
-    }
-  }
+  // Compute auto-flagged candidates from the last 5 completed reports (shared helper).
+  const counts = await loadRecentSkipCounts();
   const onAllowlist = new Set(rows.map((r: any) => r.github_login));
   const autoFlaggedCandidates = [...counts.entries()]
-    .filter(([login, n]) => n >= 4 && !onAllowlist.has(login))
+    .filter(([login, n]) => n >= AUTO_FLAG_THRESHOLD && !onAllowlist.has(login))
     .map(([login]) => login);
 
   return NextResponse.json({ entries: rows, autoFlaggedCandidates });
