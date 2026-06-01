@@ -9,7 +9,9 @@ import { useAuth } from '@/app/auth-context';
 import { useUrlState, useUrlBatch } from '@/lib/url-state';
 import TeamTable from './team-table';
 import ProjectsCard from '@/components/ProjectsCard';
+import IntegrityBadge from '@/components/IntegrityBadge';
 import type { TeamProject } from '@/lib/team-pulse/types';
+import type { RunMetadata } from '@/lib/report-runner/types';
 
 interface Developer {
   github_login:       string;
@@ -37,6 +39,7 @@ interface Report {
   status:       string;
   created_at:   string;
   completed_at: string | null;
+  run_metadata?: RunMetadata | null;
 }
 
 interface Team {
@@ -209,6 +212,10 @@ export default function TeamSummaryPage() {
             <span className="text-gray-500 text-sm ml-2">
               last {activeReport.period_days} days &middot; {developers.length} developers
             </span>
+            <IntegrityBadge
+              metadata={activeReport.run_metadata ?? null}
+              developerCount={developers.length}
+            />
           </div>
           <div className="flex items-center gap-3">
             {developers.length > 0 && (
@@ -256,7 +263,11 @@ export default function TeamSummaryPage() {
         </div>
       </div>
 
-      {view === 'individuals' && (
+      {view === 'individuals' && activeReport?.run_metadata?.state === 'failed' && (
+        <IntegrityBadge metadata={activeReport.run_metadata ?? null} developerCount={developers.length} />
+      )}
+
+      {view === 'individuals' && activeReport?.run_metadata?.state !== 'failed' && (
       <>
       {/* User filter */}
       {developers.length > 0 && (

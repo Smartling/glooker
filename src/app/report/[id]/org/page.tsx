@@ -4,8 +4,10 @@ import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import ChatPanel from '@/app/chat-panel';
+import IntegrityBadge from '@/components/IntegrityBadge';
 import { useAuth } from '@/app/auth-context';
 import { useUrlState } from '@/lib/url-state';
+import type { RunMetadata } from '@/lib/report-runner/types';
 
 const TYPE_COLORS: Record<string, string> = {
   feature:   'bg-blue-500',
@@ -52,6 +54,7 @@ interface ReportMeta {
   created_at: string; completed_at: string | null;
   cc_period_start?: string | null;
   cc_period_end?: string | null;
+  run_metadata?: RunMetadata | null;
 }
 
 interface SpendWindow {
@@ -163,6 +166,7 @@ export default function OrgDetailPage() {
             <p className="text-gray-500 mt-1">
               {report.period_days} days &middot; {developers.length} developers &middot; {new Date(report.created_at).toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' })}
             </p>
+            <IntegrityBadge metadata={report.run_metadata ?? null} developerCount={developers.length} />
           </div>
           <button
             onClick={() => window.print()}
