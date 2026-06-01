@@ -5,7 +5,7 @@ import { useTheme } from '../theme-context';
 import { THEMES, type ThemeColors } from '../themes';
 import { useAuth } from '../auth-context';
 
-type Tab = 'schedules' | 'teams' | 'app' | 'appearance' | 'cc-spend';
+type Tab = 'schedules' | 'teams' | 'app' | 'appearance' | 'cc-spend' | 'skip-allowlist';
 
 const CADENCE_PRESETS = [
   { label: 'Every hour',           cron: '0 * * * *' },
@@ -38,11 +38,11 @@ export default function SettingsPage() {
   const [selectedOrg, setSelectedOrg] = useState('');
 
   // Set default tab: hash overrides, otherwise 'app' for admins
-  const adminTabs = ['schedules', 'teams', 'app', 'cc-spend'];
+  const adminTabs = ['schedules', 'teams', 'app', 'cc-spend', 'skip-allowlist'];
   useEffect(() => {
     if (!loading) {
       const hash = window.location.hash.replace('#', '') as Tab;
-      if (['schedules', 'teams', 'app', 'appearance', 'cc-spend'].includes(hash)) {
+      if (['schedules', 'teams', 'app', 'appearance', 'cc-spend', 'skip-allowlist'].includes(hash)) {
         // Only allow admin tabs if user is admin
         if (adminTabs.includes(hash) && !canAct) {
           setActiveTab('appearance');
@@ -73,6 +73,7 @@ export default function SettingsPage() {
           { id: 'teams' as Tab, label: 'Teams', icon: '👥', adminOnly: true },
           { id: 'app' as Tab, label: 'App Settings', icon: '⚙️', adminOnly: true },
           { id: 'cc-spend' as Tab, label: 'CC Spend', icon: '💰', adminOnly: true },
+          { id: 'skip-allowlist' as Tab, label: 'Skip Allowlist', icon: '🚫', adminOnly: true },
           { id: 'appearance' as Tab, label: 'Appearance', icon: '🎨', adminOnly: false },
         ]).filter(tab => !tab.adminOnly || canAct).map(tab => (
           <button
@@ -95,6 +96,7 @@ export default function SettingsPage() {
       {activeTab === 'teams' && selectedOrg && <TeamsTab org={selectedOrg} />}
       {activeTab === 'app' && <AppSettingsTab org={selectedOrg} />}
       {activeTab === 'cc-spend' && <CCSpendTab />}
+      {activeTab === 'skip-allowlist' && <SkipAllowlistTab />}
       {activeTab === 'appearance' && <AppearanceTab />}
     </div>
   );
@@ -1486,6 +1488,118 @@ function CcSpendRefreshBlock() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ── Skip Allowlist Tab ── */
+function SkipAllowlistTab() {
+  const [entries, setEntries] = useState<Array<{ github_login: string; reason: string; added_by: string | null; added_at: string }>>([]);
+  const [candidates, setCandidates] = useState<string[]>([]);
+  const [login, setLogin] = useState('');
+  const [reason, setReason] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    const res = await fetch('/api/settings/skip-allowlist');
+    if (res.ok) {
+      const data = await res.json();
+      setEntries(data.entries);
+      setCandidates(data.autoFlaggedCandidates);
+    }
+    setLoading(false);
+  }
+
+  useEffect(() => { load(); }, []);
+
+  async function add(loginToAdd: string, reasonToAdd: string) {
+    await fetch('/api/settings/skip-allowlist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ github_login: loginToAdd, reason: reasonToAdd }),
+    });
+    await load();
+  }
+
+  async function remove(loginToRemove: string) {
+    await fetch(`/api/settings/skip-allowlist/${encodeURIComponent(loginToRemove)}`, { method: 'DELETE' });
+    await load();
+  }
+
+  return (
+    <div>
+      <h2 className="text-lg font-semibold text-white mb-4">Skip Allowlist</h2>
+      <p className="text-sm text-gray-400 mb-4">
+        Engineers in this list always SKIP from report generation (e.g. private GitHub profiles).
+        SKIPs of allowlisted users do not count toward the abort threshold.
+      </p>
+
+      {/* Add form */}
+      <div className="bg-gray-900 rounded-lg p-4 mb-4 flex gap-2">
+        <input
+          type="text" placeholder="github_login" value={login}
+          onChange={e => setLogin(e.target.value)}
+          className="flex-1 px-3 py-2 bg-gray-800 text-white text-sm rounded border border-gray-700"
+        />
+        <input
+          type="text" placeholder="reason (e.g. private profile)" value={reason}
+          onChange={e => setReason(e.target.value)}
+          className="flex-[2] px-3 py-2 bg-gray-800 text-white text-sm rounded border border-gray-700"
+        />
+        <button
+          type="button"
+          disabled={!login || !reason || loading}
+          onClick={async () => { await add(login, reason); setLogin(''); setReason(''); }}
+          className="px-4 py-2 bg-accent-dark text-white text-sm font-medium rounded disabled:opacity-50"
+        >Add</button>
+      </div>
+
+      {/* Existing entries */}
+      <div className="bg-gray-900 rounded-lg overflow-hidden mb-6">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-800 text-gray-400 text-xs uppercase">
+            <tr><th className="px-4 py-2 text-left">Login</th><th className="px-4 py-2 text-left">Reason</th><th className="px-4 py-2 text-left">Added by</th><th className="px-4 py-2 text-left">Added at</th><th className="px-4 py-2"></th></tr>
+          </thead>
+          <tbody className="text-gray-300">
+            {entries.map(e => (
+              <tr key={e.github_login} className="border-t border-gray-800">
+                <td className="px-4 py-2 font-mono">@{e.github_login}</td>
+                <td className="px-4 py-2">{e.reason}</td>
+                <td className="px-4 py-2 text-gray-500">{e.added_by ?? '—'}</td>
+                <td className="px-4 py-2 text-gray-500">{e.added_at}</td>
+                <td className="px-4 py-2 text-right">
+                  <button type="button" onClick={() => remove(e.github_login)} className="text-red-400 hover:text-red-300 text-xs">Remove</button>
+                </td>
+              </tr>
+            ))}
+            {entries.length === 0 && <tr><td colSpan={5} className="px-4 py-3 text-gray-500 italic">No entries</td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Auto-flagged candidates */}
+      {candidates.length > 0 && (
+        <div className="bg-amber-500/5 border border-amber-500/20 rounded-lg p-4">
+          <h3 className="text-sm font-semibold text-amber-300 mb-2">Auto-flagged candidates</h3>
+          <p className="text-xs text-amber-200/80 mb-3">
+            These users SKIPped on ≥4 of the last 5 reports. Promoting them stops them from
+            counting toward the abort threshold and clears the warning.
+          </p>
+          <ul className="space-y-1">
+            {candidates.map(c => (
+              <li key={c} className="flex items-center justify-between text-sm">
+                <span className="font-mono text-gray-200">@{c}</span>
+                <button
+                  type="button"
+                  onClick={() => add(c, 'auto-promoted after 4+ consecutive SKIPs')}
+                  className="text-xs px-2 py-1 bg-amber-500/20 text-amber-200 rounded hover:bg-amber-500/30"
+                >Promote</button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
