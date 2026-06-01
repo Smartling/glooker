@@ -200,8 +200,11 @@ export async function runReport(
           const reviews = await github.countReviewedPRs(org, member.login, since);
           reviewCounts.set(member.login, reviews);
           if (reviews > 0) log(`@${member.login}: ${reviews} PRs reviewed`);
-        } catch {
+        } catch (err) {
           reviewCounts.set(member.login, 0);
+          const message = err instanceof Error ? err.message : String(err);
+          log(`@${member.login} countReviewedPRs failed: ${message}`);
+          integrity.recordError({ context: 'other', login: member.login, message });
         }
 
         // Fetch open PRs for this member (in-flight metadata, not counted in impact)
@@ -332,7 +335,9 @@ export async function runReport(
                   queue.push({ repo, sha: c.sha, message: c.message, committedAt: c.committedAt, branch: branchName, prNumber: null });
                 }
               } catch (err) {
-                log(`branch compare failed for ${repo}/${ev.ref}: ${err instanceof Error ? err.message : String(err)}`);
+                const message = err instanceof Error ? err.message : String(err);
+                log(`branch compare failed for ${repo}/${ev.ref}: ${message}`);
+                integrity.recordError({ context: 'other', login: member.login, message });
               }
             }
           }
