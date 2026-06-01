@@ -75,7 +75,7 @@ export interface GitHubProvider {
   getBranchHeadSha(owner: string, repo: string, branchName: string, log?: (msg: string) => void): Promise<string | null>;
   fetchPullRequestCommits(owner: string, repo: string, pullNumber: number, log?: (msg: string) => void): Promise<UnmergedCommitInfo[]>;
   compareBranchCommits(owner: string, repo: string, headSha: string, log?: (msg: string) => void): Promise<UnmergedCommitInfo[]>;
-  isShaInMergedPR(owner: string, repo: string, sha: string, log?: (msg: string) => void): Promise<boolean>;
+  isShaInMergedPR(owner: string, repo: string, sha: string, log?: (msg: string) => void, onError?: (info: { sha: string; message: string }) => void): Promise<boolean>;
 }
 
 let octokit: InstanceType<typeof Octokit> | null = null;
@@ -749,6 +749,7 @@ export async function isShaInMergedPR(
   repo:  string,
   sha:   string,
   log?:  (msg: string) => void,
+  onError?: (info: { sha: string; message: string }) => void,
 ): Promise<boolean> {
   try {
     const res: any = await withRetry(
@@ -759,7 +760,9 @@ export async function isShaInMergedPR(
     );
     return (res?.data || []).some((pr: any) => pr.merged_at != null);
   } catch (err) {
-    log?.(`isShaInMergedPR: ${owner}/${repo} ${sha.slice(0, 8)} failed (${err instanceof Error ? err.message : String(err)}); treating as not-merged`);
+    const message = err instanceof Error ? err.message : String(err);
+    log?.(`isShaInMergedPR: ${owner}/${repo} ${sha.slice(0, 8)} failed (${message}); treating as not-merged`);
+    onError?.({ sha, message });
     return false;
   }
 }
