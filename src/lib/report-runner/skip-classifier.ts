@@ -21,13 +21,15 @@ export async function loadSkipClassifier(): Promise<(login: string) => SkipClass
   ) as [any[], any];
   const allowlisted = new Set<string>(allowlistRows.map((r: any) => r.github_login));
 
-  // 2. Last N completed reports' run_metadata
+  // 2. Last N completed reports' run_metadata. LIMIT is inlined: mysql2's
+  // prepared-statement binary protocol rejects bound LIMIT params with
+  // "Incorrect arguments to mysqld_stmt_execute". AUTO_FLAG_RECENT_RUNS is a
+  // hardcoded module constant, not user input, so inlining is safe.
   const [recentRows] = await db.execute(
     `SELECT run_metadata FROM reports
       WHERE status = 'completed' AND run_metadata IS NOT NULL
       ORDER BY completed_at DESC
-      LIMIT ?`,
-    [AUTO_FLAG_RECENT_RUNS],
+      LIMIT ${AUTO_FLAG_RECENT_RUNS}`,
   ) as [any[], any];
 
   const skipCountsByLogin = new Map<string, number>();
