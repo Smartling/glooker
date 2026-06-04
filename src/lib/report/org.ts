@@ -55,6 +55,35 @@ export async function getOrgReport(reportId: string) {
   // 4. Weekly aggregation
   const timeline = aggregateWeekly(timelineCommits);
 
+  // 4b. Avg impact per completed report, bucketed by week and merged into timeline.
+  // Uses weekKeyForDate (same helper as aggregateWeekly) so week keys align.
+  const [impactRows] = await db.execute(
+    `SELECT r.id, r.completed_at, AVG(ds.impact_score) AS avg_impact
+     FROM reports r
+     JOIN developer_stats ds ON ds.report_id = r.id
+     WHERE r.org = ? AND r.status = 'completed'
+     GROUP BY r.id, r.completed_at
+     ORDER BY r.completed_at ASC`,
+    [org],
+  ) as [any[], any];
+
+  const impactSumByWeek = new Map<string, { sum: number; count: number }>();
+  for (const row of impactRows) {
+    if (!row.completed_at) continue;
+    const weekKey = weekKeyForDate(new Date(row.completed_at));
+    const val = Number(row.avg_impact) || 0;
+    const entry = impactSumByWeek.get(weekKey) ?? { sum: 0, count: 0 };
+    entry.sum += val;
+    entry.count++;
+    impactSumByWeek.set(weekKey, entry);
+  }
+
+  const timelineByWeek = new Map<string, any>(timeline.map(w => [w.week, w]));
+  for (const [week, { sum, count }] of impactSumByWeek.entries()) {
+    const bucket = timelineByWeek.get(week);
+    if (bucket) bucket.avgImpact = sum / count;
+  }
+
   // 4a. In-flight overlay: per-commit data from unmerged_commits, bucketed by committed_at.
   const [overlayRows] = await db.execute(
     `SELECT committed_at, lines_added, lines_removed

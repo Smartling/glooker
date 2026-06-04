@@ -157,7 +157,7 @@ describe('getOrgReport', () => {
     expect(result.developers[0].active_repos).toEqual(['repo-a', 'repo-b']);
   });
 
-  it('timeline uses trackDevs:true (has activeDevs field)', async () => {
+  it('does not set activeDevs on timeline buckets (trackDevs removed)', async () => {
     mockDbExecute
       .mockResolvedValueOnce([[reportRow], null])
       .mockResolvedValueOnce([[devRow], null])
@@ -167,8 +167,45 @@ describe('getOrgReport', () => {
     const result = await getOrgReport('report-1');
 
     expect(result.timeline).toHaveLength(1);
-    expect(result.timeline[0]).toHaveProperty('activeDevs');
-    expect(typeof result.timeline[0].activeDevs).toBe('number');
+    expect(result.timeline[0]).not.toHaveProperty('activeDevs');
+  });
+
+  it('merges avgImpact into timeline bucket for the report completion week', async () => {
+    // commitRow.committed_at = '2026-01-15T10:00:00Z' → week of 2026-01-13 (Mon)
+    // completed_at below is also in that week
+    mockDbExecute
+      .mockResolvedValueOnce([[reportRow], null])
+      .mockResolvedValueOnce([[devRow], null])
+      .mockResolvedValueOnce([[{ id: 'report-1' }], null])
+      .mockResolvedValueOnce([[commitRow], null])
+      .mockResolvedValueOnce([[{
+        id: 'report-1',
+        completed_at: '2026-01-15T12:00:00Z',
+        avg_impact: '7.5',
+      }], null]);
+
+    const result = await getOrgReport('report-1');
+
+    expect(result.timeline).toHaveLength(1);
+    expect(result.timeline[0].avgImpact).toBeCloseTo(7.5);
+  });
+
+  it('averages avgImpact when multiple reports complete in the same week', async () => {
+    // commitRow is week 2026-01-13; both reports below also land in that week
+    mockDbExecute
+      .mockResolvedValueOnce([[reportRow], null])
+      .mockResolvedValueOnce([[devRow], null])
+      .mockResolvedValueOnce([[{ id: 'report-1' }], null])
+      .mockResolvedValueOnce([[commitRow], null])
+      .mockResolvedValueOnce([[
+        { id: 'report-1', completed_at: '2026-01-14T12:00:00Z', avg_impact: '6.0' },
+        { id: 'report-2', completed_at: '2026-01-16T12:00:00Z', avg_impact: '8.0' },
+      ], null]);
+
+    const result = await getOrgReport('report-1');
+
+    expect(result.timeline).toHaveLength(1);
+    expect(result.timeline[0].avgImpact).toBeCloseTo(7.0);
   });
 
   it('returns empty timeline when no commits exist', async () => {
