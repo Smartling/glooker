@@ -191,7 +191,7 @@ describe('getOrgReport', () => {
   });
 
   it('averages avgImpact when multiple reports complete in the same week', async () => {
-    // commitRow is week 2026-01-13; both reports below also land in that week
+    // commitRow is week 2026-01-12; both reports below also land in that week
     mockDbExecute
       .mockResolvedValueOnce([[reportRow], null])
       .mockResolvedValueOnce([[devRow], null])

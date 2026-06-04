@@ -834,7 +834,7 @@ function TimelineChart({
 
   if (filtered.length < 2) return null;
 
-  const values = filtered.map(d => computeValue ? computeValue(d) : (d as any)[valueKey] as number);
+  const values = filtered.map(d => computeValue ? computeValue(d) : ((d as any)[valueKey] as number) ?? 0);
   const max = Math.max(...values, 1);
   const min = Math.min(...values, 0);
   const range = max - min || 1;
