@@ -44,7 +44,7 @@ interface Developer {
 interface WeeklyData {
   week: string; commits: number; prs: number; avgLinesPerPr: number; linesAdded: number; linesRemoved: number;
   linesP95Added?: number; linesP95Removed?: number;
-  avgComplexity: number; aiPercent: number; types: Record<string, number>; activeDevs: number;
+  avgComplexity: number; aiPercent: number; types: Record<string, number>; avgImpact?: number;
   inFlightLinesAdded?: number; inFlightLinesRemoved?: number;
   inFlightLinesP95Added?: number; inFlightLinesP95Removed?: number;
 }
@@ -292,7 +292,7 @@ export default function OrgDetailPage() {
               color="#EC4899"
               suffix=" lines"
             />
-            <TimelineChart data={timeline} valueKey="activeDevs" label="Active Developers / Week" color="#10B981" />
+            <TimelineChart data={timeline} valueKey="avgImpact" label="Avg Impact Score / Week" color="#10B981" decimals={1} />
             <LinesChangedChart data={timeline} />
             <TimelineChart data={timeline} valueKey="aiPercent" label="AI Assisted %" color="#A855F7" suffix="%" />
           </div>
@@ -834,7 +834,7 @@ function TimelineChart({
 
   if (filtered.length < 2) return null;
 
-  const values = filtered.map(d => computeValue ? computeValue(d) : (d as any)[valueKey] as number);
+  const values = filtered.map(d => computeValue ? computeValue(d) : ((d as any)[valueKey] as number) ?? 0);
   const max = Math.max(...values, 1);
   const min = Math.min(...values, 0);
   const range = max - min || 1;

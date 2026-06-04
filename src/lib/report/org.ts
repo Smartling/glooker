@@ -52,10 +52,44 @@ export async function getOrgReport(reportId: string) {
     timelineCommits = dedupCommitsBySha(tlRows);
   }
 
-  // 4. Weekly aggregation with trackDevs
-  const timeline = aggregateWeekly(timelineCommits, { trackDevs: true });
+  // 4. Weekly aggregation
+  const timeline = aggregateWeekly(timelineCommits);
 
-  // 4a. In-flight overlay: per-commit data from unmerged_commits, bucketed by committed_at.
+  // 4a. Avg impact per completed report, bucketed by week and merged into timeline.
+  // Uses weekKeyForDate (same helper as aggregateWeekly) so week keys align.
+  const [impactRows] = await db.execute(
+    `SELECT r.id, r.completed_at, AVG(ds.impact_score) AS avg_impact
+     FROM reports r
+     JOIN developer_stats ds ON ds.report_id = r.id
+     WHERE r.org = ? AND r.status = 'completed'
+     GROUP BY r.id, r.completed_at
+     ORDER BY r.completed_at ASC`,
+    [org],
+  ) as [any[], any];
+
+  const impactSumByWeek = new Map<string, { sum: number; count: number }>();
+  for (const row of impactRows) {
+    if (!row.completed_at) continue;
+    // Skip reports with no developer_stats rows — AVG returns NULL, which would
+    // deflate the weekly average if coerced to 0.
+    if (row.avg_impact == null) continue;
+    const weekKey = weekKeyForDate(new Date(row.completed_at));
+    const val = Number(row.avg_impact);
+    const entry = impactSumByWeek.get(weekKey) ?? { sum: 0, count: 0 };
+    entry.sum += val;
+    entry.count++;
+    impactSumByWeek.set(weekKey, entry);
+  }
+
+  // Only merge into existing timeline buckets. Weeks where a report completed but
+  // no commits landed are intentionally omitted — no phantom bars in the chart.
+  const timelineByWeek = new Map<string, any>(timeline.map(w => [w.week, w]));
+  for (const [week, { sum, count }] of impactSumByWeek.entries()) {
+    const bucket = timelineByWeek.get(week);
+    if (bucket) bucket.avgImpact = sum / count;
+  }
+
+  // 4b. In-flight overlay: per-commit data from unmerged_commits, bucketed by committed_at.
   const [overlayRows] = await db.execute(
     `SELECT committed_at, lines_added, lines_removed
      FROM unmerged_commits
@@ -102,7 +136,6 @@ export async function getOrgReport(reportId: string) {
           inFlightLinesRemoved: 0,
           inFlightLinesP95Added: 0,
           inFlightLinesP95Removed: 0,
-          activeDevs: 0,
         };
         weekMap.set(weekKey, bucket);
         timeline.push(bucket);

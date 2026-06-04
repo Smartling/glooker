@@ -10,12 +10,12 @@ export interface WeeklyBucket {
   avgComplexity: number;
   aiPercent: number;
   types: Record<string, number>;
-  activeDevs?: number;
   // Populated post-aggregation by getOrgReport when open-PR rows overlay the timeline.
   inFlightLinesAdded?: number;
   inFlightLinesRemoved?: number;
   inFlightLinesP95Added?: number;
   inFlightLinesP95Removed?: number;
+  avgImpact?: number;
 }
 
 // ISO date string for the Monday of the week containing `d`. Used by both the
@@ -40,7 +40,7 @@ export function dedupCommitsBySha(rows: any[]): any[] {
   return result;
 }
 
-export function aggregateWeekly(commits: any[], opts?: { trackDevs?: boolean }): WeeklyBucket[] {
+export function aggregateWeekly(commits: any[]): WeeklyBucket[] {
   // Compute P95 threshold for per-commit line counts (used for filtered lines chart)
   const commitLineTotals = commits
     .filter(c => c.committed_at)
@@ -78,7 +78,6 @@ export function aggregateWeekly(commits: any[], opts?: { trackDevs?: boolean }):
     complexityCount: number;
     aiCount: number;
     types: Record<string, number>;
-    activeDevs: Set<string>;
     prNumbers: Set<string>;
     prNumbersP95: Set<string>;
     prLinesP95: number;
@@ -95,7 +94,7 @@ export function aggregateWeekly(commits: any[], opts?: { trackDevs?: boolean }):
         commits: 0, linesAdded: 0, linesRemoved: 0,
         linesP95Added: 0, linesP95Removed: 0,
         totalComplexity: 0, complexityCount: 0, aiCount: 0,
-        types: {}, activeDevs: new Set(), prNumbers: new Set(),
+        types: {}, prNumbers: new Set(),
         prNumbersP95: new Set(), prLinesP95: 0,
       });
     }
@@ -116,7 +115,6 @@ export function aggregateWeekly(commits: any[], opts?: { trackDevs?: boolean }):
     }
     if (c.ai_co_authored || c.maybe_ai) w.aiCount++;
     if (c.type) w.types[c.type] = (w.types[c.type] || 0) + 1;
-    if (c.github_login) w.activeDevs.add(c.github_login);
     if (c.pr_number != null) {
       const key = String(c.pr_number);
       w.prNumbers.add(key);
@@ -150,9 +148,6 @@ export function aggregateWeekly(commits: any[], opts?: { trackDevs?: boolean }):
         aiPercent: w.commits > 0 ? Math.round((w.aiCount / w.commits) * 100) : 0,
         types: w.types,
       };
-      if (opts?.trackDevs) {
-        bucket.activeDevs = w.activeDevs.size;
-      }
       return bucket;
     });
 }

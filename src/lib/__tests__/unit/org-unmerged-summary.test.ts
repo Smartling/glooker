@@ -44,9 +44,11 @@ describe('getOrgReport unmerged-work integration', () => {
     dbExec.mockResolvedValueOnce([reportIds.map(id => ({ id })), null]);
     // 4. timeline commits
     dbExec.mockResolvedValueOnce([timelineCommits, null]);
-    // 5. unmerged_commits rows for overlay
+    // 5. avg impact per completed report (new query)
+    dbExec.mockResolvedValueOnce([[], null]);
+    // 6. unmerged_commits rows for overlay
     dbExec.mockResolvedValueOnce([overlayCommits, null]);
-    // 6. unmerged summary aggregation (single multi-aggregation row)
+    // 7. unmerged summary aggregation (single multi-aggregation row)
     if (unmergedAgg) {
       dbExec.mockResolvedValueOnce([[unmergedAgg], null]);
     } else {
