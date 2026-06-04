@@ -171,7 +171,7 @@ describe('getOrgReport', () => {
   });
 
   it('merges avgImpact into timeline bucket for the report completion week', async () => {
-    // commitRow.committed_at = '2026-01-15T10:00:00Z' → week of 2026-01-13 (Mon)
+    // commitRow.committed_at = '2026-01-15T10:00:00Z' → week of 2026-01-12 (Mon)
     // completed_at below is also in that week
     mockDbExecute
       .mockResolvedValueOnce([[reportRow], null])

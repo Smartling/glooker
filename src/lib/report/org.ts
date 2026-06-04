@@ -55,7 +55,7 @@ export async function getOrgReport(reportId: string) {
   // 4. Weekly aggregation
   const timeline = aggregateWeekly(timelineCommits);
 
-  // 4b. Avg impact per completed report, bucketed by week and merged into timeline.
+  // 4a. Avg impact per completed report, bucketed by week and merged into timeline.
   // Uses weekKeyForDate (same helper as aggregateWeekly) so week keys align.
   const [impactRows] = await db.execute(
     `SELECT r.id, r.completed_at, AVG(ds.impact_score) AS avg_impact
@@ -84,7 +84,7 @@ export async function getOrgReport(reportId: string) {
     if (bucket) bucket.avgImpact = sum / count;
   }
 
-  // 4a. In-flight overlay: per-commit data from unmerged_commits, bucketed by committed_at.
+  // 4b. In-flight overlay: per-commit data from unmerged_commits, bucketed by committed_at.
   const [overlayRows] = await db.execute(
     `SELECT committed_at, lines_added, lines_removed
      FROM unmerged_commits
