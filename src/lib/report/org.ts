@@ -70,14 +70,19 @@ export async function getOrgReport(reportId: string) {
   const impactSumByWeek = new Map<string, { sum: number; count: number }>();
   for (const row of impactRows) {
     if (!row.completed_at) continue;
+    // Skip reports with no developer_stats rows — AVG returns NULL, which would
+    // deflate the weekly average if coerced to 0.
+    if (row.avg_impact == null) continue;
     const weekKey = weekKeyForDate(new Date(row.completed_at));
-    const val = Number(row.avg_impact) || 0;
+    const val = Number(row.avg_impact);
     const entry = impactSumByWeek.get(weekKey) ?? { sum: 0, count: 0 };
     entry.sum += val;
     entry.count++;
     impactSumByWeek.set(weekKey, entry);
   }
 
+  // Only merge into existing timeline buckets. Weeks where a report completed but
+  // no commits landed are intentionally omitted — no phantom bars in the chart.
   const timelineByWeek = new Map<string, any>(timeline.map(w => [w.week, w]));
   for (const [week, { sum, count }] of impactSumByWeek.entries()) {
     const bucket = timelineByWeek.get(week);

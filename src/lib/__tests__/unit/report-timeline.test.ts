@@ -47,18 +47,10 @@ describe('aggregateWeekly', () => {
     expect(result[1].aiPercent).toBe(100);
   });
 
-  it('with trackDevs: true counts unique activeDevs per week', () => {
-    const result = aggregateWeekly(commits, { trackDevs: true });
-    // Week 2025-01-06: alice and bob = 2
-    expect(result[0].activeDevs).toBe(2);
-    // Week 2025-01-13: alice = 1
-    expect(result[1].activeDevs).toBe(1);
-  });
-
-  it('without trackDevs omits activeDevs field', () => {
+  it('does not include activeDevs field (trackDevs removed)', () => {
     const result = aggregateWeekly(commits);
-    expect(result[0].activeDevs).toBeUndefined();
-    expect(result[1].activeDevs).toBeUndefined();
+    expect(result[0]).not.toHaveProperty('activeDevs');
+    expect(result[1]).not.toHaveProperty('activeDevs');
   });
 
   it('sorts output by week ascending', () => {
