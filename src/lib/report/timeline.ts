@@ -16,6 +16,7 @@ export interface WeeklyBucket {
   inFlightLinesRemoved?: number;
   inFlightLinesP95Added?: number;
   inFlightLinesP95Removed?: number;
+  avgImpact?: number;
 }
 
 // ISO date string for the Monday of the week containing `d`. Used by both the

@@ -52,8 +52,8 @@ export async function getOrgReport(reportId: string) {
     timelineCommits = dedupCommitsBySha(tlRows);
   }
 
-  // 4. Weekly aggregation with trackDevs
-  const timeline = aggregateWeekly(timelineCommits, { trackDevs: true });
+  // 4. Weekly aggregation
+  const timeline = aggregateWeekly(timelineCommits);
 
   // 4a. In-flight overlay: per-commit data from unmerged_commits, bucketed by committed_at.
   const [overlayRows] = await db.execute(
@@ -102,7 +102,6 @@ export async function getOrgReport(reportId: string) {
           inFlightLinesRemoved: 0,
           inFlightLinesP95Added: 0,
           inFlightLinesP95Removed: 0,
-          activeDevs: 0,
         };
         weekMap.set(weekKey, bucket);
         timeline.push(bucket);
