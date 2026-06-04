@@ -44,7 +44,7 @@ interface Developer {
 interface WeeklyData {
   week: string; commits: number; prs: number; avgLinesPerPr: number; linesAdded: number; linesRemoved: number;
   linesP95Added?: number; linesP95Removed?: number;
-  avgComplexity: number; aiPercent: number; types: Record<string, number>; activeDevs: number;
+  avgComplexity: number; aiPercent: number; types: Record<string, number>; avgImpact?: number;
   inFlightLinesAdded?: number; inFlightLinesRemoved?: number;
   inFlightLinesP95Added?: number; inFlightLinesP95Removed?: number;
 }
@@ -166,7 +166,7 @@ export default function OrgDetailPage() {
             <p className="text-gray-500 mt-1">
               {report.period_days} days &middot; {developers.length} developers &middot; {new Date(report.created_at).toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' })}
             </p>
-            <IntegrityBadge metadata={report.run_metadata ?? null} />
+            <IntegrityBadge metadata={report.run_metadata ?? null} developerCount={developers.length} />
           </div>
           <button
             onClick={() => window.print()}
@@ -196,10 +196,10 @@ export default function OrgDetailPage() {
       )}
 
       {/* Spend Tab */}
-      {hasSpend && activeTab === 'spend' && report?.run_metadata?.state !== 'failed' && <SpendTab developers={developers} reportId={params.id} router={router} report={report} spendWindow={spendWindow} />}
+      {hasSpend && activeTab === 'spend' && <SpendTab developers={developers} reportId={params.id} router={router} report={report} spendWindow={spendWindow} />}
 
       {/* Impact Tab (default) */}
-      {(!hasSpend || activeTab === 'impact') && report?.run_metadata?.state !== 'failed' && <>
+      {(!hasSpend || activeTab === 'impact') && <>
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 mb-6">
         {summaryCards.map(c => (
@@ -292,7 +292,7 @@ export default function OrgDetailPage() {
               color="#EC4899"
               suffix=" lines"
             />
-            <TimelineChart data={timeline} valueKey="activeDevs" label="Active Developers / Week" color="#10B981" />
+            <TimelineChart data={timeline} valueKey="avgImpact" label="Avg Impact Score / Week" color="#10B981" decimals={1} />
             <LinesChangedChart data={timeline} />
             <TimelineChart data={timeline} valueKey="aiPercent" label="AI Assisted %" color="#A855F7" suffix="%" />
           </div>
