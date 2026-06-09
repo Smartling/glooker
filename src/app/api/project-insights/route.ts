@@ -3,6 +3,25 @@ import db from '@/lib/db';
 import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit } from '@/lib/llm-provider';
 import { withRequestLog } from '@/lib/logger';
 
+function renderInsightsInflightBlock(prs: any[], branches: any[]): string {
+  if (prs.length === 0 && branches.length === 0) return '';
+  const lines: string[] = ['\nIN-FLIGHT WORK (open PRs + bare branches — not yet merged):'];
+  if (prs.length > 0) {
+    lines.push(`\nOPEN PRs (${prs.length}):`, 'repo|pr_title|author|+additions/-deletions|draft');
+    for (const pr of prs) {
+      const isDraft = pr.is_draft === 1 || pr.is_draft === true ? 'yes' : 'no';
+      lines.push(`${pr.repo}|${pr.pr_title}|${pr.github_login}|+${Number(pr.pr_additions ?? 0)}/-${Number(pr.pr_deletions ?? 0)}|${isDraft}`);
+    }
+  }
+  if (branches.length > 0) {
+    lines.push(`\nBARE BRANCHES (${branches.length}):`, 'repo|branch|author|commits|lines');
+    for (const b of branches) {
+      lines.push(`${b.repo}|${b.branch}|${b.github_login}|${b.commit_count}|${b.total_lines}`);
+    }
+  }
+  return lines.join('\n');
+}
+
 async function getHandler() {
   // Find latest completed report
   const [latestRows] = await db.execute(
@@ -35,12 +54,16 @@ async function getHandler() {
     const data = typeof cached[0].highlights_json === 'string'
       ? JSON.parse(cached[0].highlights_json)
       : cached[0].highlights_json;
-    return NextResponse.json({
-      available: true,
-      report: { id: report.id, org: report.org, periodDays: report.period_days, createdAt: report.created_at },
-      ...data,
-      cached: true,
-    });
+    if (data._v === 2) {
+      const { _v: _, ...rest } = data;
+      return NextResponse.json({
+        available: true,
+        report: { id: report.id, org: report.org, periodDays: report.period_days, createdAt: report.created_at },
+        ...rest,
+        cached: true,
+      });
+    }
+    // _v !== 2: stale cache (no in-flight data) — fall through to regenerate
   }
 
   // Gather data for LLM
@@ -75,6 +98,33 @@ async function getHandler() {
   ) as [any[], any];
 
   const noJiraData = noJiraCommits.map((c: any) => `${c.repo}|${c.github_login}|${c.msg || ''}`).join('\n');
+
+  // In-flight: open PRs (top 30 by size)
+  const [inflightPrRows] = await db.execute(
+    `SELECT repo, pr_title, github_login, is_draft,
+            COALESCE(pr_additions, 0) AS pr_additions,
+            COALESCE(pr_deletions, 0) AS pr_deletions
+       FROM unmerged_prs
+      WHERE report_id = ?
+      ORDER BY COALESCE(pr_additions, 0) + COALESCE(pr_deletions, 0) DESC
+      LIMIT 30`,
+    [report.id],
+  ) as [any[], any];
+
+  // In-flight: bare branches (top 10 by total lines)
+  const [inflightBranchRows] = await db.execute(
+    `SELECT repo, branch, github_login,
+            COUNT(*) AS commit_count,
+            SUM(lines_added + lines_removed) AS total_lines
+       FROM unmerged_commits
+      WHERE report_id = ? AND pr_number IS NULL
+      GROUP BY repo, branch, github_login
+      ORDER BY total_lines DESC
+      LIMIT 10`,
+    [report.id],
+  ) as [any[], any];
+
+  const inflightBlock = renderInsightsInflightBlock(inflightPrRows, inflightBranchRows);
 
   const systemPrompt = `You are an engineering analytics assistant. Analyze Jira issues and GitHub commits from a single report period to identify the top projects the team is working on.
 
@@ -118,7 +168,8 @@ Rules:
 - A single Jira project might contain multiple distinct projects
 - For estimated_commits/prs: if a dev has 50 commits and works on 2 projects with equal issues, attribute ~25 each
 - Keep summaries under 20 words
-- Return ONLY raw JSON`;
+- Return ONLY raw JSON
+- If IN-FLIGHT WORK is present at the end of the user message, use it to enrich project identification — treat open PRs and bare branches as signals of ongoing work. Mix them into existing project clusters where they clearly fit, or create a project if in-flight work has no committed counterpart. Draft PRs are included.`;
 
   const userMessage = `JIRA ISSUES (${jiraRows.length} total):
 ${jiraData}
@@ -127,7 +178,7 @@ DEVELOPER STATS (login | commits | PRs):
 ${devData}
 
 GITHUB COMMITS WITHOUT JIRA (top 30 by size):
-${noJiraData}`;
+${noJiraData}${inflightBlock}`;
 
   try {
     const client = await getLLMClient();
@@ -148,19 +199,19 @@ ${noJiraData}`;
     let parsed: any;
     try { parsed = JSON.parse(cleaned); } catch { parsed = { projects: [], untracked_work: [] }; }
 
-    // Cache result
+    const toCache = { _v: 2, projects: parsed.projects || [], untracked_work: parsed.untracked_work || [] };
     await db.execute(
       `INSERT INTO report_comparisons (report_id_a, report_id_b, highlights_json)
        VALUES (?, ?, ?)
        ON DUPLICATE KEY UPDATE highlights_json = VALUES(highlights_json), generated_at = NOW()`,
-      [report.id, report.id, JSON.stringify(parsed)],
+      [report.id, report.id, JSON.stringify(toCache)],
     );
 
     return NextResponse.json({
       available: true,
       report: { id: report.id, org: report.org, periodDays: report.period_days, createdAt: report.created_at },
-      projects: parsed.projects || [],
-      untracked_work: parsed.untracked_work || [],
+      projects: toCache.projects,
+      untracked_work: toCache.untracked_work,
       cached: false,
     });
   } catch (err) {
