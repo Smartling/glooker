@@ -9,6 +9,7 @@ describe('team-pulse-projects prompt template', () => {
       TEAM_MEMBERS_JSON: '["alice","bob"]',
       COMMITS_JSON: '[]',
       JIRA_ISSUES_JSON: '[]',
+      IN_FLIGHT_BLOCK: '',
     });
     expect(out).toMatchSnapshot();
     // Verify no leftover {{...}} placeholders

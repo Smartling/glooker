@@ -6,7 +6,7 @@ import { buildTeamPulsePrompt } from './prompt';
 import { generateTeamProjects } from './projects';
 import type { TeamProject } from './types';
 
-const PROMPT_VERSION = 'v3-projects';
+const PROMPT_VERSION = 'v4-inflight';
 
 export interface TeamPulseResult {
   summary: string;

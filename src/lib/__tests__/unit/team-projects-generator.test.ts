@@ -130,7 +130,7 @@ describe('generateTeamProjects', () => {
 
     const callArgs = client.chat.completions.create.mock.calls[0][0];
     const systemPrompt: string = callArgs.messages[0].content;
-    expect(systemPrompt).toContain('IN-FLIGHT WORK');
+    expect(systemPrompt).toContain('OPEN PRs');
     expect(systemPrompt).toContain('Add jobs pagination');
     expect(systemPrompt).toContain('OPEN PRs (1)');
   });
@@ -147,6 +147,6 @@ describe('generateTeamProjects', () => {
 
     const callArgs = client.chat.completions.create.mock.calls[0][0];
     const systemPrompt: string = callArgs.messages[0].content;
-    expect(systemPrompt).not.toContain('IN-FLIGHT WORK');
+    expect(systemPrompt).not.toContain('OPEN PRs');
   });
 });
