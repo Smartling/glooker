@@ -41,6 +41,26 @@ describe('generateTeamProjects', () => {
     expect(mockGetLLMClient).not.toHaveBeenCalled();
   });
 
+  it('does NOT short-circuit when only in_flight_prs is non-empty — LLM is called', async () => {
+    const client = makeClient(JSON.stringify({
+      projects: [{ name: 'P1', summary: 's', developers: ['alice'],
+        jira_count: 0, estimated_commits: 0, estimated_prs: 1,
+        last_activity: '2026-05-20T10:00:00Z' }],
+    }));
+    mockGetLLMClient.mockResolvedValueOnce(client);
+
+    const out = await generateTeamProjects({
+      team_members: ['alice'],
+      commits: [],
+      jira_issues: [],
+      in_flight_prs: [{ repo: 'r1', title: 'New feature', author: 'alice', additions: 50, deletions: 5, is_draft: false }],
+      in_flight_branches: [],
+    });
+
+    expect(mockGetLLMClient).toHaveBeenCalled();
+    expect(out).toHaveLength(1);
+  });
+
   it('returns parsed projects on a well-formed LLM response', async () => {
     mockGetLLMClient.mockResolvedValueOnce(makeClient(JSON.stringify({
       projects: [

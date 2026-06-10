@@ -2,25 +2,8 @@ import { NextResponse } from 'next/server';
 import db from '@/lib/db';
 import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit } from '@/lib/llm-provider';
 import { withRequestLog } from '@/lib/logger';
-
-function renderInsightsInflightBlock(prs: any[], branches: any[]): string {
-  if (prs.length === 0 && branches.length === 0) return '';
-  const lines: string[] = ['\nIN-FLIGHT WORK (open PRs + bare branches — not yet merged):'];
-  if (prs.length > 0) {
-    lines.push(`\nOPEN PRs (${prs.length}):`, 'repo|pr_title|author|+additions/-deletions|draft');
-    for (const pr of prs) {
-      const isDraft = pr.is_draft === 1 || pr.is_draft === true ? 'yes' : 'no';
-      lines.push(`${pr.repo}|${pr.pr_title}|${pr.github_login}|+${Number(pr.pr_additions ?? 0)}/-${Number(pr.pr_deletions ?? 0)}|${isDraft}`);
-    }
-  }
-  if (branches.length > 0) {
-    lines.push(`\nBARE BRANCHES (${branches.length}):`, 'repo|branch|author|commits|lines');
-    for (const b of branches) {
-      lines.push(`${b.repo}|${b.branch}|${b.github_login}|${b.commit_count}|${b.total_lines}`);
-    }
-  }
-  return lines.join('\n');
-}
+import { renderInflightBlock } from '@/lib/team-pulse/render';
+import type { TeamProjectInflightPr, TeamProjectInflightBranch } from '@/lib/team-pulse/data';
 
 async function getHandler() {
   // Find latest completed report
@@ -63,7 +46,9 @@ async function getHandler() {
         cached: true,
       });
     }
-    // _v !== 2: stale cache (no in-flight data) — fall through to regenerate
+    // _v !== 2: stale cache (no in-flight data) — fall through to regenerate.
+    // Once all active orgs have a _v:2 row this guard becomes pure overhead;
+    // safe to remove after all legacy rows have naturally expired or been overwritten.
   }
 
   // Gather data for LLM
@@ -124,7 +109,24 @@ async function getHandler() {
     [report.id],
   ) as [any[], any];
 
-  const inflightBlock = renderInsightsInflightBlock(inflightPrRows, inflightBranchRows);
+  // Map raw DB rows to the shared typed interface so renderInflightBlock
+  // handles formatting and length-capping consistently across both surfaces.
+  const inflightPrs: TeamProjectInflightPr[] = inflightPrRows.map((r: any) => ({
+    repo: String(r.repo ?? ''),
+    title: String(r.pr_title ?? ''),
+    author: String(r.github_login ?? ''),
+    additions: Number(r.pr_additions ?? 0),
+    deletions: Number(r.pr_deletions ?? 0),
+    is_draft: r.is_draft === 1 || r.is_draft === true,
+  }));
+  const inflightBranches: TeamProjectInflightBranch[] = inflightBranchRows.map((r: any) => ({
+    repo: String(r.repo ?? ''),
+    branch: String(r.branch ?? ''),
+    author: String(r.github_login ?? ''),
+    commit_count: Number(r.commit_count ?? 0),
+    lines: Number(r.total_lines ?? 0),
+  }));
+  const inflightBlock = renderInflightBlock(inflightPrs, inflightBranches);
 
   const systemPrompt = `You are an engineering analytics assistant. Analyze Jira issues and GitHub commits from a single report period to identify the top projects the team is working on.
 
@@ -170,6 +172,10 @@ Rules:
 - Keep summaries under 20 words
 - Return ONLY raw JSON
 - If IN-FLIGHT WORK is present at the end of the user message, use it to enrich project identification — treat open PRs and bare branches as signals of ongoing work. Mix them into existing project clusters where they clearly fit, or create a project if in-flight work has no committed counterpart. Draft PRs are included.`;
+  // Note: the in-flight instruction lives in systemPrompt while the in-flight data
+  // is in userMessage. This follows the standard system/user role separation for
+  // instructions vs data. The team-page surface embeds both in the system prompt
+  // template (team-pulse-projects.txt) — the difference is cosmetic for LLM behaviour.
 
   const userMessage = `JIRA ISSUES (${jiraRows.length} total):
 ${jiraData}

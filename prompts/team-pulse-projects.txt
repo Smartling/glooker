@@ -32,5 +32,4 @@ COMMITS (most recent first, capped at 200):
 
 JIRA ISSUES:
 {{JIRA_ISSUES_JSON}}
-
 {{IN_FLIGHT_BLOCK}}

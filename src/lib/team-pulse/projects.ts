@@ -7,7 +7,8 @@
 import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, promptTag } from '@/lib/llm-provider';
 import { loadPrompt } from '@/lib/prompt-loader';
 import type { TeamProject } from './types';
-import type { TeamProjectsInput, TeamProjectInflightPr, TeamProjectInflightBranch } from './data';
+import type { TeamProjectsInput } from './data';
+import { renderInflightBlock } from './render';
 
 export const PROJECTS_PROMPT_TAG = 'team-pulse-projects';
 
@@ -19,26 +20,6 @@ function stripJsonFences(s: string): string {
   return s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
 }
 
-function renderInflightBlock(
-  prs: TeamProjectInflightPr[],
-  branches: TeamProjectInflightBranch[],
-): string {
-  if (prs.length === 0 && branches.length === 0) return '';
-  const lines: string[] = ['IN-FLIGHT WORK (open PRs + bare branches — not yet merged):'];
-  if (prs.length > 0) {
-    lines.push('', `OPEN PRs (${prs.length}):`, 'repo|pr_title|author|+additions/-deletions|draft');
-    for (const pr of prs) {
-      lines.push(`${pr.repo}|${pr.title}|${pr.author}|+${pr.additions}/-${pr.deletions}|${pr.is_draft ? 'yes' : 'no'}`);
-    }
-  }
-  if (branches.length > 0) {
-    lines.push('', `BARE BRANCHES (${branches.length}):`, 'repo|branch|author|commits|lines');
-    for (const b of branches) {
-      lines.push(`${b.repo}|${b.branch}|${b.author}|${b.commit_count}|${b.lines}`);
-    }
-  }
-  return lines.join('\n');
-}
 
 export async function generateTeamProjects(
   data: TeamProjectsInput,
