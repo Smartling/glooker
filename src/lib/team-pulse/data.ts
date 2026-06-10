@@ -389,11 +389,11 @@ export async function extractTeamProjectsData(
             branch,
             github_login          AS author,
             COUNT(*)              AS commit_count,
-            SUM(lines_added + lines_removed) AS lines
+            SUM(lines_added + lines_removed) AS total_lines
        FROM unmerged_commits
       WHERE report_id = ? AND github_login IN (${placeholders}) AND pr_number IS NULL
       GROUP BY repo, branch, github_login
-      ORDER BY lines DESC
+      ORDER BY total_lines DESC
       LIMIT 10`,
     [reportId, ...teamMembers],
   ) as [any[], any];
@@ -432,7 +432,7 @@ export async function extractTeamProjectsData(
       branch: String(r.branch ?? ''),
       author: String(r.author ?? ''),
       commit_count: Number(r.commit_count ?? 0),
-      lines: Number(r.lines ?? 0),
+      lines: Number(r.total_lines ?? 0),
     })),
   };
 }

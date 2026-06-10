@@ -100,7 +100,7 @@ describe('extractTeamProjectsData', () => {
     stubCalls(
       [], [], [], // commits, jira, prs empty
       [
-        { repo: 'infra', branch: 'feat/k8s-autoscale', author: 'carol', commit_count: 7, lines: 240 },
+        { repo: 'infra', branch: 'feat/k8s-autoscale', author: 'carol', commit_count: 7, total_lines: 240 },
       ],
     );
 
