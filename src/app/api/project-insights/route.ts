@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import db from '@/lib/db';
 import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit } from '@/lib/llm-provider';
 import { withRequestLog } from '@/lib/logger';
+import { renderInflightBlock } from '@/lib/team-pulse/render';
+import type { TeamProjectInflightPr, TeamProjectInflightBranch } from '@/lib/team-pulse/data';
 
 async function getHandler() {
   // Find latest completed report
@@ -35,12 +37,18 @@ async function getHandler() {
     const data = typeof cached[0].highlights_json === 'string'
       ? JSON.parse(cached[0].highlights_json)
       : cached[0].highlights_json;
-    return NextResponse.json({
-      available: true,
-      report: { id: report.id, org: report.org, periodDays: report.period_days, createdAt: report.created_at },
-      ...data,
-      cached: true,
-    });
+    if (data._v === 2) {
+      const { _v: _, ...rest } = data;
+      return NextResponse.json({
+        available: true,
+        report: { id: report.id, org: report.org, periodDays: report.period_days, createdAt: report.created_at },
+        ...rest,
+        cached: true,
+      });
+    }
+    // _v !== 2: stale cache (no in-flight data) — fall through to regenerate.
+    // Once all active orgs have a _v:2 row this guard becomes pure overhead;
+    // safe to remove after all legacy rows have naturally expired or been overwritten.
   }
 
   // Gather data for LLM
@@ -75,6 +83,50 @@ async function getHandler() {
   ) as [any[], any];
 
   const noJiraData = noJiraCommits.map((c: any) => `${c.repo}|${c.github_login}|${c.msg || ''}`).join('\n');
+
+  // In-flight: open PRs (top 30 by size)
+  const [inflightPrRows] = await db.execute(
+    `SELECT repo, pr_title, github_login, is_draft,
+            COALESCE(pr_additions, 0) AS pr_additions,
+            COALESCE(pr_deletions, 0) AS pr_deletions
+       FROM unmerged_prs
+      WHERE report_id = ?
+      ORDER BY COALESCE(pr_additions, 0) + COALESCE(pr_deletions, 0) DESC
+      LIMIT 30`,
+    [report.id],
+  ) as [any[], any];
+
+  // In-flight: bare branches (top 10 by total lines)
+  const [inflightBranchRows] = await db.execute(
+    `SELECT repo, branch, github_login,
+            COUNT(*) AS commit_count,
+            SUM(lines_added + lines_removed) AS total_lines
+       FROM unmerged_commits
+      WHERE report_id = ? AND pr_number IS NULL
+      GROUP BY repo, branch, github_login
+      ORDER BY total_lines DESC
+      LIMIT 10`,
+    [report.id],
+  ) as [any[], any];
+
+  // Map raw DB rows to the shared typed interface so renderInflightBlock
+  // handles formatting and length-capping consistently across both surfaces.
+  const inflightPrs: TeamProjectInflightPr[] = inflightPrRows.map((r: any) => ({
+    repo: String(r.repo ?? ''),
+    title: String(r.pr_title ?? ''),
+    author: String(r.github_login ?? ''),
+    additions: Number(r.pr_additions ?? 0),
+    deletions: Number(r.pr_deletions ?? 0),
+    is_draft: r.is_draft === 1 || r.is_draft === true,
+  }));
+  const inflightBranches: TeamProjectInflightBranch[] = inflightBranchRows.map((r: any) => ({
+    repo: String(r.repo ?? ''),
+    branch: String(r.branch ?? ''),
+    author: String(r.github_login ?? ''),
+    commit_count: Number(r.commit_count ?? 0),
+    lines: Number(r.total_lines ?? 0),
+  }));
+  const inflightBlock = renderInflightBlock(inflightPrs, inflightBranches);
 
   const systemPrompt = `You are an engineering analytics assistant. Analyze Jira issues and GitHub commits from a single report period to identify the top projects the team is working on.
 
@@ -118,7 +170,12 @@ Rules:
 - A single Jira project might contain multiple distinct projects
 - For estimated_commits/prs: if a dev has 50 commits and works on 2 projects with equal issues, attribute ~25 each
 - Keep summaries under 20 words
-- Return ONLY raw JSON`;
+- Return ONLY raw JSON
+- If IN-FLIGHT WORK is present at the end of the user message, use it to enrich project identification — treat open PRs and bare branches as signals of ongoing work. Mix them into existing project clusters where they clearly fit, or create a project if in-flight work has no committed counterpart. Draft PRs are included.`;
+  // Note: the in-flight instruction lives in systemPrompt while the in-flight data
+  // is in userMessage. This follows the standard system/user role separation for
+  // instructions vs data. The team-page surface embeds both in the system prompt
+  // template (team-pulse-projects.txt) — the difference is cosmetic for LLM behaviour.
 
   const userMessage = `JIRA ISSUES (${jiraRows.length} total):
 ${jiraData}
@@ -127,7 +184,7 @@ DEVELOPER STATS (login | commits | PRs):
 ${devData}
 
 GITHUB COMMITS WITHOUT JIRA (top 30 by size):
-${noJiraData}`;
+${noJiraData}${inflightBlock}`;
 
   try {
     const client = await getLLMClient();
@@ -148,19 +205,19 @@ ${noJiraData}`;
     let parsed: any;
     try { parsed = JSON.parse(cleaned); } catch { parsed = { projects: [], untracked_work: [] }; }
 
-    // Cache result
+    const toCache = { _v: 2, projects: parsed.projects || [], untracked_work: parsed.untracked_work || [] };
     await db.execute(
       `INSERT INTO report_comparisons (report_id_a, report_id_b, highlights_json)
        VALUES (?, ?, ?)
        ON DUPLICATE KEY UPDATE highlights_json = VALUES(highlights_json), generated_at = NOW()`,
-      [report.id, report.id, JSON.stringify(parsed)],
+      [report.id, report.id, JSON.stringify(toCache)],
     );
 
     return NextResponse.json({
       available: true,
       report: { id: report.id, org: report.org, periodDays: report.period_days, createdAt: report.created_at },
-      projects: parsed.projects || [],
-      untracked_work: parsed.untracked_work || [],
+      projects: toCache.projects,
+      untracked_work: toCache.untracked_work,
       cached: false,
     });
   } catch (err) {

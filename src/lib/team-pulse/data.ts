@@ -310,10 +310,29 @@ export interface TeamProjectJiraIssue {
   status: string | null;
 }
 
+export interface TeamProjectInflightPr {
+  repo: string;
+  title: string;
+  author: string;
+  additions: number;
+  deletions: number;
+  is_draft: boolean;
+}
+
+export interface TeamProjectInflightBranch {
+  repo: string;
+  branch: string;
+  author: string;
+  commit_count: number;
+  lines: number;
+}
+
 export interface TeamProjectsInput {
   commits: TeamProjectCommit[];
   jira_issues: TeamProjectJiraIssue[];
   team_members: string[];
+  in_flight_prs: TeamProjectInflightPr[];
+  in_flight_branches: TeamProjectInflightBranch[];
 }
 
 export async function extractTeamProjectsData(
@@ -321,7 +340,7 @@ export async function extractTeamProjectsData(
   teamMembers: string[],
 ): Promise<TeamProjectsInput> {
   if (teamMembers.length === 0) {
-    return { commits: [], jira_issues: [], team_members: [] };
+    return { commits: [], jira_issues: [], team_members: [], in_flight_prs: [], in_flight_branches: [] };
   }
 
   const placeholders = teamMembers.map(() => '?').join(',');
@@ -351,6 +370,34 @@ export async function extractTeamProjectsData(
     [reportId, ...teamMembers],
   ) as [any[], any];
 
+  const [prRows] = await db.execute(
+    `SELECT repo,
+            pr_title    AS title,
+            github_login AS author,
+            COALESCE(pr_additions, 0) AS additions,
+            COALESCE(pr_deletions, 0) AS deletions,
+            is_draft
+       FROM unmerged_prs
+      WHERE report_id = ? AND github_login IN (${placeholders})
+      ORDER BY COALESCE(pr_additions, 0) + COALESCE(pr_deletions, 0) DESC
+      LIMIT 30`,
+    [reportId, ...teamMembers],
+  ) as [any[], any];
+
+  const [branchRows] = await db.execute(
+    `SELECT repo,
+            branch,
+            github_login          AS author,
+            COUNT(*)              AS commit_count,
+            SUM(lines_added + lines_removed) AS total_lines
+       FROM unmerged_commits
+      WHERE report_id = ? AND github_login IN (${placeholders}) AND pr_number IS NULL
+      GROUP BY repo, branch, github_login
+      ORDER BY total_lines DESC
+      LIMIT 10`,
+    [reportId, ...teamMembers],
+  ) as [any[], any];
+
   const commits: TeamProjectCommit[] = (commitRows as any[]).map(r => ({
     sha: r.sha,
     repo: r.repo,
@@ -372,5 +419,20 @@ export async function extractTeamProjectsData(
     commits,
     jira_issues: jiraRows as TeamProjectJiraIssue[],
     team_members: [...teamMembers],
+    in_flight_prs: (prRows as any[]).map(r => ({
+      repo: String(r.repo ?? ''),
+      title: String(r.title ?? ''),
+      author: String(r.author ?? ''),
+      additions: Number(r.additions ?? 0),
+      deletions: Number(r.deletions ?? 0),
+      is_draft: r.is_draft === 1 || r.is_draft === true,
+    })),
+    in_flight_branches: (branchRows as any[]).map(r => ({
+      repo: String(r.repo ?? ''),
+      branch: String(r.branch ?? ''),
+      author: String(r.author ?? ''),
+      commit_count: Number(r.commit_count ?? 0),
+      lines: Number(r.total_lines ?? 0),
+    })),
   };
 }

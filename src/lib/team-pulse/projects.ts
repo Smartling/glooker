@@ -8,6 +8,7 @@ import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, promptTag } from '
 import { loadPrompt } from '@/lib/prompt-loader';
 import type { TeamProject } from './types';
 import type { TeamProjectsInput } from './data';
+import { renderInflightBlock } from './render';
 
 export const PROJECTS_PROMPT_TAG = 'team-pulse-projects';
 
@@ -19,12 +20,14 @@ function stripJsonFences(s: string): string {
   return s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
 }
 
+
 export async function generateTeamProjects(
   data: TeamProjectsInput,
   teamName: string = '',
 ): Promise<TeamProject[]> {
   // Short-circuit: nothing to cluster.
-  if (data.commits.length === 0 && data.jira_issues.length === 0) {
+  if (data.commits.length === 0 && data.jira_issues.length === 0 &&
+      data.in_flight_prs.length === 0 && data.in_flight_branches.length === 0) {
     return [];
   }
 
@@ -37,11 +40,13 @@ export async function generateTeamProjects(
   }
   for (const arr of commitByLogin.values()) arr.sort((a, b) => b.localeCompare(a));
 
+  const inflightBlock = renderInflightBlock(data.in_flight_prs, data.in_flight_branches);
   const systemPrompt = loadPrompt('team-pulse-projects.txt', {
     TEAM_NAME: teamName,
     TEAM_MEMBERS_JSON: JSON.stringify(data.team_members),
     COMMITS_JSON: JSON.stringify(data.commits),
     JIRA_ISSUES_JSON: JSON.stringify(data.jira_issues),
+    IN_FLIGHT_BLOCK: inflightBlock,
   });
 
   const client = await getLLMClient();

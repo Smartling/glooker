@@ -28,15 +28,37 @@ const baseInput = (): TeamProjectsInput => ({
       github_login: 'bob',   lines: 5,  committed_at: '2026-05-21T11:00:00Z' },
   ],
   jira_issues: [],
+  in_flight_prs: [],
+  in_flight_branches: [],
 });
 
 describe('generateTeamProjects', () => {
   beforeEach(() => mockGetLLMClient.mockReset());
 
   it('short-circuits to [] when both commits and jira are empty (no LLM call)', async () => {
-    const out = await generateTeamProjects({ team_members: ['alice'], commits: [], jira_issues: [] });
+    const out = await generateTeamProjects({ team_members: ['alice'], commits: [], jira_issues: [], in_flight_prs: [], in_flight_branches: [] });
     expect(out).toEqual([]);
     expect(mockGetLLMClient).not.toHaveBeenCalled();
+  });
+
+  it('does NOT short-circuit when only in_flight_prs is non-empty — LLM is called', async () => {
+    const client = makeClient(JSON.stringify({
+      projects: [{ name: 'P1', summary: 's', developers: ['alice'],
+        jira_count: 0, estimated_commits: 0, estimated_prs: 1,
+        last_activity: '2026-05-20T10:00:00Z' }],
+    }));
+    mockGetLLMClient.mockResolvedValueOnce(client);
+
+    const out = await generateTeamProjects({
+      team_members: ['alice'],
+      commits: [],
+      jira_issues: [],
+      in_flight_prs: [{ repo: 'r1', title: 'New feature', author: 'alice', additions: 50, deletions: 5, is_draft: false }],
+      in_flight_branches: [],
+    });
+
+    expect(mockGetLLMClient).toHaveBeenCalled();
+    expect(out).toHaveLength(1);
   });
 
   it('returns parsed projects on a well-formed LLM response', async () => {
@@ -106,5 +128,45 @@ describe('generateTeamProjects', () => {
     }) + '\n```'));
     const out = await generateTeamProjects(baseInput());
     expect(out).toHaveLength(1);
+  });
+
+  it('includes IN-FLIGHT WORK block in prompt when in-flight data is present', async () => {
+    const client = makeClient(JSON.stringify({
+      projects: [{ name: 'P1', summary: 's', developers: ['alice'],
+        jira_count: 0, estimated_commits: 1, estimated_prs: 1,
+        last_activity: '2026-05-20T10:00:00Z' }],
+    }));
+    mockGetLLMClient.mockResolvedValueOnce(client);
+
+    const input: TeamProjectsInput = {
+      ...baseInput(),
+      in_flight_prs: [
+        { repo: 'r1', title: 'Add jobs pagination', author: 'alice', additions: 120, deletions: 5, is_draft: false },
+      ],
+      in_flight_branches: [],
+    };
+
+    await generateTeamProjects(input);
+
+    const callArgs = client.chat.completions.create.mock.calls[0][0];
+    const systemPrompt: string = callArgs.messages[0].content;
+    expect(systemPrompt).toContain('OPEN PRs');
+    expect(systemPrompt).toContain('Add jobs pagination');
+    expect(systemPrompt).toContain('OPEN PRs (1)');
+  });
+
+  it('omits IN-FLIGHT WORK block when in_flight_prs and in_flight_branches are empty', async () => {
+    const client = makeClient(JSON.stringify({
+      projects: [{ name: 'P1', summary: 's', developers: ['alice'],
+        jira_count: 0, estimated_commits: 1, estimated_prs: 1,
+        last_activity: '2026-05-20T10:00:00Z' }],
+    }));
+    mockGetLLMClient.mockResolvedValueOnce(client);
+
+    await generateTeamProjects(baseInput());
+
+    const callArgs = client.chat.completions.create.mock.calls[0][0];
+    const systemPrompt: string = callArgs.messages[0].content;
+    expect(systemPrompt).not.toContain('OPEN PRs');
   });
 });

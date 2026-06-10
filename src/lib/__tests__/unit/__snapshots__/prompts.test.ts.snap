@@ -9,6 +9,7 @@ RULES:
 - Each project's \`developers\` array MUST contain ONLY github logins from ["alice","bob"]. Reject any other login.
 - Drop singleton clusters: every project must have at least 2 commits OR 1 Jira issue.
 - \`last_activity\` MUST be a real ISO-8601 date copied from the most recent committed_at in the cluster.
+- Use IN-FLIGHT WORK to enrich clusters — mix open PRs and bare branches into existing projects where they clearly belong. If in-flight work represents a coherent new thread with no committed counterpart, create a project for it. Draft PRs are included.
 - Output is a JSON object with a single key "projects" whose value is the array.
 
 OUTPUT JSON SCHEMA (one entry per project):
@@ -34,5 +35,6 @@ COMMITS (most recent first, capped at 200):
 
 JIRA ISSUES:
 []
+
 "
 `;
