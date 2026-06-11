@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useMemo, type RefObject } from 'react';
+import { useState, useRef, useMemo, useEffect, type RefObject } from 'react';
 import { useRouter } from 'next/navigation';
 import { createPortal } from 'react-dom';
 import { useUrlState } from '@/lib/url-state';
@@ -42,7 +42,9 @@ const DEV_SORT_KEYS = [
 type DevSortKey = typeof DEV_SORT_KEYS[number];
 
 interface DevTableProps {
-  developers:   Developer[];   // full list, server-sorted by impact DESC
+  /** Full developer list. MUST be ordered by impact_score DESC (server sort order) —
+   *  absoluteRanks derives position numbers from this array index. */
+  developers:   Developer[];
   reportId:     string;
   org:          string;        // needed for commit URL links in tooltip
   filterLogins: Set<string>;
@@ -144,7 +146,7 @@ export default function DevTable({ developers, reportId, org, filterLogins, canA
             </th>
             <th className="px-4 py-3 text-right w-[11%]">
               <button onClick={() => onSort('lines_added')} className="hover:text-gray-300">
-                Lines +/-{sortCaret('lines_added')}
+                Lines +{sortCaret('lines_added')}
               </button>
             </th>
             <th className="px-4 py-3 text-right w-[7%]">
@@ -336,6 +338,8 @@ function CommitCountWithTooltip({
   const triggerRef = useRef<HTMLSpanElement>(null);
   const hideTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  useEffect(() => () => { if (hideTimeout.current) clearTimeout(hideTimeout.current); }, []);
+
   async function handleMouseEnter() {
     if (hideTimeout.current) clearTimeout(hideTimeout.current);
     if (triggerRef.current) {
@@ -345,10 +349,12 @@ function CommitCountWithTooltip({
     }
     setShow(true);
     const key = `${reportId}:${login}`;
-    if (cacheRef.current!.has(key)) { setCommits(cacheRef.current!.get(key)!); return; }
+    if (cacheRef.current!.has(key)) { setCommits(cacheRef.current!.get(key)!); setLoading(false); return; }
     setLoading(true);
     try {
-      const rows = await fetch(`/api/report/${reportId}/commits?login=${login}`).then(r => r.json());
+      const res = await fetch(`/api/report/${reportId}/commits?login=${encodeURIComponent(login)}`);
+      if (!res.ok) throw new Error(res.statusText);
+      const rows = await res.json();
       cacheRef.current!.set(key, rows);
       setCommits(rows);
     } catch { setCommits([]); }
@@ -379,8 +385,8 @@ function CommitCountWithTooltip({
         {!loading && commits && commits.length > 0 && (
           <table className="w-full">
             <tbody>
-              {commits.map((c: any) => (
-                <tr key={c.commit_sha} className="border-b border-gray-700/30 last:border-0">
+              {commits.map((c: any, i: number) => (
+                <tr key={c.commit_sha ?? i} className="border-b border-gray-700/30 last:border-0">
                   <td className="py-1.5 px-1 font-mono whitespace-nowrap align-top">
                     <a href={`https://github.com/${org}/${c.repo}/commit/${c.commit_sha}`} target="_blank" rel="noopener noreferrer" className="text-accent-light hover:text-accent-lighter hover:underline">
                       {c.commit_sha.slice(0, 7)}
@@ -421,23 +427,27 @@ function JiraCountWithTooltip({
   const [issues, setIssues] = useState<any[] | null>(null);
   const [show, setShow] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [pos, setPos] = useState<{ top: number; left: number; flipDown: boolean }>({ top: 0, left: 0, flipDown: false });
+  const [pos, setPos] = useState<{ top: number; left: number; flipDown: boolean; bottomOffset: number }>({ top: 0, left: 0, flipDown: false, bottomOffset: 0 });
   const triggerRef = useRef<HTMLSpanElement>(null);
   const hideTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => { if (hideTimeout.current) clearTimeout(hideTimeout.current); }, []);
 
   async function handleMouseEnter() {
     if (hideTimeout.current) clearTimeout(hideTimeout.current);
     if (triggerRef.current) {
       const rect = triggerRef.current.getBoundingClientRect();
       const flipDown = rect.top < 300;
-      setPos({ top: flipDown ? rect.bottom + 8 : rect.top - 8, left: rect.right, flipDown });
+      setPos({ top: flipDown ? rect.bottom + 8 : rect.top - 8, left: rect.right, flipDown, bottomOffset: window.innerHeight - rect.top });
     }
     setShow(true);
     const key = `jira:${reportId}:${login}`;
-    if (cacheRef.current!.has(key)) { setIssues(cacheRef.current!.get(key)!); return; }
+    if (cacheRef.current!.has(key)) { setIssues(cacheRef.current!.get(key)!); setLoading(false); return; }
     setLoading(true);
     try {
-      const rows = await fetch(`/api/report/${reportId}/jira-issues?login=${login}`).then(r => r.json());
+      const res = await fetch(`/api/report/${reportId}/jira-issues?login=${encodeURIComponent(login)}`);
+      if (!res.ok) throw new Error(res.statusText);
+      const rows = await res.json();
       cacheRef.current!.set(key, rows);
       setIssues(rows);
     } catch { setIssues([]); }
@@ -453,7 +463,7 @@ function JiraCountWithTooltip({
       className="fixed z-[9999] bg-gray-900 border border-gray-700 rounded-lg shadow-2xl p-3 w-80 max-h-60 overflow-y-auto text-sm"
       style={{
         top: pos.flipDown ? pos.top : undefined,
-        bottom: pos.flipDown ? undefined : `${window.innerHeight - pos.top}px`,
+        bottom: pos.flipDown ? undefined : `${pos.bottomOffset}px`,
         left: Math.max(pos.left - 320, 8),
       }}
       onMouseEnter={() => { if (hideTimeout.current) clearTimeout(hideTimeout.current); }}
