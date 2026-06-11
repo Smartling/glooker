@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useMemo } from 'react';
+import { useState, useRef, useMemo, type RefObject } from 'react';
 import { useRouter } from 'next/navigation';
 import { createPortal } from 'react-dom';
 import { useUrlState } from '@/lib/url-state';
@@ -327,7 +327,7 @@ function CommitCountWithTooltip({
   count, reportId, login, org, cacheRef,
 }: {
   count: number; reportId: string; login: string; org: string;
-  cacheRef: React.RefObject<Map<string, any[]>>;
+  cacheRef: RefObject<Map<string, any[]>>;
 }) {
   const [commits, setCommits] = useState<any[] | null>(null);
   const [show, setShow] = useState(false);
@@ -416,7 +416,7 @@ function JiraCountWithTooltip({
   count, reportId, login, cacheRef,
 }: {
   count: number; reportId: string; login: string;
-  cacheRef: React.RefObject<Map<string, any[]>>;
+  cacheRef: RefObject<Map<string, any[]>>;
 }) {
   const [issues, setIssues] = useState<any[] | null>(null);
   const [show, setShow] = useState(false);
