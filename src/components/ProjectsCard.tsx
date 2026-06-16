@@ -69,10 +69,38 @@ function ProjectsBody({
   if (projects.length === 0) {
     return <p className={`text-sm text-gray-500 ${variant === 'collapsible' ? 'py-4' : 'mt-2'}`}>{emptyMessage}</p>;
   }
+
+  // Sort by meaningful output (PRs + Jiras). Commits are squashed into PRs so
+  // using raw commit count would inflate commit-heavy, low-PR projects.
+  const sorted = [...projects].sort(
+    (a, b) => (b.estimated_prs + b.jira_count) - (a.estimated_prs + a.jira_count),
+  );
+
+  // Max total volume across all projects — used to normalise bar widths.
+  const maxVolume = Math.max(
+    ...sorted.map(p => p.estimated_prs + p.jira_count + p.estimated_commits),
+    1,
+  );
+
   return (
     <div className={`space-y-3 ${variant === 'collapsible' ? 'mt-3' : 'mt-4'}`}>
-      {projects.map((p, i) => {
+      {/* Legend */}
+      <div className="flex gap-3 text-[10px] text-gray-600 pl-6">
+        <span className="flex items-center gap-1">
+          <span className="inline-block w-2 h-2 rounded-[2px]" style={{ background: '#06B6D4' }} />PRs
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block w-2 h-2 rounded-[2px]" style={{ background: '#A855F7' }} />Jiras
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block w-2 h-2 rounded-[2px]" style={{ background: 'rgba(255,255,255,0.18)' }} />Commits
+        </span>
+      </div>
+
+      {sorted.map((p, i) => {
         const ago = timeAgo((p as TeamProject).last_activity);
+        const totalVol = p.estimated_prs + p.jira_count + p.estimated_commits;
+        const barPct = (totalVol / maxVolume) * 100;
         return (
           <div key={i} className="bg-white/[0.02] rounded-lg p-3">
             <div className="flex items-start justify-between gap-3 mb-1">
@@ -87,6 +115,18 @@ function ProjectsBody({
                 {ago && <span className="text-gray-600">· {ago}</span>}
               </div>
             </div>
+
+            {/* Volume bar: width = total / max, segments = PRs (cyan) + Jiras (purple) + Commits (ghost) */}
+            <div className="pl-6 mb-1.5">
+              <div className="h-[5px] rounded-sm overflow-hidden" style={{ background: 'rgba(255,255,255,0.05)' }}>
+                <div className="h-full flex" style={{ width: `${barPct}%` }}>
+                  <div style={{ flex: p.estimated_prs, background: '#06B6D4' }} />
+                  <div style={{ flex: p.jira_count, background: '#A855F7' }} />
+                  <div style={{ flex: p.estimated_commits, background: 'rgba(255,255,255,0.10)' }} />
+                </div>
+              </div>
+            </div>
+
             <p className="text-xs text-gray-500 pl-6 mb-1.5">{p.summary}</p>
             <div className="flex gap-1 pl-6 flex-wrap">
               {p.developers.map(d =>
