@@ -42,19 +42,30 @@ export async function getReportHighlights() {
     [reportIdA, reportIdB],
   ) as [any[], any];
 
+  // HIGHLIGHTS_CACHE_VERSION: bump when the prompt or data shape changes to force
+  // stale rows to regenerate. All existing rows without this version fall through
+  // silently (expected one-time burst on first deploy after a version bump).
+  const HIGHLIGHTS_CACHE_VERSION = 2;
+
   if (cached.length > 0) {
-    const highlights = typeof cached[0].highlights_json === 'string'
-      ? JSON.parse(cached[0].highlights_json)
-      : cached[0].highlights_json;
-    return {
-      available: true,
-      org: latest.org,
-      periodDays: latest.period_days,
-      reportDateA: prev.created_at,
-      reportDateB: latest.created_at,
-      highlights,
-      cached: true,
-    };
+    let data: any = null;
+    try {
+      data = typeof cached[0].highlights_json === 'string'
+        ? JSON.parse(cached[0].highlights_json)
+        : cached[0].highlights_json;
+    } catch { /* malformed row — fall through to regenerate */ }
+    if (data && !Array.isArray(data) && data._v === HIGHLIGHTS_CACHE_VERSION) {
+      return {
+        available: true,
+        org: latest.org,
+        periodDays: latest.period_days,
+        reportDateA: prev.created_at,
+        reportDateB: latest.created_at,
+        highlights: data.highlights,
+        cached: true,
+      };
+    }
+    // _v !== HIGHLIGHTS_CACHE_VERSION, bare array, or malformed — fall through to regenerate
   }
 
   // 4. Load dev stats for both reports
@@ -89,6 +100,7 @@ export async function getReportHighlights() {
     prs: statsA.reduce((s: number, d: any) => s + d.total_prs, 0),
     avgComplexity: statsA.length ? (statsA.reduce((s: number, d: any) => s + Number(d.avg_complexity), 0) / statsA.length).toFixed(1) : '0',
     avgAi: statsA.length ? Math.round(statsA.reduce((s: number, d: any) => s + d.ai_percentage, 0) / statsA.length) : 0,
+    avgImpact: statsA.length ? (statsA.reduce((s: number, d: any) => s + Number(d.impact_score), 0) / statsA.length).toFixed(2) : '0',
   };
   const totalB = {
     devs: statsB.length,
@@ -96,6 +108,7 @@ export async function getReportHighlights() {
     prs: statsB.reduce((s: number, d: any) => s + d.total_prs, 0),
     avgComplexity: statsB.length ? (statsB.reduce((s: number, d: any) => s + Number(d.avg_complexity), 0) / statsB.length).toFixed(1) : '0',
     avgAi: statsB.length ? Math.round(statsB.reduce((s: number, d: any) => s + d.ai_percentage, 0) / statsB.length) : 0,
+    avgImpact: statsB.length ? (statsB.reduce((s: number, d: any) => s + Number(d.impact_score), 0) / statsB.length).toFixed(2) : '0',
   };
 
   // Top movers (biggest impact score change)
@@ -118,11 +131,11 @@ export async function getReportHighlights() {
     ORG: latest.org,
     PERIOD_DAYS: String(latest.period_days),
     PREV_DATE: String(prev.created_at),
-    TOTALS_A: `${totalA.devs} devs, ${totalA.commits} commits, ${totalA.prs} PRs, avgComplexity=${totalA.avgComplexity}, avgAI=${totalA.avgAi}%`,
-    TOP5_A: statsA.slice(0, 5).map(formatDev).join('\n  '),
+    TOTALS_A: `${totalA.devs} devs, ${totalA.commits} commits, ${totalA.prs} PRs, avgComplexity=${totalA.avgComplexity}, avgAI=${totalA.avgAi}%, avg_impact=${totalA.avgImpact}`,
+    TOP5_A: [...mapA.values()].slice(0, 5).map(formatDev).join('\n  '),
     LATEST_DATE: String(latest.created_at),
-    TOTALS_B: `${totalB.devs} devs, ${totalB.commits} commits, ${totalB.prs} PRs, avgComplexity=${totalB.avgComplexity}, avgAI=${totalB.avgAi}%`,
-    TOP5_B: statsB.slice(0, 5).map(formatDev).join('\n  '),
+    TOTALS_B: `${totalB.devs} devs, ${totalB.commits} commits, ${totalB.prs} PRs, avgComplexity=${totalB.avgComplexity}, avgAI=${totalB.avgAi}%, avg_impact=${totalB.avgImpact}`,
+    TOP5_B: [...mapB.values()].slice(0, 5).map(formatDev).join('\n  '),
     MOVERS: movers.map(m => `@${m.login}: rank ${m.rankA}→${m.rankB}, impact ${m.impactDelta > 0 ? '+' : ''}${m.impactDelta.toFixed(1)}`).join(', '),
     NEW_DEVS_SECTION: newDevsSection,
     INACTIVE_DEVS_SECTION: inactiveDevsSection,
@@ -154,7 +167,7 @@ export async function getReportHighlights() {
     `INSERT INTO report_comparisons (report_id_a, report_id_b, highlights_json)
      VALUES (?, ?, ?)
      ON DUPLICATE KEY UPDATE highlights_json = VALUES(highlights_json), generated_at = NOW()`,
-    [reportIdA, reportIdB, JSON.stringify(highlights)],
+    [reportIdA, reportIdB, JSON.stringify({ _v: HIGHLIGHTS_CACHE_VERSION, highlights })],
   );
 
   return {

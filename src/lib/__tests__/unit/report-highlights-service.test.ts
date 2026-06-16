@@ -136,7 +136,7 @@ describe('getReportHighlights', () => {
     it('returns cached data with cached: true and does NOT call LLM', async () => {
       const cachedHighlights = [{ icon: '✅', text: 'Steady state', sentiment: 'neutral' }];
       const cachedRow = {
-        highlights_json: JSON.stringify(cachedHighlights),
+        highlights_json: JSON.stringify({ _v: 2, highlights: cachedHighlights }),
         generated_at: '2026-03-16T08:00:00Z',
       };
 
@@ -163,7 +163,7 @@ describe('getReportHighlights', () => {
     it('handles highlights_json already parsed as object (not string)', async () => {
       const cachedHighlights = [{ icon: '📊', text: 'Metrics stable', sentiment: 'neutral' }];
       const cachedRow = {
-        highlights_json: cachedHighlights, // already an array, not a string
+        highlights_json: { _v: 2, highlights: cachedHighlights }, // already parsed
         generated_at: '2026-03-16T08:00:00Z',
       };
 
@@ -180,6 +180,32 @@ describe('getReportHighlights', () => {
         cached: true,
       });
       expect(mockGetLLMClient).not.toHaveBeenCalled();
+    });
+
+    it('treats stale cache (bare array, no _v) as miss and regenerates via LLM', async () => {
+      // Old format stored before the _v: 2 migration
+      const staleRow = {
+        highlights_json: JSON.stringify([{ icon: '📊', text: 'Old result', sentiment: 'neutral' }]),
+        generated_at: '2026-03-16T08:00:00Z',
+      };
+
+      const mockClient = makeMockLLMClient();
+      mockGetLLMClient.mockResolvedValue(mockClient);
+
+      mockDbExecute
+        .mockResolvedValueOnce([[latestReport], null])  // latest
+        .mockResolvedValueOnce([[prevReport], null])    // prev
+        .mockResolvedValueOnce([[staleRow], null])      // cache hit (stale)
+        .mockResolvedValueOnce([devStatsA, null])       // statsA
+        .mockResolvedValueOnce([devStatsB, null])       // statsB
+        .mockResolvedValueOnce([{ affectedRows: 1 }, null]); // INSERT
+
+      const result = await getReportHighlights();
+
+      // Should NOT return the stale text — must have called LLM
+      expect(mockGetLLMClient).toHaveBeenCalledTimes(1);
+      expect(result).toMatchObject({ available: true, highlights: llmHighlights, cached: false });
+      expect((result as any).highlights[0].text).not.toContain('Old result');
     });
   });
 
@@ -285,8 +311,10 @@ describe('getReportHighlights', () => {
       expect(content).toContain('You are a concise engineering analytics assistant for Glooker');
       expect(content).toContain('Compare two reports');
       expect(content).toContain('3-5 bullet highlights max.');
-      expect(content).toContain('developers missing from the latest report are NOT "departed"');
+      expect(content).toContain('Developers missing from the latest report are NOT "departed"');
       expect(content).toContain('Return ONLY raw JSON.');
+      expect(content).toContain('PERFORMANCE FORMULA:');
+      expect(content).toContain('impact_score is the ONLY authoritative measure');
 
       expect(content).toMatchSnapshot('highlights-system-prompt');
     });
@@ -309,6 +337,7 @@ describe('getReportHighlights', () => {
       expect(content).toContain('@bob');
       expect(content).toContain('New developers');
       expect(content).toContain('@carol');
+      expect(content).toContain('avg_impact=');
 
       expect(content).toMatchSnapshot('highlights-user-message');
     });
