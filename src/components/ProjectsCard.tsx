@@ -82,6 +82,9 @@ function ProjectsBody({
     1,
   );
 
+  // Hide Jira legend entry when Jira is disabled (all counts are 0).
+  const hasJira = sorted.some(p => p.jira_count > 0);
+
   return (
     <div className={`space-y-3 ${variant === 'collapsible' ? 'mt-3' : 'mt-4'}`}>
       {/* Legend */}
@@ -89,9 +92,11 @@ function ProjectsBody({
         <span className="flex items-center gap-1">
           <span className="inline-block w-2 h-2 rounded-[2px]" style={{ background: '#06B6D4' }} />PRs
         </span>
-        <span className="flex items-center gap-1">
-          <span className="inline-block w-2 h-2 rounded-[2px]" style={{ background: '#A855F7' }} />Jiras
-        </span>
+        {hasJira && (
+          <span className="flex items-center gap-1">
+            <span className="inline-block w-2 h-2 rounded-[2px]" style={{ background: '#A855F7' }} />Jiras
+          </span>
+        )}
         <span className="flex items-center gap-1">
           <span className="inline-block w-2 h-2 rounded-[2px]" style={{ background: 'rgba(255,255,255,0.18)' }} />Commits
         </span>
@@ -102,7 +107,7 @@ function ProjectsBody({
         const totalVol = p.estimated_prs + p.jira_count + p.estimated_commits;
         const barPct = (totalVol / maxVolume) * 100;
         return (
-          <div key={i} className="bg-white/[0.02] rounded-lg p-3">
+          <div key={p.name} className="bg-white/[0.02] rounded-lg p-3">
             <div className="flex items-start justify-between gap-3 mb-1">
               <div className="flex items-center gap-2 min-w-0">
                 <span className="text-xs text-gray-600 w-4 shrink-0 text-right">{i + 1}</span>
