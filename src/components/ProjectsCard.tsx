@@ -1,5 +1,13 @@
 'use client';
+import { useMemo } from 'react';
 import type { TeamProject } from '@/lib/team-pulse/types';
+
+// Segment colors used in both the legend swatches and the bar segments.
+const SEGMENT_COLORS = {
+  prs:     '#06B6D4',
+  jiras:   '#A855F7',
+  commits: 'rgba(255,255,255,0.10)',
+} as const;
 
 /** Older shape used by the home-page LLM project insights — superset of TeamProject.
  *  Allows the same component to serve both surfaces without a refactor of the home payload. */
@@ -70,35 +78,40 @@ function ProjectsBody({
     return <p className={`text-sm text-gray-500 ${variant === 'collapsible' ? 'py-4' : 'mt-2'}`}>{emptyMessage}</p>;
   }
 
-  // Sort by meaningful output (PRs + Jiras). Commits are squashed into PRs so
-  // using raw commit count would inflate commit-heavy, low-PR projects.
-  const sorted = [...projects].sort(
-    (a, b) => (b.estimated_prs + b.jira_count) - (a.estimated_prs + a.jira_count),
+  // Sort by meaningful output (PRs + Jiras). Commits excluded from sort key
+  // because they are squashed into PRs — including them would inflate rank for
+  // commit-heavy, low-PR projects. Commits are still shown in the bar for context.
+  const sorted = useMemo(
+    () => [...projects].sort((a, b) => (b.estimated_prs + b.jira_count) - (a.estimated_prs + a.jira_count)),
+    [projects],
   );
 
-  // Max total volume across all projects — used to normalise bar widths.
-  const maxVolume = Math.max(
-    ...sorted.map(p => p.estimated_prs + p.jira_count + p.estimated_commits),
-    1,
+  // Bar width = total volume (PRs + Jiras + Commits) / max across all projects.
+  // Commits are intentionally included here even though they are excluded from the
+  // sort key — the bar shows the full activity footprint of each project (sort rank
+  // reflects quality output, bar width reflects overall size).
+  const maxVolume = useMemo(
+    () => sorted.reduce((max, p) => Math.max(max, p.estimated_prs + p.jira_count + p.estimated_commits), 1),
+    [sorted],
   );
 
   // Hide Jira legend entry when Jira is disabled (all counts are 0).
-  const hasJira = sorted.some(p => p.jira_count > 0);
+  const hasJira = useMemo(() => sorted.some(p => p.jira_count > 0), [sorted]);
 
   return (
     <div className={`space-y-3 ${variant === 'collapsible' ? 'mt-3' : 'mt-4'}`}>
       {/* Legend */}
       <div className="flex gap-3 text-[10px] text-gray-600 pl-6">
         <span className="flex items-center gap-1">
-          <span className="inline-block w-2 h-2 rounded-[2px]" style={{ background: '#06B6D4' }} />PRs
+          <span aria-hidden="true" className="inline-block w-2 h-2 rounded-[2px]" style={{ background: SEGMENT_COLORS.prs }} />PRs
         </span>
         {hasJira && (
           <span className="flex items-center gap-1">
-            <span className="inline-block w-2 h-2 rounded-[2px]" style={{ background: '#A855F7' }} />Jiras
+            <span aria-hidden="true" className="inline-block w-2 h-2 rounded-[2px]" style={{ background: SEGMENT_COLORS.jiras }} />Jiras
           </span>
         )}
         <span className="flex items-center gap-1">
-          <span className="inline-block w-2 h-2 rounded-[2px]" style={{ background: 'rgba(255,255,255,0.18)' }} />Commits
+          <span aria-hidden="true" className="inline-block w-2 h-2 rounded-[2px]" style={{ background: 'rgba(255,255,255,0.18)' }} />Commits
         </span>
       </div>
 
@@ -107,7 +120,7 @@ function ProjectsBody({
         const totalVol = p.estimated_prs + p.jira_count + p.estimated_commits;
         const barPct = (totalVol / maxVolume) * 100;
         return (
-          <div key={p.name} className="bg-white/[0.02] rounded-lg p-3">
+          <div key={`${p.name}-${i}`} className="bg-white/[0.02] rounded-lg p-3">
             <div className="flex items-start justify-between gap-3 mb-1">
               <div className="flex items-center gap-2 min-w-0">
                 <span className="text-xs text-gray-600 w-4 shrink-0 text-right">{i + 1}</span>
@@ -121,16 +134,23 @@ function ProjectsBody({
               </div>
             </div>
 
-            {/* Volume bar: width = total / max, segments = PRs (cyan) + Jiras (purple) + Commits (ghost) */}
+            {/* Volume bar: width = total / max, segments = PRs + Jiras + Commits (ghost) */}
+            {totalVol > 0 && (
             <div className="pl-6 mb-1.5">
-              <div className="h-[5px] rounded-sm overflow-hidden" style={{ background: 'rgba(255,255,255,0.05)' }}>
+              <div
+                className="h-[5px] rounded-sm overflow-hidden"
+                style={{ background: 'rgba(255,255,255,0.05)' }}
+                role="img"
+                aria-label={`Volume: ${p.estimated_prs} PRs, ${p.jira_count} Jiras, ${p.estimated_commits} commits`}
+              >
                 <div className="h-full flex" style={{ width: `${barPct}%` }}>
-                  <div style={{ flex: p.estimated_prs, background: '#06B6D4' }} />
-                  <div style={{ flex: p.jira_count, background: '#A855F7' }} />
-                  <div style={{ flex: p.estimated_commits, background: 'rgba(255,255,255,0.10)' }} />
+                  <div style={{ flex: p.estimated_prs, background: SEGMENT_COLORS.prs }} />
+                  <div style={{ flex: p.jira_count, background: SEGMENT_COLORS.jiras }} />
+                  <div style={{ flex: p.estimated_commits, background: SEGMENT_COLORS.commits }} />
                 </div>
               </div>
             </div>
+            )}
 
             <p className="text-xs text-gray-500 pl-6 mb-1.5">{p.summary}</p>
             <div className="flex gap-1 pl-6 flex-wrap">
