@@ -1,5 +1,13 @@
 'use client';
+import { useMemo } from 'react';
 import type { TeamProject } from '@/lib/team-pulse/types';
+
+// Segment colors used in both the legend swatches and the bar segments.
+const SEGMENT_COLORS = {
+  prs:     '#06B6D4',
+  jiras:   '#A855F7',
+  commits: 'rgba(255,255,255,0.10)',
+} as const;
 
 /** Older shape used by the home-page LLM project insights — superset of TeamProject.
  *  Allows the same component to serve both surfaces without a refactor of the home payload. */
@@ -22,6 +30,10 @@ export interface ProjectsCardProps {
   /** Optional: link template for developer chips. Receives login, returns href.
    *  If omitted, chips are not links. */
   developerHref?: (login: string) => string;
+  /** When provided, an "Other (not in top N)" row is appended showing the
+   *  activity not captured by the project clusters. Shown as a peer row with
+   *  the same bar format so users can compare scale directly. */
+  actualTotals?: { commits: number; prs: number; jiras: number };
   /** Collapsible mode (GLOOK-11): header becomes a toggle button styled to
    *  match <TeamPulseCard>, body hidden when collapsed. Controlled — parent
    *  owns `expanded` state via `onExpandedChange`. */
@@ -48,12 +60,14 @@ function ProjectsBody({
   emptyMessage,
   developerHref,
   variant,
+  actualTotals,
 }: {
   projects: ProjectsCardItem[] | TeamProject[];
   loading?: boolean;
   emptyMessage: string;
   developerHref?: (login: string) => string;
   variant: 'standalone' | 'collapsible';
+  actualTotals?: { commits: number; prs: number; jiras: number };
 }) {
   if (loading) {
     return (
@@ -69,12 +83,67 @@ function ProjectsBody({
   if (projects.length === 0) {
     return <p className={`text-sm text-gray-500 ${variant === 'collapsible' ? 'py-4' : 'mt-2'}`}>{emptyMessage}</p>;
   }
+
+  // Sort by meaningful output (PRs + Jiras). Commits excluded from sort key
+  // because they are squashed into PRs — including them would inflate rank for
+  // commit-heavy, low-PR projects. Commits are still shown in the bar for context.
+  const sorted = useMemo(
+    () => [...projects].sort((a, b) => (b.estimated_prs + b.jira_count) - (a.estimated_prs + a.jira_count)),
+    [projects],
+  );
+
+  // "Other" row: activity not attributed to any named project cluster.
+  // Only shown when actualTotals is provided (home page passes org totals from devStats).
+  const other = useMemo(() => {
+    if (!actualTotals) return null;
+    const sumCommits = sorted.reduce((s, p) => s + p.estimated_commits, 0);
+    const sumPrs     = sorted.reduce((s, p) => s + p.estimated_prs,     0);
+    const sumJiras   = sorted.reduce((s, p) => s + p.jira_count,         0);
+    const o = {
+      commits: Math.max(0, actualTotals.commits - sumCommits),
+      prs:     Math.max(0, actualTotals.prs     - sumPrs),
+      jiras:   Math.max(0, actualTotals.jiras   - sumJiras),
+    };
+    return (o.commits + o.prs + o.jiras) > 0 ? o : null;
+  }, [sorted, actualTotals]);
+
+  // Bar width = total volume (PRs + Jiras + Commits) / max across all projects.
+  // Commits are intentionally included here even though they are excluded from the
+  // sort key — the bar shows the full activity footprint of each project (sort rank
+  // reflects quality output, bar width reflects overall size).
+  // If "Other" is present, include it in maxVolume so bars are comparable.
+  const maxVolume = useMemo(() => {
+    const projectMax = sorted.reduce((max, p) => Math.max(max, p.estimated_prs + p.jira_count + p.estimated_commits), 1);
+    const otherTotal = other ? other.commits + other.prs + other.jiras : 0;
+    return Math.max(projectMax, otherTotal, 1);
+  }, [sorted, other]);
+
+  // Hide Jira legend entry when Jira is disabled (all counts are 0).
+  const hasJira = useMemo(() => sorted.some(p => p.jira_count > 0) || (other?.jiras ?? 0) > 0, [sorted, other]);
+
   return (
     <div className={`space-y-3 ${variant === 'collapsible' ? 'mt-3' : 'mt-4'}`}>
-      {projects.map((p, i) => {
+      {/* Legend */}
+      <div className="flex gap-3 text-[10px] text-gray-600 pl-6">
+        <span className="flex items-center gap-1">
+          <span aria-hidden="true" className="inline-block w-2 h-2 rounded-[2px]" style={{ background: SEGMENT_COLORS.prs }} />PRs
+        </span>
+        {hasJira && (
+          <span className="flex items-center gap-1">
+            <span aria-hidden="true" className="inline-block w-2 h-2 rounded-[2px]" style={{ background: SEGMENT_COLORS.jiras }} />Jiras
+          </span>
+        )}
+        <span className="flex items-center gap-1">
+          <span aria-hidden="true" className="inline-block w-2 h-2 rounded-[2px]" style={{ background: 'rgba(255,255,255,0.18)' }} />Commits
+        </span>
+      </div>
+
+      {sorted.map((p, i) => {
         const ago = timeAgo((p as TeamProject).last_activity);
+        const totalVol = p.estimated_prs + p.jira_count + p.estimated_commits;
+        const barPct = (totalVol / maxVolume) * 100;
         return (
-          <div key={i} className="bg-white/[0.02] rounded-lg p-3">
+          <div key={`${p.name}-${i}`} className="bg-white/[0.02] rounded-lg p-3">
             <div className="flex items-start justify-between gap-3 mb-1">
               <div className="flex items-center gap-2 min-w-0">
                 <span className="text-xs text-gray-600 w-4 shrink-0 text-right">{i + 1}</span>
@@ -87,6 +156,25 @@ function ProjectsBody({
                 {ago && <span className="text-gray-600">· {ago}</span>}
               </div>
             </div>
+
+            {/* Volume bar: width = total / max, segments = PRs + Jiras + Commits (ghost) */}
+            {totalVol > 0 && (
+            <div className="pl-6 mb-1.5">
+              <div
+                className="h-[5px] rounded-sm overflow-hidden"
+                style={{ background: 'rgba(255,255,255,0.05)' }}
+                role="img"
+                aria-label={`Volume: ${p.estimated_prs} PRs, ${p.jira_count} Jiras, ${p.estimated_commits} commits`}
+              >
+                <div className="h-full flex" style={{ width: `${barPct}%` }}>
+                  <div style={{ flex: p.estimated_prs, background: SEGMENT_COLORS.prs }} />
+                  <div style={{ flex: p.jira_count, background: SEGMENT_COLORS.jiras }} />
+                  <div style={{ flex: p.estimated_commits, background: SEGMENT_COLORS.commits }} />
+                </div>
+              </div>
+            </div>
+            )}
+
             <p className="text-xs text-gray-500 pl-6 mb-1.5">{p.summary}</p>
             <div className="flex gap-1 pl-6 flex-wrap">
               {p.developers.map(d =>
@@ -109,6 +197,47 @@ function ProjectsBody({
           </div>
         );
       })}
+
+      {/* "Other" row — same visual style as a project, italic label, no summary/devs */}
+      {other && (() => {
+        const otherTotal = other.commits + other.prs + other.jiras;
+        const otherBarPct = (otherTotal / maxVolume) * 100;
+        return (
+          <div
+            className="rounded-lg p-3"
+            style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.06)' }}
+          >
+            <div className="flex items-start justify-between gap-3 mb-1">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-xs text-gray-700 w-4 shrink-0 text-right">~</span>
+                <span className="text-sm text-gray-500 italic">Other (not in top {sorted.length})</span>
+              </div>
+              <div className="flex items-center gap-3 shrink-0 text-[11px] text-gray-600">
+                <span>~{other.jiras} jiras</span>
+                <span>~{other.commits} commits</span>
+                <span>~{other.prs} PRs</span>
+              </div>
+            </div>
+            {otherTotal > 0 && (
+              <div className="pl-6 mb-1.5">
+                <div
+                  className="h-[5px] rounded-sm overflow-hidden"
+                  style={{ background: 'rgba(255,255,255,0.05)' }}
+                  role="img"
+                  aria-label={`Other: ${other.prs} PRs, ${other.jiras} Jiras, ${other.commits} commits not attributed to a named project`}
+                >
+                  <div className="h-full flex" style={{ width: `${otherBarPct}%` }}>
+                    <div style={{ flex: other.prs,     background: SEGMENT_COLORS.prs }} />
+                    <div style={{ flex: other.jiras,   background: SEGMENT_COLORS.jiras }} />
+                    <div style={{ flex: other.commits, background: SEGMENT_COLORS.commits }} />
+                  </div>
+                </div>
+              </div>
+            )}
+            <div className="text-[10px] text-gray-700 pl-6">Approximate remainder — actual totals minus LLM cluster estimates</div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -120,6 +249,7 @@ export default function ProjectsCard({
   subtitle,
   emptyMessage = 'No active projects in this window.',
   developerHref,
+  actualTotals,
   collapsible = false,
   expanded = true,
   onExpandedChange,
@@ -162,6 +292,7 @@ export default function ProjectsCard({
               emptyMessage={emptyMessage}
               developerHref={developerHref}
               variant="collapsible"
+              actualTotals={actualTotals}
             />
           </div>
         )}
@@ -186,6 +317,7 @@ export default function ProjectsCard({
         emptyMessage={emptyMessage}
         developerHref={developerHref}
         variant="standalone"
+        actualTotals={actualTotals}
       />
     </div>
   );

@@ -35,6 +35,7 @@ export default function LlmFindings() {
   const [projects, setProjects] = useState<ProjectInsight[]>([]);
   const [untrackedWork, setUntrackedWork] = useState<UntrackedWork[]>([]);
   const [projectsMeta, setProjectsMeta] = useState<{ id: string; org: string; periodDays: number; createdAt: string } | null>(null);
+  const [projectTotals, setProjectTotals] = useState<{ commits: number; prs: number; jiras: number } | null>(null);
   const [projectsLoading, setProjectsLoading] = useState(true);
 
   // Release notes
@@ -85,6 +86,7 @@ export default function LlmFindings() {
           setProjects(data.projects || []);
           setUntrackedWork(data.untracked_work || []);
           setProjectsMeta({ id: data.report.id, org: data.report.org, periodDays: data.report.periodDays, createdAt: data.report.createdAt });
+          if (data.totals) setProjectTotals(data.totals);
         }
       })
       .catch(() => {})
@@ -143,6 +145,7 @@ export default function LlmFindings() {
           title="Top Projects"
           subtitle={projectsMeta ? `${projectsMeta.org} · ${projectsMeta.periodDays}d · ${formatDate(projectsMeta.createdAt)}` : undefined}
           developerHref={projectsMeta ? (login) => `/report/${projectsMeta.id}/dev/${login}` : undefined}
+          actualTotals={projectTotals ?? undefined}
         />
       )}
 
