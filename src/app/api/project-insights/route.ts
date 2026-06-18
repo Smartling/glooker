@@ -37,7 +37,7 @@ async function getHandler() {
   const totals = {
     commits: Number(totalsRows[0]?.commits ?? 0),
     prs:     Number(totalsRows[0]?.prs ?? 0),
-    jiras:   Number(jiraCount[0].cnt),
+    jiras:   Number(jiraCount[0]?.cnt ?? 0),
   };
 
   // Check cache (reuse report_comparisons table — use report.id for both a and b to distinguish from real comparisons)

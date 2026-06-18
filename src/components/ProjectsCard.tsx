@@ -234,7 +234,7 @@ function ProjectsBody({
                 </div>
               </div>
             )}
-            <div className="text-[10px] text-gray-700 pl-6">Activity not attributed to a named project</div>
+            <div className="text-[10px] text-gray-700 pl-6">Approximate remainder — actual totals minus LLM cluster estimates</div>
           </div>
         );
       })()}
