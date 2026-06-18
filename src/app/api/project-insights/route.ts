@@ -26,6 +26,20 @@ async function getHandler() {
     return NextResponse.json({ available: false });
   }
 
+  // Actual org totals — used by the client to render an "Other" row showing
+  // activity not captured in the top-10 project clusters. Fetched before the
+  // cache check so both the cache-hit and fresh-generation paths can return them.
+  const [totalsRows] = await db.execute(
+    `SELECT COALESCE(SUM(total_commits), 0) AS commits, COALESCE(SUM(total_prs), 0) AS prs
+     FROM developer_stats WHERE report_id = ?`,
+    [report.id],
+  ) as [any[], any];
+  const totals = {
+    commits: Number(totalsRows[0]?.commits ?? 0),
+    prs:     Number(totalsRows[0]?.prs ?? 0),
+    jiras:   Number(jiraCount[0].cnt),
+  };
+
   // Check cache (reuse report_comparisons table — use report.id for both a and b to distinguish from real comparisons)
   // Real comparisons always have different a and b. Project insights use same id for both.
   const [cached] = await db.execute(
@@ -43,6 +57,7 @@ async function getHandler() {
         available: true,
         report: { id: report.id, org: report.org, periodDays: report.period_days, createdAt: report.created_at },
         ...rest,
+        totals,
         cached: true,
       });
     }
@@ -218,6 +233,7 @@ ${noJiraData}${inflightBlock}`;
       report: { id: report.id, org: report.org, periodDays: report.period_days, createdAt: report.created_at },
       projects: toCache.projects,
       untracked_work: toCache.untracked_work,
+      totals,
       cached: false,
     });
   } catch (err) {
