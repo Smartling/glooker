@@ -9,6 +9,8 @@ interface Highlight {
   sentiment: 'positive' | 'neutral' | 'warning';
 }
 
+import type { JiraDetail, ProjectGroup, PrDetail, CommitDetail } from '@/components/ProjectsCard';
+
 interface ProjectInsight {
   name: string;
   developers: string[];
@@ -16,6 +18,10 @@ interface ProjectInsight {
   jira_count: number;
   estimated_commits: number;
   estimated_prs: number;
+  jira_details?: JiraDetail[];
+  groups?: ProjectGroup[];
+  prs?: PrDetail[];
+  commits?: CommitDetail[];
 }
 
 interface UntrackedWork {
