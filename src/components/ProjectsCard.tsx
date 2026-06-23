@@ -120,6 +120,13 @@ function ProjectsBody({
   const [activeTab, setActiveTab] = useState<'jiras' | 'prs' | 'commits'>('jiras');
   const [otherExpanded, setOtherExpanded] = useState(false);
   const [otherTab, setOtherTab] = useState<'jiras' | 'prs'>('jiras');
+  // Set of "projectIdx:tab" strings where the full list is shown (no truncation)
+  const [showAll, setShowAll] = useState<Set<string>>(new Set());
+  const toggleShowAll = (key: string) => setShowAll(prev => {
+    const next = new Set(prev);
+    next.has(key) ? next.delete(key) : next.add(key);
+    return next;
+  });
 
   // All hooks must be declared before any early returns (Rules of Hooks).
   // Sort by meaningful output (PRs + Jiras). Commits excluded from sort key
@@ -290,68 +297,97 @@ function ProjectsBody({
                 {/* Jiras tab — grouped by epic */}
                 {activeTab === 'jiras' && (
                   <div className="space-y-3">
-                    {(p.groups?.length ? p.groups : [{ name: '', jira_details: p.jira_details ?? [] }]).map((g: ProjectGroup, gi: number) => (
-                      <div key={gi}>
-                        {g.name && <p className="text-[9px] font-bold uppercase tracking-wider text-gray-600 mb-1.5">{g.name}</p>}
-                        <div>
-                          {g.jira_details.slice(0, 8).map((j: JiraDetail) => (
-                            <div key={j.key} className="flex items-center gap-2 py-1.5 border-b border-white/[0.03] last:border-0">
-                              <span className="font-mono text-accent text-[9.5px] w-20 shrink-0">{j.key}</span>
-                              <span className="text-gray-400 text-[10.5px] flex-1 truncate">{j.summary}</span>
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                {j.assignee && <span className="text-[9px] text-gray-600">@{j.assignee.slice(0, 10)}</span>}
-                                {(j.linked_commits ?? 0) > 0 && (
-                                  <span className="text-[9px] font-mono bg-cyan-500/10 text-cyan-400 rounded px-1.5 py-0.5">
-                                    {j.linked_commits}c{(j.linked_prs ?? 0) > 0 ? ` ${j.linked_prs}pr` : ''}
-                                  </span>
-                                )}
+                    {(p.groups?.length ? p.groups : [{ name: '', jira_details: p.jira_details ?? [] }]).map((g: ProjectGroup, gi: number) => {
+                      const showAllKey = `${i}-jiras-${gi}`;
+                      const all = showAll.has(showAllKey);
+                      const visible = all ? g.jira_details : g.jira_details.slice(0, 8);
+                      return (
+                        <div key={gi}>
+                          {g.name && <p className="text-[9px] font-bold uppercase tracking-wider text-gray-600 mb-1.5">{g.name}</p>}
+                          <div>
+                            {visible.map((j: JiraDetail) => (
+                              <div key={j.key} className="flex items-center gap-2 py-1.5 border-b border-white/[0.03] last:border-0">
+                                <span className="font-mono text-accent text-[9.5px] w-20 shrink-0">{j.key}</span>
+                                <span className="text-gray-400 text-[10.5px] flex-1 truncate">{j.summary}</span>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  {j.assignee && <span className="text-[9px] text-gray-600">@{j.assignee.slice(0, 10)}</span>}
+                                  {(j.linked_commits ?? 0) > 0 && (
+                                    <span className="text-[9px] font-mono bg-cyan-500/10 text-cyan-400 rounded px-1.5 py-0.5">
+                                      {j.linked_commits}c{(j.linked_prs ?? 0) > 0 ? ` ${j.linked_prs}pr` : ''}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
-                            </div>
-                          ))}
-                          {g.jira_details.length > 8 && <p className="text-[9px] text-gray-700 pt-1 pl-1">+ {g.jira_details.length - 8} more</p>}
+                            ))}
+                            {g.jira_details.length > 8 && (
+                              <button onClick={e => { e.stopPropagation(); toggleShowAll(showAllKey); }} className="text-[9px] text-accent/60 hover:text-accent pt-1 transition-colors">
+                                {all ? '▲ show fewer' : `+ ${g.jira_details.length - 8} more Jiras`}
+                              </button>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
 
                 {/* PRs tab */}
-                {activeTab === 'prs' && (
-                  <div>
-                    {(p.prs ?? []).slice(0, 12).map((pr: PrDetail) => (
-                      <div key={pr.pr} className="flex items-center gap-2 py-1.5 border-b border-white/[0.03] last:border-0">
-                        <span className="font-mono text-cyan-400 text-[9.5px] w-10 shrink-0">#{pr.pr}</span>
-                        <span className="text-gray-400 text-[10.5px] flex-1 truncate">{pr.msg}</span>
-                        <div className="flex items-center gap-1.5 shrink-0 text-[9px]">
-                          <span className="text-gray-600">{pr.repo.split('/').pop()?.slice(0, 14)}</span>
-                          <span className="text-gray-600">{pr.commits}c</span>
-                          <span className="text-green-500/80">+{pr.added}</span>
-                          <span className="text-red-500/80">-{pr.removed}</span>
+                {activeTab === 'prs' && (() => {
+                  const showAllKey = `${i}-prs`;
+                  const all = showAll.has(showAllKey);
+                  const prs = p.prs ?? [];
+                  const visible = all ? prs : prs.slice(0, 12);
+                  return (
+                    <div>
+                      {visible.map((pr: PrDetail) => (
+                        <div key={pr.pr} className="flex items-center gap-2 py-1.5 border-b border-white/[0.03] last:border-0">
+                          <span className="font-mono text-cyan-400 text-[9.5px] w-10 shrink-0">#{pr.pr}</span>
+                          <span className="text-gray-400 text-[10.5px] flex-1 truncate">{pr.msg}</span>
+                          <div className="flex items-center gap-1.5 shrink-0 text-[9px]">
+                            <span className="text-gray-600">{pr.repo.split('/').pop()?.slice(0, 14)}</span>
+                            <span className="text-gray-600">{pr.commits}c</span>
+                            <span className="text-green-500/80">+{pr.added}</span>
+                            <span className="text-red-500/80">-{pr.removed}</span>
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                    {(p.prs ?? []).length > 12 && <p className="text-[9px] text-gray-700 pt-1">+ {(p.prs ?? []).length - 12} more PRs</p>}
-                  </div>
-                )}
+                      ))}
+                      {prs.length > 12 && (
+                        <button onClick={e => { e.stopPropagation(); toggleShowAll(showAllKey); }} className="text-[9px] text-accent/60 hover:text-accent pt-1 transition-colors">
+                          {all ? '▲ show fewer' : `+ ${prs.length - 12} more PRs`}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* Commits tab */}
-                {activeTab === 'commits' && (
-                  <div>
-                    {(p.commits ?? []).slice(0, 12).map((c: CommitDetail) => (
-                      <div key={c.sha} className="flex items-center gap-2 py-1.5 border-b border-white/[0.03] last:border-0">
-                        <span className="font-mono text-cyan-400 text-[9.5px] w-12 shrink-0">{c.sha}</span>
-                        {c.pr && <span className="text-cyan-400/60 text-[9px] shrink-0">#{c.pr}</span>}
-                        <span className="text-gray-400 text-[10.5px] flex-1 truncate">{c.msg}</span>
-                        <div className="flex items-center gap-1.5 shrink-0 text-[9px]">
-                          <span className="text-gray-600">{c.repo.split('/').pop()?.slice(0, 14)}</span>
-                          <span className="text-green-500/80">+{c.added}</span>
-                          <span className="text-red-500/80">-{c.removed}</span>
+                {activeTab === 'commits' && (() => {
+                  const showAllKey = `${i}-commits`;
+                  const all = showAll.has(showAllKey);
+                  const commits = p.commits ?? [];
+                  const visible = all ? commits : commits.slice(0, 12);
+                  return (
+                    <div>
+                      {visible.map((c: CommitDetail) => (
+                        <div key={c.sha} className="flex items-center gap-2 py-1.5 border-b border-white/[0.03] last:border-0">
+                          <span className="font-mono text-cyan-400 text-[9.5px] w-12 shrink-0">{c.sha}</span>
+                          {c.pr && <span className="text-cyan-400/60 text-[9px] shrink-0">#{c.pr}</span>}
+                          <span className="text-gray-400 text-[10.5px] flex-1 truncate">{c.msg}</span>
+                          <div className="flex items-center gap-1.5 shrink-0 text-[9px]">
+                            <span className="text-gray-600">{c.repo.split('/').pop()?.slice(0, 14)}</span>
+                            <span className="text-green-500/80">+{c.added}</span>
+                            <span className="text-red-500/80">-{c.removed}</span>
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                    {(p.commits ?? []).length > 12 && <p className="text-[9px] text-gray-700 pt-1">+ {(p.commits ?? []).length - 12} more commits</p>}
-                  </div>
-                )}
+                      ))}
+                      {commits.length > 12 && (
+                        <button onClick={e => { e.stopPropagation(); toggleShowAll(showAllKey); }} className="text-[9px] text-accent/60 hover:text-accent pt-1 transition-colors">
+                          {all ? '▲ show fewer' : `+ ${commits.length - 12} more commits`}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             )}
           </div>
@@ -421,47 +457,80 @@ function ProjectsBody({
                   })}
                 </div>
 
-                {otherTab === 'jiras' && (
-                  <div>
-                    {(otherDetails?.jira_details ?? []).slice(0, 12).map((j: JiraDetail) => (
-                      <div key={j.key} className="flex items-center gap-2 py-1.5 border-b border-white/[0.03] last:border-0">
-                        <span className="font-mono text-accent text-[9.5px] w-20 shrink-0">{j.key}</span>
-                        <span className="text-gray-400 text-[10.5px] flex-1 truncate">{j.summary}</span>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          {j.assignee && <span className="text-[9px] text-gray-600">@{j.assignee.slice(0, 10)}</span>}
-                          {(j.linked_commits ?? 0) > 0 && (
-                            <span className="text-[9px] font-mono bg-cyan-500/10 text-cyan-400 rounded px-1.5 py-0.5">
-                              {j.linked_commits}c{(j.linked_prs ?? 0) > 0 ? ` ${j.linked_prs}pr` : ''}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                    {(otherDetails?.jira_details?.length ?? 0) > 12 && (
-                      <p className="text-[9px] text-gray-700 pt-1">+ {(otherDetails?.jira_details?.length ?? 0) - 12} more</p>
-                    )}
-                  </div>
-                )}
+                {otherTab === 'jiras' && (() => {
+                  // Group by project key prefix (e.g., JOBS, DT, RPS, HUM)
+                  const groups = new Map<string, JiraDetail[]>();
+                  for (const j of (otherDetails?.jira_details ?? [])) {
+                    const prefix = j.key.split('-')[0];
+                    const arr = groups.get(prefix) ?? [];
+                    arr.push(j);
+                    groups.set(prefix, arr);
+                  }
+                  const sortedGroups = [...groups.entries()].sort((a, b) => b[1].length - a[1].length);
+                  return (
+                    <div className="space-y-3">
+                      {sortedGroups.map(([prefix, jiras]) => {
+                        const showAllKey = `other-jiras-${prefix}`;
+                        const all = showAll.has(showAllKey);
+                        const visible = all ? jiras : jiras.slice(0, 8);
+                        return (
+                          <div key={prefix}>
+                            <p className="text-[9px] font-bold uppercase tracking-wider text-gray-600 mb-1.5">{prefix} <span className="text-gray-700 font-normal normal-case">({jiras.length})</span></p>
+                            <div>
+                              {visible.map((j: JiraDetail) => (
+                                <div key={j.key} className="flex items-center gap-2 py-1.5 border-b border-white/[0.03] last:border-0">
+                                  <span className="font-mono text-accent text-[9.5px] w-20 shrink-0">{j.key}</span>
+                                  <span className="text-gray-400 text-[10.5px] flex-1 truncate">{j.summary}</span>
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    {j.assignee && <span className="text-[9px] text-gray-600">@{j.assignee.slice(0, 10)}</span>}
+                                    {(j.linked_commits ?? 0) > 0 && (
+                                      <span className="text-[9px] font-mono bg-cyan-500/10 text-cyan-400 rounded px-1.5 py-0.5">
+                                        {j.linked_commits}c{(j.linked_prs ?? 0) > 0 ? ` ${j.linked_prs}pr` : ''}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                              {jiras.length > 8 && (
+                                <button onClick={e => { e.stopPropagation(); toggleShowAll(showAllKey); }} className="text-[9px] text-accent/60 hover:text-accent pt-1 transition-colors">
+                                  {all ? '▲ show fewer' : `+ ${jiras.length - 8} more`}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
 
-                {otherTab === 'prs' && (
-                  <div>
-                    {(otherDetails?.prs ?? []).slice(0, 12).map((pr: PrDetail) => (
-                      <div key={pr.pr} className="flex items-center gap-2 py-1.5 border-b border-white/[0.03] last:border-0">
-                        <span className="font-mono text-cyan-400 text-[9.5px] w-10 shrink-0">#{pr.pr}</span>
-                        <span className="text-gray-400 text-[10.5px] flex-1 truncate">{pr.msg}</span>
-                        <div className="flex items-center gap-1.5 shrink-0 text-[9px]">
-                          <span className="text-gray-600">{pr.repo.split('/').pop()?.slice(0, 14)}</span>
-                          <span className="text-gray-600">{pr.commits}c</span>
-                          <span className="text-green-500/80">+{pr.added}</span>
-                          <span className="text-red-500/80">-{pr.removed}</span>
+                {otherTab === 'prs' && (() => {
+                  const showAllKey = 'other-prs';
+                  const all = showAll.has(showAllKey);
+                  const prs = otherDetails?.prs ?? [];
+                  const visible = all ? prs : prs.slice(0, 12);
+                  return (
+                    <div>
+                      {visible.map((pr: PrDetail) => (
+                        <div key={pr.pr} className="flex items-center gap-2 py-1.5 border-b border-white/[0.03] last:border-0">
+                          <span className="font-mono text-cyan-400 text-[9.5px] w-10 shrink-0">#{pr.pr}</span>
+                          <span className="text-gray-400 text-[10.5px] flex-1 truncate">{pr.msg}</span>
+                          <div className="flex items-center gap-1.5 shrink-0 text-[9px]">
+                            <span className="text-gray-600">{pr.repo.split('/').pop()?.slice(0, 14)}</span>
+                            <span className="text-gray-600">{pr.commits}c</span>
+                            <span className="text-green-500/80">+{pr.added}</span>
+                            <span className="text-red-500/80">-{pr.removed}</span>
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                    {(otherDetails?.prs?.length ?? 0) > 12 && (
-                      <p className="text-[9px] text-gray-700 pt-1">+ {(otherDetails?.prs?.length ?? 0) - 12} more PRs</p>
-                    )}
-                  </div>
-                )}
+                      ))}
+                      {prs.length > 12 && (
+                        <button onClick={e => { e.stopPropagation(); toggleShowAll(showAllKey); }} className="text-[9px] text-accent/60 hover:text-accent pt-1 transition-colors">
+                          {all ? '▲ show fewer' : `+ ${prs.length - 12} more PRs`}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             )}
           </div>
