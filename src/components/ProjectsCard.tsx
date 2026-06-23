@@ -204,7 +204,14 @@ function ProjectsBody({
               className={`bg-white/[0.02] rounded-lg p-3 ${isExpanded ? 'rounded-b-none' : ''} ${hasDetail ? 'cursor-pointer hover:bg-white/[0.035] transition-colors' : ''}`}
               onClick={() => {
                 if (!hasDetail) return;
-                if (isExpanded) { setExpandedIdx(null); } else { setExpandedIdx(i); setActiveTab('jiras'); }
+                if (isExpanded) { setExpandedIdx(null); } else {
+                  setExpandedIdx(i);
+                  // Default to first non-empty tab so users don't land on a blank panel
+                  const firstTab = (p as ProjectsCardItem).jira_details?.length ? 'jiras'
+                    : (p as ProjectsCardItem).prs?.length ? 'prs'
+                    : 'commits';
+                  setActiveTab(firstTab);
+                }
               }}
             >
               <div className="flex items-start justify-between gap-3 mb-1">
@@ -286,7 +293,9 @@ function ProjectsBody({
                               <div className="flex items-center gap-1.5 shrink-0">
                                 {j.assignee && <span className="text-[9px] text-gray-600">@{j.assignee.slice(0, 10)}</span>}
                                 {(j.linked_commits ?? 0) > 0 && (
-                                  <span className="text-[9px] font-mono bg-cyan-500/10 text-cyan-400 rounded px-1.5 py-0.5">{j.linked_commits}c&nbsp;{j.linked_prs}pr</span>
+                                  <span className="text-[9px] font-mono bg-cyan-500/10 text-cyan-400 rounded px-1.5 py-0.5">
+                                    {j.linked_commits}c{(j.linked_prs ?? 0) > 0 ? ` ${j.linked_prs}pr` : ''}
+                                  </span>
                                 )}
                               </div>
                             </div>
