@@ -238,6 +238,20 @@ ${noJiraData}${inflightBlock}`;
     // ── Enrich each project using the pre-built indexes ───────────────────
     const jiraByKey = new Map(jiraRows.map((r: any) => [r.issue_key, r]));
 
+    // Hoisted so it can also be used for the "Other" row details below.
+    const enrichKey = (key: string) => {
+      const r = jiraByKey.get(key);
+      const stats = commitsByJiraKey.get(key);
+      return {
+        key,
+        summary: r?.summary ?? null,
+        type: r?.issue_type ?? null,
+        assignee: r?.github_login ?? null,
+        linked_commits: stats?.commits ?? 0,
+        linked_prs: stats?.prs.size ?? 0,
+      };
+    };
+
     const enrichedProjects = (parsed.projects || []).map((p: any) => {
       const llmPrNums = new Set<number>((p.pr_numbers ?? []).map(Number));
       const llmShas = new Set<string>(p.commit_shas ?? []);
@@ -278,20 +292,6 @@ ${noJiraData}${inflightBlock}`;
         .sort((a, b) => (b.added + b.removed) - (a.added + a.removed))
         .slice(0, 20);
 
-      // Enrich a single Jira key into a full detail object including commit stats
-      const enrichKey = (key: string) => {
-        const r = jiraByKey.get(key);
-        const stats = commitsByJiraKey.get(key);
-        return {
-          key,
-          summary: r?.summary ?? null,
-          type: r?.issue_type ?? null,
-          assignee: r?.github_login ?? null,
-          linked_commits: stats?.commits ?? 0,
-          linked_prs: stats?.prs.size ?? 0,
-        };
-      };
-
       const enrichedGroups = Array.isArray(p.groups)
         ? p.groups.map((g: any) => ({
             name: g.name,
@@ -319,15 +319,22 @@ ${noJiraData}${inflightBlock}`;
       };
     });
 
-    // Compute "Other" totals: jiras/PRs not attributed to any project
+    // Compute "Other" — jiras/PRs not attributed to any project
     const attributedJiraKeys = new Set<string>(enrichedProjects.flatMap((p: any) => p.jira_keys ?? []));
     const attributedPrNums = new Set<number>(enrichedProjects.flatMap((p: any) => (p.pr_numbers ?? []).map(Number)));
-    const otherTotals = {
-      jiras: jiraRows.filter((r: any) => !attributedJiraKeys.has(r.issue_key)).length,
-      prs: [...prSummaryMap.keys()].filter(pr => !attributedPrNums.has(pr)).length,
-    };
 
-    const toCache = { _v: INSIGHTS_CACHE_VERSION, projects: enrichedProjects, untracked_work: parsed.untracked_work || [], otherTotals };
+    const otherJiraDetails = jiraRows
+      .filter((r: any) => !attributedJiraKeys.has(r.issue_key))
+      .map((r: any) => enrichKey(r.issue_key));
+
+    const otherPrs = [...prSummaryMap.values()]
+      .filter(p => !attributedPrNums.has(p.pr))
+      .sort((a, b) => (b.added + b.removed) - (a.added + a.removed));
+
+    const otherTotals = { jiras: otherJiraDetails.length, prs: otherPrs.length };
+    const otherDetails = { jira_details: otherJiraDetails, prs: otherPrs };
+
+    const toCache = { _v: INSIGHTS_CACHE_VERSION, projects: enrichedProjects, untracked_work: parsed.untracked_work || [], otherTotals, otherDetails };
     await db.execute(
       `INSERT INTO report_comparisons (report_id_a, report_id_b, highlights_json)
        VALUES (?, ?, ?)
@@ -341,6 +348,7 @@ ${noJiraData}${inflightBlock}`;
       projects: toCache.projects,
       untracked_work: toCache.untracked_work,
       otherTotals,
+      otherDetails,
       totals,
       cached: false,
     });

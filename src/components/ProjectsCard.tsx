@@ -75,6 +75,8 @@ export interface ProjectsCardProps {
   /** Server-computed unattributed counts (Jiras and PRs not in any top project).
    *  When present, used directly for the "Other" row instead of deriving from actualTotals. */
   otherTotals?: { jiras: number; prs: number };
+  /** Full detail for the "Other" row — enables drill-down on unattributed activity. */
+  otherDetails?: { jira_details: JiraDetail[]; prs: PrDetail[] };
   /** Collapsible mode (GLOOK-11): header becomes a toggle button styled to
    *  match <TeamPulseCard>, body hidden when collapsed. Controlled — parent
    *  owns `expanded` state via `onExpandedChange`. */
@@ -103,6 +105,7 @@ function ProjectsBody({
   variant,
   actualTotals,
   otherTotals,
+  otherDetails,
 }: {
   projects: ProjectsCardItem[] | TeamProject[];
   loading?: boolean;
@@ -111,9 +114,12 @@ function ProjectsBody({
   variant: 'standalone' | 'collapsible';
   actualTotals?: { commits: number; prs: number; jiras: number };
   otherTotals?: { jiras: number; prs: number };
+  otherDetails?: { jira_details: JiraDetail[]; prs: PrDetail[] };
 }) {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<'jiras' | 'prs' | 'commits'>('jiras');
+  const [otherExpanded, setOtherExpanded] = useState(false);
+  const [otherTab, setOtherTab] = useState<'jiras' | 'prs'>('jiras');
 
   // All hooks must be declared before any early returns (Rules of Hooks).
   // Sort by meaningful output (PRs + Jiras). Commits excluded from sort key
@@ -352,43 +358,112 @@ function ProjectsBody({
         );
       })}
 
-      {/* "Other" row — same visual style as a project, italic label, no summary/devs */}
+      {/* "Other" row — expandable when otherDetails is present */}
       {other && (() => {
         const otherTotal = other.commits + other.prs + other.jiras;
         const otherBarPct = (otherTotal / maxVolume) * 100;
+        const hasOtherDetail = !!(otherDetails?.jira_details?.length || otherDetails?.prs?.length);
         return (
-          <div
-            className="rounded-lg p-3"
-            style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.06)' }}
-          >
-            <div className="flex items-start justify-between gap-3 mb-1">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="text-xs text-gray-700 w-4 shrink-0 text-right">~</span>
-                <span className="text-sm text-gray-500 italic">Other (not in top {sorted.length})</span>
-              </div>
-              <div className="flex items-center gap-3 shrink-0 text-[11px] text-gray-600">
-                <span>~{other.jiras} jiras</span>
-                <span>~{other.commits} commits</span>
-                <span>~{other.prs} PRs</span>
-              </div>
-            </div>
-            {otherTotal > 0 && (
-              <div className="pl-6 mb-1.5">
-                <div
-                  className="h-[5px] rounded-sm overflow-hidden"
-                  style={{ background: 'rgba(255,255,255,0.05)' }}
-                  role="img"
-                  aria-label={`Other: ${other.prs} PRs, ${other.jiras} Jiras, ${other.commits} commits not attributed to a named project`}
-                >
-                  <div className="h-full flex" style={{ width: `${otherBarPct}%` }}>
-                    <div style={{ flex: other.prs,     background: SEGMENT_COLORS.prs }} />
-                    <div style={{ flex: other.jiras,   background: SEGMENT_COLORS.jiras }} />
-                    <div style={{ flex: other.commits, background: SEGMENT_COLORS.commits }} />
-                  </div>
+          <div>
+            <div
+              className={`rounded-lg p-3 ${otherExpanded ? 'rounded-b-none' : ''} ${hasOtherDetail ? 'cursor-pointer hover:bg-white/[0.025] transition-colors' : ''}`}
+              style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.06)', borderBottom: otherExpanded ? 'none' : undefined }}
+              onClick={() => { if (hasOtherDetail) { setOtherExpanded(e => !e); setOtherTab('jiras'); } }}
+            >
+              <div className="flex items-start justify-between gap-3 mb-1">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-xs text-gray-700 w-4 shrink-0 text-right">~</span>
+                  <span className="text-sm text-gray-500 italic">Other (not in top {sorted.length})</span>
+                  {hasOtherDetail && (
+                    <span className="text-gray-700 text-[10px] ml-1" style={{ display: 'inline-block', transition: 'transform 0.15s', transform: otherExpanded ? 'rotate(90deg)' : 'none' }}>▶</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-3 shrink-0 text-[11px] text-gray-600">
+                  <span>~{other.jiras} jiras</span>
+                  <span>~{other.prs} PRs</span>
                 </div>
               </div>
+              {otherTotal > 0 && (
+                <div className="pl-6 mb-1.5">
+                  <div
+                    className="h-[5px] rounded-sm overflow-hidden"
+                    style={{ background: 'rgba(255,255,255,0.05)' }}
+                    role="img"
+                    aria-label={`Other: ${other.prs} PRs, ${other.jiras} Jiras not attributed to a named project`}
+                  >
+                    <div className="h-full flex" style={{ width: `${otherBarPct}%` }}>
+                      <div style={{ flex: other.prs,   background: SEGMENT_COLORS.prs }} />
+                      <div style={{ flex: other.jiras, background: SEGMENT_COLORS.jiras }} />
+                      <div style={{ flex: other.commits, background: SEGMENT_COLORS.commits }} />
+                    </div>
+                  </div>
+                </div>
+              )}
+              <div className="text-[10px] text-gray-700 pl-6">Approximate remainder — actual totals minus LLM cluster estimates</div>
+            </div>
+
+            {/* Inline expand panel for Other */}
+            {otherExpanded && hasOtherDetail && (
+              <div className="bg-white/[0.015] rounded-b-lg border border-t-0 border-white/[0.06] px-4 pb-4 pt-3">
+                <div className="flex gap-0 mb-3 border-b border-white/[0.07]">
+                  {(['jiras', 'prs'] as const).map(tab => {
+                    const count = tab === 'jiras' ? (otherDetails?.jira_details?.length ?? 0) : (otherDetails?.prs?.length ?? 0);
+                    if (count === 0) return null;
+                    return (
+                      <button
+                        key={tab}
+                        onClick={e => { e.stopPropagation(); setOtherTab(tab); }}
+                        className={`text-[10px] px-3 pb-2 pt-1 border-b-2 -mb-px transition-colors capitalize ${otherTab === tab ? 'text-white border-accent' : 'text-gray-500 border-transparent hover:text-gray-300'}`}
+                      >
+                        {tab === 'jiras' ? 'Jiras' : 'PRs'} ({count})
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {otherTab === 'jiras' && (
+                  <div>
+                    {(otherDetails?.jira_details ?? []).slice(0, 12).map((j: JiraDetail) => (
+                      <div key={j.key} className="flex items-center gap-2 py-1.5 border-b border-white/[0.03] last:border-0">
+                        <span className="font-mono text-accent text-[9.5px] w-20 shrink-0">{j.key}</span>
+                        <span className="text-gray-400 text-[10.5px] flex-1 truncate">{j.summary}</span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {j.assignee && <span className="text-[9px] text-gray-600">@{j.assignee.slice(0, 10)}</span>}
+                          {(j.linked_commits ?? 0) > 0 && (
+                            <span className="text-[9px] font-mono bg-cyan-500/10 text-cyan-400 rounded px-1.5 py-0.5">
+                              {j.linked_commits}c{(j.linked_prs ?? 0) > 0 ? ` ${j.linked_prs}pr` : ''}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    {(otherDetails?.jira_details?.length ?? 0) > 12 && (
+                      <p className="text-[9px] text-gray-700 pt-1">+ {(otherDetails?.jira_details?.length ?? 0) - 12} more</p>
+                    )}
+                  </div>
+                )}
+
+                {otherTab === 'prs' && (
+                  <div>
+                    {(otherDetails?.prs ?? []).slice(0, 12).map((pr: PrDetail) => (
+                      <div key={pr.pr} className="flex items-center gap-2 py-1.5 border-b border-white/[0.03] last:border-0">
+                        <span className="font-mono text-cyan-400 text-[9.5px] w-10 shrink-0">#{pr.pr}</span>
+                        <span className="text-gray-400 text-[10.5px] flex-1 truncate">{pr.msg}</span>
+                        <div className="flex items-center gap-1.5 shrink-0 text-[9px]">
+                          <span className="text-gray-600">{pr.repo.split('/').pop()?.slice(0, 14)}</span>
+                          <span className="text-gray-600">{pr.commits}c</span>
+                          <span className="text-green-500/80">+{pr.added}</span>
+                          <span className="text-red-500/80">-{pr.removed}</span>
+                        </div>
+                      </div>
+                    ))}
+                    {(otherDetails?.prs?.length ?? 0) > 12 && (
+                      <p className="text-[9px] text-gray-700 pt-1">+ {(otherDetails?.prs?.length ?? 0) - 12} more PRs</p>
+                    )}
+                  </div>
+                )}
+              </div>
             )}
-            <div className="text-[10px] text-gray-700 pl-6">Approximate remainder — actual totals minus LLM cluster estimates</div>
           </div>
         );
       })()}
@@ -405,6 +480,7 @@ export default function ProjectsCard({
   developerHref,
   actualTotals,
   otherTotals,
+  otherDetails,
   collapsible = false,
   expanded = true,
   onExpandedChange,
@@ -449,6 +525,7 @@ export default function ProjectsCard({
               variant="collapsible"
               actualTotals={actualTotals}
               otherTotals={otherTotals}
+              otherDetails={otherDetails}
             />
           </div>
         )}
