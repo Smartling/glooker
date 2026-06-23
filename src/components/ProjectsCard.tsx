@@ -34,6 +34,9 @@ export interface ProjectsCardProps {
    *  activity not captured by the project clusters. Shown as a peer row with
    *  the same bar format so users can compare scale directly. */
   actualTotals?: { commits: number; prs: number; jiras: number };
+  /** Server-computed unattributed counts (Jiras and PRs not in any top project).
+   *  When present, used directly for the "Other" row instead of deriving from actualTotals. */
+  otherTotals?: { jiras: number; prs: number };
   /** Collapsible mode (GLOOK-11): header becomes a toggle button styled to
    *  match <TeamPulseCard>, body hidden when collapsed. Controlled — parent
    *  owns `expanded` state via `onExpandedChange`. */

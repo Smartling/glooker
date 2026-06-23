@@ -74,9 +74,10 @@ async function getHandler() {
     [report.id],
   ) as [any[], any];
 
-  // Build indexes for enrichment (used after LLM response — no second DB fetch needed)
+  // Build indexes for enrichment (used after LLM response — no second DB fetch needed).
+  // Keyed by 7-char prefix because that is what the LLM prompt sends and returns.
   const commitBySha = new Map<string, any>(
-    allCommitRows.map((c: any) => [c.commit_sha, c]),
+    allCommitRows.map((c: any) => [c.commit_sha?.slice(0, 7), c]),
   );
   const commitsByPr = new Map<number, any[]>();
   for (const c of allCommitRows) {
@@ -298,16 +299,22 @@ ${noJiraData}${inflightBlock}`;
           }))
         : [];
 
+      const enrichedCommits = projCommits.map((c: any) => ({
+        sha: c.commit_sha?.slice(0, 7),
+        repo: c.repo, msg: c.msg, pr: c.pr_number, login: c.github_login,
+        added: Number(c.lines_added ?? 0), removed: Number(c.lines_removed ?? 0),
+      }));
+
       return {
         ...p,
         jira_count: Array.isArray(p.jira_keys) ? p.jira_keys.length : 0,
+        // Keep estimated_commits/prs for backward compat with ProjectsCard bar/sort logic.
+        // Derived from the attributed arrays rather than LLM estimation.
+        estimated_commits: projCommits.length,
+        estimated_prs: projPrs.length,
         jira_details: Array.isArray(p.jira_keys) ? p.jira_keys.map(enrichKey) : [],
         groups: enrichedGroups,
-        commits: projCommits.map((c: any) => ({
-          sha: c.commit_sha?.slice(0, 7),
-          repo: c.repo, msg: c.msg, pr: c.pr_number, login: c.github_login,
-          added: Number(c.lines_added ?? 0), removed: Number(c.lines_removed ?? 0),
-        })),
+        commits: enrichedCommits,
         prs: projPrs,
       };
     });
