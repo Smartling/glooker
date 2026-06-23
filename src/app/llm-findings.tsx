@@ -2,14 +2,13 @@
 
 import { useState, useEffect } from 'react';
 import ProjectsCard from '@/components/ProjectsCard';
+import type { JiraDetail, ProjectGroup, PrDetail, CommitDetail } from '@/components/ProjectsCard';
 
 interface Highlight {
   icon: string;
   text: string;
   sentiment: 'positive' | 'neutral' | 'warning';
 }
-
-import type { JiraDetail, ProjectGroup, PrDetail, CommitDetail } from '@/components/ProjectsCard';
 
 interface ProjectInsight {
   name: string;
@@ -43,7 +42,7 @@ export default function LlmFindings() {
   const [projectsMeta, setProjectsMeta] = useState<{ id: string; org: string; periodDays: number; createdAt: string } | null>(null);
   const [projectTotals, setProjectTotals] = useState<{ commits: number; prs: number; jiras: number } | null>(null);
   const [otherTotals, setOtherTotals] = useState<{ jiras: number; prs: number } | null>(null);
-  const [otherDetails, setOtherDetails] = useState<{ jira_details: any[]; prs: any[] } | null>(null);
+  const [otherDetails, setOtherDetails] = useState<{ jira_details: JiraDetail[]; prs: PrDetail[] } | null>(null);
   const [projectsLoading, setProjectsLoading] = useState(true);
 
   // Release notes

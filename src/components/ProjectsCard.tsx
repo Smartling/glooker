@@ -404,7 +404,7 @@ function ProjectsBody({
             <div
               className={`rounded-lg p-3 ${otherExpanded ? 'rounded-b-none' : ''} ${hasOtherDetail ? 'cursor-pointer hover:bg-white/[0.025] transition-colors' : ''}`}
               style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.06)', borderBottom: otherExpanded ? 'none' : undefined }}
-              onClick={() => { if (hasOtherDetail) { setOtherExpanded(e => !e); setOtherTab('jiras'); } }}
+              onClick={() => { if (hasOtherDetail) { const expanding = !otherExpanded; setOtherExpanded(expanding); if (expanding) setOtherTab('jiras'); } }}
             >
               <div className="flex items-start justify-between gap-3 mb-1">
                 <div className="flex items-center gap-2 min-w-0">

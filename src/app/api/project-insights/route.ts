@@ -86,16 +86,17 @@ async function getHandler() {
     arr.push(c);
     commitsByPr.set(c.pr_number, arr);
   }
-  // For linked_commits/prs badges: count commits whose message contains each Jira key
+  // For linked_commits/prs badges: count commits whose message contains each Jira key.
+  // Use /g flag to capture all keys in a single message (e.g. "Fix BRZ-190 and BRZ-191").
   const commitsByJiraKey = new Map<string, { commits: number; prs: Set<number> }>();
   for (const c of allCommitRows) {
-    const match = (c.msg as string)?.match(/[A-Z]+-\d+/);
-    if (!match) continue;
-    const key = match[0];
-    const entry = commitsByJiraKey.get(key) ?? { commits: 0, prs: new Set<number>() };
-    entry.commits++;
-    if (c.pr_number) entry.prs.add(c.pr_number);
-    commitsByJiraKey.set(key, entry);
+    const keys = (c.msg as string)?.match(/[A-Z]+-\d+/g) ?? [];
+    for (const key of keys) {
+      const entry = commitsByJiraKey.get(key) ?? { commits: 0, prs: new Set<number>() };
+      entry.commits++;
+      if (c.pr_number) entry.prs.add(c.pr_number);
+      commitsByJiraKey.set(key, entry);
+    }
   }
 
   // ── Build LLM inputs ─────────────────────────────────────────────────────
@@ -256,11 +257,13 @@ ${noJiraData}${inflightBlock}`;
       const llmPrNums = new Set<number>((p.pr_numbers ?? []).map(Number));
       const llmShas = new Set<string>(p.commit_shas ?? []);
 
-      // Gather all commits: by SHA (bare commits) + by PR number
+      // Gather all commits: by SHA (bare commits) + by PR number.
+      // Always key by full commit_sha so a commit reachable via both paths
+      // (in llmShas AND in a llmPrNum) is deduplicated correctly.
       const projCommitMap = new Map<string, any>();
       for (const sha of llmShas) {
         const c = commitBySha.get(sha);
-        if (c) projCommitMap.set(sha, c);
+        if (c) projCommitMap.set(c.commit_sha, c);
       }
       for (const prNum of llmPrNums) {
         for (const c of commitsByPr.get(prNum) ?? []) {
