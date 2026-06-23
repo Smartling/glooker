@@ -115,21 +115,7 @@ function ProjectsBody({
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<'jiras' | 'prs' | 'commits'>('jiras');
 
-  if (loading) {
-    return (
-      <div className={`flex items-center gap-2 text-gray-500 text-sm ${variant === 'collapsible' ? 'py-6 justify-center' : 'mt-3'}`}>
-        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-        </svg>
-        Analyzing projects…
-      </div>
-    );
-  }
-  if (projects.length === 0) {
-    return <p className={`text-sm text-gray-500 ${variant === 'collapsible' ? 'py-4' : 'mt-2'}`}>{emptyMessage}</p>;
-  }
-
+  // All hooks must be declared before any early returns (Rules of Hooks).
   // Sort by meaningful output (PRs + Jiras). Commits excluded from sort key
   // because they are squashed into PRs — including them would inflate rank for
   // commit-heavy, low-PR projects. Commits are still shown in the bar for context.
@@ -172,6 +158,22 @@ function ProjectsBody({
 
   // Hide Jira legend entry when Jira is disabled (all counts are 0).
   const hasJira = useMemo(() => sorted.some(p => p.jira_count > 0) || (other?.jiras ?? 0) > 0, [sorted, other]);
+
+  // Early returns after all hooks (Rules of Hooks: hooks must not be conditional).
+  if (loading) {
+    return (
+      <div className={`flex items-center gap-2 text-gray-500 text-sm ${variant === 'collapsible' ? 'py-6 justify-center' : 'mt-3'}`}>
+        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+        </svg>
+        Analyzing projects…
+      </div>
+    );
+  }
+  if (projects.length === 0) {
+    return <p className={`text-sm text-gray-500 ${variant === 'collapsible' ? 'py-4' : 'mt-2'}`}>{emptyMessage}</p>;
+  }
 
   return (
     <div className={`space-y-3 ${variant === 'collapsible' ? 'mt-3' : 'mt-4'}`}>
