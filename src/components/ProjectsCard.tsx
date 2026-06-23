@@ -552,6 +552,7 @@ export default function ProjectsCard({
         variant="standalone"
         actualTotals={actualTotals}
         otherTotals={otherTotals}
+        otherDetails={otherDetails}
       />
     </div>
   );
