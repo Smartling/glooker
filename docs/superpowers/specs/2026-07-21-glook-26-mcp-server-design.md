@@ -11,6 +11,17 @@ supports **cross-report analysis over time** (e.g. "commits per week over the la
 Authentication reuses Smartling's canonical MCP pattern: an `mcp-okta-proxy` sidecar in front
 of a plain, unauthenticated MCP endpoint in the existing Next.js app.
 
+> **Implementation notes (discovered during planning):**
+> - **JSON Schema, not zod.** The codebase already has a tool layer (`src/lib/chat/tools.ts`)
+>   using OpenAI-style JSON-Schema tool definitions; zod is not a dependency. MCP's `inputSchema`
+>   is also JSON Schema. So tools are defined with JSON Schema, matching the existing pattern —
+>   no zod dependency.
+> - **Hand-rolled minimal JSON-RPC, not `@modelcontextprotocol/sdk`.** A stateless, tools-only
+>   Streamable-HTTP server needs only `initialize`, `notifications/initialized`, `tools/list`,
+>   `tools/call`, and `ping`. Hand-rolling avoids a new dependency and the Next.js-Web-Request ↔
+>   Node-stream bridging the SDK transport requires, and keeps the protocol layer unit-testable as
+>   pure functions. The client may reply with a single `application/json` response (no SSE).
+
 ## Approach
 
 **Curated entity tools (not raw SQL passthrough).** Each tool is a named, schema-validated
@@ -30,25 +41,32 @@ performs.
 Three thin layers so no business logic lives in the MCP route:
 
 ```
-src/app/api/mcp/route.ts     transport: Streamable HTTP (POST), parses MCP request,
-                             dispatches to the tool registry, wrapped in withRequestLog()
-src/lib/mcp/tools.ts         tool registry: { name, description, zod input schema, handler }
-                             per tool. Handlers validate args → call a service/query fn → return JSON
+src/app/api/mcp/route.ts     transport: Streamable HTTP (POST), parses the JSON-RPC body,
+                             dispatches to the protocol handler, wrapped in withRequestLog()
+src/lib/mcp/protocol.ts      JSON-RPC dispatch: initialize / notifications/initialized /
+                             tools/list / tools/call / ping — pure, testable
+src/lib/mcp/tools.ts         tool registry: { name, description, inputSchema (JSON Schema),
+                             handler } per tool. Handlers call a service/query fn → return JSON
 src/lib/mcp/queries.ts       NEW cross-report query functions (dedup + time bucketing)
 src/lib/mcp/resolve.ts       resolveReportId(report_id?) helper
         │
         └─ reuses existing services:
            getReportCommits, getJiraIssues, getReportHighlights, getTeamPulse,
-           getDevSummary, getDevReport, getEpicSummary, getEpicRingStats,
+           getDevSummary, getDevReport, getEpicRingStats,
            getProjectInsights (extracted — see Refactors), getReleaseNotes (extracted)
 ```
 
 ### Transport
 
-- **Streamable HTTP** via `@modelcontextprotocol/sdk` (new dependency). This is the transport
-  `claude mcp add --transport http` and Claude.ai custom connectors expect.
-- **Stateless** request/response — no server-side MCP session state. Matches the stateless proxy
-  and Glooker's single-org model. `Mcp-Session-Id` (if sent) is ignored.
+- **Streamable HTTP**, hand-rolled JSON-RPC over POST (no SDK dependency — see Implementation
+  notes). This is the transport `claude mcp add --transport http` and Claude.ai custom connectors
+  expect. Server replies with a single `application/json` JSON-RPC response; JSON-RPC
+  notifications/responses get `202 Accepted` with no body.
+- **Stateless** request/response — no server-side MCP session state, no `Mcp-Session-Id` issued.
+  Matches the stateless proxy and Glooker's single-org model.
+- `initialize` returns `{ protocolVersion, capabilities: { tools: {} }, serverInfo: { name, version } }`.
+  The server echoes the client's requested `protocolVersion` when recognized, else defaults to
+  `2025-06-18`.
 - The route handler is wrapped with `withRequestLog()` like every other route (enforced by the
   existing Jest test).
 
@@ -72,8 +90,11 @@ cross-report query functions (`query_commits`, `query_jira_issues`, `get_metric_
 `resolved_at`**, and use that timestamp as the timeline. Report-scoped calls (explicit
 `report_id`) skip dedup and return exactly that report's rows.
 
-Dedup lives in `queries.ts` and uses the shared `db` abstraction, so it works on both SQLite and
-MySQL. Any MySQL-specific SQL added here must round-trip through the SQLite `translateSQL()`.
+**Dedup and bucketing are done in JS, not SQL** — as pure helper functions in `queries.ts`
+(`dedupByKeyEarliest(rows, keyField, tsField)` and `bucketByPeriod(rows, tsField, period)`). This
+keeps the SQL simple and dialect-safe (plain parameterized `SELECT ... WHERE ... ORDER BY`, no
+window functions), and lets the dedup/bucketing logic be unit-tested directly as pure functions
+without a database. The SQL only filters and orders; JS collapses duplicates and buckets by time.
 
 ---
 
@@ -107,11 +128,13 @@ MySQL. Any MySQL-specific SQL added here must round-trip through the SQLite `tra
 | `get_team_pulse(report_id?, team?)` | `getTeamPulse` | team health summaries |
 | `get_developer_summary(login, report_id?)` | `getDevSummary` | LLM narrative + badges for one dev |
 | `get_release_notes(limit?)` | `getReleaseNotes` (extracted) | recent release notes |
-| `get_epic_summaries(org?, epic_key?)` | new query + `getEpicSummary` / `getEpicRingStats` | epic-level rollups |
+| `get_epic_summaries(org?, epic_key?)` | new query over `epic_summaries` / `epic_stats` | epic-level rollups |
 
-`get_epic_summaries`: with `epic_key`, returns that epic's summary + ring stats via the existing
-functions. Without `epic_key`, a small `SELECT` over `epic_summaries` / `epic_stats` lists all epics
-(key, org, resolved/remaining, commit_count) for the org so the caller can then drill into one.
+`get_epic_summaries` is **read-only**: it reads the cached `epic_summaries` (summary text, resolved/
+remaining, commit_count, lines) and `epic_stats` (totals, dev_count) tables directly. With
+`epic_key` it returns that epic's row joined across both tables; without, it lists all epics for the
+org. It does **not** call `getEpicSummary` (that function generates via LLM and requires summary
+text + a force-refresh flag — out of scope for a read-only tool).
 
 ### Time-series
 
@@ -129,7 +152,7 @@ functions. Without `epic_key`, a small `SELECT` over `epic_summaries` / `epic_st
 
 ### Identity type shapes
 
-Tool inputs are zod schemas; outputs are plain JSON. Field names mirror the DB columns
+Tool inputs are JSON Schema (matching `chat/tools.ts`); outputs are plain JSON. Field names mirror the DB columns
 (`github_login`, `committed_at`, `lines_added`, `impact_score`, …) so an analyst sees the same
 vocabulary across tools. `DECIMAL`/`REAL` columns are coerced with `Number()` before returning
 (both DB drivers can hand back numeric columns as strings).
@@ -205,28 +228,38 @@ with keeping local and AWS deploys separate).
 
 | File | Change |
 |---|---|
-| `src/app/api/mcp/route.ts` | NEW — Streamable HTTP transport, dispatch to registry, `withRequestLog()` |
-| `src/lib/mcp/tools.ts` | NEW — tool registry (schema + handler per tool) |
+| `src/app/api/mcp/route.ts` | NEW — Streamable HTTP transport (POST/GET/OPTIONS), `withRequestLog()` |
+| `src/lib/mcp/protocol.ts` | NEW — JSON-RPC dispatch (initialize/tools.list/tools.call/ping) |
+| `src/lib/mcp/tools.ts` | NEW — tool registry (JSON-Schema inputSchema + handler per tool) |
 | `src/lib/mcp/queries.ts` | NEW — cross-report query + dedup + time bucketing |
 | `src/lib/mcp/resolve.ts` | NEW — `resolveReportId()` helper |
 | `src/lib/projects/insights.ts` | NEW — extracted `getProjectInsights()` |
 | `src/app/api/project-insights/route.ts` | Refactor to thin wrapper over `getProjectInsights()` |
 | `src/lib/release-notes/service.ts` | NEW — extracted `getReleaseNotes()` |
 | `src/app/api/release-notes/route.ts` | Refactor to thin wrapper over `getReleaseNotes()` |
-| `src/lib/mcp/__tests__/queries.test.ts` | NEW — dedup correctness, date bucketing, both dialects |
-| `src/lib/mcp/__tests__/tools.test.ts` | NEW — every tool has schema + handler, round-trips a mock call |
-| `package.json` | Add `@modelcontextprotocol/sdk` |
+| `src/lib/__tests__/unit/mcp-queries.test.ts` | NEW — dedup correctness, date bucketing, both dialects |
+| `src/lib/__tests__/unit/mcp-tools.test.ts` | NEW — registry completeness + tool round-trips |
+| `src/lib/__tests__/unit/mcp-protocol.test.ts` | NEW — JSON-RPC handshake + tools.list/tools.call |
 
 ---
 
 ## Testing
 
-- **`queries.ts`**: dedup keeps earliest timestamp per sha/issue_key; date bucketing (week/month
-  boundaries); filters (login/repo/type/date-range); runs on both SQLite and MySQL via the existing
-  test harness.
-- **`tools.ts`**: registry completeness (every tool has name/description/schema/handler); each tool
-  round-trips a mock invocation against seeded data; `resolveReportId` falls back to latest completed
-  and errors cleanly when none exist.
+Tests follow the codebase pattern: mock `@/lib/db/index` (`jest.fn()` returning `[rows, null]`) and
+`jest.mock('@octokit/rest')` where the import chain reaches `github.ts`.
+
+- **`mcp-queries.test.ts`**: pure helpers `dedupByKeyEarliest` (keeps earliest timestamp per
+  sha/issue_key) and `bucketByPeriod` (week/month boundaries) tested directly; query functions
+  tested with a mocked `db.execute` asserting the returned rows and that filters
+  (login/repo/type/date-range) shape the params.
+- **`mcp-tools.test.ts`**: registry completeness (every tool has name/description/inputSchema/
+  handler; names unique); each handler round-trips against a mocked `db`; `resolveReportId` falls
+  back to latest completed and returns `{ error: 'no completed reports' }` when none exist.
+- **`mcp-protocol.test.ts`**: `initialize` returns the correct result shape and echoes the client
+  `protocolVersion` (defaulting to `2025-06-18` when unrecognized); `notifications/initialized`
+  yields no response (202 path); `tools/list` returns
+  the registry; `tools/call` dispatches to a handler and wraps the result; unknown method →
+  JSON-RPC error `-32601`; malformed JSON → `-32700`.
 - **Enforcement**: the existing `logger-enforcement.test.ts` will require `/api/mcp/route.ts` to
   import `withRequestLog` — satisfied by the transport layer.
 - **Mock mode**: tools work under `npm run dev:mock` against seeded data with `anonymous` identity.
