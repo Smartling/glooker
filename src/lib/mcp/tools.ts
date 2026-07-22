@@ -176,12 +176,12 @@ export const MCP_TOOLS: McpTool[] = [
   },
   {
     name: 'get_metric_timeseries',
-    description: 'Time-series or grouped aggregate of a metric across reports. metric: commits|prs|lines_added|jira_resolved|impact_score|ai_percentage. group_by: week|month|report|developer|repo|type.',
+    description: 'Time-series or grouped aggregate of a metric across reports. metric: commits|prs|lines_added|jira_resolved|impact_score|ai_percentage. group_by: week|month|report|developer|repo|type. If neither since nor until is given, results default to the last 180 days.',
     inputSchema: { type: 'object', properties: {
       metric: { type: 'string', enum: ['commits', 'prs', 'lines_added', 'jira_resolved', 'impact_score', 'ai_percentage'], description: 'Metric to aggregate' },
       group_by: { type: 'string', enum: ['week', 'month', 'report', 'developer', 'repo', 'type'], description: 'Bucketing dimension (default week)' },
       org: { type: 'string', description: 'GitHub org (defaults to latest completed report org)' },
-      since: { type: 'string', description: 'ISO date lower bound' },
+      since: { type: 'string', description: 'ISO date lower bound (default: 180 days ago if until is also unset)' },
       until: { type: 'string', description: 'ISO date upper bound' },
     }, required: ['metric'] },
     handler: (a) => getMetricTimeseries(a),

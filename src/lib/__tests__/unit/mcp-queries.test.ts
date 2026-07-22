@@ -1,7 +1,7 @@
 jest.mock('@octokit/rest', () => ({ Octokit: jest.fn() }));
 jest.mock('@/lib/db/index', () => ({ __esModule: true, default: { execute: jest.fn() } }));
 
-import { queryCommits, queryJiraIssues, queryDeveloperStats, listReports, getEpicSummaries, getMetricTimeseries } from '@/lib/mcp/queries';
+import { queryCommits, queryJiraIssues, queryDeveloperStats, listReports, getEpicSummaries, getMetricTimeseries, TIMESERIES_ROW_CAP } from '@/lib/mcp/queries';
 import db from '@/lib/db/index';
 
 const mockExecute = db.execute as jest.Mock;
@@ -136,7 +136,7 @@ describe('getMetricTimeseries', () => {
         { commit_sha: 'b', committed_at: '2026-01-07T00:00:00Z' }, // Wed wk 01-05
       ], null]);
     const out = await getMetricTimeseries({ metric: 'commits', group_by: 'week' });
-    expect(out).toEqual({ metric: 'commits', group_by: 'week', series: [{ bucket: '2026-01-05', value: 2 }] });
+    expect(out).toEqual({ metric: 'commits', group_by: 'week', series: [{ bucket: '2026-01-05', value: 2 }], truncated: false });
   });
 
   it('lines_added by repo: sums the metric per group', async () => {
@@ -168,8 +168,7 @@ describe('getMetricTimeseries', () => {
 
   it('commits grouped by report buckets by report_id', async () => {
     mockExecute
-      .mockResolvedValueOnce([[{ id: 'r9' }], null])   // resolveReportId(undefined)
-      .mockResolvedValueOnce([[                          // rows
+      .mockResolvedValueOnce([[                          // rows (org supplied: no resolveReportId call)
         { commit_sha: 'a', committed_at: '2026-01-01', report_id: 'rA', lines_added: 1 },
         { commit_sha: 'b', committed_at: '2026-01-02', report_id: 'rA', lines_added: 1 },
         { commit_sha: 'c', committed_at: '2026-01-03', report_id: 'rB', lines_added: 1 },
@@ -180,7 +179,6 @@ describe('getMetricTimeseries', () => {
 
   it('jira_resolved by week dedups by issue_key then counts', async () => {
     mockExecute
-      .mockResolvedValueOnce([[{ id: 'r9' }], null])
       .mockResolvedValueOnce([[
         { issue_key: 'K-1', resolved_at: '2026-01-05T00:00:00Z', report_id: 'rA', github_login: 'u' },
         { issue_key: 'K-1', resolved_at: '2026-03-01T00:00:00Z', report_id: 'rB', github_login: 'u' },
@@ -192,7 +190,6 @@ describe('getMetricTimeseries', () => {
 
   it('jira_resolved grouped by developer buckets by github_login', async () => {
     mockExecute
-      .mockResolvedValueOnce([[{ id: 'r9' }], null])
       .mockResolvedValueOnce([[
         { issue_key: 'K-1', resolved_at: '2026-01-01', report_id: 'rA', github_login: 'alice' },
         { issue_key: 'K-2', resolved_at: '2026-01-02', report_id: 'rA', github_login: 'alice' },
@@ -212,5 +209,37 @@ describe('getMetricTimeseries', () => {
     const out = await getMetricTimeseries({ metric: 'jira_resolved', group_by: 'repo' });
     expect(out).toEqual({ error: "group_by 'repo' is not supported for metric 'jira_resolved'" });
     expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it('applies a default 180-day window when neither since nor until is given', async () => {
+    mockExecute
+      .mockResolvedValueOnce([[{ id: 'r9' }], null])   // resolveReportId (no org given)
+      .mockResolvedValueOnce([[{ org: 'acme' }], null]) // reportOrg
+      .mockResolvedValueOnce([[], null]);               // rows
+    await getMetricTimeseries({ metric: 'commits', group_by: 'week' });
+    const rowSql = mockExecute.mock.calls[2][0] as string;
+    const rowParams = mockExecute.mock.calls[2][1] as any[];
+    expect(rowSql).toContain('committed_at >= ?');
+    expect(rowSql).toContain('LIMIT ?');
+    // last param is the row cap; a date bound is present among params
+    expect(rowParams[rowParams.length - 1]).toBe(String(TIMESERIES_ROW_CAP));
+    expect(rowParams.some(p => typeof p === 'string' && /^\d{4}-\d{2}-\d{2}/.test(p))).toBe(true);
+  });
+
+  it('does not add a default window when since is provided, and reports truncated=false for a small result', async () => {
+    mockExecute
+      .mockResolvedValueOnce([[{ id: 'r9' }], null])
+      .mockResolvedValueOnce([[{ org: 'acme' }], null])
+      .mockResolvedValueOnce([[{ commit_sha: 'a', committed_at: '2026-01-01', report_id: 'rA', lines_added: 1 }], null]);
+    const out = await getMetricTimeseries({ metric: 'commits', group_by: 'week', since: '2026-01-01' }) as { truncated: boolean };
+    expect(out.truncated).toBe(false);
+  });
+
+  it('skips resolveReportId when org is supplied (2 db calls, not 3)', async () => {
+    mockExecute
+      .mockResolvedValueOnce([[{ commit_sha: 'a', committed_at: '2026-01-01', report_id: 'rA', lines_added: 1 }], null]); // rows only
+    const out = await getMetricTimeseries({ metric: 'commits', group_by: 'week', org: 'acme', since: '2026-01-01' }) as { truncated: boolean };
+    expect(mockExecute).toHaveBeenCalledTimes(1); // only the rows query
+    expect(out.truncated).toBe(false);
   });
 });

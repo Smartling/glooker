@@ -3,6 +3,8 @@ import { resolveReportId } from './resolve';
 import { dedupByKeyEarliest, bucketByPeriod } from './dedup';
 
 export const MAX_ROWS = 500;
+const DEFAULT_TIMESERIES_WINDOW_DAYS = 180;
+export const TIMESERIES_ROW_CAP = 20000;
 
 const clampLimit = (raw: unknown, def: number) => {
   const n = Number(raw);
@@ -284,9 +286,10 @@ export async function getMetricTimeseries(args: { metric: string; group_by?: str
     return { error: `group_by '${groupBy}' is not supported for metric 'jira_resolved'` };
   }
 
-  const r = await resolveReportId(undefined); // latest completed anchors the org when org not given
   let org = args.org ?? null;
   if (!org) {
+    // latest completed anchors the org when org not given
+    const r = await resolveReportId(undefined);
     if ('error' in r) return r;
     org = await reportOrg(r.id);
   }
@@ -301,6 +304,11 @@ export async function getMetricTimeseries(args: { metric: string; group_by?: str
   const params: any[] = [org];
   if (args.since) { conditions.push(`${alias}.${tsCol} >= ?`); params.push(args.since); }
   if (args.until) { conditions.push(`${alias}.${tsCol} <= ?`); params.push(args.until); }
+  if (args.since === undefined && args.until === undefined) {
+    const defaultSince = new Date(Date.now() - DEFAULT_TIMESERIES_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    conditions.push(`${alias}.${tsCol} >= ?`);
+    params.push(defaultSince);
+  }
   // For 'prs', restrict to commits that belong to a PR and dedup by pr_number instead.
   if (metric === 'prs') conditions.push('ca.pr_number IS NOT NULL');
 
@@ -308,10 +316,12 @@ export async function getMetricTimeseries(args: { metric: string; group_by?: str
     ? `ji.report_id, ji.issue_key, ji.resolved_at, ji.project_key, ji.github_login`
     : `ca.report_id, ca.commit_sha, ca.pr_number, ca.committed_at, ca.repo, ca.github_login, ca.type, ca.lines_added`;
 
+  params.push(String(TIMESERIES_ROW_CAP));
   const [rows] = await db.execute(
-    `SELECT ${selectCols} FROM ${table} WHERE ${conditions.join(' AND ')} ORDER BY ${alias}.${tsCol} ASC`,
+    `SELECT ${selectCols} FROM ${table} WHERE ${conditions.join(' AND ')} ORDER BY ${alias}.${tsCol} ASC LIMIT ?`,
     params,
   ) as [any[], any];
+  const truncated = rows.length >= TIMESERIES_ROW_CAP;
 
   // Dedup to the real timeline.
   let deduped: any[];
@@ -326,7 +336,7 @@ export async function getMetricTimeseries(args: { metric: string; group_by?: str
 
   if (groupBy === 'week' || groupBy === 'month') {
     const buckets = bucketByPeriod(deduped, tsCol as any, groupBy);
-    return { metric, group_by: groupBy, series: buckets.map(b => ({ bucket: b.bucket, value: b.rows.reduce((s, row) => s + valueOf(row), 0) })) };
+    return { metric, group_by: groupBy, series: buckets.map(b => ({ bucket: b.bucket, value: b.rows.reduce((s, row) => s + valueOf(row), 0) })), truncated };
   }
 
   // Dimension grouping: report | developer | repo | type
@@ -338,5 +348,5 @@ export async function getMetricTimeseries(args: { metric: string; group_by?: str
     agg.set(key, (agg.get(key) ?? 0) + valueOf(row));
   }
   const series = [...agg.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([bucket, value]) => ({ bucket, value }));
-  return { metric, group_by: groupBy, series };
+  return { metric, group_by: groupBy, series, truncated };
 }
