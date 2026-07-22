@@ -277,7 +277,11 @@ export async function getMetricTimeseries(args: { metric: string; group_by?: str
     };
   }
 
-  // Row-based metrics: resolve org, pull rows across the org's completed reports, dedup, bucket.
+  // Row-based metrics. Dedup is done in SQL (GROUP BY the entity key) so Node
+  // receives one row per distinct commit/PR/issue — bounded by real activity,
+  // not by raw rows duplicated across overlapping report windows. This keeps
+  // counts accurate and avoids the raw-row blow-up that a pre-dedup LIMIT would
+  // silently truncate (which dropped the most recent buckets).
   const groupBy = args.group_by ?? 'week';
 
   const ALLOWED_GROUP_BY = ['week', 'month', 'report', 'developer', 'repo', 'type'];
@@ -295,11 +299,13 @@ export async function getMetricTimeseries(args: { metric: string; group_by?: str
   }
 
   const isJira = metric === 'jira_resolved';
-  const table = isJira ? 'jira_issues ji' : 'commit_analyses ca';
+  const table = isJira ? 'jira_issues' : 'commit_analyses';
   const alias = isJira ? 'ji' : 'ca';
   const tsCol = isJira ? 'resolved_at' : 'committed_at';
-  const keyCol = isJira ? 'issue_key' : 'commit_sha';
+  // The entity a distinct row represents: PR for 'prs', issue for jira, else commit.
+  const keyCol = isJira ? 'issue_key' : (metric === 'prs' ? 'pr_number' : 'commit_sha');
 
+  // Shared WHERE: org scope + optional time window (+ PR filter for 'prs').
   const conditions = [`${alias}.report_id IN (SELECT id FROM reports WHERE org = ? AND status = 'completed')`];
   const params: any[] = [org];
   if (args.since) { conditions.push(`${alias}.${tsCol} >= ?`); params.push(args.since); }
@@ -309,43 +315,72 @@ export async function getMetricTimeseries(args: { metric: string; group_by?: str
     conditions.push(`${alias}.${tsCol} >= ?`);
     params.push(defaultSince);
   }
-  // For 'prs', restrict to commits that belong to a PR and dedup by pr_number instead.
   if (metric === 'prs') conditions.push('ca.pr_number IS NOT NULL');
+  const where = conditions.join(' AND ');
 
-  const selectCols = isJira
-    ? `ji.report_id, ji.issue_key, ji.resolved_at, ji.project_key, ji.github_login`
-    : `ca.report_id, ca.commit_sha, ca.pr_number, ca.committed_at, ca.repo, ca.github_login, ca.type, ca.lines_added`;
+  // count metrics contribute 1 per distinct entity; lines_added sums the column.
+  const valueOfRow = (linesAdded: number): number => metric === 'lines_added' ? linesAdded : 1;
+
+  // ── group_by = report: per-report totals. Grouping BY report is itself the
+  //    partition, so there is no cross-report dedup here — each report reports
+  //    its own count. Fully aggregated in SQL (one row per report). ──────────
+  if (groupBy === 'report') {
+    const valueExpr =
+      metric === 'lines_added' ? `COALESCE(SUM(${alias}.lines_added), 0)` :
+      metric === 'prs'         ? `COUNT(DISTINCT ${alias}.pr_number)` :
+                                 `COUNT(DISTINCT ${alias}.${keyCol})`;
+    const [rows] = await db.execute(
+      `SELECT r.id AS report_id, r.created_at, ${valueExpr} AS value
+       FROM ${table} ${alias} JOIN reports r ON ${alias}.report_id = r.id
+       WHERE ${where}
+       GROUP BY r.id, r.created_at
+       ORDER BY r.created_at ASC`,
+      params,
+    ) as [any[], any];
+    return {
+      metric, group_by: 'report',
+      series: rows.map((row: any) => ({ bucket: String(row.created_at).slice(0, 10), value: Number(row.value ?? 0) })),
+      truncated: false,
+    };
+  }
+
+  // ── week | month | developer | repo | type: dedup entities in SQL (one row
+  //    per distinct entity at its earliest timestamp), then bucket/group in JS
+  //    (portable — no dialect-specific date SQL). ──────────────────────────────
+  const dedupSelect = isJira
+    ? `MIN(ji.resolved_at) AS ts, MIN(ji.github_login) AS github_login`
+    : `MIN(ca.committed_at) AS ts, MIN(ca.repo) AS repo, MIN(ca.github_login) AS github_login, MIN(ca.type) AS type, MIN(ca.lines_added) AS lines_added`;
 
   params.push(String(TIMESERIES_ROW_CAP));
   const [rows] = await db.execute(
-    `SELECT ${selectCols} FROM ${table} WHERE ${conditions.join(' AND ')} ORDER BY ${alias}.${tsCol} ASC LIMIT ?`,
+    `SELECT ${dedupSelect}
+     FROM ${table} ${alias}
+     WHERE ${where}
+     GROUP BY ${alias}.${keyCol}
+     ORDER BY ts DESC
+     LIMIT ?`,
     params,
   ) as [any[], any];
+  // Backstop only: with SQL dedup + default window this is effectively never hit;
+  // DESC order means any truncation keeps the most recent entities.
   const truncated = rows.length >= TIMESERIES_ROW_CAP;
 
-  // Dedup to the real timeline.
-  let deduped: any[];
-  if (metric === 'prs') {
-    deduped = dedupByKeyEarliest(rows, 'pr_number', 'committed_at');
-  } else {
-    deduped = dedupByKeyEarliest(rows, keyCol as any, tsCol as any);
-  }
-
-  // Bucket.
-  const valueOf = (row: any): number => metric === 'lines_added' ? Number(row.lines_added ?? 0) : 1;
-
   if (groupBy === 'week' || groupBy === 'month') {
-    const buckets = bucketByPeriod(deduped, tsCol as any, groupBy);
-    return { metric, group_by: groupBy, series: buckets.map(b => ({ bucket: b.bucket, value: b.rows.reduce((s, row) => s + valueOf(row), 0) })), truncated };
+    const buckets = bucketByPeriod(rows, 'ts', groupBy);
+    return {
+      metric, group_by: groupBy,
+      series: buckets.map(b => ({ bucket: b.bucket, value: b.rows.reduce((s, row: any) => s + valueOfRow(Number(row.lines_added ?? 0)), 0) })),
+      truncated,
+    };
   }
 
-  // Dimension grouping: report | developer | repo | type
-  const DIM_FIELDS: Record<string, string> = { report: 'report_id', developer: 'github_login', repo: 'repo', type: 'type' };
+  // Dimension grouping: developer | repo | type
+  const DIM_FIELDS: Record<string, string> = { developer: 'github_login', repo: 'repo', type: 'type' };
   const dimField = DIM_FIELDS[groupBy];
   const agg = new Map<string, number>();
-  for (const row of deduped) {
+  for (const row of rows) {
     const key = String(row[dimField] ?? 'unknown');
-    agg.set(key, (agg.get(key) ?? 0) + valueOf(row));
+    agg.set(key, (agg.get(key) ?? 0) + valueOfRow(Number(row.lines_added ?? 0)));
   }
   const series = [...agg.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([bucket, value]) => ({ bucket, value }));
   return { metric, group_by: groupBy, series, truncated };
