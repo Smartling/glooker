@@ -38,6 +38,12 @@ export async function handleJsonRpc(message: any): Promise<RpcResult> {
       const name = params?.name;
       const args = params?.arguments ?? {};
       if (typeof name !== 'string') return err(id, -32602, 'Invalid params: missing tool name');
+      // Validate declared required fields before dispatch so a missing arg yields
+      // a clean -32602 instead of a confusing downstream error.
+      const tool = MCP_TOOLS.find(t => t.name === name);
+      const required: string[] = (tool?.inputSchema as { required?: string[] })?.required ?? [];
+      const missing = required.filter(f => args[f] === undefined || args[f] === null || args[f] === '');
+      if (missing.length) return err(id, -32602, `Invalid params: missing required field(s): ${missing.join(', ')}`);
       const result = await callTool(name, args);
       const isError = result && typeof result === 'object' && 'error' in result;
       return ok(id, {

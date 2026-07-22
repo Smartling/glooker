@@ -45,9 +45,40 @@ describe('MCP tool registry', () => {
     expect(await callTool('nope', {})).toEqual({ error: 'unknown tool: nope' });
   });
 
-  it('callTool converts a handler throw into an error object', async () => {
-    mockExecute.mockRejectedValueOnce(new Error('boom'));
+  it('callTool masks a handler throw behind a generic error (no internal detail leaked)', async () => {
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockExecute.mockRejectedValueOnce(new Error('secret DB detail: table users'));
     const out = await callTool('list_reports', {});
-    expect(out).toEqual({ error: 'boom' });
+    expect(out).toEqual({ error: 'Tool "list_reports" failed. See server logs for details.' });
+    expect(out.error).not.toContain('secret DB detail'); // raw message not surfaced
+    spy.mockRestore();
+  });
+
+  describe('handler branches', () => {
+    it('get_project_details returns not-found with the available project names', async () => {
+      // get_project_insights is cached in report_comparisons; mock its resolution +
+      // cache read so getProjectInsights returns a projects list without an LLM call.
+      mockExecute
+        .mockResolvedValueOnce([[{ id: 'r1', org: 'acme', period_days: 30, created_at: 'x' }], null]) // report lookup
+        .mockResolvedValueOnce([[{ cnt: 3 }], null])                                                   // jira count
+        .mockResolvedValueOnce([[{ commits: 1, prs: 1 }], null])                                       // totals
+        .mockResolvedValueOnce([[{ highlights_json: JSON.stringify({ _v: 3, projects: [{ name: 'Alpha' }, { name: 'Beta' }], untracked_work: [], otherTotals: {}, otherDetails: {} }) }], null]); // cache hit
+      const out = await callTool('get_project_details', { project_name: 'Nope', report_id: 'r1' });
+      expect(out).toEqual({ error: 'project not found', available: ['Alpha', 'Beta'] });
+    });
+
+    it('get_team_pulse errors when the team has no members', async () => {
+      mockExecute
+        .mockResolvedValueOnce([[{ id: 'r1' }], null]) // resolveReportId
+        .mockResolvedValueOnce([[], null]);            // team_members lookup → empty
+      const out = await callTool('get_team_pulse', { team: 'Ghost', org: 'acme', report_id: 'r1' });
+      expect(out).toEqual({ error: 'team not found or has no members' });
+    });
+
+    it('get_developer_summary errors cleanly when no completed report exists', async () => {
+      mockExecute.mockResolvedValueOnce([[], null]); // resolveReportId → none
+      const out = await callTool('get_developer_summary', { login: 'alice' });
+      expect(out).toEqual({ error: 'no completed reports' });
+    });
   });
 });

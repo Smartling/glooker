@@ -55,29 +55,32 @@ describe('queryCommits', () => {
     expect(await queryCommits({})).toEqual({ error: 'no completed reports' });
   });
 
-  it('report-scoped: filters to one report and does NOT dedup', async () => {
+  it('report-scoped: plain SELECT, no GROUP BY dedup', async () => {
     mockExecute
       .mockResolvedValueOnce([[{ id: 'r1' }], null])            // resolveReportId (explicit)
-      .mockResolvedValueOnce([[                                  // rows
-        { commit_sha: 'a', committed_at: '2026-01-02', repo: 'x', github_login: 'u', type: 'feature', lines_added: 1, lines_removed: 0 },
-        { commit_sha: 'a', committed_at: '2026-01-01', repo: 'x', github_login: 'u', type: 'feature', lines_added: 1, lines_removed: 0 },
+      .mockResolvedValueOnce([[
+        { commit_sha: 'a', committed_at: '2026-01-02' },
+        { commit_sha: 'b', committed_at: '2026-01-01' },
       ], null]);
     const out = await queryCommits({ report_id: 'r1' }) as { commits: any[]; count: number };
-    expect(out.count).toBe(2); // duplicates preserved when report-scoped
+    expect(out.count).toBe(2);
+    const sql = mockExecute.mock.calls[1][0] as string;
+    expect(sql).not.toContain('GROUP BY'); // sha is unique per report
   });
 
-  it('cross-report: dedups by commit_sha keeping earliest committed_at', async () => {
+  it('cross-report: dedups by commit_sha in SQL (GROUP BY before LIMIT)', async () => {
     mockExecute
       .mockResolvedValueOnce([[{ id: 'r9' }], null])            // resolveReportId (latest completed)
       .mockResolvedValueOnce([[{ org: 'acme' }], null])          // org lookup
-      .mockResolvedValueOnce([[                                  // rows across reports
-        { commit_sha: 'a', committed_at: '2026-03-01', repo: 'x', github_login: 'u', type: 'feature', lines_added: 1, lines_removed: 0 },
-        { commit_sha: 'a', committed_at: '2026-01-01', repo: 'x', github_login: 'u', type: 'feature', lines_added: 1, lines_removed: 0 },
-        { commit_sha: 'b', committed_at: '2026-02-01', repo: 'x', github_login: 'u', type: 'bug', lines_added: 2, lines_removed: 1 },
+      .mockResolvedValueOnce([[                                  // SQL already deduped → 2 distinct commits
+        { commit_sha: 'a', committed_at: '2026-01-01' },
+        { commit_sha: 'b', committed_at: '2026-02-01' },
       ], null]);
     const out = await queryCommits({}) as { commits: any[]; count: number };
     expect(out.count).toBe(2);
-    expect(out.commits.find((c: any) => c.commit_sha === 'a').committed_at).toBe('2026-01-01');
+    const sql = mockExecute.mock.calls[2][0] as string;
+    expect(sql).toContain('GROUP BY ca.commit_sha'); // dedup before LIMIT, not after
+    expect(sql).toContain('LIMIT ?');
   });
 });
 
@@ -102,17 +105,29 @@ describe('queryDeveloperStats', () => {
 });
 
 describe('queryJiraIssues', () => {
-  it('cross-report dedups by issue_key keeping earliest resolved_at', async () => {
+  it('cross-report: dedups by issue_key in SQL (GROUP BY before LIMIT)', async () => {
     mockExecute
       .mockResolvedValueOnce([[{ id: 'r9' }], null])            // resolveReportId
       .mockResolvedValueOnce([[{ org: 'acme' }], null])          // org lookup
-      .mockResolvedValueOnce([[
-        { issue_key: 'K-1', resolved_at: '2026-03-01', project_key: 'K' },
-        { issue_key: 'K-1', resolved_at: '2026-01-01', project_key: 'K' },
-      ], null]);
+      .mockResolvedValueOnce([[{ issue_key: 'K-1', resolved_at: '2026-01-01', project_key: 'K' }], null]);
     const out = await queryJiraIssues({}) as { issues: any[]; count: number };
     expect(out.count).toBe(1);
-    expect(out.issues[0].resolved_at).toBe('2026-01-01');
+    const sql = mockExecute.mock.calls[2][0] as string;
+    expect(sql).toContain('GROUP BY ji.issue_key');
+    expect(sql).toContain('LIMIT ?');
+  });
+
+  it('report-scoped: plain SELECT, no GROUP BY dedup', async () => {
+    mockExecute
+      .mockResolvedValueOnce([[{ id: 'r1' }], null])            // resolveReportId (explicit)
+      .mockResolvedValueOnce([[
+        { issue_key: 'K-1', resolved_at: '2026-01-02', project_key: 'K' },
+        { issue_key: 'K-2', resolved_at: '2026-01-01', project_key: 'K' },
+      ], null]);
+    const out = await queryJiraIssues({ report_id: 'r1' }) as { issues: any[]; count: number };
+    expect(out.count).toBe(2);
+    const sql = mockExecute.mock.calls[1][0] as string;
+    expect(sql).not.toContain('GROUP BY');
   });
 });
 
@@ -264,6 +279,16 @@ describe('getMetricTimeseries', () => {
     expect(rowSql).toContain('LIMIT ?');
     expect(rowParams[rowParams.length - 1]).toBe(String(TIMESERIES_ROW_CAP));
     expect(rowParams.some(p => typeof p === 'string' && /^\d{4}-\d{2}-\d{2}/.test(p))).toBe(true);
+  });
+
+  it('treats an empty-string since as absent and still applies the default window', async () => {
+    mockExecute
+      .mockResolvedValueOnce([[{ id: 'r9' }], null])   // resolveReportId (no org given)
+      .mockResolvedValueOnce([[{ org: 'acme' }], null]) // reportOrg
+      .mockResolvedValueOnce([[], null]);               // rows
+    await getMetricTimeseries({ metric: 'commits', group_by: 'week', since: '   ' });
+    const rowSql = mockExecute.mock.calls[2][0] as string;
+    expect(rowSql).toContain('committed_at >= ?'); // default window applied, not bypassed
   });
 
   it('does not add a default window when since is provided, and reports truncated=false for a small result', async () => {

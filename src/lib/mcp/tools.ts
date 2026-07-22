@@ -171,6 +171,7 @@ export const MCP_TOOLS: McpTool[] = [
     inputSchema: { type: 'object', properties: {
       org: { type: 'string', description: 'Filter by org' },
       epic_key: { type: 'string', description: 'Specific epic key (optional)' },
+      limit: { type: 'number', description: 'Max rows (default 100, max 500)' },
     } },
     handler: (a) => getEpicSummaries(a),
   },
@@ -196,6 +197,10 @@ export async function callTool(name: string, args: Record<string, any>): Promise
   try {
     return await tool.handler(args ?? {});
   } catch (err) {
-    return { error: err instanceof Error ? err.message : String(err) };
+    // Log the real error server-side; return a generic message to the MCP caller
+    // so internal detail (DB error text, table/column names) isn't leaked to an
+    // arbitrary agent/client.
+    console.error(`[mcp] tool "${name}" failed:`, err);
+    return { error: `Tool "${name}" failed. See server logs for details.` };
   }
 }

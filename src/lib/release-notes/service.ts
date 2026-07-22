@@ -9,15 +9,18 @@ export async function getReleaseNotes() {
   try {
     const since = new Date(Date.now() - DAYS * 24 * 60 * 60 * 1000).toISOString();
     const ghToken = process.env.GITHUB_TOKEN;
-    if (!ghToken) return { available: false as const };
+    // Not configured — distinct from "no commits": an agent should know it can't run.
+    if (!ghToken) return { available: false as const, error: 'GITHUB_TOKEN not configured' };
 
     const res = await fetch(
       `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits?since=${since}&per_page=100`,
       { headers: { Authorization: `token ${ghToken}`, Accept: 'application/vnd.github.v3+json' }, next: { revalidate: 3600 } },
     );
-    if (!res.ok) return { available: false as const };
+    // Upstream failure — distinct from the normal empty case below.
+    if (!res.ok) return { available: false as const, error: `GitHub API error (${res.status})` };
 
     const commits = await res.json();
+    // Genuine empty case: no commits in the window. No error — "nothing to report".
     if (!Array.isArray(commits) || commits.length === 0) return { available: false as const };
 
     const latestSha = commits[0].sha;
@@ -59,7 +62,9 @@ export async function getReleaseNotes() {
 
     return { available: true as const, summary, commitCount: commits.length, generatedAt: new Date().toISOString(), latestSha, cached: false };
   } catch (err) {
+    // Unexpected (LLM/DB/network) failure — surface as an error, not an empty result,
+    // so an autonomous caller can tell "broken" from "nothing to report".
     console.error('[release-notes]', err);
-    return { available: false as const };
+    return { available: false as const, error: 'Failed to generate release notes. See server logs for details.' };
   }
 }

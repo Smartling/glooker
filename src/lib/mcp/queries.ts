@@ -1,6 +1,6 @@
 import db from '@/lib/db';
 import { resolveReportId } from './resolve';
-import { dedupByKeyEarliest, bucketByPeriod } from './dedup';
+import { bucketByPeriod } from './dedup';
 
 export const MAX_ROWS = 500;
 const DEFAULT_TIMESERIES_WINDOW_DAYS = 180;
@@ -105,20 +105,33 @@ export async function queryCommits(args: {
   if (args.min_complexity != null) { conditions.push('ca.complexity >= ?'); params.push(args.min_complexity); }
   if (args.ai_only) { conditions.push('(ca.ai_co_authored = 1 OR ca.maybe_ai = 1)'); }
   params.push(clampLimit(args.limit, 100));
+  const where = conditions.join(' AND ');
 
-  const [rows] = await db.execute(
-    `SELECT ca.commit_sha, ca.repo, ca.github_login, ca.pr_number, ca.commit_message,
-            ca.type, ca.complexity, ca.risk_level, ca.lines_added, ca.lines_removed,
-            ca.ai_co_authored, ca.maybe_ai, ca.committed_at
-     FROM commit_analyses ca
-     WHERE ${conditions.join(' AND ')}
-     ORDER BY ca.committed_at DESC
-     LIMIT ?`,
-    params,
-  ) as [any[], any];
+  // Cross-report: the same commit_sha appears in every overlapping report window.
+  // Dedup in SQL (GROUP BY the sha) so LIMIT bounds *distinct* commits — limiting
+  // raw rows and deduping afterward could silently return fewer than `limit`.
+  // Report-scoped: commit_sha is unique per report, so a plain SELECT suffices.
+  const sql = crossReport
+    ? `SELECT ca.commit_sha,
+              MIN(ca.repo) AS repo, MIN(ca.github_login) AS github_login, MIN(ca.pr_number) AS pr_number,
+              MIN(ca.commit_message) AS commit_message, MIN(ca.type) AS type, MIN(ca.complexity) AS complexity,
+              MIN(ca.risk_level) AS risk_level, MIN(ca.lines_added) AS lines_added, MIN(ca.lines_removed) AS lines_removed,
+              MIN(ca.ai_co_authored) AS ai_co_authored, MIN(ca.maybe_ai) AS maybe_ai, MIN(ca.committed_at) AS committed_at
+       FROM commit_analyses ca
+       WHERE ${where}
+       GROUP BY ca.commit_sha
+       ORDER BY committed_at DESC
+       LIMIT ?`
+    : `SELECT ca.commit_sha, ca.repo, ca.github_login, ca.pr_number, ca.commit_message,
+              ca.type, ca.complexity, ca.risk_level, ca.lines_added, ca.lines_removed,
+              ca.ai_co_authored, ca.maybe_ai, ca.committed_at
+       FROM commit_analyses ca
+       WHERE ${where}
+       ORDER BY ca.committed_at DESC
+       LIMIT ?`;
 
-  const commits = crossReport ? dedupByKeyEarliest(rows, 'commit_sha', 'committed_at') : rows;
-  return { commits, count: commits.length };
+  const [rows] = await db.execute(sql, params) as [any[], any];
+  return { commits: rows, count: rows.length };
 }
 
 export async function queryJiraIssues(args: {
@@ -146,19 +159,29 @@ export async function queryJiraIssues(args: {
   if (args.since) { conditions.push('ji.resolved_at >= ?'); params.push(args.since); }
   if (args.until) { conditions.push('ji.resolved_at <= ?'); params.push(args.until); }
   params.push(clampLimit(args.limit, 100));
+  const where = conditions.join(' AND ');
 
-  const [rows] = await db.execute(
-    `SELECT ji.issue_key, ji.project_key, ji.issue_type, ji.summary, ji.status,
-            ji.story_points, ji.github_login, ji.created_at, ji.resolved_at, ji.issue_url
-     FROM jira_issues ji
-     WHERE ${conditions.join(' AND ')}
-     ORDER BY ji.resolved_at DESC
-     LIMIT ?`,
-    params,
-  ) as [any[], any];
+  // Cross-report: dedup by issue_key in SQL so LIMIT bounds distinct issues
+  // (see queryCommits). Report-scoped: issue_key is unique per report.
+  const sql = crossReport
+    ? `SELECT ji.issue_key,
+              MIN(ji.project_key) AS project_key, MIN(ji.issue_type) AS issue_type, MIN(ji.summary) AS summary,
+              MIN(ji.status) AS status, MIN(ji.story_points) AS story_points, MIN(ji.github_login) AS github_login,
+              MIN(ji.created_at) AS created_at, MIN(ji.resolved_at) AS resolved_at, MIN(ji.issue_url) AS issue_url
+       FROM jira_issues ji
+       WHERE ${where}
+       GROUP BY ji.issue_key
+       ORDER BY resolved_at DESC
+       LIMIT ?`
+    : `SELECT ji.issue_key, ji.project_key, ji.issue_type, ji.summary, ji.status,
+              ji.story_points, ji.github_login, ji.created_at, ji.resolved_at, ji.issue_url
+       FROM jira_issues ji
+       WHERE ${where}
+       ORDER BY ji.resolved_at DESC
+       LIMIT ?`;
 
-  const issues = crossReport ? dedupByKeyEarliest(rows, 'issue_key', 'resolved_at') : rows;
-  return { issues, count: issues.length };
+  const [rows] = await db.execute(sql, params) as [any[], any];
+  return { issues: rows, count: rows.length };
 }
 
 const DEV_SORT_COLUMNS = ['impact_score', 'total_commits', 'total_prs', 'avg_complexity', 'lines_added', 'lines_removed', 'ai_percentage', 'pr_percentage'];
@@ -225,12 +248,13 @@ export async function queryUnmergedWork(args: { report_id?: string; login?: stri
   };
 }
 
-export async function getEpicSummaries(args: { org?: string; epic_key?: string }) {
+export async function getEpicSummaries(args: { org?: string; epic_key?: string; limit?: number }) {
   const conditions: string[] = [];
   const params: any[] = [];
   if (args.org) { conditions.push('es.org = ?'); params.push(args.org); }
   if (args.epic_key) { conditions.push('es.epic_key = ?'); params.push(args.epic_key); }
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  params.push(clampLimit(args.limit, 100));
   const [rows] = await db.execute(
     `SELECT es.epic_key, es.org, es.summary_text, es.jira_resolved, es.jira_remaining,
             es.commit_count, es.lines_added, es.lines_removed, es.repos,
@@ -238,7 +262,8 @@ export async function getEpicSummaries(args: { org?: string; epic_key?: string }
      FROM epic_summaries es
      LEFT JOIN epic_stats est ON est.epic_key = es.epic_key AND est.org = es.org
      ${where}
-     ORDER BY es.commit_count DESC`,
+     ORDER BY es.commit_count DESC
+     LIMIT ?`,
     params,
   ) as [any[], any];
   const epics = rows.map((r: any) => ({
@@ -262,6 +287,10 @@ export async function getMetricTimeseries(args: { metric: string; group_by?: str
   if (!ROW_METRICS.has(metric) && !REPORT_METRICS.has(metric)) {
     return { error: `unknown metric: ${metric}` };
   }
+  // Treat empty/whitespace date bounds as absent so the default window and the
+  // explicit-filter checks below don't get bypassed by e.g. since: ''.
+  const since = args.since?.trim() || undefined;
+  const until = args.until?.trim() || undefined;
 
   // Report-based metrics: average developer_stats per report.
   if (REPORT_METRICS.has(metric)) {
@@ -269,8 +298,8 @@ export async function getMetricTimeseries(args: { metric: string; group_by?: str
     const conditions = [`r.status = 'completed'`];
     const params: any[] = [];
     if (args.org) { conditions.push('r.org = ?'); params.push(args.org); }
-    if (args.since) { conditions.push('r.created_at >= ?'); params.push(args.since); }
-    if (args.until) { conditions.push('r.created_at <= ?'); params.push(args.until); }
+    if (since) { conditions.push('r.created_at >= ?'); params.push(since); }
+    if (until) { conditions.push('r.created_at <= ?'); params.push(until); }
     const [rows] = await db.execute(
       `SELECT r.id AS report_id, r.created_at, AVG(ds.${col}) AS value
        FROM reports r JOIN developer_stats ds ON ds.report_id = r.id
@@ -316,9 +345,9 @@ export async function getMetricTimeseries(args: { metric: string; group_by?: str
   // Shared WHERE: org scope + optional time window (+ PR filter for 'prs').
   const conditions = [`${alias}.report_id IN (SELECT id FROM reports WHERE org = ? AND status = 'completed')`];
   const params: any[] = [org];
-  if (args.since) { conditions.push(`${alias}.${tsCol} >= ?`); params.push(args.since); }
-  if (args.until) { conditions.push(`${alias}.${tsCol} <= ?`); params.push(args.until); }
-  if (args.since === undefined && args.until === undefined) {
+  if (since) { conditions.push(`${alias}.${tsCol} >= ?`); params.push(since); }
+  if (until) { conditions.push(`${alias}.${tsCol} <= ?`); params.push(until); }
+  if (since === undefined && until === undefined) {
     const defaultSince = new Date(Date.now() - DEFAULT_TIMESERIES_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
     conditions.push(`${alias}.${tsCol} >= ?`);
     params.push(defaultSince);

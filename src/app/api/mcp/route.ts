@@ -1,12 +1,10 @@
 import { NextResponse } from 'next/server';
 import { withRequestLog } from '@/lib/logger';
 import { handleJsonRpc } from '@/lib/mcp/protocol';
-import { extractUser } from '@/lib/auth';
 
 async function postHandler(req: Request) {
-  // Identity is read for request-log attribution only (read-only server, no gating).
-  try { extractUser(req.headers); } catch { /* no-op */ }
-
+  // Request-log attribution (user identity) is handled by withRequestLog, which
+  // calls extractUser itself — no need to duplicate it here.
   let message: any;
   try {
     message = await req.json();

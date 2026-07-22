@@ -55,6 +55,13 @@ describe('handleJsonRpc', () => {
     expect(res.body.result.isError).toBe(true);
   });
 
+  it('tools/call missing a required field returns -32602 before dispatch', async () => {
+    // get_project_details requires project_name; omit it.
+    const res = await handleJsonRpc({ jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: 'get_project_details', arguments: {} } });
+    expect(res.body.error.code).toBe(-32602);
+    expect(res.body.error.message).toContain('project_name');
+  });
+
   it('unknown method returns JSON-RPC error -32601', async () => {
     const res = await handleJsonRpc({ jsonrpc: '2.0', id: 5, method: 'does/not/exist' });
     expect(res.body.error.code).toBe(-32601);

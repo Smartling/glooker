@@ -7,9 +7,9 @@ describe('getReleaseNotes', () => {
   const original = process.env.GITHUB_TOKEN;
   afterEach(() => { process.env.GITHUB_TOKEN = original; });
 
-  it('returns { available: false } when GITHUB_TOKEN is unset', async () => {
+  it('returns available:false with an error field when GITHUB_TOKEN is unset', async () => {
     delete process.env.GITHUB_TOKEN;
     const result = await getReleaseNotes();
-    expect(result).toEqual({ available: false });
+    expect(result).toEqual({ available: false, error: 'GITHUB_TOKEN not configured' });
   });
 });
