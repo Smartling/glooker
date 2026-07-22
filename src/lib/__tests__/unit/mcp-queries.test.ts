@@ -1,7 +1,7 @@
 jest.mock('@octokit/rest', () => ({ Octokit: jest.fn() }));
 jest.mock('@/lib/db/index', () => ({ __esModule: true, default: { execute: jest.fn() } }));
 
-import { queryCommits, queryJiraIssues, queryDeveloperStats, listReports, getEpicSummaries } from '@/lib/mcp/queries';
+import { queryCommits, queryJiraIssues, queryDeveloperStats, listReports, getEpicSummaries, getMetricTimeseries } from '@/lib/mcp/queries';
 import db from '@/lib/db/index';
 
 const mockExecute = db.execute as jest.Mock;
@@ -122,5 +122,47 @@ describe('getEpicSummaries', () => {
     const out = await getEpicSummaries({ org: 'acme' });
     expect(out.epics).toHaveLength(1);
     expect(out.epics[0].epic_key).toBe('E-1');
+  });
+});
+
+describe('getMetricTimeseries', () => {
+  it('commits by week: dedups then buckets by Monday', async () => {
+    mockExecute
+      .mockResolvedValueOnce([[{ id: 'r9' }], null])            // resolveReportId
+      .mockResolvedValueOnce([[{ org: 'acme' }], null])          // reportOrg
+      .mockResolvedValueOnce([[
+        { commit_sha: 'a', committed_at: '2026-01-05T00:00:00Z' }, // Mon wk 01-05
+        { commit_sha: 'a', committed_at: '2026-03-01T00:00:00Z' }, // dup, later → dropped
+        { commit_sha: 'b', committed_at: '2026-01-07T00:00:00Z' }, // Wed wk 01-05
+      ], null]);
+    const out = await getMetricTimeseries({ metric: 'commits', group_by: 'week' });
+    expect(out).toEqual({ metric: 'commits', group_by: 'week', series: [{ bucket: '2026-01-05', value: 2 }] });
+  });
+
+  it('lines_added by repo: sums the metric per group', async () => {
+    mockExecute
+      .mockResolvedValueOnce([[{ id: 'r9' }], null])
+      .mockResolvedValueOnce([[{ org: 'acme' }], null])
+      .mockResolvedValueOnce([[
+        { commit_sha: 'a', committed_at: '2026-01-01', repo: 'x', lines_added: '10' },
+        { commit_sha: 'b', committed_at: '2026-01-02', repo: 'x', lines_added: '5' },
+        { commit_sha: 'c', committed_at: '2026-01-03', repo: 'y', lines_added: '3' },
+      ], null]);
+    const out = await getMetricTimeseries({ metric: 'lines_added', group_by: 'repo' });
+    expect(out.series).toEqual([{ bucket: 'x', value: 15 }, { bucket: 'y', value: 3 }]);
+  });
+
+  it('impact_score forces group_by=report and averages per report', async () => {
+    mockExecute.mockResolvedValueOnce([[
+      { report_id: 'r1', created_at: '2026-01-01', value: '4.0' },
+      { report_id: 'r2', created_at: '2026-02-01', value: '4.5' },
+    ], null]);
+    const out = await getMetricTimeseries({ metric: 'impact_score', org: 'acme' });
+    expect(out.group_by).toBe('report');
+    expect(out.series).toEqual([{ bucket: '2026-01-01', value: 4 }, { bucket: '2026-02-01', value: 4.5 }]);
+  });
+
+  it('rejects an unknown metric', async () => {
+    expect(await getMetricTimeseries({ metric: 'bogus' })).toEqual({ error: 'unknown metric: bogus' });
   });
 });

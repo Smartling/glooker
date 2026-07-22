@@ -1,6 +1,6 @@
 import db from '@/lib/db';
 import { resolveReportId } from './resolve';
-import { dedupByKeyEarliest } from './dedup';
+import { dedupByKeyEarliest, bucketByPeriod } from './dedup';
 
 export const MAX_ROWS = 500;
 
@@ -242,4 +242,93 @@ export async function getEpicSummaries(args: { org?: string; epic_key?: string }
     dev_count: r.dev_count == null ? null : Number(r.dev_count),
   }));
   return { epics };
+}
+
+const ROW_METRICS = new Set(['commits', 'prs', 'lines_added', 'jira_resolved']);
+const REPORT_METRICS = new Set(['impact_score', 'ai_percentage']);
+
+export async function getMetricTimeseries(args: { metric: string; group_by?: string; org?: string; since?: string; until?: string }) {
+  const { metric } = args;
+  if (!ROW_METRICS.has(metric) && !REPORT_METRICS.has(metric)) {
+    return { error: `unknown metric: ${metric}` };
+  }
+
+  // Report-based metrics: average developer_stats per report.
+  if (REPORT_METRICS.has(metric)) {
+    const col = metric === 'impact_score' ? 'impact_score' : 'ai_percentage';
+    const conditions = [`r.status = 'completed'`];
+    const params: any[] = [];
+    if (args.org) { conditions.push('r.org = ?'); params.push(args.org); }
+    if (args.since) { conditions.push('r.created_at >= ?'); params.push(args.since); }
+    if (args.until) { conditions.push('r.created_at <= ?'); params.push(args.until); }
+    const [rows] = await db.execute(
+      `SELECT r.id AS report_id, r.created_at, AVG(ds.${col}) AS value
+       FROM reports r JOIN developer_stats ds ON ds.report_id = r.id
+       WHERE ${conditions.join(' AND ')}
+       GROUP BY r.id, r.created_at
+       ORDER BY r.created_at ASC`,
+      params,
+    ) as [any[], any];
+    return {
+      metric, group_by: 'report',
+      series: rows.map((r: any) => ({ bucket: String(r.created_at).slice(0, 10), value: Number(r.value ?? 0) })),
+    };
+  }
+
+  // Row-based metrics: resolve org, pull rows across the org's completed reports, dedup, bucket.
+  const r = await resolveReportId(undefined); // latest completed anchors the org when org not given
+  let org = args.org ?? null;
+  if (!org) {
+    if ('error' in r) return r;
+    org = await reportOrg(r.id);
+  }
+  const groupBy = args.group_by ?? 'week';
+
+  const isJira = metric === 'jira_resolved';
+  const table = isJira ? 'jira_issues ji' : 'commit_analyses ca';
+  const alias = isJira ? 'ji' : 'ca';
+  const tsCol = isJira ? 'resolved_at' : 'committed_at';
+  const keyCol = isJira ? 'issue_key' : 'commit_sha';
+
+  const conditions = [`${alias}.report_id IN (SELECT id FROM reports WHERE org = ? AND status = 'completed')`];
+  const params: any[] = [org];
+  if (args.since) { conditions.push(`${alias}.${tsCol} >= ?`); params.push(args.since); }
+  if (args.until) { conditions.push(`${alias}.${tsCol} <= ?`); params.push(args.until); }
+  // For 'prs', restrict to commits that belong to a PR and dedup by pr_number instead.
+  if (metric === 'prs') conditions.push('ca.pr_number IS NOT NULL');
+
+  const selectCols = isJira
+    ? `ji.issue_key, ji.resolved_at, ji.project_key`
+    : `ca.commit_sha, ca.pr_number, ca.committed_at, ca.repo, ca.github_login, ca.type, ca.lines_added`;
+
+  const [rows] = await db.execute(
+    `SELECT ${selectCols} FROM ${table} WHERE ${conditions.join(' AND ')} ORDER BY ${alias}.${tsCol} ASC`,
+    params,
+  ) as [any[], any];
+
+  // Dedup to the real timeline.
+  let deduped: any[];
+  if (metric === 'prs') {
+    deduped = dedupByKeyEarliest(rows, 'pr_number', 'committed_at');
+  } else {
+    deduped = dedupByKeyEarliest(rows, keyCol as any, tsCol as any);
+  }
+
+  // Bucket.
+  const valueOf = (row: any): number => metric === 'lines_added' ? Number(row.lines_added ?? 0) : 1;
+
+  if (groupBy === 'week' || groupBy === 'month') {
+    const buckets = bucketByPeriod(deduped, tsCol as any, groupBy);
+    return { metric, group_by: groupBy, series: buckets.map(b => ({ bucket: b.bucket, value: b.rows.reduce((s, row) => s + valueOf(row), 0) })) };
+  }
+
+  // Dimension grouping: report | developer | repo | type
+  const dimField = groupBy === 'developer' ? 'github_login' : groupBy === 'repo' ? 'repo' : groupBy === 'type' ? 'type' : 'report';
+  const agg = new Map<string, number>();
+  for (const row of deduped) {
+    const key = String(row[dimField] ?? 'unknown');
+    agg.set(key, (agg.get(key) ?? 0) + valueOf(row));
+  }
+  const series = [...agg.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([bucket, value]) => ({ bucket, value }));
+  return { metric, group_by: groupBy, series };
 }
