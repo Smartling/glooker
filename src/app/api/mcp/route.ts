@@ -19,7 +19,7 @@ async function postHandler(req: Request) {
   return NextResponse.json(body, { status });
 }
 
-async function getHandler() {
+async function getHandler(_req: Request) {
   // POST-only MCP endpoint; no server-initiated SSE stream.
   return new Response('Method Not Allowed', { status: 405 });
 }

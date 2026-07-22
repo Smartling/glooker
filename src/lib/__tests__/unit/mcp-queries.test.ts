@@ -62,7 +62,7 @@ describe('queryCommits', () => {
         { commit_sha: 'a', committed_at: '2026-01-02', repo: 'x', github_login: 'u', type: 'feature', lines_added: 1, lines_removed: 0 },
         { commit_sha: 'a', committed_at: '2026-01-01', repo: 'x', github_login: 'u', type: 'feature', lines_added: 1, lines_removed: 0 },
       ], null]);
-    const out = await queryCommits({ report_id: 'r1' });
+    const out = await queryCommits({ report_id: 'r1' }) as { commits: any[]; count: number };
     expect(out.count).toBe(2); // duplicates preserved when report-scoped
   });
 
@@ -75,7 +75,7 @@ describe('queryCommits', () => {
         { commit_sha: 'a', committed_at: '2026-01-01', repo: 'x', github_login: 'u', type: 'feature', lines_added: 1, lines_removed: 0 },
         { commit_sha: 'b', committed_at: '2026-02-01', repo: 'x', github_login: 'u', type: 'bug', lines_added: 2, lines_removed: 1 },
       ], null]);
-    const out = await queryCommits({});
+    const out = await queryCommits({}) as { commits: any[]; count: number };
     expect(out.count).toBe(2);
     expect(out.commits.find((c: any) => c.commit_sha === 'a').committed_at).toBe('2026-01-01');
   });
@@ -86,7 +86,7 @@ describe('queryDeveloperStats', () => {
     mockExecute
       .mockResolvedValueOnce([[{ id: 'r1' }], null])            // resolveReportId
       .mockResolvedValueOnce([[{ github_login: 'u', impact_score: '4.5', total_commits: '10' }], null]);
-    const out = await queryDeveloperStats({ report_id: 'r1', sort_by: 'impact_score' });
+    const out = await queryDeveloperStats({ report_id: 'r1', sort_by: 'impact_score' }) as { developers: any[]; count: number };
     expect(out.developers[0].impact_score).toBe(4.5);
     expect(typeof out.developers[0].impact_score).toBe('number');
   });
@@ -110,7 +110,7 @@ describe('queryJiraIssues', () => {
         { issue_key: 'K-1', resolved_at: '2026-03-01', project_key: 'K' },
         { issue_key: 'K-1', resolved_at: '2026-01-01', project_key: 'K' },
       ], null]);
-    const out = await queryJiraIssues({});
+    const out = await queryJiraIssues({}) as { issues: any[]; count: number };
     expect(out.count).toBe(1);
     expect(out.issues[0].resolved_at).toBe('2026-01-01');
   });
@@ -148,7 +148,7 @@ describe('getMetricTimeseries', () => {
         { commit_sha: 'b', committed_at: '2026-01-02', repo: 'x', lines_added: '5' },
         { commit_sha: 'c', committed_at: '2026-01-03', repo: 'y', lines_added: '3' },
       ], null]);
-    const out = await getMetricTimeseries({ metric: 'lines_added', group_by: 'repo' });
+    const out = await getMetricTimeseries({ metric: 'lines_added', group_by: 'repo' }) as { series: any[] };
     expect(out.series).toEqual([{ bucket: 'x', value: 15 }, { bucket: 'y', value: 3 }]);
   });
 
@@ -157,7 +157,7 @@ describe('getMetricTimeseries', () => {
       { report_id: 'r1', created_at: '2026-01-01', value: '4.0' },
       { report_id: 'r2', created_at: '2026-02-01', value: '4.5' },
     ], null]);
-    const out = await getMetricTimeseries({ metric: 'impact_score', org: 'acme' });
+    const out = await getMetricTimeseries({ metric: 'impact_score', org: 'acme' }) as { group_by: string; series: any[] };
     expect(out.group_by).toBe('report');
     expect(out.series).toEqual([{ bucket: '2026-01-01', value: 4 }, { bucket: '2026-02-01', value: 4.5 }]);
   });
@@ -174,7 +174,7 @@ describe('getMetricTimeseries', () => {
         { commit_sha: 'b', committed_at: '2026-01-02', report_id: 'rA', lines_added: 1 },
         { commit_sha: 'c', committed_at: '2026-01-03', report_id: 'rB', lines_added: 1 },
       ], null]);
-    const out = await getMetricTimeseries({ metric: 'commits', group_by: 'report', org: 'acme' });
+    const out = await getMetricTimeseries({ metric: 'commits', group_by: 'report', org: 'acme' }) as { series: any[] };
     expect(out.series).toEqual([{ bucket: 'rA', value: 2 }, { bucket: 'rB', value: 1 }]);
   });
 
@@ -186,7 +186,7 @@ describe('getMetricTimeseries', () => {
         { issue_key: 'K-1', resolved_at: '2026-03-01T00:00:00Z', report_id: 'rB', github_login: 'u' },
         { issue_key: 'K-2', resolved_at: '2026-01-07T00:00:00Z', report_id: 'rA', github_login: 'v' },
       ], null]);
-    const out = await getMetricTimeseries({ metric: 'jira_resolved', group_by: 'week', org: 'acme' });
+    const out = await getMetricTimeseries({ metric: 'jira_resolved', group_by: 'week', org: 'acme' }) as { series: any[] };
     expect(out.series).toEqual([{ bucket: '2026-01-05', value: 2 }]);
   });
 
@@ -198,7 +198,7 @@ describe('getMetricTimeseries', () => {
         { issue_key: 'K-2', resolved_at: '2026-01-02', report_id: 'rA', github_login: 'alice' },
         { issue_key: 'K-3', resolved_at: '2026-01-03', report_id: 'rA', github_login: 'bob' },
       ], null]);
-    const out = await getMetricTimeseries({ metric: 'jira_resolved', group_by: 'developer', org: 'acme' });
+    const out = await getMetricTimeseries({ metric: 'jira_resolved', group_by: 'developer', org: 'acme' }) as { series: any[] };
     expect(out.series).toEqual([{ bucket: 'alice', value: 2 }, { bucket: 'bob', value: 1 }]);
   });
 
