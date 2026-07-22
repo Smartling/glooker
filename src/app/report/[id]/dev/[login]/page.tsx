@@ -407,7 +407,7 @@ export default function DevDetailPage() {
       </div>
 
       {/* Commits Table */}
-      <div className="bg-gray-900 rounded-xl overflow-hidden">
+      <div className="bg-gray-900 rounded-xl overflow-hidden mb-6">
         <div className="px-5 py-3 border-b border-gray-800">
           <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">
             Commits ({commits.length})
