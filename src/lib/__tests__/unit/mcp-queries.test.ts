@@ -165,4 +165,52 @@ describe('getMetricTimeseries', () => {
   it('rejects an unknown metric', async () => {
     expect(await getMetricTimeseries({ metric: 'bogus' })).toEqual({ error: 'unknown metric: bogus' });
   });
+
+  it('commits grouped by report buckets by report_id', async () => {
+    mockExecute
+      .mockResolvedValueOnce([[{ id: 'r9' }], null])   // resolveReportId(undefined)
+      .mockResolvedValueOnce([[                          // rows
+        { commit_sha: 'a', committed_at: '2026-01-01', report_id: 'rA', lines_added: 1 },
+        { commit_sha: 'b', committed_at: '2026-01-02', report_id: 'rA', lines_added: 1 },
+        { commit_sha: 'c', committed_at: '2026-01-03', report_id: 'rB', lines_added: 1 },
+      ], null]);
+    const out = await getMetricTimeseries({ metric: 'commits', group_by: 'report', org: 'acme' });
+    expect(out.series).toEqual([{ bucket: 'rA', value: 2 }, { bucket: 'rB', value: 1 }]);
+  });
+
+  it('jira_resolved by week dedups by issue_key then counts', async () => {
+    mockExecute
+      .mockResolvedValueOnce([[{ id: 'r9' }], null])
+      .mockResolvedValueOnce([[
+        { issue_key: 'K-1', resolved_at: '2026-01-05T00:00:00Z', report_id: 'rA', github_login: 'u' },
+        { issue_key: 'K-1', resolved_at: '2026-03-01T00:00:00Z', report_id: 'rB', github_login: 'u' },
+        { issue_key: 'K-2', resolved_at: '2026-01-07T00:00:00Z', report_id: 'rA', github_login: 'v' },
+      ], null]);
+    const out = await getMetricTimeseries({ metric: 'jira_resolved', group_by: 'week', org: 'acme' });
+    expect(out.series).toEqual([{ bucket: '2026-01-05', value: 2 }]);
+  });
+
+  it('jira_resolved grouped by developer buckets by github_login', async () => {
+    mockExecute
+      .mockResolvedValueOnce([[{ id: 'r9' }], null])
+      .mockResolvedValueOnce([[
+        { issue_key: 'K-1', resolved_at: '2026-01-01', report_id: 'rA', github_login: 'alice' },
+        { issue_key: 'K-2', resolved_at: '2026-01-02', report_id: 'rA', github_login: 'alice' },
+        { issue_key: 'K-3', resolved_at: '2026-01-03', report_id: 'rA', github_login: 'bob' },
+      ], null]);
+    const out = await getMetricTimeseries({ metric: 'jira_resolved', group_by: 'developer', org: 'acme' });
+    expect(out.series).toEqual([{ bucket: 'alice', value: 2 }, { bucket: 'bob', value: 1 }]);
+  });
+
+  it('rejects an unsupported group_by with no DB call', async () => {
+    const out = await getMetricTimeseries({ metric: 'commits', group_by: 'daily' });
+    expect(out).toEqual({ error: 'unknown group_by: daily' });
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it('rejects repo/type grouping for jira_resolved with no DB call', async () => {
+    const out = await getMetricTimeseries({ metric: 'jira_resolved', group_by: 'repo' });
+    expect(out).toEqual({ error: "group_by 'repo' is not supported for metric 'jira_resolved'" });
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
 });

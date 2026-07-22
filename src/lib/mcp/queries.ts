@@ -276,13 +276,20 @@ export async function getMetricTimeseries(args: { metric: string; group_by?: str
   }
 
   // Row-based metrics: resolve org, pull rows across the org's completed reports, dedup, bucket.
+  const groupBy = args.group_by ?? 'week';
+
+  const ALLOWED_GROUP_BY = ['week', 'month', 'report', 'developer', 'repo', 'type'];
+  if (!ALLOWED_GROUP_BY.includes(groupBy)) return { error: `unknown group_by: ${groupBy}` };
+  if (metric === 'jira_resolved' && (groupBy === 'repo' || groupBy === 'type')) {
+    return { error: `group_by '${groupBy}' is not supported for metric 'jira_resolved'` };
+  }
+
   const r = await resolveReportId(undefined); // latest completed anchors the org when org not given
   let org = args.org ?? null;
   if (!org) {
     if ('error' in r) return r;
     org = await reportOrg(r.id);
   }
-  const groupBy = args.group_by ?? 'week';
 
   const isJira = metric === 'jira_resolved';
   const table = isJira ? 'jira_issues ji' : 'commit_analyses ca';
@@ -298,8 +305,8 @@ export async function getMetricTimeseries(args: { metric: string; group_by?: str
   if (metric === 'prs') conditions.push('ca.pr_number IS NOT NULL');
 
   const selectCols = isJira
-    ? `ji.issue_key, ji.resolved_at, ji.project_key`
-    : `ca.commit_sha, ca.pr_number, ca.committed_at, ca.repo, ca.github_login, ca.type, ca.lines_added`;
+    ? `ji.report_id, ji.issue_key, ji.resolved_at, ji.project_key, ji.github_login`
+    : `ca.report_id, ca.commit_sha, ca.pr_number, ca.committed_at, ca.repo, ca.github_login, ca.type, ca.lines_added`;
 
   const [rows] = await db.execute(
     `SELECT ${selectCols} FROM ${table} WHERE ${conditions.join(' AND ')} ORDER BY ${alias}.${tsCol} ASC`,
@@ -323,7 +330,8 @@ export async function getMetricTimeseries(args: { metric: string; group_by?: str
   }
 
   // Dimension grouping: report | developer | repo | type
-  const dimField = groupBy === 'developer' ? 'github_login' : groupBy === 'repo' ? 'repo' : groupBy === 'type' ? 'type' : 'report';
+  const DIM_FIELDS: Record<string, string> = { report: 'report_id', developer: 'github_login', repo: 'repo', type: 'type' };
+  const dimField = DIM_FIELDS[groupBy];
   const agg = new Map<string, number>();
   for (const row of deduped) {
     const key = String(row[dimField] ?? 'unknown');
