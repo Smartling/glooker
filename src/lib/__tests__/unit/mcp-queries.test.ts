@@ -16,6 +16,37 @@ describe('listReports', () => {
     const params = mockExecute.mock.calls[0][1];
     expect(params).toContain('5');
   });
+
+  describe('limit clamping', () => {
+    const limitParam = () => {
+      const params = mockExecute.mock.calls[0][1] as any[];
+      return params[params.length - 1];
+    };
+
+    it('caps an over-large limit at MAX_ROWS (500)', async () => {
+      mockExecute.mockResolvedValueOnce([[], null]);
+      await listReports({ limit: 100000 });
+      expect(limitParam()).toBe('500');
+    });
+
+    it('falls back to the default for a negative limit', async () => {
+      mockExecute.mockResolvedValueOnce([[], null]);
+      await listReports({ limit: -1 });
+      expect(limitParam()).toBe('50');
+    });
+
+    it('falls back to the default for zero or NaN limit', async () => {
+      mockExecute.mockResolvedValueOnce([[], null]);
+      await listReports({ limit: 0 });
+      expect(limitParam()).toBe('50');
+    });
+
+    it('floors a fractional limit', async () => {
+      mockExecute.mockResolvedValueOnce([[], null]);
+      await listReports({ limit: 7.9 });
+      expect(limitParam()).toBe('7');
+    });
+  });
 });
 
 describe('queryCommits', () => {

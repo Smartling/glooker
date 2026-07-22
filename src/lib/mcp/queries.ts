@@ -4,7 +4,11 @@ import { dedupByKeyEarliest } from './dedup';
 
 export const MAX_ROWS = 500;
 
-const clampLimit = (raw: unknown, def: number) => String(Math.min(Number(raw) || def, MAX_ROWS));
+const clampLimit = (raw: unknown, def: number) => {
+  const n = Number(raw);
+  const v = Number.isFinite(n) && n > 0 ? Math.floor(n) : def;
+  return String(Math.min(v, MAX_ROWS));
+};
 
 // Resolve the org of the report we are anchored to (for cross-report queries).
 async function reportOrg(reportId: string): Promise<string | null> {
