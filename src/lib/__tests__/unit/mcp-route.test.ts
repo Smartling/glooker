@@ -42,3 +42,29 @@ describe('POST /api/mcp', () => {
     expect(res.status).toBe(405);
   });
 });
+
+describe('POST /api/mcp auth backstop', () => {
+  const orig = { enabled: process.env.AUTH_ENABLED, testUser: process.env.AUTH_TEST_USER };
+  afterEach(() => {
+    process.env.AUTH_ENABLED = orig.enabled;
+    process.env.AUTH_TEST_USER = orig.testUser;
+  });
+
+  it('returns 401 when AUTH_ENABLED and no proxy identity header is present', async () => {
+    process.env.AUTH_ENABLED = 'true';
+    delete process.env.AUTH_TEST_USER;
+    const res = await POST(postReq({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }) as any);
+    expect(res.status).toBe(401);
+    const json = await res.json();
+    expect(json.error.code).toBe(-32001);
+  });
+
+  it('allows the request when AUTH_ENABLED and an identity is present', async () => {
+    process.env.AUTH_ENABLED = 'true';
+    process.env.AUTH_TEST_USER = 'viewer'; // extractUser returns a user in test mode
+    const res = await POST(postReq({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }) as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.result.serverInfo.name).toBe('glooker');
+  });
+});

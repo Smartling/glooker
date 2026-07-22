@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **⚠️ Historical artifact — some code below is superseded by what shipped.** During implementation and PR review the dedup strategy for the cross-report query tools (`query_commits`, `query_jira_issues`, `get_metric_timeseries`) moved from **JS-side `dedupByKeyEarliest` after a raw-row `LIMIT`** (as written in Tasks 4–5) to **SQL-side dedup via `GROUP BY` before `LIMIT`**, because the pre-dedup LIMIT could silently under-return / truncate on production-sized data. The authoritative record of the shipped behavior is the spec (`docs/superpowers/specs/2026-07-21-glook-26-mcp-server-design.md`) and the `src/lib/mcp/` source + tests, not the task code blocks below.
+
 **Goal:** Expose Glooker's data (raw commits/PRs/Jiras, developer stats, and LLM-generated project/team/highlight analysis) as a read-only MCP server queryable from Claude Code and Claude.ai, with cross-report time-series analysis.
 
 **Architecture:** A hand-rolled, stateless Streamable-HTTP MCP endpoint at `/api/mcp`. Three thin layers: an HTTP route (`route.ts`), a JSON-RPC protocol handler (`protocol.ts`), and a tool registry (`tools.ts`). Tool handlers call new cross-report query functions (`queries.ts`) and existing service functions. Two existing routes (`project-insights`, `release-notes`) are refactored to extract their inline logic into shared services so the route and the MCP tool share one implementation.

@@ -179,13 +179,23 @@ No unrelated refactoring.
 
 ## Auth & Deployment
 
-**No new auth code in Glooker.** `mcp-okta-proxy` fronts the MCP endpoint and injects identity in
-the shape Glooker already parses. Set `OKTA_MCP_PROXY_USERINFO_HEADER_NAME=x-amzn-oidc-data` on the
-proxy; the `/api/mcp` route reuses the existing `AUTH_ENABLED` identity extraction (from
-`x-amzn-oidc-data`) **only for request-log attribution**. Every tool is read-only, so tools are not
-gated on the admin group — any authenticated Okta user may query. Locally / in mock mode the header
-is absent → identity `anonymous`, tools work unauthenticated (same no-op pattern as
-`AUTH_ENABLED=false`).
+**Primary auth: `mcp-okta-proxy` sidecar.** The proxy fronts the MCP endpoint, validates the Okta
+token, and injects identity in the shape Glooker already parses. Set
+`OKTA_MCP_PROXY_USERINFO_HEADER_NAME=x-amzn-oidc-data` on the proxy.
+
+**In-app fail-closed backstop (added in review).** The `/api/mcp` route reuses `AUTH_ENABLED`: when
+`AUTH_ENABLED=true`, it returns `401` unless the proxy-injected identity header (`AUTH_HEADER`,
+default `x-amzn-oidc-data`) is present — so a missing/misconfigured proxy, or the app port being
+reached directly, cannot silently expose an open read API. Set `AUTH_ENABLED=true` in every
+environment where the app port is network-reachable. When `AUTH_ENABLED` is unset (local dev /
+mock), the gate is off and the endpoint is open for direct connection. This is defense-in-depth, not
+the primary auth layer.
+
+**Trust model (deliberate).** Single-company, read-only analytics: any authenticated employee may
+read org-wide analytics, including per-developer cost/impact — the same data the web UI already
+shows. Tools are not gated on the admin group. If per-developer cost/performance ever needs
+restricting, gate it on `AUTH_ADMIN_GROUP` the way the mutating report routes do (the backstop above
+already surfaces the identity/groups needed to do so).
 
 **Deployment (separate task, not in the implementation plan):**
 
