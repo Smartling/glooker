@@ -12,6 +12,14 @@ const clampLimit = (raw: unknown, def: number) => {
   return String(Math.min(v, MAX_ROWS));
 };
 
+// Normalize a DB timestamp to a YYYY-MM-DD label. mysql2 returns DATETIME as JS
+// Date objects (String(date) would give "Mon Mar 16 2026 …"); SQLite returns
+// strings. Falls back to the raw first-10-chars if the value is unparseable.
+function isoDate(value: any): string {
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? String(value).slice(0, 10) : d.toISOString().slice(0, 10);
+}
+
 // Resolve the org of the report we are anchored to (for cross-report queries).
 async function reportOrg(reportId: string): Promise<string | null> {
   const [rows] = await db.execute(`SELECT org FROM reports WHERE id = ?`, [reportId]) as [any[], any];
@@ -273,7 +281,7 @@ export async function getMetricTimeseries(args: { metric: string; group_by?: str
     ) as [any[], any];
     return {
       metric, group_by: 'report',
-      series: rows.map((r: any) => ({ bucket: String(r.created_at).slice(0, 10), value: Number(r.value ?? 0) })),
+      series: rows.map((r: any) => ({ bucket: isoDate(r.created_at), value: Number(r.value ?? 0) })),
     };
   }
 
@@ -339,7 +347,7 @@ export async function getMetricTimeseries(args: { metric: string; group_by?: str
     ) as [any[], any];
     return {
       metric, group_by: 'report',
-      series: rows.map((row: any) => ({ bucket: String(row.created_at).slice(0, 10), value: Number(row.value ?? 0) })),
+      series: rows.map((row: any) => ({ bucket: isoDate(row.created_at), value: Number(row.value ?? 0) })),
       truncated: false,
     };
   }

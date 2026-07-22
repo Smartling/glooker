@@ -197,6 +197,14 @@ describe('getMetricTimeseries', () => {
     expect(mockExecute.mock.calls[0][0] as string).toContain('COALESCE(SUM(ca.lines_added), 0)');
   });
 
+  it('formats report buckets as ISO dates even when the driver returns Date objects', async () => {
+    // mysql2 returns DATETIME columns as JS Date objects, not strings.
+    mockExecute
+      .mockResolvedValueOnce([[{ report_id: 'rA', created_at: new Date('2026-03-16T18:00:00.000Z'), value: '5' }], null]);
+    const out = await getMetricTimeseries({ metric: 'commits', group_by: 'report', org: 'acme' }) as { series: any[] };
+    expect(out.series).toEqual([{ bucket: '2026-03-16', value: 5 }]);
+  });
+
   it('jira_resolved by week counts SQL-deduped issues', async () => {
     mockExecute
       .mockResolvedValueOnce([[
