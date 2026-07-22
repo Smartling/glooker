@@ -27,8 +27,6 @@ describe('queryCommits', () => {
   it('report-scoped: filters to one report and does NOT dedup', async () => {
     mockExecute
       .mockResolvedValueOnce([[{ id: 'r1' }], null])            // resolveReportId (explicit)
-      .mockResolvedValueOnce([[                                  // org lookup for that report
-        { org: 'acme' }], null])
       .mockResolvedValueOnce([[                                  // rows
         { commit_sha: 'a', committed_at: '2026-01-02', repo: 'x', github_login: 'u', type: 'feature', lines_added: 1, lines_removed: 0 },
         { commit_sha: 'a', committed_at: '2026-01-01', repo: 'x', github_login: 'u', type: 'feature', lines_added: 1, lines_removed: 0 },

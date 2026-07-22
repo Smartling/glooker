@@ -72,11 +72,11 @@ export async function queryCommits(args: {
   const r = await resolveReportId(args.report_id);
   if ('error' in r) return r;
   const crossReport = !args.report_id;
-  const org = await reportOrg(r.id);
 
   const conditions: string[] = [];
   const params: any[] = [];
   if (crossReport) {
+    const org = await reportOrg(r.id);
     conditions.push(`ca.report_id IN (SELECT id FROM reports WHERE org = ? AND status = 'completed')`);
     params.push(org);
   } else {
