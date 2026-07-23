@@ -340,7 +340,13 @@ export async function getMetricTimeseries(args: { metric: string; group_by?: str
   const alias = isJira ? 'ji' : 'ca';
   const tsCol = isJira ? 'resolved_at' : 'committed_at';
   // The entity a distinct row represents: PR for 'prs', issue for jira, else commit.
+  // PR numbers are per-repo (GitHub restarts at #1 in every repo), so a PR is
+  // uniquely (repo, pr_number) — grouping by pr_number alone collapses PR #42 in
+  // repo A with PR #42 in repo B, badly undercounting. commit_sha and issue_key
+  // are already globally unique, so they group by a single column.
   const keyCol = isJira ? 'issue_key' : (metric === 'prs' ? 'pr_number' : 'commit_sha');
+  const entityGroupBy = metric === 'prs' ? `${alias}.repo, ${alias}.pr_number` : `${alias}.${keyCol}`;
+  const entityCountDistinct = metric === 'prs' ? `COUNT(DISTINCT ${alias}.repo, ${alias}.pr_number)` : `COUNT(DISTINCT ${alias}.${keyCol})`;
 
   // Shared WHERE: org scope + optional time window (+ PR filter for 'prs').
   const conditions = [`${alias}.report_id IN (SELECT id FROM reports WHERE org = ? AND status = 'completed')`];
@@ -364,8 +370,7 @@ export async function getMetricTimeseries(args: { metric: string; group_by?: str
   if (groupBy === 'report') {
     const valueExpr =
       metric === 'lines_added' ? `COALESCE(SUM(${alias}.lines_added), 0)` :
-      metric === 'prs'         ? `COUNT(DISTINCT ${alias}.pr_number)` :
-                                 `COUNT(DISTINCT ${alias}.${keyCol})`;
+                                 entityCountDistinct;
     const [rows] = await db.execute(
       `SELECT r.id AS report_id, r.created_at, ${valueExpr} AS value
        FROM ${table} ${alias} JOIN reports r ON ${alias}.report_id = r.id
@@ -393,7 +398,7 @@ export async function getMetricTimeseries(args: { metric: string; group_by?: str
     `SELECT ${dedupSelect}
      FROM ${table} ${alias}
      WHERE ${where}
-     GROUP BY ${alias}.${keyCol}
+     GROUP BY ${entityGroupBy}
      ORDER BY ts DESC
      LIMIT ?`,
     params,

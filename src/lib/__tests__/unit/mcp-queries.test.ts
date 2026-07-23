@@ -242,7 +242,7 @@ describe('getMetricTimeseries', () => {
     expect(out.series).toEqual([{ bucket: 'alice', value: 2 }, { bucket: 'bob', value: 1 }]);
   });
 
-  it('prs metric dedups on pr_number and filters non-PR commits in SQL', async () => {
+  it('prs metric dedups on (repo, pr_number) — per-repo PR numbers — and filters non-PR commits', async () => {
     mockExecute
       .mockResolvedValueOnce([[
         { ts: '2026-01-05T00:00:00Z' },
@@ -251,8 +251,20 @@ describe('getMetricTimeseries', () => {
     const out = await getMetricTimeseries({ metric: 'prs', group_by: 'week', org: 'acme' }) as { series: any[] };
     expect(out.series).toEqual([{ bucket: '2026-01-05', value: 2 }]);
     const sql = mockExecute.mock.calls[0][0] as string;
-    expect(sql).toContain('GROUP BY ca.pr_number');
+    // PR #N is per-repo, so dedup must key on (repo, pr_number), not pr_number alone.
+    expect(sql).toContain('GROUP BY ca.repo, ca.pr_number');
+    expect(sql).not.toMatch(/GROUP BY ca\.pr_number\b/);
     expect(sql).toContain('ca.pr_number IS NOT NULL');
+  });
+
+  it('prs grouped by report counts distinct (repo, pr_number) per report', async () => {
+    mockExecute
+      .mockResolvedValueOnce([[{ report_id: 'rA', created_at: '2026-01-01', value: '452' }], null]);
+    const out = await getMetricTimeseries({ metric: 'prs', group_by: 'report', org: 'acme' }) as { series: any[] };
+    expect(out.series).toEqual([{ bucket: '2026-01-01', value: 452 }]);
+    const sql = mockExecute.mock.calls[0][0] as string;
+    expect(sql).toContain('COUNT(DISTINCT ca.repo, ca.pr_number)');
+    expect(sql).not.toContain('COUNT(DISTINCT ca.pr_number)');
   });
 
   it('rejects an unsupported group_by with no DB call', async () => {
