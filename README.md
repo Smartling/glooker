@@ -194,6 +194,27 @@ docker compose up --build -d
 
 > **Note:** The MySQL container exposes port 3307 by default (to avoid conflicts with a local MySQL on 3306). Edit `docker-compose.yml` to change this.
 
+## MCP Server
+
+Glooker exposes a **read-only [MCP](https://modelcontextprotocol.io) server** at `POST /api/mcp` so you can query its data and analysis from Claude Code / Claude.ai — including cross-report analysis over time. It speaks stateless Streamable-HTTP JSON-RPC and provides 14 tools:
+
+- **Discovery:** `list_reports`, `get_org_summary`
+- **Raw entities:** `query_commits`, `query_jira_issues`, `query_developer_stats`, `query_unmerged_work`
+- **LLM/semantic:** `get_project_insights`, `get_project_details`, `get_highlights`, `get_team_pulse`, `get_developer_summary`, `get_release_notes`, `get_epic_summaries`
+- **Time-series:** `get_metric_timeseries` (`metric` × `group_by` = week/month/report/developer/repo/type)
+
+Connect from Claude Code:
+
+```bash
+# Local dev server (see .mcp.json)
+claude mcp add --transport http glooker-local http://localhost:3000/api/mcp
+
+# Deployed (behind the Okta proxy)
+claude mcp add --transport http glooker https://glooker-mcp.internal-tools.dev.smartling.net/mcp
+```
+
+**Auth:** primary auth is the `mcp-okta-proxy` sidecar (validates the Okta token, injects the user identity). The app also has a fail-closed backstop: when `AUTH_ENABLED=true`, `/api/mcp` returns `401` unless the proxy's identity header is present. Locally (with `AUTH_ENABLED` unset) the endpoint is open for direct connection. See `.env.example` for the trust model. All tools are read-only — no tool mutates data or triggers report runs.
+
 ## Architecture
 
 ```
