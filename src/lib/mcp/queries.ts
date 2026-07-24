@@ -4,7 +4,16 @@ import { bucketByPeriod } from './dedup';
 
 export const MAX_ROWS = 500;
 const DEFAULT_TIMESERIES_WINDOW_DAYS = 180;
-export const TIMESERIES_ROW_CAP = 20000;
+// Backstop on the number of distinct entities (commits/PRs/issues) a single
+// timeseries query pulls into memory. The query dedups in SQL (GROUP BY the
+// entity key) before this cap, so it bounds *distinct* rows — one per real
+// commit/PR/issue — not the raw per-report duplication. 20k was too low once a
+// full extra year of history was backfilled: an 18-month all-commits/lines query
+// exceeds it and, because rows come back ORDER BY ts DESC, the cap silently drops
+// the OLDEST buckets. 250k comfortably holds many years of this org's distinct
+// commits (~30k/18mo) at ~tens of MB, while still guarding against a pathological
+// unbounded fetch. `truncated` still flags the (now far-off) ceiling.
+export const TIMESERIES_ROW_CAP = 250000;
 
 const clampLimit = (raw: unknown, def: number) => {
   const n = Number(raw);
