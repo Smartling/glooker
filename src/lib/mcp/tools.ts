@@ -9,12 +9,13 @@ import { getReleaseNotes } from '@/lib/release-notes/service';
 import { getReportHighlights } from '@/lib/report-highlights';
 import { getDevSummary } from '@/lib/report/summary';
 import { getTeamPulse } from '@/lib/team-pulse';
+import type { Requester } from '@/lib/cost-visibility';
 
 export interface McpTool {
   name: string;
   description: string;
   inputSchema: Record<string, any>;
-  handler: (args: any) => Promise<any>;
+  handler: (args: any, requester?: Requester) => Promise<any>;
 }
 
 const REPORT_ID = { report_id: { type: 'string', description: 'Report id. Omit for the latest completed report.' } };
@@ -106,7 +107,7 @@ export const MCP_TOOLS: McpTool[] = [
       sort_by: { type: 'string', enum: ['impact_score', 'total_commits', 'total_prs', 'avg_complexity', 'lines_added', 'lines_removed', 'ai_percentage', 'pr_percentage'], description: 'Sort column (default impact_score)' },
       limit: { type: 'number', description: 'Max rows (default 100, max 500)' },
     } },
-    handler: (a) => queryDeveloperStats(a),
+    handler: (a, requester) => queryDeveloperStats(a, requester),
   },
   {
     name: 'query_unmerged_work',
@@ -191,11 +192,11 @@ export const MCP_TOOLS: McpTool[] = [
 
 const BY_NAME = new Map(MCP_TOOLS.map(t => [t.name, t]));
 
-export async function callTool(name: string, args: Record<string, any>): Promise<any> {
+export async function callTool(name: string, args: Record<string, any>, requester?: Requester): Promise<any> {
   const tool = BY_NAME.get(name);
   if (!tool) return { error: `unknown tool: ${name}` };
   try {
-    return await tool.handler(args ?? {});
+    return await tool.handler(args ?? {}, requester);
   } catch (err) {
     // Log the real error server-side; return a generic message to the MCP caller
     // so internal detail (DB error text, table/column names) isn't leaked to an

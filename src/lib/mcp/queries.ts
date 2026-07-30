@@ -1,6 +1,7 @@
 import db from '@/lib/db';
 import { resolveReportId } from './resolve';
 import { bucketByPeriod } from './dedup';
+import { buildCostVisibility, stripDevCost, type Requester } from '@/lib/cost-visibility';
 
 export const MAX_ROWS = 500;
 const DEFAULT_TIMESERIES_WINDOW_DAYS = 180;
@@ -196,9 +197,13 @@ export async function queryJiraIssues(args: {
 const DEV_SORT_COLUMNS = ['impact_score', 'total_commits', 'total_prs', 'avg_complexity', 'lines_added', 'lines_removed', 'ai_percentage', 'pr_percentage'];
 const NUMERIC_DEV_FIELDS = ['total_prs', 'total_commits', 'lines_added', 'lines_removed', 'avg_complexity', 'impact_score', 'pr_percentage', 'ai_percentage', 'total_jira_issues', 'cc_total_cost', 'cc_requests'];
 
-export async function queryDeveloperStats(args: { report_id?: string; login?: string; sort_by?: string; limit?: number }) {
+export async function queryDeveloperStats(
+  args: { report_id?: string; login?: string; sort_by?: string; limit?: number },
+  requester?: Requester,
+) {
   const r = await resolveReportId(args.report_id);
   if ('error' in r) return r;
+  const org = await reportOrg(r.id);
   const sortBy = DEV_SORT_COLUMNS.includes(args.sort_by ?? '') ? args.sort_by : 'impact_score';
 
   const conditions = ['ds.report_id = ?'];
@@ -223,7 +228,14 @@ export async function queryDeveloperStats(args: { report_id?: string; login?: st
     for (const f of NUMERIC_DEV_FIELDS) if (out[f] != null) out[f] = Number(out[f]);
     return out;
   });
-  return { developers, count: developers.length };
+
+  // Team-scoped cost gating (GLOOK-27). Fail closed: a missing requester (or an
+  // org we couldn't resolve) means no cost visibility — strip all cc, never see-all.
+  const vis = requester && org
+    ? await buildCostVisibility(org, requester)
+    : { canSeeCost: () => false, canSeeAnyCost: false };
+  const gated = stripDevCost(developers, vis.canSeeCost);
+  return { developers: gated, count: gated.length };
 }
 
 export async function queryUnmergedWork(args: { report_id?: string; login?: string; repo?: string }) {

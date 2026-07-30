@@ -88,6 +88,7 @@ describe('queryDeveloperStats', () => {
   it('coerces numeric string columns and sorts by a safe metric', async () => {
     mockExecute
       .mockResolvedValueOnce([[{ id: 'r1' }], null])            // resolveReportId
+      .mockResolvedValueOnce([[{ org: 'acme' }], null])          // reportOrg
       .mockResolvedValueOnce([[{ github_login: 'u', impact_score: '4.5', total_commits: '10' }], null]);
     const out = await queryDeveloperStats({ report_id: 'r1', sort_by: 'impact_score' }) as { developers: any[]; count: number };
     expect(out.developers[0].impact_score).toBe(4.5);
@@ -97,9 +98,10 @@ describe('queryDeveloperStats', () => {
   it('rejects an unsafe sort_by and falls back to impact_score', async () => {
     mockExecute
       .mockResolvedValueOnce([[{ id: 'r1' }], null])
+      .mockResolvedValueOnce([[{ org: 'acme' }], null])          // reportOrg
       .mockResolvedValueOnce([[], null]);
     await queryDeveloperStats({ report_id: 'r1', sort_by: 'name; DROP TABLE reports' });
-    const sql = mockExecute.mock.calls[1][0] as string;
+    const sql = mockExecute.mock.calls[2][0] as string;
     expect(sql).toContain('ORDER BY ds.impact_score');
   });
 });

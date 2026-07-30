@@ -1,4 +1,5 @@
 import { MCP_TOOLS, callTool } from './tools';
+import type { Requester } from '@/lib/cost-visibility';
 
 export const SUPPORTED_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 export const DEFAULT_PROTOCOL_VERSION = '2025-06-18';
@@ -14,7 +15,7 @@ function err(id: any, code: number, message: string): RpcResult {
   return { status: 200, body: { jsonrpc: '2.0', id: id ?? null, error: { code, message } } };
 }
 
-export async function handleJsonRpc(message: any): Promise<RpcResult> {
+export async function handleJsonRpc(message: any, requester?: Requester): Promise<RpcResult> {
   if (!message || message.jsonrpc !== '2.0' || typeof message.method !== 'string') {
     return err(message?.id, -32600, 'Invalid Request');
   }
@@ -44,7 +45,7 @@ export async function handleJsonRpc(message: any): Promise<RpcResult> {
       const required: string[] = (tool?.inputSchema as { required?: string[] })?.required ?? [];
       const missing = required.filter(f => args[f] === undefined || args[f] === null || args[f] === '');
       if (missing.length) return err(id, -32602, `Invalid params: missing required field(s): ${missing.join(', ')}`);
-      const result = await callTool(name, args);
+      const result = await callTool(name, args, requester);
       const isError = result && typeof result === 'object' && 'error' in result;
       return ok(id, {
         content: [{ type: 'text', text: JSON.stringify(result) }],

@@ -62,6 +62,7 @@ describe('POST /api/mcp auth backstop', () => {
   it('allows the request when AUTH_ENABLED and an identity is present', async () => {
     process.env.AUTH_ENABLED = 'true';
     process.env.AUTH_TEST_USER = 'viewer'; // extractUser returns a user in test mode
+    mockExecute.mockResolvedValueOnce([[], null]); // resolveRequester → user_mappings lookup
     const res = await POST(postReq({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }) as any);
     expect(res.status).toBe(200);
     const json = await res.json();
