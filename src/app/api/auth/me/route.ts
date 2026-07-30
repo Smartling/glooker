@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { isAuthEnabled } from '@/lib/auth';
+import { isAuthEnabled, extractUser } from '@/lib/auth';
 import { resolveRequester } from '@/lib/cost-visibility';
 import db from '@/lib/db';
 import { withRequestLog } from '@/lib/logger';
@@ -10,9 +10,7 @@ async function getHandler(req: Request) {
   }
 
   const requester = await resolveRequester(req.headers);
-  // resolveRequester returns authDisabled:false here (auth is on). A null
-  // githubLogin with no admin still means "authenticated but unmapped".
-  const { extractUser } = await import('@/lib/auth');
+  // A null githubLogin with no admin still means "authenticated but unmapped".
   const user = extractUser(req.headers);
   if (!user) {
     return NextResponse.json({ enabled: true, user: null });
