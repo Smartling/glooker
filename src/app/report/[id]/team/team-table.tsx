@@ -9,7 +9,6 @@ interface TeamTableProps {
   developers: AggregatorDeveloper[];
   teams:      AggregatorTeam[];
   reportId:   string;
-  canAct:     boolean;
 }
 
 const SORT_KEYS = [
@@ -20,7 +19,7 @@ const SORT_KEYS = [
 ] as const;
 type SortKey = typeof SORT_KEYS[number];
 
-export default function TeamTable({ developers, teams, reportId, canAct }: TeamTableProps) {
+export default function TeamTable({ developers, teams, reportId }: TeamTableProps) {
   const router = useRouter();
   const rows: TeamRow[] = useMemo(() => aggregateTeams(developers, teams), [developers, teams]);
 

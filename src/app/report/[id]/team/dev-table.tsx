@@ -48,10 +48,9 @@ interface DevTableProps {
   reportId:     string;
   org:          string;        // needed for commit URL links in tooltip
   filterLogins: Set<string>;
-  canAct:       boolean;       // gates Spend column
 }
 
-export default function DevTable({ developers, reportId, org, filterLogins, canAct }: DevTableProps) {
+export default function DevTable({ developers, reportId, org, filterLogins }: DevTableProps) {
   const router = useRouter();
   const commitCache = useRef<Map<string, any[]>>(new Map());
   const jiraCache   = useRef<Map<string, any[]>>(new Map());
