@@ -951,7 +951,10 @@ function formatDollars(cents: number) {
 }
 
 function computeSpendMetrics(devs: Developer[]) {
-  const withSpend = devs
+  // Cost "absent" (viewer can't see it) is distinct from cost being $0 — exclude
+  // absent-cost devs explicitly before applying the ">0" leaderboard filter.
+  const withVisibleCost = devs.filter(d => d.cc_total_cost != null);
+  const withSpend = withVisibleCost
     .filter(d => Number(d.cc_total_cost ?? 0) > 0)
     .sort((a, b) => Number(b.cc_total_cost ?? 0) - Number(a.cc_total_cost ?? 0));
 
@@ -1001,6 +1004,7 @@ function SpendTab({ developers, reportId, router, report, spendWindow }: {
 
   const { withSpend, total, avg, median, top20Count, top20Spend, top20Pct, medianCPI } = computeSpendMetrics(developers);
   const bottom80Pct = 100 - top20Pct;
+  const fullCostVisibility = developers.length > 0 && developers.every(d => d.cc_total_cost != null);
 
   const isOutlier = (d: Developer) => {
     const cost = Number(d.cc_total_cost ?? 0);
@@ -1054,8 +1058,18 @@ function SpendTab({ developers, reportId, router, report, spendWindow }: {
                 Partial coverage: commit data available from {spendWindow.firstCoveredDate} ({partialDays} of {windowInfo.days} days).
               </span>
             )}
+            {!fullCostVisibility && (
+              <span className="text-amber-400">
+                Cost shown for developers on your team(s) only — org-wide totals require admin access.
+              </span>
+            )}
           </div>
         </div>
+      )}
+      {!windowInfo && !fullCostVisibility && (
+        <p className="text-[11px] text-amber-400">
+          Cost shown for developers on your team(s) only — org-wide totals require admin access.
+        </p>
       )}
 
       {/* Summary Bar */}
