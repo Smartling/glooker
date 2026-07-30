@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDevReport } from '@/lib/report/dev';
 import { ReportNotFoundError } from '@/lib/report/service';
 import { DeveloperNotFoundError } from '@/lib/report/dev';
-import { isAdmin } from '@/lib/auth';
+import { resolveRequester, buildCostVisibility } from '@/lib/cost-visibility';
 import { withRequestLog } from '@/lib/logger';
 
 const CC_FIELDS = ['cc_total_cost', 'cc_requests'] as const;
@@ -17,10 +17,10 @@ async function getHandler(req: NextRequest, { params }: { params: Promise<{ id: 
   const { id, login } = await params;
   try {
     const result = await getDevReport(id, login);
-    if (!isAdmin(req)) {
-      result.developer = stripCc(result.developer);
-      result.allDevelopers = result.allDevelopers.map(stripCc);
-    }
+    const requester = await resolveRequester(req.headers);
+    const { canSeeCost } = await buildCostVisibility(result.report.org, requester);
+    if (!canSeeCost(result.developer.github_login)) result.developer = stripCc(result.developer);
+    result.allDevelopers = result.allDevelopers.map((d: any) => canSeeCost(d.github_login) ? d : stripCc(d));
     return NextResponse.json(result);
   } catch (err) {
     if (err instanceof ReportNotFoundError) return NextResponse.json({ error: 'Report not found' }, { status: 404 });
