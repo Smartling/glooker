@@ -57,7 +57,7 @@ export default function DevTable({ developers, reportId, org, filterLogins, canA
   const jiraCache   = useRef<Map<string, any[]>>(new Map());
 
   const hasJira  = developers.some(d => (d.total_jira_issues ?? 0) > 0);
-  const hasSpend = canAct && developers.some(d => Number(d.cc_total_cost ?? 0) > 0);
+  const hasSpend = developers.some(d => d.cc_total_cost != null);
 
   const [sortKey, setSortKey] = useUrlState<DevSortKey>({
     key: 'devsort',
@@ -257,12 +257,12 @@ export default function DevTable({ developers, reportId, org, filterLogins, canA
               )}
               {hasSpend && (
                 <td className="px-4 py-3 text-right">
-                  {Number(dev.cc_total_cost ?? 0) > 0 ? (
+                  {dev.cc_total_cost != null ? (
                     <span className="text-green-400 font-mono text-sm">
                       ${(Number(dev.cc_total_cost) / 100).toFixed(2)}
                     </span>
                   ) : (
-                    <span className="text-gray-600 text-sm">—</span>
+                    <span className="text-gray-600 text-sm">–</span>
                   )}
                 </td>
               )}

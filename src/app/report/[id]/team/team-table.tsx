@@ -41,7 +41,7 @@ export default function TeamTable({ developers, teams, reportId, canAct }: TeamT
   });
 
   const hasJira  = rows.some(r => r.total_jira_issues > 0);
-  const hasSpend = canAct && rows.some(r => r.cc_total_cost > 0);
+  const hasSpend = rows.some(r => r.cc_total_cost != null);
 
   // If the URL points at a sort column we won't render (Spend hidden for
   // non-admins, Jira hidden when nobody has Jira issues), silently fall back
@@ -143,7 +143,11 @@ export default function TeamTable({ developers, teams, reportId, canAct }: TeamT
               <td className="px-4 py-3 text-right text-gray-300 tabular-nums">{row.active_count > 0 ? `${Math.round(row.pr_percentage)}%` : '—'}</td>
               <td className="px-4 py-3 text-right text-gray-300 tabular-nums">{row.active_count > 0 ? `${Math.round(row.ai_percentage)}%` : '—'}</td>
               {hasJira  && <td className="px-4 py-3 text-right text-gray-300 tabular-nums">{row.total_jira_issues}</td>}
-              {hasSpend && <td className="px-4 py-3 text-right text-green-400 font-mono text-sm tabular-nums">${Math.round(row.cc_total_cost / 100).toLocaleString()}</td>}
+              {hasSpend && (
+                <td className="px-4 py-3 text-right text-green-400 font-mono text-sm tabular-nums">
+                  {row.cc_total_cost == null ? '–' : `$${Math.round(row.cc_total_cost / 100).toLocaleString()}`}
+                </td>
+              )}
               <td className="px-4 py-3 text-right text-white tabular-nums font-semibold">{row.active_count > 0 ? row.impact_weighted.toFixed(1) : '—'}</td>
               <td className="px-4 py-3 text-right text-gray-400 tabular-nums">{row.active_count > 0 ? row.impact_avg.toFixed(1) : '—'}</td>
               <td className="px-4 py-3 text-right text-gray-400 tabular-nums">{row.active_count > 0 ? row.impact_sum.toFixed(1) : '—'}</td>

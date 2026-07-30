@@ -5,7 +5,6 @@ import { useParams, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import ChatPanel from '@/app/chat-panel';
 import IntegrityBadge from '@/components/IntegrityBadge';
-import { useAuth } from '@/app/auth-context';
 import { useUrlState } from '@/lib/url-state';
 import type { RunMetadata } from '@/lib/report-runner/types';
 
@@ -67,7 +66,6 @@ interface SpendWindow {
 export default function OrgDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
-  const { canAct } = useAuth();
   const [activeTab, setActiveTab] = useUrlState<'impact' | 'spend'>({
     key: 'tab',
     type: 'enum',
@@ -123,7 +121,7 @@ export default function OrgDetailPage() {
   const totalTyped = typeEntries.reduce((s, [, c]) => s + c, 0);
 
   const hasJira = developers.some(d => (d.total_jira_issues ?? 0) > 0);
-  const hasSpend = canAct && developers.some(d => Number(d.cc_total_cost ?? 0) > 0);
+  const hasSpend = developers.some(d => d.cc_total_cost != null);
 
   // Repo breakdown across all developers
   const repoMap = new Map<string, number>();
