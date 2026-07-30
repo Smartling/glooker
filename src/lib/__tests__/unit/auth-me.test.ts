@@ -54,6 +54,8 @@ describe('GET /api/auth/me', () => {
     mockExecute
       .mockResolvedValueOnce([[{
         github_login: 'msogin',
+      }], []])
+      .mockResolvedValueOnce([[{
         github_name: 'Max Sogin',
         avatar_url: 'https://avatars.githubusercontent.com/u/123',
       }], []])
@@ -104,6 +106,8 @@ describe('GET /api/auth/me', () => {
     mockExecute
       .mockResolvedValueOnce([[{
         github_login: 'devuser',
+      }], []])
+      .mockResolvedValueOnce([[{
         github_name: 'Dev User',
         avatar_url: null,
       }], []])
@@ -168,6 +172,8 @@ describe('GET /api/auth/me', () => {
     mockExecute
       .mockResolvedValueOnce([[{
         github_login: 'devuser',
+      }], []])
+      .mockResolvedValueOnce([[{
         github_name: 'DB Name',
         avatar_url: null,
       }], []])

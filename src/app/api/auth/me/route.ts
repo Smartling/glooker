@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { extractUser, isAuthEnabled } from '@/lib/auth';
+import { isAuthEnabled } from '@/lib/auth';
+import { resolveRequester } from '@/lib/cost-visibility';
 import db from '@/lib/db';
 import { withRequestLog } from '@/lib/logger';
 
@@ -8,60 +9,49 @@ async function getHandler(req: Request) {
     return NextResponse.json({ enabled: false });
   }
 
+  const requester = await resolveRequester(req.headers);
+  // resolveRequester returns authDisabled:false here (auth is on). A null
+  // githubLogin with no admin still means "authenticated but unmapped".
+  const { extractUser } = await import('@/lib/auth');
   const user = extractUser(req.headers);
   if (!user) {
     return NextResponse.json({ enabled: true, user: null });
   }
 
-  const adminGroup = process.env.AUTH_ADMIN_GROUP;
-  const role = adminGroup && user.groups.includes(adminGroup) ? 'admin' : 'viewer';
+  const role = requester.isAdmin ? 'admin' : 'viewer';
 
-  const [identityRows] = await db.execute(
-    `SELECT um.github_login, ds.github_name, ds.avatar_url
-     FROM user_mappings um
-     LEFT JOIN developer_stats ds ON ds.github_login = um.github_login
-     LEFT JOIN reports r ON r.id = ds.report_id AND r.status = 'completed'
-     WHERE um.jira_email = ?
-     ORDER BY r.completed_at DESC
-     LIMIT 1`,
-    [user.email],
-  ) as [any[], any];
-
-  if (!identityRows.length) {
-    return NextResponse.json({
-      enabled: true,
-      user: { email: user.email, githubLogin: null, name: user.name, avatarUrl: null, team: null, role },
-    });
-  }
-
-  const identity = identityRows[0];
-
+  // Name/avatar for display (unchanged query, keyed off the resolved login).
+  let name: string | null = user.name || null;
+  let avatarUrl: string | null = null;
   let team: { name: string; color: string } | null = null;
-  if (identity.github_login) {
+
+  if (requester.githubLogin) {
+    const [displayRows] = await db.execute(
+      `SELECT ds.github_name, ds.avatar_url
+       FROM developer_stats ds
+       LEFT JOIN reports r ON r.id = ds.report_id AND r.status = 'completed'
+       WHERE ds.github_login = ?
+       ORDER BY r.completed_at DESC
+       LIMIT 1`,
+      [requester.githubLogin],
+    ) as [any[], any];
+    if (displayRows.length) {
+      name = user.name || displayRows[0].github_name || null;
+      avatarUrl = displayRows[0].avatar_url || null;
+    }
+
     const [teamRows] = await db.execute(
       `SELECT t.name AS team_name, t.color AS team_color
-       FROM team_members tm
-       JOIN teams t ON t.id = tm.team_id
-       WHERE tm.github_login = ?
-       LIMIT 1`,
-      [identity.github_login],
+       FROM team_members tm JOIN teams t ON t.id = tm.team_id
+       WHERE tm.github_login = ? LIMIT 1`,
+      [requester.githubLogin],
     ) as [any[], any];
-
-    if (teamRows.length) {
-      team = { name: teamRows[0].team_name, color: teamRows[0].team_color };
-    }
+    if (teamRows.length) team = { name: teamRows[0].team_name, color: teamRows[0].team_color };
   }
 
   return NextResponse.json({
     enabled: true,
-    user: {
-      email: user.email,
-      githubLogin: identity.github_login || null,
-      name: user.name || identity.github_name || null,
-      avatarUrl: identity.avatar_url || null,
-      team,
-      role,
-    },
+    user: { email: user.email, githubLogin: requester.githubLogin, name, avatarUrl, team, role },
   });
 }
 
