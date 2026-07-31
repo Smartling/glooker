@@ -48,16 +48,19 @@ interface DevTableProps {
   reportId:     string;
   org:          string;        // needed for commit URL links in tooltip
   filterLogins: Set<string>;
-  canAct:       boolean;       // gates Spend column
 }
 
-export default function DevTable({ developers, reportId, org, filterLogins, canAct }: DevTableProps) {
+export default function DevTable({ developers, reportId, org, filterLogins }: DevTableProps) {
   const router = useRouter();
   const commitCache = useRef<Map<string, any[]>>(new Map());
   const jiraCache   = useRef<Map<string, any[]>>(new Map());
 
   const hasJira  = developers.some(d => (d.total_jira_issues ?? 0) > 0);
-  const hasSpend = canAct && developers.some(d => Number(d.cc_total_cost ?? 0) > 0);
+  // Column exists only when there is real spend to show. `!= null` alone would
+  // always be true (cc_total_cost is NOT NULL DEFAULT 0 in the DB), so installs
+  // with no Anthropic data would render a $0.00 column. The per-cell "hidden vs
+  // visible" signal still keys off `!= null` (stripped devs are absent).
+  const hasSpend = developers.some(d => d.cc_total_cost != null && Number(d.cc_total_cost) > 0);
 
   const [sortKey, setSortKey] = useUrlState<DevSortKey>({
     key: 'devsort',
@@ -257,7 +260,7 @@ export default function DevTable({ developers, reportId, org, filterLogins, canA
               )}
               {hasSpend && (
                 <td className="px-4 py-3 text-right">
-                  {Number(dev.cc_total_cost ?? 0) > 0 ? (
+                  {dev.cc_total_cost != null ? (
                     <span className="text-green-400 font-mono text-sm">
                       ${(Number(dev.cc_total_cost) / 100).toFixed(2)}
                     </span>

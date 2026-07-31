@@ -18,7 +18,7 @@ export interface TeamRow {
   lines_added:        number;
   lines_removed:      number;
   total_jira_issues:  number;
-  cc_total_cost:      number;
+  cc_total_cost:      number | null;   // null = at least one member's cost is hidden (can't sum a partial team)
   active_repos_count: number;
   type_breakdown:     Record<string, number>;
 
@@ -73,15 +73,23 @@ export function aggregateTeams(
       .filter((d): d is AggregatorDeveloper => d !== undefined);
 
     let total_prs = 0, total_commits = 0, lines_added = 0, lines_removed = 0;
-    let total_jira_issues = 0, cc_total_cost = 0;
+    let total_jira_issues = 0;
+    let ccSum = 0;
+    let ccHidden = false;
     for (const d of activeDevs) {
       total_prs         += d.total_prs;
       total_commits     += d.total_commits;
       lines_added       += d.lines_added;
       lines_removed     += d.lines_removed;
       total_jira_issues += d.total_jira_issues ?? 0;
-      cc_total_cost     += Number(d.cc_total_cost ?? 0);
+      if (d.cc_total_cost == null) ccHidden = true;
+      else ccSum += Number(d.cc_total_cost);
     }
+    // null = can't report a whole-team total: either a member's cost is hidden,
+    // or the team has no active developers this report (so there's no cost to
+    // sum). Both must render "–", never $0 — the presence of a number is the
+    // "you're authorized" signal the design depends on.
+    const cc_total_cost: number | null = (activeDevs.length === 0 || ccHidden) ? null : ccSum;
 
     let weightedComplexity = 0, weightedPrPct = 0, weightedAiPct = 0;
     for (const d of activeDevs) {

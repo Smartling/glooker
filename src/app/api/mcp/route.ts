@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { withRequestLog } from '@/lib/logger';
 import { handleJsonRpc } from '@/lib/mcp/protocol';
 import { isAuthEnabled, extractUser } from '@/lib/auth';
+import { resolveRequester } from '@/lib/cost-visibility';
 
 async function postHandler(req: Request) {
   // Fail-closed backstop. Auth is normally enforced by the mcp-okta-proxy sidecar,
@@ -26,7 +27,8 @@ async function postHandler(req: Request) {
     return NextResponse.json({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } }, { status: 200 });
   }
 
-  const { status, body } = await handleJsonRpc(message);
+  const requester = await resolveRequester(req.headers);
+  const { status, body } = await handleJsonRpc(message, requester);
   if (body === null) return new Response(null, { status });
   return NextResponse.json(body, { status });
 }

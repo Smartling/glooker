@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import ChatPanel from '@/app/chat-panel';
-import { useAuth } from '@/app/auth-context';
 import { useUrlState, useUrlBatch } from '@/lib/url-state';
 import TeamTable from './team-table';
 import DevTable from './dev-table';
@@ -34,7 +33,6 @@ interface Team {
 export default function TeamSummaryPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
-  const { canAct } = useAuth();
 
   // Main report data
   const { data: reportData, isLoading } = useSWR(`/api/report/${params.id}`);
@@ -375,7 +373,6 @@ export default function TeamSummaryPage() {
         reportId={params.id}
         org={activeReport?.org ?? ''}
         filterLogins={filterLogins}
-        canAct={canAct}
       />
       </>
       )}
@@ -385,7 +382,6 @@ export default function TeamSummaryPage() {
           developers={developers}
           teams={teams}
           reportId={params.id}
-          canAct={canAct}
         />
       )}
 

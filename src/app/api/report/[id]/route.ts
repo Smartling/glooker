@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getReport, deleteReport, ReportNotFoundError } from '@/lib/report/service';
-import { requireAdmin, isAdmin } from '@/lib/auth';
+import { requireAdmin } from '@/lib/auth';
+import { resolveRequester, buildCostVisibility, stripDevCost, costCacheHeaders } from '@/lib/cost-visibility';
 import { withRequestLog } from '@/lib/logger';
 
 async function getHandler(
@@ -11,10 +12,10 @@ async function getHandler(
 
   try {
     const result = await getReport(id);
-    if (!isAdmin(req)) {
-      result.developers = result.developers.map(({ cc_total_cost, cc_requests, ...rest }: any) => rest);
-    }
-    return NextResponse.json(result);
+    const requester = await resolveRequester(req.headers, result.report.org);
+    const { canSeeCost } = await buildCostVisibility(result.report.org, requester);
+    result.developers = stripDevCost(result.developers, canSeeCost);
+    return NextResponse.json(result, { headers: costCacheHeaders() });
   } catch (err) {
     if (err instanceof ReportNotFoundError) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });

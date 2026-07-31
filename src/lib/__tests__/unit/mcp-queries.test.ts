@@ -85,6 +85,8 @@ describe('queryCommits', () => {
 });
 
 describe('queryDeveloperStats', () => {
+  // No requester passed → fail-closed strip-all path, so reportOrg is not
+  // queried; execute order is resolveReportId (#0) → developer_stats SELECT (#1).
   it('coerces numeric string columns and sorts by a safe metric', async () => {
     mockExecute
       .mockResolvedValueOnce([[{ id: 'r1' }], null])            // resolveReportId
@@ -96,8 +98,8 @@ describe('queryDeveloperStats', () => {
 
   it('rejects an unsafe sort_by and falls back to impact_score', async () => {
     mockExecute
-      .mockResolvedValueOnce([[{ id: 'r1' }], null])
-      .mockResolvedValueOnce([[], null]);
+      .mockResolvedValueOnce([[{ id: 'r1' }], null])            // resolveReportId
+      .mockResolvedValueOnce([[], null]);                        // developer_stats SELECT
     await queryDeveloperStats({ report_id: 'r1', sort_by: 'name; DROP TABLE reports' });
     const sql = mockExecute.mock.calls[1][0] as string;
     expect(sql).toContain('ORDER BY ds.impact_score');

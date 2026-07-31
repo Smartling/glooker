@@ -9,7 +9,6 @@ interface TeamTableProps {
   developers: AggregatorDeveloper[];
   teams:      AggregatorTeam[];
   reportId:   string;
-  canAct:     boolean;
 }
 
 const SORT_KEYS = [
@@ -20,7 +19,7 @@ const SORT_KEYS = [
 ] as const;
 type SortKey = typeof SORT_KEYS[number];
 
-export default function TeamTable({ developers, teams, reportId, canAct }: TeamTableProps) {
+export default function TeamTable({ developers, teams, reportId }: TeamTableProps) {
   const router = useRouter();
   const rows: TeamRow[] = useMemo(() => aggregateTeams(developers, teams), [developers, teams]);
 
@@ -41,7 +40,9 @@ export default function TeamTable({ developers, teams, reportId, canAct }: TeamT
   });
 
   const hasJira  = rows.some(r => r.total_jira_issues > 0);
-  const hasSpend = canAct && rows.some(r => r.cc_total_cost > 0);
+  // Column exists only when a visible team has real spend (not merely cost
+  // fields present, which are 0 by default on installs with no Anthropic data).
+  const hasSpend = rows.some(r => r.cc_total_cost != null && Number(r.cc_total_cost) > 0);
 
   // If the URL points at a sort column we won't render (Spend hidden for
   // non-admins, Jira hidden when nobody has Jira issues), silently fall back
@@ -55,8 +56,14 @@ export default function TeamTable({ developers, teams, reportId, canAct }: TeamT
     const sign = sortDir === 'asc' ? 1 : -1;
     return [...rows].sort((a, b) => {
       if (effectiveSortKey === 'name') return a.name.localeCompare(b.name) * sign;
-      const av = a[effectiveSortKey] as number;
-      const bv = b[effectiveSortKey] as number;
+      const av = a[effectiveSortKey] as number | null;
+      const bv = b[effectiveSortKey] as number | null;
+      // Hidden/absent values (e.g. a partially-hidden team's cost) sort last
+      // regardless of direction, rather than coercing null→0 and masquerading as
+      // the cheapest team.
+      if (av == null && bv == null) return a.name.localeCompare(b.name);
+      if (av == null) return 1;
+      if (bv == null) return -1;
       if (av === bv) return a.name.localeCompare(b.name);
       return (av - bv) * sign;
     });
@@ -143,7 +150,15 @@ export default function TeamTable({ developers, teams, reportId, canAct }: TeamT
               <td className="px-4 py-3 text-right text-gray-300 tabular-nums">{row.active_count > 0 ? `${Math.round(row.pr_percentage)}%` : '—'}</td>
               <td className="px-4 py-3 text-right text-gray-300 tabular-nums">{row.active_count > 0 ? `${Math.round(row.ai_percentage)}%` : '—'}</td>
               {hasJira  && <td className="px-4 py-3 text-right text-gray-300 tabular-nums">{row.total_jira_issues}</td>}
-              {hasSpend && <td className="px-4 py-3 text-right text-green-400 font-mono text-sm tabular-nums">${Math.round(row.cc_total_cost / 100).toLocaleString()}</td>}
+              {hasSpend && (
+                row.cc_total_cost == null ? (
+                  <td className="px-4 py-3 text-right text-gray-600 text-sm tabular-nums">—</td>
+                ) : (
+                  <td className="px-4 py-3 text-right text-green-400 font-mono text-sm tabular-nums">
+                    ${Math.round(row.cc_total_cost / 100).toLocaleString()}
+                  </td>
+                )
+              )}
               <td className="px-4 py-3 text-right text-white tabular-nums font-semibold">{row.active_count > 0 ? row.impact_weighted.toFixed(1) : '—'}</td>
               <td className="px-4 py-3 text-right text-gray-400 tabular-nums">{row.active_count > 0 ? row.impact_avg.toFixed(1) : '—'}</td>
               <td className="px-4 py-3 text-right text-gray-400 tabular-nums">{row.active_count > 0 ? row.impact_sum.toFixed(1) : '—'}</td>
