@@ -21,19 +21,20 @@ Single source of truth, used by the REST routes **and** the MCP tool so the rule
 
 ```ts
 export interface Requester {
-  githubLogin: string | null;   // resolved from JWT email → user_mappings → developer_stats
-  teamIds: string[];            // ALL teams the requester belongs to
+  githubLogin: string | null;   // resolved from JWT email → user_mappings
   isAdmin: boolean;
   authDisabled: boolean;        // AUTH_ENABLED != 'true'
 }
 
-// Resolve the requester from request headers. Reuses the email→jira_email→github_login
-// chain currently inlined in /api/auth/me, but returns ALL team ids (not LIMIT 1).
-export async function resolveRequester(headers: Headers, org: string): Promise<Requester>;
+// Resolve the requester from request headers. Identity only — team membership is
+// resolved (org-scoped) inside buildCostVisibility. `org` scopes the
+// user_mappings lookup for multi-org determinism; callers without an org context
+// (e.g. /api/auth/me) may omit it.
+export async function resolveRequester(headers: Headers, org?: string): Promise<Requester>;
 
 // Predicate: can this requester see the given developer's cost?
-// authDisabled || isAdmin || (teamIds ∩ dev's teamIds) ≠ ∅.
-// Built from listTeams(org) → login→teamIds map (no new SQL).
+// authDisabled || isAdmin || dev IS the requester || (requester's teams ∩ dev's teams) ≠ ∅.
+// Built from ONE flat team_members⋈teams query (login→teamIds map); logins compared case-insensitively.
 export async function buildCostVisibility(
   org: string, requester: Requester,
 ): Promise<{ canSeeCost: (devLogin: string) => boolean; canSeeAnyCost: boolean }>;
@@ -41,10 +42,11 @@ export async function buildCostVisibility(
 // Drop cc_total_cost / cc_requests from developers the requester can't see.
 export function stripDevCost<T extends { github_login: string }>(
   devs: T[], canSeeCost: (login: string) => boolean,
-): T[];
+): Array<Omit<T, 'cc_total_cost' | 'cc_requests'> & Partial<Pick<T, 'cc_total_cost' | 'cc_requests'>>>;
+// Single-object variant reused by the dev route: stripCostFields(obj).
 ```
 
-`canSeeAnyCost` = `authDisabled || isAdmin || (githubLogin != null && teamIds.length > 0)` — i.e. a mapped requester who belongs to at least one team. Used to gate report-level fields (below).
+`canSeeAnyCost` = `authDisabled || isAdmin || githubLogin != null` — i.e. any mapped requester (they can always see at least their own cost). Used to gate report-level fields (below).
 
 `/api/auth/me` is refactored to call `resolveRequester` instead of its inlined query (removes the duplication; its existing response shape is preserved).
 
@@ -70,7 +72,7 @@ Because the backend now strips cost per-developer, the client only needs to dist
 
 - `dev-table.tsx`, `team-table.tsx`, `org/page.tsx` (`SpendTab`), `dev/[login]/page.tsx`: render a missing `cc_*` value as **"–"**, never `$0`.
 - `team-aggregator.ts`: if **any** member's `cc_total_cost` is absent, the team's total renders **"–"** (a partial team can't be summed) — so the requester's own team shows a real total and other teams show "–". Replaces the silent `Number(d.cc_total_cost ?? 0)` sum.
-- Show the Spend column / Spend tab / cost tile when the payload **contains** any cost (any developer has `cc_total_cost` defined), rather than the binary admin flag.
+- Show the Spend column / Spend tab / cost tile when the payload contains **real** spend (some visible developer has `cc_total_cost != null && > 0`), rather than the binary admin flag. `cc_total_cost` is `NOT NULL DEFAULT 0`, so a bare `!= null` presence check would render an empty `$0` Spend UI on every install without Anthropic data — the `> 0` half is what suppresses it. `!= null` remains the *per-cell* hidden-vs-visible signal.
 - Keep `canAct` (admin) **only** for the "Pull from Anthropic" refresh action.
 
 No new identity field is needed in `auth-context` — payload presence drives display.

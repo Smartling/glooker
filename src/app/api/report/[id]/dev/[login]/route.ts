@@ -2,26 +2,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDevReport } from '@/lib/report/dev';
 import { ReportNotFoundError } from '@/lib/report/service';
 import { DeveloperNotFoundError } from '@/lib/report/dev';
-import { resolveRequester, buildCostVisibility } from '@/lib/cost-visibility';
+import { resolveRequester, buildCostVisibility, stripCostFields, costCacheHeaders } from '@/lib/cost-visibility';
 import { withRequestLog } from '@/lib/logger';
-
-const CC_FIELDS = ['cc_total_cost', 'cc_requests'] as const;
-
-function stripCc<T extends Record<string, any>>(obj: T): T {
-  const copy: any = { ...obj };
-  for (const f of CC_FIELDS) delete copy[f];
-  return copy;
-}
 
 async function getHandler(req: NextRequest, { params }: { params: Promise<{ id: string; login: string }> }) {
   const { id, login } = await params;
   try {
     const result = await getDevReport(id, login);
-    const requester = await resolveRequester(req.headers);
+    const requester = await resolveRequester(req.headers, result.report.org);
     const { canSeeCost } = await buildCostVisibility(result.report.org, requester);
-    if (!canSeeCost(result.developer.github_login)) result.developer = stripCc(result.developer);
-    result.allDevelopers = result.allDevelopers.map((d: any) => canSeeCost(d.github_login) ? d : stripCc(d));
-    return NextResponse.json(result);
+    if (!canSeeCost(result.developer.github_login)) result.developer = stripCostFields(result.developer);
+    result.allDevelopers = result.allDevelopers.map((d: any) => canSeeCost(d.github_login) ? d : stripCostFields(d));
+    return NextResponse.json(result, { headers: costCacheHeaders() });
   } catch (err) {
     if (err instanceof ReportNotFoundError) return NextResponse.json({ error: 'Report not found' }, { status: 404 });
     if (err instanceof DeveloperNotFoundError) return NextResponse.json({ error: err.message }, { status: 404 });

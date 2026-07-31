@@ -15,6 +15,8 @@ jest.mock('@/lib/cost-visibility', () => ({
   resolveRequester: jest.fn(),
   buildCostVisibility: jest.fn(),
   stripDevCost: jest.requireActual('@/lib/cost-visibility').stripDevCost,
+  stripCostFields: jest.requireActual('@/lib/cost-visibility').stripCostFields,
+  costCacheHeaders: jest.requireActual('@/lib/cost-visibility').costCacheHeaders,
 }));
 
 import { GET as reportGET } from '@/app/api/report/[id]/route';
