@@ -247,8 +247,10 @@ export default function DevDetailPage() {
         })}
       </div>
 
-      {/* Anthropic Spend tile — shown whenever the payload includes cost data */}
-      {dev.cc_total_cost != null && (
+      {/* Anthropic Spend tile — shown only when this developer's cost is both
+          visible (present) and non-zero; a 0 default on installs with no
+          Anthropic data should not render an empty tile. */}
+      {dev.cc_total_cost != null && Number(dev.cc_total_cost) > 0 && (
         <div className="bg-gray-900 rounded-xl p-4 mb-6">
           <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Anthropic Spend</p>
           <p className="text-xl font-bold text-green-400">${(Number(dev.cc_total_cost) / 100).toFixed(2)}</p>

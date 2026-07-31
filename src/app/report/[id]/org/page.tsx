@@ -121,7 +121,10 @@ export default function OrgDetailPage() {
   const totalTyped = typeEntries.reduce((s, [, c]) => s + c, 0);
 
   const hasJira = developers.some(d => (d.total_jira_issues ?? 0) > 0);
-  const hasSpend = developers.some(d => d.cc_total_cost != null);
+  // Spend tab exists only when there is real spend to show. `!= null` alone is
+  // always true (cc_total_cost is NOT NULL DEFAULT 0), so installs with no
+  // Anthropic data would otherwise render a $0 Spend tab.
+  const hasSpend = developers.some(d => d.cc_total_cost != null && Number(d.cc_total_cost) > 0);
 
   // Repo breakdown across all developers
   const repoMap = new Map<string, number>();
@@ -951,10 +954,10 @@ function formatDollars(cents: number) {
 }
 
 function computeSpendMetrics(devs: Developer[]) {
-  // Cost "absent" (viewer can't see it) is distinct from cost being $0 — exclude
-  // absent-cost devs explicitly before applying the ">0" leaderboard filter.
-  const withVisibleCost = devs.filter(d => d.cc_total_cost != null);
-  const withSpend = withVisibleCost
+  // Absent cost (stripped for this viewer) and $0 cost both fail `> 0`, so the
+  // leaderboard filter already excludes hidden developers — metrics are computed
+  // only over developers whose spend this viewer can actually see.
+  const withSpend = devs
     .filter(d => Number(d.cc_total_cost ?? 0) > 0)
     .sort((a, b) => Number(b.cc_total_cost ?? 0) - Number(a.cc_total_cost ?? 0));
 
@@ -1005,6 +1008,11 @@ function SpendTab({ developers, reportId, router, report, spendWindow }: {
   const { withSpend, total, avg, median, top20Count, top20Spend, top20Pct, medianCPI } = computeSpendMetrics(developers);
   const bottom80Pct = 100 - top20Pct;
   const fullCostVisibility = developers.length > 0 && developers.every(d => d.cc_total_cost != null);
+  const partialScopeNote = 'Cost shown for developers on your team(s) only — org-wide totals require admin access.';
+  // Under partial visibility, org-scoped aggregates would silently describe only
+  // the viewer's own team. Relabel the summable ones and suppress the
+  // concentration stats (a Pareto over a permission-filtered subset is meaningless).
+  const spendLabel = fullCostVisibility ? 'Total Org Spend' : 'Visible Spend';
 
   const isOutlier = (d: Developer) => {
     const cost = Number(d.cc_total_cost ?? 0);
@@ -1059,23 +1067,19 @@ function SpendTab({ developers, reportId, router, report, spendWindow }: {
               </span>
             )}
             {!fullCostVisibility && (
-              <span className="text-amber-400">
-                Cost shown for developers on your team(s) only — org-wide totals require admin access.
-              </span>
+              <span className="text-amber-400">{partialScopeNote}</span>
             )}
           </div>
         </div>
       )}
       {!windowInfo && !fullCostVisibility && (
-        <p className="text-[11px] text-amber-400">
-          Cost shown for developers on your team(s) only — org-wide totals require admin access.
-        </p>
+        <p className="text-[11px] text-amber-400">{partialScopeNote}</p>
       )}
 
       {/* Summary Bar */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="bg-gray-900 rounded-xl p-4 flex flex-col">
-          <p className="text-xs text-gray-500 uppercase tracking-wider">Total Org Spend</p>
+          <p className="text-xs text-gray-500 uppercase tracking-wider">{spendLabel}</p>
           <p className="text-lg font-bold text-green-400 mt-1">{formatDollars(total)}</p>
         </div>
         <div className="bg-gray-900 rounded-xl p-4 flex flex-col">
@@ -1086,13 +1090,17 @@ function SpendTab({ developers, reportId, router, report, spendWindow }: {
           <p className="text-xs text-gray-500 uppercase tracking-wider">Median</p>
           <p className="text-lg font-bold text-green-400 mt-1">{formatDollars(median)}</p>
         </div>
-        <div className="bg-gray-900 rounded-xl p-4 flex flex-col">
-          <p className="text-xs text-gray-500 uppercase tracking-wider">Top 20% Share</p>
-          <p className="text-lg font-bold text-amber-400 mt-1">{top20Pct}%</p>
-        </div>
+        {fullCostVisibility && (
+          <div className="bg-gray-900 rounded-xl p-4 flex flex-col">
+            <p className="text-xs text-gray-500 uppercase tracking-wider">Top 20% Share</p>
+            <p className="text-lg font-bold text-amber-400 mt-1">{top20Pct}%</p>
+          </div>
+        )}
       </div>
 
-      {/* Pareto Concentration Bar */}
+      {/* Pareto Concentration Bar — org-wide concentration has no valid reading
+          over a permission-filtered subset, so it's shown only under full visibility. */}
+      {fullCostVisibility && (
       <div className="bg-gray-900 rounded-xl p-5">
         <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-3">Spend Concentration</p>
         <div className="h-6 bg-gray-800 rounded-full overflow-hidden flex">
@@ -1108,6 +1116,7 @@ function SpendTab({ developers, reportId, router, report, spendWindow }: {
           <span>{withSpend.length - top20Count} developer{withSpend.length - top20Count !== 1 ? 's' : ''} ({formatDollars(total - top20Spend)})</span>
         </div>
       </div>
+      )}
 
       {/* Top Spenders Table */}
       <div className="bg-gray-900 rounded-xl overflow-hidden">

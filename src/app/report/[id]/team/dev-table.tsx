@@ -56,7 +56,11 @@ export default function DevTable({ developers, reportId, org, filterLogins }: De
   const jiraCache   = useRef<Map<string, any[]>>(new Map());
 
   const hasJira  = developers.some(d => (d.total_jira_issues ?? 0) > 0);
-  const hasSpend = developers.some(d => d.cc_total_cost != null);
+  // Column exists only when there is real spend to show. `!= null` alone would
+  // always be true (cc_total_cost is NOT NULL DEFAULT 0 in the DB), so installs
+  // with no Anthropic data would render a $0.00 column. The per-cell "hidden vs
+  // visible" signal still keys off `!= null` (stripped devs are absent).
+  const hasSpend = developers.some(d => d.cc_total_cost != null && Number(d.cc_total_cost) > 0);
 
   const [sortKey, setSortKey] = useUrlState<DevSortKey>({
     key: 'devsort',
@@ -261,7 +265,7 @@ export default function DevTable({ developers, reportId, org, filterLogins }: De
                       ${(Number(dev.cc_total_cost) / 100).toFixed(2)}
                     </span>
                   ) : (
-                    <span className="text-gray-600 text-sm">–</span>
+                    <span className="text-gray-600 text-sm">—</span>
                   )}
                 </td>
               )}
