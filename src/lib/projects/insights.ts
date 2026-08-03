@@ -5,6 +5,18 @@ import type { TeamProjectInflightPr, TeamProjectInflightBranch } from '@/lib/tea
 
 const INSIGHTS_CACHE_VERSION = 3;
 
+/**
+ * The LLM returned nothing usable (empty or unparseable/truncated body).
+ * Thrown rather than degraded-to-empty so the failure is loud: the caller turns
+ * it into a 5xx, which lands in errors.log instead of masquerading as a 200.
+ */
+export class ProjectInsightsGenerationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ProjectInsightsGenerationError';
+  }
+}
+
 export async function getProjectInsights(reportId?: string) {
   let report: any;
   if (reportId) {
@@ -230,7 +242,11 @@ ${noJiraData}${inflightBlock}`;
     const response = await client.chat.completions.create({
       model: LLM_MODEL,
       temperature: 0.3,
-      ...tokenLimit(12000),
+      // The response echoes back every Jira key, PR number and commit SHA it
+      // attributes, so the output is almost entirely identifiers — token-dense.
+      // At 12000 this truncated (finish_reason=length) on larger reports, and a
+      // truncated body fails JSON.parse. Sonnet 4 allows 64k output.
+      ...tokenLimit(32000),
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: systemPrompt },
@@ -239,10 +255,42 @@ ${noJiraData}${inflightBlock}`;
       ...extraBodyProps(),
     } as any);
 
-    const raw = response.choices[0].message.content || '{}';
-    const cleaned = raw.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
+    const choice: any = response.choices[0];
+    const content: string = choice?.message?.content ?? '';
+    const finishReason: string = choice?.finish_reason ?? 'unknown';
+    const cleaned = content.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
+
+    // A failed generation used to be indistinguishable from "no projects found":
+    // an empty completion parsed as {} and a truncated one hit a silent catch,
+    // both yielding zero projects with no trace. Record what actually happened.
     let parsed: any;
-    try { parsed = JSON.parse(cleaned); } catch { parsed = { projects: [], untracked_work: [] }; }
+    let failure: string | null = null;
+    if (!cleaned) {
+      failure = 'empty completion';
+      parsed = { projects: [], untracked_work: [] };
+    } else {
+      try {
+        parsed = JSON.parse(cleaned);
+      } catch (e) {
+        failure = `json parse: ${e instanceof Error ? e.message : String(e)}`;
+        parsed = { projects: [], untracked_work: [] };
+      }
+    }
+    console.log(
+      `[project-insights] report=${report.id} finish_reason=${finishReason} prompt_chars=${userMessage.length} ` +
+      `content_chars=${content.length} llm_projects=${(parsed.projects ?? []).length}` +
+      (failure ? ` FAILURE="${failure}"` : ''),
+    );
+
+    // Never persist a failed generation. This cache is version-keyed with no TTL,
+    // so writing an empty result here turns a transient LLM failure into an
+    // indefinite outage of the home-page card (incident 2026-08-03: a truncated
+    // completion was cached and served for hours as a successful 200).
+    if (failure) {
+      throw new ProjectInsightsGenerationError(
+        `${failure} (finish_reason=${finishReason}, content_chars=${content.length}, prompt_chars=${userMessage.length})`,
+      );
+    }
 
     // ── Enrich each project using the pre-built indexes ───────────────────
     const jiraByKey = new Map(jiraRows.map((r: any) => [r.issue_key, r]));
@@ -346,12 +394,22 @@ ${noJiraData}${inflightBlock}`;
     const otherDetails = { jira_details: otherJiraDetails, prs: otherPrs };
 
     const toCache = { _v: INSIGHTS_CACHE_VERSION, projects: enrichedProjects, untracked_work: parsed.untracked_work || [], otherTotals, otherDetails };
-    await db.execute(
-      `INSERT INTO report_comparisons (report_id_a, report_id_b, highlights_json)
-       VALUES (?, ?, ?)
-       ON DUPLICATE KEY UPDATE highlights_json = VALUES(highlights_json), generated_at = NOW()`,
-      [report.id, report.id, JSON.stringify(toCache)],
-    );
+
+    // A parseable response that still attributed nothing is not worth persisting
+    // either — it is indistinguishable to the reader from "this report has no
+    // projects", and caching it would be permanent. Serve it, don't store it, so
+    // the next request retries.
+    const degraded = enrichedProjects.length === 0;
+    if (degraded) {
+      console.warn(`[project-insights] report=${report.id} produced 0 projects from a parseable response — serving uncached`);
+    } else {
+      await db.execute(
+        `INSERT INTO report_comparisons (report_id_a, report_id_b, highlights_json)
+         VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE highlights_json = VALUES(highlights_json), generated_at = NOW()`,
+        [report.id, report.id, JSON.stringify(toCache)],
+      );
+    }
 
     return {
       available: true,
