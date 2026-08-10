@@ -89,3 +89,88 @@ it('writes one row per model', async () => {
     { model: 'claude-sonnet-5', cost: 500,  requests: 20 },
   ]);
 });
+
+// Fix round 1: buildEmailToLoginMap can resolve two different input emails to
+// the same github_login (a developer with two commit emails). Both applies
+// must merge by resolved login before writing so this can never (a) silently
+// clobber the rollup via an absolute UPDATE, or (b) throw on the
+// UNIQUE(report_id, github_login, product|model) constraint and roll back
+// the whole apply.
+it('merges two entries with different emails resolving to the same login, non-overlapping products', async () => {
+  await db.execute(`INSERT INTO developer_stats (report_id, github_login, github_name) VALUES ('r1', 'carol', 'Carol')`);
+  await db.execute(
+    `INSERT INTO commit_analyses (report_id, commit_sha, repo, github_login, author_email, commit_message)
+     VALUES ('r1', 'sha-carol-1', 'repo', 'carol', 'carol1@x.com', 'msg')`,
+  );
+  await db.execute(
+    `INSERT INTO commit_analyses (report_id, commit_sha, repo, github_login, author_email, commit_message)
+     VALUES ('r1', 'sha-carol-2', 'repo', 'carol', 'carol2@x.com', 'msg')`,
+  );
+
+  const res = await applySkillsUsage({
+    reportId: 'r1', org: 'acme',
+    skills: [
+      { email: 'carol1@x.com', products: [{ product: 'science', used: 5, distinct: 2 }] },
+      { email: 'carol2@x.com', products: [{ product: 'debugging', used: 7, distinct: 3 }] },
+    ],
+  });
+
+  // matched counts input emails resolved (2), not distinct logins (1).
+  expect(res).toEqual({ matched: 2, unmappedEmail: 0, rows: 2 });
+
+  const [rows] = await db.execute(
+    `SELECT product, skills_used, skills_distinct FROM cc_skills_usage
+     WHERE report_id = 'r1' AND github_login = 'carol' ORDER BY product`,
+  ) as [any[], any];
+  expect(rows).toEqual([
+    { product: 'debugging', skills_used: 7, skills_distinct: 3 },
+    { product: 'science',   skills_used: 5, skills_distinct: 2 },
+  ]);
+
+  const [devs] = await db.execute(
+    `SELECT cc_skills_used FROM developer_stats WHERE report_id = 'r1' AND github_login = 'carol'`,
+  ) as [any[], any];
+  expect(Number(devs[0].cc_skills_used)).toBe(12);
+});
+
+it('merges the same product from two entries resolving to the same login instead of throwing on the UNIQUE constraint', async () => {
+  const res = await applySkillsUsage({
+    reportId: 'r1', org: 'acme',
+    skills: [
+      { email: 'carol1@x.com', products: [{ product: 'cowork', used: 4, distinct: 1 }] },
+      { email: 'carol2@x.com', products: [{ product: 'cowork', used: 6, distinct: 2 }] },
+    ],
+  });
+
+  expect(res).toEqual({ matched: 2, unmappedEmail: 0, rows: 1 });
+
+  const [rows] = await db.execute(
+    `SELECT product, skills_used, skills_distinct FROM cc_skills_usage
+     WHERE report_id = 'r1' AND github_login = 'carol'`,
+  ) as [any[], any];
+  expect(rows).toEqual([{ product: 'cowork', skills_used: 10, skills_distinct: 3 }]);
+
+  const [devs] = await db.execute(
+    `SELECT cc_skills_used FROM developer_stats WHERE report_id = 'r1' AND github_login = 'carol'`,
+  ) as [any[], any];
+  expect(Number(devs[0].cc_skills_used)).toBe(10);
+});
+
+it('merges two entries with different emails resolving to the same login for applyModelUsage, including the same model, without throwing', async () => {
+  const res = await applyModelUsage({
+    reportId: 'r1', org: 'acme',
+    models: [
+      { email: 'carol1@x.com', models: [{ model: 'claude-opus-4-8', costCents: 200, requests: 3 }] },
+      { email: 'carol2@x.com', models: [{ model: 'claude-opus-4-8', costCents: 300, requests: 4 }] },
+    ],
+  });
+
+  expect(res).toEqual({ matched: 2, unmappedEmail: 0, rows: 1 });
+
+  const [rows] = await db.execute(
+    `SELECT model, cost, requests FROM cc_model_usage WHERE report_id = 'r1' AND github_login = 'carol'`,
+  ) as [any[], any];
+  expect(rows.map((r: any) => ({ model: r.model, cost: Number(r.cost), requests: Number(r.requests) }))).toEqual([
+    { model: 'claude-opus-4-8', cost: 500, requests: 7 },
+  ]);
+});
