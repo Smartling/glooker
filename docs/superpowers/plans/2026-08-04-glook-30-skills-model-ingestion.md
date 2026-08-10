@@ -1277,7 +1277,12 @@ and add both methods plus include them in the returned object:
 
 - [ ] **Step 4: Add seed rows**
 
-In `scripts/seed-data.ts`, after the `seedDeveloperStats` loop (~line 129), add:
+In `scripts/seed-data.ts`, insert this **above** the existing `seedDeveloperStats` loop (it must be declared before that loop uses it), right after `ccSpendForLogin` (~line 102).
+
+The per-product rows are computed **once** by `ccSkillsForLogin` and the rollup is
+derived from that same array. Do not inline the formula a second time to compute
+`cc_skills_used`: two copies would drift and the rollup would silently stop
+matching the rows it summarises.
 
 ```typescript
 // GLOOK-30: per-developer skills + model breakdowns, deterministic from the login
@@ -1285,20 +1290,45 @@ In `scripts/seed-data.ts`, after the `seedDeveloperStats` loop (~line 129), add:
 const SEED_PRODUCTS = ['cowork', 'chat', 'office.excel', 'science'];
 const SEED_MODELS = ['claude-opus-4-8', 'claude-sonnet-5'];
 
+/** Single source of truth for a seeded developer's skills rows. */
+function ccSkillsForLogin(login: string): Array<{ product: string; used: number; distinct: number }> {
+  const { requests } = ccSpendForLogin(login);
+  return SEED_PRODUCTS
+    .map((product, i) => {
+      // chat reports no total, mirroring the real API.
+      const used = product === 'chat' ? 0 : (requests >> (i * 2)) % 20;
+      const distinct = product === 'chat' ? 1 + (requests % 4) : (used === 0 ? 0 : 1 + (used % 5));
+      return { product, used, distinct };
+    })
+    .filter(p => p.used > 0 || p.distinct > 0);
+}
+
+/** Rollup is Σ used over exactly the rows above — never recomputed independently. */
+function ccSkillsRollup(login: string): number {
+  return ccSkillsForLogin(login).reduce((sum, p) => sum + p.used, 0);
+}
+```
+
+Then add `cc_skills_used` to the existing `seedDeveloperStats` object literal (~line 126, beside `cc_requests`):
+
+```typescript
+      cc_skills_used: ccSkillsRollup(dev.githubLogin),
+```
+
+And after the `seedDeveloperStats` loop (~line 129), add the two row arrays:
+
+```typescript
 export const seedCcSkillsUsage: Record<string, any>[] = [];
 export const seedCcModelUsage: Record<string, any>[] = [];
 for (const rid of completedReportIds) {
   for (const dev of MOCK_DEVELOPERS) {
-    const cc = ccSpendForLogin(dev.githubLogin);
-    SEED_PRODUCTS.forEach((product, i) => {
-      const used = product === 'chat' ? 0 : (cc.requests >> (i * 2)) % 20;
-      const distinct = 1 + ((cc.requests >> i) % 5);
-      if (used === 0 && product !== 'chat') return;
+    for (const p of ccSkillsForLogin(dev.githubLogin)) {
       seedCcSkillsUsage.push({
-        report_id: rid, github_login: dev.githubLogin, product,
-        skills_used: used, skills_distinct: distinct,
+        report_id: rid, github_login: dev.githubLogin, product: p.product,
+        skills_used: p.used, skills_distinct: p.distinct,
       });
-    });
+    }
+    const cc = ccSpendForLogin(dev.githubLogin);
     SEED_MODELS.forEach((model, i) => {
       seedCcModelUsage.push({
         report_id: rid, github_login: dev.githubLogin, model,
@@ -1310,13 +1340,23 @@ for (const rid of completedReportIds) {
 }
 ```
 
-Then wire both into the insert routine in `scripts/seed.ts` alongside the existing `seedDeveloperStats` insert, and set `cc_skills_used` on each `seedDeveloperStats` row by adding this field inside the existing object literal (~line 126):
+Then wire both arrays into the insert routine in `scripts/seed.ts` alongside the existing `seedDeveloperStats` insert.
+
+- [ ] **Step 4b: Add a test that the rollup matches the rows**
+
+Append to `src/lib/__tests__/unit/cc-breakdown-mock.test.ts`:
 
 ```typescript
-      cc_skills_used: SEED_PRODUCTS.reduce((s, product, i) => s + (product === 'chat' ? 0 : (cc.requests >> (i * 2)) % 20), 0),
+it('seeded cc_skills_used equals the sum of that developer seed rows', () => {
+  const { seedDeveloperStats } = require('../../../../scripts/seed-data');
+  for (const dev of seedDeveloperStats) {
+    const expected = seedCcSkillsUsage
+      .filter((r: any) => r.report_id === dev.report_id && r.github_login === dev.github_login)
+      .reduce((s: number, r: any) => s + r.skills_used, 0);
+    expect(dev.cc_skills_used).toBe(expected);
+  }
+});
 ```
-
-Note: `SEED_PRODUCTS` must therefore be declared **above** the `seedDeveloperStats` loop. Move the two `SEED_*` consts above it.
 
 - [ ] **Step 5: Run tests and the seed**
 
@@ -1485,36 +1525,93 @@ git commit -m "feat(cc): expose skills + model breakdowns on the dev report, gat
 
 - [ ] **Step 1: Write the failing test**
 
-Create `src/lib/__tests__/unit/profile-self-view.test.ts`:
+Create `src/lib/__tests__/unit/profile-self-view.test.tsx`.
 
-```typescript
+This is a **behavioural** test — it renders the component and asserts on what the
+user sees and which URL is actually fetched. The repo already has
+`@testing-library/react` + `jest-environment-jsdom` and this exact pattern in
+`src/lib/__tests__/unit/url-state-hook.test.ts`. Do **not** substitute a
+source-text/regex scan: asserting that a file contains a string proves nothing
+about behaviour.
+
+```tsx
 /**
- * The self-view must only ever request the requester's OWN login — that, plus
- * the dev route's existing gate, is what makes "never sees another developer's
- * data through this path" true by construction.
+ * @jest-environment jsdom
  */
-import fs from 'fs';
-import path from 'path';
+import { render, screen, waitFor } from '@testing-library/react';
+import ProfileContent from '@/app/profile/profile-content';
 
-const src = fs.readFileSync(
-  path.join(process.cwd(), 'src/app/profile/profile-content.tsx'), 'utf8',
-);
+const mockAuth: any = { loading: false, user: null };
+jest.mock('@/app/auth-context', () => ({ useAuth: () => mockAuth }));
 
-it('builds the dev-report URL from the authenticated login only', () => {
-  expect(src).toMatch(/\/api\/report\/\$\{[^}]*\}\/dev\/\$\{[^}]*githubLogin[^}]*\}/);
-  // No hardcoded or query-supplied login may reach that URL.
-  expect(src).not.toMatch(/\/dev\/\$\{\s*(login|params|searchParams)/);
+const fetchMock = jest.fn();
+beforeEach(() => {
+  jest.clearAllMocks();
+  (global as any).fetch = fetchMock;
+  mockAuth.loading = false;
+  mockAuth.user = { email: 'alice@x.com', githubLogin: 'alice', name: 'Alice', role: 'viewer' };
 });
 
-it('renders own cost, skills and models', () => {
-  expect(src).toContain('cc_total_cost');
-  expect(src).toContain('skills');
-  expect(src).toContain('models');
+const jsonOnce = (body: any) => ({ ok: true, status: 200, json: async () => body });
+
+function wireHappyPath() {
+  fetchMock.mockImplementation(async (url: string) => {
+    if (url === '/api/report') {
+      return jsonOnce([{ id: 'r1', status: 'completed' }]) as any;
+    }
+    return jsonOnce({
+      developer: { cc_total_cost: 12345, cc_requests: 42, cc_skills_used: 12 },
+      skills: [{ product: 'cowork', skills_used: 12, skills_distinct: 4 }],
+      models: [{ model: 'claude-sonnet-5', cost: 500, requests: 20 }],
+    }) as any;
+  });
+}
+
+it('requests the dev report for the authenticated login only', async () => {
+  wireHappyPath();
+  render(<ProfileContent />);
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/report/r1/dev/alice'));
+
+  // Nothing may request another developer's data through this path.
+  const urls = fetchMock.mock.calls.map(c => String(c[0]));
+  expect(urls.filter(u => u.includes('/dev/'))).toEqual(['/api/report/r1/dev/alice']);
 });
 
-it('handles the unmapped-developer case', () => {
-  expect(src).toMatch(/githubLogin/);
-  expect(src).toMatch(/No Claude Code usage|not mapped|No usage/i);
+it('renders own spend, requests, skills and models', async () => {
+  wireHappyPath();
+  render(<ProfileContent />);
+
+  expect(await screen.findByText('$123.45')).toBeTruthy();
+  expect(await screen.findByText('42')).toBeTruthy();
+  expect(await screen.findByText('cowork')).toBeTruthy();
+  expect(await screen.findByText(/12 used/)).toBeTruthy();
+  expect(await screen.findByText('claude-sonnet-5')).toBeTruthy();
+  expect(await screen.findByText(/\$5\.00/)).toBeTruthy();
+});
+
+it('omits per-model cost when the payload has none (gated away)', async () => {
+  fetchMock.mockImplementation(async (url: string) => {
+    if (url === '/api/report') return jsonOnce([{ id: 'r1', status: 'completed' }]) as any;
+    return jsonOnce({
+      developer: { cc_skills_used: 0 },
+      skills: [],
+      models: [{ model: 'claude-sonnet-5', requests: 20 }],   // no `cost` key
+    }) as any;
+  });
+  render(<ProfileContent />);
+
+  expect(await screen.findByText('claude-sonnet-5')).toBeTruthy();
+  expect(await screen.findByText(/20 req/)).toBeTruthy();
+  expect(screen.queryByText(/\$/)).toBeNull();
+});
+
+it('shows an explanatory message for an unmapped developer and fetches nothing', async () => {
+  mockAuth.user = { email: 'ghost@x.com', githubLogin: null, name: 'Ghost', role: 'viewer' };
+  render(<ProfileContent />);
+
+  expect(await screen.findByText(/No Claude Code usage/i)).toBeTruthy();
+  expect(fetchMock).not.toHaveBeenCalled();
 });
 ```
 
