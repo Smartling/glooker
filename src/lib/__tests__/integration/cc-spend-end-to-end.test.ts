@@ -49,6 +49,8 @@ let providerAggregates: PerEmailAggregate[] = [];
 const fakeProvider: CcSpendProvider = {
   pullByPeriod: jest.fn(async () => providerAggregates),
   probe: jest.fn(async () => ({ userCount: 0 })),
+  pullSkillsByPeriod: jest.fn(async () => []),
+  pullModelCostByPeriod: jest.fn(async () => []),
 };
 
 jest.mock('@/lib/cc-spend/anthropic-provider', () => ({

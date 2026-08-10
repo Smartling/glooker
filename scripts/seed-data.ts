@@ -101,6 +101,29 @@ function ccSpendForLogin(login: string): { costCents: number; requests: number }
   return { costCents, requests };
 }
 
+// GLOOK-30: per-developer skills + model breakdowns, deterministic from the login
+// hash so seeded reports exercise both tables and the cc_skills_used rollup.
+const SEED_PRODUCTS = ['cowork', 'chat', 'office.excel', 'science'];
+const SEED_MODELS = ['claude-opus-4-8', 'claude-sonnet-5'];
+
+/** Single source of truth for a seeded developer's skills rows. */
+function ccSkillsForLogin(login: string): Array<{ product: string; used: number; distinct: number }> {
+  const { requests } = ccSpendForLogin(login);
+  return SEED_PRODUCTS
+    .map((product, i) => {
+      // chat reports no total, mirroring the real API.
+      const used = product === 'chat' ? 0 : (requests >> (i * 2)) % 20;
+      const distinct = product === 'chat' ? 1 + (requests % 4) : (used === 0 ? 0 : 1 + (used % 5));
+      return { product, used, distinct };
+    })
+    .filter(p => p.used > 0 || p.distinct > 0);
+}
+
+/** Rollup is Σ used over exactly the rows above — never recomputed independently. */
+function ccSkillsRollup(login: string): number {
+  return ccSkillsForLogin(login).reduce((sum, p) => sum + p.used, 0);
+}
+
 export const seedDeveloperStats: Record<string, any>[] = [];
 for (const rid of completedReportIds) {
   MOCK_DEVELOPERS.forEach((dev, i) => {
@@ -124,8 +147,30 @@ for (const rid of completedReportIds) {
       active_repos: JSON.stringify(p.activeRepos),
       cc_total_cost: cc.costCents,
       cc_requests: cc.requests,
+      cc_skills_used: ccSkillsRollup(dev.githubLogin),
     });
   });
+}
+
+export const seedCcSkillsUsage: Record<string, any>[] = [];
+export const seedCcModelUsage: Record<string, any>[] = [];
+for (const rid of completedReportIds) {
+  for (const dev of MOCK_DEVELOPERS) {
+    for (const p of ccSkillsForLogin(dev.githubLogin)) {
+      seedCcSkillsUsage.push({
+        report_id: rid, github_login: dev.githubLogin, product: p.product,
+        skills_used: p.used, skills_distinct: p.distinct,
+      });
+    }
+    const cc = ccSpendForLogin(dev.githubLogin);
+    SEED_MODELS.forEach((model, i) => {
+      seedCcModelUsage.push({
+        report_id: rid, github_login: dev.githubLogin, model,
+        cost: Math.round(cc.costCents / (i + 2)),
+        requests: Math.round(cc.requests / (i + 2)),
+      });
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
