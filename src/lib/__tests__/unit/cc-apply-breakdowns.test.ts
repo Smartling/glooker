@@ -1,0 +1,91 @@
+jest.mock('@octokit/rest', () => ({ Octokit: jest.fn() }));
+
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+
+let dbPath: string;
+let applySkillsUsage: any;
+let applyModelUsage: any;
+let db: any;
+
+beforeAll(async () => {
+  dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'glooker-bd-')), 'test.db');
+  process.env.SQLITE_PATH = dbPath;
+  process.env.DB_TYPE = 'sqlite';
+  db = (await import('@/lib/db')).default;
+  ({ applySkillsUsage, applyModelUsage } = await import('@/lib/cc-spend/apply-breakdowns'));
+
+  await db.execute(`INSERT INTO reports (id, org, period_days, status) VALUES ('r1', 'acme', 14, 'completed')`);
+  await db.execute(
+    `INSERT INTO developer_stats (report_id, github_login, github_name) VALUES ('r1', 'alice', 'Alice')`,
+  );
+  await db.execute(
+    `INSERT INTO commit_analyses (report_id, commit_sha, repo, github_login, author_email, commit_message)
+     VALUES ('r1', 'sha1', 'repo', 'alice', 'alice@x.com', 'msg')`,
+  );
+});
+afterAll(() => { try { fs.unlinkSync(dbPath); } catch {} });
+
+it('writes one row per product and sets the cc_skills_used rollup', async () => {
+  const res = await applySkillsUsage({
+    reportId: 'r1', org: 'acme',
+    skills: [
+      { email: 'alice@x.com', products: [
+        { product: 'cowork', used: 12, distinct: 4 },
+        { product: 'chat',   used: 0,  distinct: 5 },
+      ] },
+      { email: 'nobody@x.com', products: [{ product: 'cowork', used: 1, distinct: 1 }] },
+    ],
+  });
+
+  expect(res).toEqual({ matched: 1, unmappedEmail: 1, rows: 2 });
+
+  const [rows] = await db.execute(
+    `SELECT product, skills_used, skills_distinct FROM cc_skills_usage WHERE report_id = 'r1' ORDER BY product`,
+  ) as [any[], any];
+  expect(rows).toEqual([
+    { product: 'chat',   skills_used: 0,  skills_distinct: 5 },
+    { product: 'cowork', skills_used: 12, skills_distinct: 4 },
+  ]);
+
+  // Rollup = Σ used only. chat contributes 0 because it reports no total.
+  const [devs] = await db.execute(
+    `SELECT cc_skills_used FROM developer_stats WHERE report_id = 'r1' AND github_login = 'alice'`,
+  ) as [any[], any];
+  expect(Number(devs[0].cc_skills_used)).toBe(12);
+});
+
+it('replaces prior rows instead of accumulating on re-run', async () => {
+  await applySkillsUsage({
+    reportId: 'r1', org: 'acme',
+    skills: [{ email: 'alice@x.com', products: [{ product: 'science', used: 3, distinct: 1 }] }],
+  });
+  const [rows] = await db.execute(`SELECT product FROM cc_skills_usage WHERE report_id = 'r1'`) as [any[], any];
+  expect(rows.map((r: any) => r.product)).toEqual(['science']);
+
+  const [devs] = await db.execute(
+    `SELECT cc_skills_used FROM developer_stats WHERE report_id = 'r1' AND github_login = 'alice'`,
+  ) as [any[], any];
+  expect(Number(devs[0].cc_skills_used)).toBe(3);
+});
+
+it('writes one row per model', async () => {
+  const res = await applyModelUsage({
+    reportId: 'r1', org: 'acme',
+    models: [{ email: 'alice@x.com', models: [
+      { model: 'claude-opus-4-8', costCents: 1500, requests: 10 },
+      { model: 'claude-sonnet-5', costCents: 500,  requests: 20 },
+    ] }],
+  });
+
+  expect(res).toEqual({ matched: 1, unmappedEmail: 0, rows: 2 });
+
+  const [rows] = await db.execute(
+    `SELECT model, cost, requests FROM cc_model_usage WHERE report_id = 'r1' ORDER BY model`,
+  ) as [any[], any];
+  expect(rows.map((r: any) => ({ model: r.model, cost: Number(r.cost), requests: Number(r.requests) }))).toEqual([
+    { model: 'claude-opus-4-8', cost: 1500, requests: 10 },
+    { model: 'claude-sonnet-5', cost: 500,  requests: 20 },
+  ]);
+});
