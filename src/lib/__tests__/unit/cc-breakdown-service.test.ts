@@ -12,9 +12,10 @@ jest.mock('@/lib/cc-spend/apply-breakdowns', () => ({
   applyModelUsage: jest.fn(async () => ({ matched: 1, unmappedEmail: 0, rows: 3 })),
 }));
 
-const pullByPeriod = jest.fn(async () => []);
-const pullSkillsByPeriod = jest.fn(async () => []);
-const pullModelCostByPeriod = jest.fn(async () => []);
+type Log = (msg: string) => void;
+const pullByPeriod = jest.fn(async (_periodStart: string, _periodEnd: string, _log?: Log) => [] as unknown[]);
+const pullSkillsByPeriod = jest.fn(async (_periodStart: string, _periodEnd: string, _log?: Log) => [] as unknown[]);
+const pullModelCostByPeriod = jest.fn(async (_periodStart: string, _periodEnd: string, _log?: Log) => [] as unknown[]);
 jest.mock('@/lib/cc-spend/provider', () => ({
   getCcSpendProvider: () => ({ pullByPeriod, pullSkillsByPeriod, pullModelCostByPeriod, probe: jest.fn() }),
 }));
