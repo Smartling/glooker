@@ -51,7 +51,11 @@ Contents:
 - A table: **model · spend · % · requests · $/req · devs**, using the established header/row classes.
 - One compact skills line beneath, e.g. *"Skills: 9 invocations by 14 developers (cowork 9, chat distinct-only)"*. Ungated, always shown when any skills rows exist.
 
-**Under partial cost visibility** (`fullCostVisibility === false`, computed at 1010): relabel the section to **Visible Model Mix**, and suppress both the `%` column and the share bar. A percentage of a permission-filtered subset describes the viewer's own teams while looking org-wide — the same reasoning that already suppresses "Top 20% Share" and the whole Pareto block. Absolute spend and request counts remain, relabelled.
+**Under partial cost visibility** (`fullCostVisibility === false`, computed at 1010): relabel the section to **Your teams' model mix** and add the existing amber scope note. The `%` column and the share bar are **kept**.
+
+This deliberately diverges from how "Top 20% Share" and the Pareto block are treated, and the distinction matters. Those are *concentration* statistics — claims about how unevenly spend is distributed across the org population — and they genuinely break when computed over a permission-filtered subset. A **composition** share does not: "62% of my team's spend went to opus" is a valid, useful statement about any well-defined subset, and it is precisely the question a team member opens this panel to answer. Suppressing it would remove the feature's value for exactly the audience team-scoped visibility exists to serve. The requirement is therefore that the *scope* is unambiguous in the label, not that the ratio is hidden.
+
+**Scope coherence is a hard requirement.** The org route strips `cost`/`requests` per developer but keeps the row and its `model`. If `computeModelMix` aggregated over every row, a team member would see org-wide model names and dev counts alongside team-only cost — mismatched scopes in a single table (e.g. `claude-opus-5 · $0.00 · 0 req · 44 devs`). `computeModelMix` therefore considers **only rows whose `cost` is present**, so the models listed, the dev counts, the request totals and the spend total are all scoped identically to the developers whose spend the viewer may see. An admin sees the org; a team member sees their team(s); an unmapped viewer sees the panel not render at all.
 
 The Top Spenders table is **not** changed. A per-row model-mix column was considered and rejected: that table already carries 8-11 columns and a hardcoded `colSpan={spendWindow ? 11 : 8}`.
 
@@ -105,8 +109,8 @@ Both routes call it. For the org route the models array is per-login, so the str
 ## Testing
 
 - **Engineer page** (behavioural, jsdom + `@testing-library/react`, `.tsx`): renders spend/requests/skills-invoked and both lists from a payload; renders a model row with `cost`/`requests` absent without printing `$undefined`/`NaN`; hides the whole card when no dimension has data.
-- **`computeModelMix`** (unit, pure): correct totals, percentages, `$/request`, dev counts; a model appearing for several developers is merged; rows with absent cost contribute nothing rather than `NaN`.
-- **Spend tab** (behavioural): Model Mix renders under full visibility; under partial visibility the label becomes "Visible Model Mix" and the `%` column and share bar are absent.
+- **`computeModelMix`** (unit, pure): correct totals, percentages, `$/request`, dev counts; a model appearing for several developers is merged. **Scope coherence:** given a mix of rows with and without `cost`, a model present *only* on cost-stripped rows must not appear at all, and dev counts must count only visible developers — not `NaN`, not `$0` phantom rows.
+- **Spend tab** (behavioural): Model Mix renders under full visibility labelled "Model Mix"; under partial visibility the label becomes "Your teams' model mix", the amber scope note is present, and the `%` column and share bar are still rendered (this is the composition-vs-concentration distinction, so it is asserted explicitly rather than left implicit).
 - **Org route** (route test): per-model `cost` and `requests` are stripped for a developer the requester cannot see, `model` survives, order is by model name; skills are never stripped.
 - **Leak-surface guard:** `/api/report/[id]/org` is a brand-new surface for per-model cost, so it gets an explicit test that a non-admin non-teammate receives no per-model cost or requests for another developer.
 - `stripModelCost` unit tests, including that it is the only implementation (no inline copy remains in either route).
