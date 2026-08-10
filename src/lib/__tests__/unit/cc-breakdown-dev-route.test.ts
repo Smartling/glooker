@@ -9,6 +9,7 @@ jest.mock('@/lib/cost-visibility', () => ({
   resolveRequester: jest.fn(async () => ({ githubLogin: 'bob', isAdmin: false, authDisabled: false })),
   buildCostVisibility: jest.fn(),
   stripCostFields: jest.requireActual('@/lib/cost-visibility').stripCostFields,
+  stripModelCost: jest.requireActual('@/lib/cost-visibility').stripModelCost,
   costCacheHeaders: jest.requireActual('@/lib/cost-visibility').costCacheHeaders,
 }));
 

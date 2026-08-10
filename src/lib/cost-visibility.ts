@@ -122,6 +122,43 @@ export function stripDevCost<T extends { github_login: string } & CostBearing>(
 }
 
 /**
+ * Per-model cost fields. `requests` is included deliberately: summing
+ * models[].requests across a developer's array reconstructs the gated
+ * cc_requests value exactly (same user_cost_report window, merely grouped by
+ * model), so leaving it in would let a non-privileged viewer recover a stripped
+ * field by arithmetic.
+ */
+const MODEL_COST_FIELDS = ['cost', 'requests'] as const;
+type ModelCostField = typeof MODEL_COST_FIELDS[number];
+
+interface ModelBearing {
+  model: string;
+  cost?: number | null;
+  requests?: number | null;
+}
+
+/**
+ * Drop per-model cost fields unless the requester may see this developer's cost.
+ * When stripped, the array is re-sorted by model name: callers order it by cost
+ * for privileged viewers, and that order would otherwise leak a relative-cost
+ * ranking to someone not allowed to see the amounts.
+ */
+export function stripModelCost<T extends ModelBearing>(
+  models: T[],
+  canSeeCost: (devLogin: string) => boolean,
+  devLogin: string,
+): Array<Omit<T, ModelCostField> & Partial<Pick<T, ModelCostField>>> {
+  if (canSeeCost(devLogin)) return models;
+  return models
+    .map((m) => {
+      const copy: any = { ...m };
+      for (const f of MODEL_COST_FIELDS) delete copy[f];
+      return copy;
+    })
+    .sort((a: any, b: any) => String(a.model).localeCompare(String(b.model)));
+}
+
+/**
  * Response headers for any endpoint that varies its body by requester identity.
  * These routes now serve one cost variant per team at a single URL, so a shared
  * cache keyed on URL alone could serve an over-privileged body to the next
