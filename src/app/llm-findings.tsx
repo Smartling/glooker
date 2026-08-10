@@ -44,6 +44,7 @@ export default function LlmFindings() {
   const [otherTotals, setOtherTotals] = useState<{ jiras: number; prs: number } | null>(null);
   const [otherDetails, setOtherDetails] = useState<{ jira_details: JiraDetail[]; prs: PrDetail[] } | null>(null);
   const [projectsLoading, setProjectsLoading] = useState(true);
+  const [projectsError, setProjectsError] = useState(false);
 
   // Release notes
   const [releaseNotes, setReleaseNotes] = useState<string | null>(null);
@@ -85,9 +86,15 @@ export default function LlmFindings() {
       })
       .catch(() => {});
 
-    // Project insights
+    // Project insights. Failures here used to be swallowed entirely (no r.ok
+    // check, empty catch), so a 5xx or a timeout removed the card from the page
+    // with no explanation — see incident 2026-08-03.
     fetch('/api/project-insights')
-      .then(async r => { try { return JSON.parse(await r.text()); } catch { return { available: false }; } })
+      .then(async r => {
+        const text = await r.text();
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return JSON.parse(text);
+      })
       .then(data => {
         if (data.available) {
           setProjects(data.projects || []);
@@ -98,7 +105,7 @@ export default function LlmFindings() {
           if (data.otherDetails) setOtherDetails(data.otherDetails);
         }
       })
-      .catch(() => {})
+      .catch(() => setProjectsError(true))
       .finally(() => setProjectsLoading(false));
   }, []);
 
@@ -146,8 +153,17 @@ export default function LlmFindings() {
         </div>
       )}
 
-      {/* Project Insights */}
-      {(projectsLoading || (projects.length > 0 && projectsMeta)) && (
+      {/* Project Insights — an error must stay visible. Silently dropping the
+          card is what made incident 2026-08-03 undiagnosable from the UI. */}
+      {projectsError && !projectsLoading && (
+        <div className="bg-white/[0.03] border border-white/[0.07] rounded-2xl p-5">
+          <p className="text-[10px] text-white/25 uppercase tracking-widest font-bold mb-2">Top Projects</p>
+          <p className="text-sm text-amber-400/90">
+            Couldn’t build the project summary right now. Reload to retry.
+          </p>
+        </div>
+      )}
+      {!projectsError && (projectsLoading || (projects.length > 0 && projectsMeta)) && (
         <ProjectsCard
           projects={projects}
           loading={projectsLoading}
