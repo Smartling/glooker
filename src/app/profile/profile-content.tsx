@@ -19,7 +19,14 @@ export default function ProfileContent() {
 
   const login = auth.user?.githubLogin ?? null;
   useEffect(() => {
+    // Auth identity is still resolving — `login` is necessarily null here even for a
+    // developer who turns out to be mapped. Don't touch usage state yet: doing so would
+    // leave a stale "not loading" flag around for the render where `auth.loading` and
+    // `login` both flip to their resolved values in the same update, flashing the
+    // empty state before the real fetch has even started.
+    if (auth.loading) return;
     if (!login) { setUsageLoading(false); return; }
+    setUsageLoading(true);
     let cancelled = false;
     (async () => {
       try {
@@ -42,7 +49,7 @@ export default function ProfileContent() {
       finally { if (!cancelled) setUsageLoading(false); }
     })();
     return () => { cancelled = true; };
-  }, [login]);
+  }, [login, auth.loading]);
 
   if (auth.loading) {
     return (

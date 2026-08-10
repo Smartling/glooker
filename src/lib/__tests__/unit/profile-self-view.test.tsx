@@ -76,3 +76,25 @@ it('shows an explanatory message for an unmapped developer and fetches nothing',
   expect(await screen.findByText(/No Claude Code usage/i)).toBeTruthy();
   expect(fetchMock).not.toHaveBeenCalled();
 });
+
+it('does not flash the empty state when auth resolves to a mapped user with data in flight', async () => {
+  // Start in the auth-loading state — no user yet.
+  mockAuth.loading = true;
+  mockAuth.user = null;
+  wireHappyPath();
+  const { rerender } = render(<ProfileContent />);
+
+  // Auth resolves: `loading` flips to false and `githubLogin` becomes available
+  // in the very same update — exactly how the real SWR-backed AuthProvider behaves.
+  mockAuth.loading = false;
+  mockAuth.user = { email: 'alice@x.com', githubLogin: 'alice', name: 'Alice', role: 'viewer' };
+  rerender(<ProfileContent />);
+
+  // Immediately after that transition, the dev-report fetch is still in flight.
+  // The developer DOES have usage data — the empty-state message must never appear.
+  expect(screen.queryByText(/No Claude Code usage/i)).toBeNull();
+
+  // Once the fetch resolves, the real data renders, and the empty state still never appeared.
+  expect(await screen.findByText('$123.45')).toBeTruthy();
+  expect(screen.queryByText(/No Claude Code usage/i)).toBeNull();
+});
