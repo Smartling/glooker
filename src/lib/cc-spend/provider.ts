@@ -1,3 +1,5 @@
+import type { SkillsProductUsage } from './skills-parser';
+
 export interface PerEmailAggregate {
   email: string;
   costCents: number;
@@ -9,11 +11,31 @@ export interface CcSpendProbeResult {
   sampleEmail?: string;
 }
 
+export interface PerEmailSkills {
+  email: string;
+  products: SkillsProductUsage[];
+}
+
+export interface ModelUsage {
+  model: string;
+  costCents: number;
+  requests: number;
+}
+
+export interface PerEmailModelCost {
+  email: string;
+  models: ModelUsage[];
+}
+
 export interface CcSpendProvider {
   /** Pull per-user CC spend aggregated across the [start, end] window (inclusive, YYYY-MM-DD). */
   pullByPeriod(periodStart: string, periodEnd: string, log?: (msg: string) => void): Promise<PerEmailAggregate[]>;
   /** Cheap connectivity / auth probe for a single day. */
   probe(date: string): Promise<CcSpendProbeResult>;
+  /** Pull per-user skills usage per product for [start, end] (inclusive, YYYY-MM-DD). */
+  pullSkillsByPeriod(periodStart: string, periodEnd: string, log?: (msg: string) => void): Promise<PerEmailSkills[]>;
+  /** Pull per-user cost/requests broken down by model for [start, end] (inclusive, YYYY-MM-DD). */
+  pullModelCostByPeriod(periodStart: string, periodEnd: string, log?: (msg: string) => void): Promise<PerEmailModelCost[]>;
 }
 
 let cachedProvider: CcSpendProvider | null = null;

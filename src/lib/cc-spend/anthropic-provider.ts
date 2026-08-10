@@ -1,8 +1,10 @@
-import type { CcSpendProvider, PerEmailAggregate, CcSpendProbeResult } from './provider';
+import { extractSkillsEntries } from './skills-parser';
+import type { CcSpendProvider, PerEmailAggregate, CcSpendProbeResult, PerEmailSkills, PerEmailModelCost, ModelUsage } from './provider';
 
 const ANTHROPIC_BASE = 'https://api.anthropic.com';
 const ANTHROPIC_VERSION = '2023-06-01';
 const ANALYTICS_PATH = '/v1/organizations/analytics/user_cost_report';
+const USERS_PATH = '/v1/organizations/analytics/users';
 
 const FETCH_TIMEOUT_MS = 30_000;
 const MAX_RETRIES = 2;
@@ -44,6 +46,21 @@ function buildUrl(periodStart: string, periodEnd: string, cursor: string | null,
   const url = new URL(`${ANTHROPIC_BASE}${ANALYTICS_PATH}`);
   url.searchParams.set('starting_at', `${periodStart}T00:00:00Z`);
   url.searchParams.set('ending_at', `${periodEnd}T23:59:59Z`);
+  url.searchParams.set('limit', String(limit));
+  if (cursor) url.searchParams.set('page', cursor);
+  return url.toString();
+}
+
+/**
+ * The /users endpoint takes DATES (starting_date/ending_date), not the
+ * starting_at/ending_at timestamps the cost endpoint uses. Its cursor param is
+ * `page`; passing the token as `next_page`/`cursor` is silently ignored and
+ * re-serves page 1, which would spin until MAX_PAGES.
+ */
+function buildUsersUrl(periodStart: string, periodEnd: string, cursor: string | null, limit: number): string {
+  const url = new URL(`${ANTHROPIC_BASE}${USERS_PATH}`);
+  url.searchParams.set('starting_date', periodStart);
+  url.searchParams.set('ending_date', periodEnd);
   url.searchParams.set('limit', String(limit));
   if (cursor) url.searchParams.set('page', cursor);
   return url.toString();
@@ -203,5 +220,84 @@ export function createAnthropicCcSpendProvider(): CcSpendProvider {
     };
   }
 
-  return { pullByPeriod, probe };
+  async function pullSkillsByPeriod(
+    periodStart: string,
+    periodEnd: string,
+    log?: (msg: string) => void,
+  ): Promise<PerEmailSkills[]> {
+    const apiKey = process.env.ANTHROPIC_ANALYTICS_API_KEY;
+    if (!apiKey) throw new AnthropicAnalyticsKeyMissingError();
+
+    // A date range returns one aggregated row per user (keyset-paginated by
+    // email), so this Map is defensive rather than load-bearing.
+    const byEmail = new Map<string, PerEmailSkills>();
+    let cursor: string | null = null;
+    let pages = 0;
+    do {
+      const url = buildUsersUrl(periodStart, periodEnd, cursor, 1000);
+      const page = await fetchPage(apiKey, url, log) as { data?: any[]; next_page?: string | null };
+      for (const row of page.data ?? []) {
+        const rawEmail = row?.user?.email_address;
+        if (!rawEmail) continue;
+        const email = String(rawEmail).trim().toLowerCase();
+        const products = extractSkillsEntries(row);
+        if (products.length === 0) continue;
+        const existing = byEmail.get(email);
+        if (existing) existing.products.push(...products);
+        else byEmail.set(email, { email, products });
+      }
+      cursor = page.next_page ?? null;
+      if (++pages >= MAX_PAGES) {
+        throw new Error(`Anthropic analytics pagination exceeded ${MAX_PAGES} pages — refusing to continue`);
+      }
+    } while (cursor);
+
+    return [...byEmail.values()];
+  }
+
+  async function pullModelCostByPeriod(
+    periodStart: string,
+    periodEnd: string,
+    log?: (msg: string) => void,
+  ): Promise<PerEmailModelCost[]> {
+    const apiKey = process.env.ANTHROPIC_ANALYTICS_API_KEY;
+    if (!apiKey) throw new AnthropicAnalyticsKeyMissingError();
+
+    const byEmail = new Map<string, Map<string, ModelUsage>>();
+    let cursor: string | null = null;
+    let pages = 0;
+    do {
+      // The `[]` is required: group_by=model (no brackets) is silently ignored
+      // and every row comes back with model: null.
+      const url = `${buildUrl(periodStart, periodEnd, cursor, 1000)}&group_by%5B%5D=model`;
+      const page = await fetchPage(apiKey, url, log) as { data?: any[]; next_page?: string | null };
+      for (const row of page.data ?? []) {
+        if (row?.actor?.type !== 'user_actor') continue;
+        if (row?.actor?.deleted === true) continue;
+        const rawEmail = row?.actor?.email;
+        const model = row?.model;
+        if (!rawEmail || !model) continue;
+        const email = String(rawEmail).trim().toLowerCase();
+
+        const amountNum = typeof row.amount === 'string' ? parseFloat(row.amount) : NaN;
+        const costCents = Number.isFinite(amountNum) ? Math.round(amountNum) : 0;
+        const requests = Number(row.requests) || 0;
+
+        let models = byEmail.get(email);
+        if (!models) { models = new Map<string, ModelUsage>(); byEmail.set(email, models); }
+        const entry = models.get(String(model)) ?? { model: String(model), costCents: 0, requests: 0 };
+        entry.costCents += costCents;
+        entry.requests += requests;
+        models.set(entry.model, entry);
+      }
+      cursor = page.next_page ?? null;
+      if (++pages >= MAX_PAGES) {
+        throw new Error(`Anthropic analytics pagination exceeded ${MAX_PAGES} pages — refusing to continue`);
+      }
+    } while (cursor);
+
+    return [...byEmail.entries()].map(([email, models]) => ({ email, models: [...models.values()] }));
+  }
+
+  return { pullByPeriod, probe, pullSkillsByPeriod, pullModelCostByPeriod };
 }
