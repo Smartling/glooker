@@ -66,5 +66,5 @@ it('rejects a duplicate (report, login, dimension)', async () => {
   await expect(db.execute(
     `INSERT INTO cc_skills_usage (report_id, github_login, product, skills_used, skills_distinct)
      VALUES ('rY', 'bob', 'chat', 1, 1)`,
-  )).rejects.toThrow();
+  )).rejects.toThrow(/UNIQUE/i);
 });

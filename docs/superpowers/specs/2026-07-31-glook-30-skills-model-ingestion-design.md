@@ -112,8 +112,9 @@ Per-model **cost is money**, and money is exactly what GLOOK-27 team-scoped. Shi
 | Field | Visibility |
 |---|---|
 | all `cc_skills_usage` columns, `developer_stats.cc_skills_used` | ungated |
-| `cc_model_usage.model`, `cc_model_usage.requests` | ungated |
+| `cc_model_usage.model` | ungated |
 | `cc_model_usage.cost` | **gated** — existing `canSeeCost(login)` from `cost-visibility.ts` |
+| `cc_model_usage.requests` | **gated** — summed across models it reconstructs the gated `cc_requests` total |
 
 This reuses one existing predicate on one field. No new gating mechanism, and "show all for all" holds for everything that is not dollars.
 

@@ -12,12 +12,17 @@ it('names products by dotted path with the _metrics suffix stripped', () => {
     science_metrics: { skills_used_count: 7 },
   };
   const out = extractSkillsEntries(row);
-  expect(out).toEqual(expect.arrayContaining([
+  // Exact match (not arrayContaining): the generic walk's known latent risk is
+  // emitting a node AND its descendants (double counting), which a subset
+  // check would not catch. Sort both sides by product for a deterministic
+  // comparison independent of walk order.
+  const byProduct = (a: { product: string }, b: { product: string }) => a.product.localeCompare(b.product);
+  expect([...out].sort(byProduct)).toEqual([
     { product: 'chat',         used: 0,  distinct: 3 },
     { product: 'cowork',       used: 12, distinct: 4 },
     { product: 'office.excel', used: 2,  distinct: 1 },
     { product: 'science',      used: 7,  distinct: 0 },
-  ]));
+  ].sort(byProduct));
 });
 
 it('skips entries where both counts are zero', () => {

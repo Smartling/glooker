@@ -37,27 +37,35 @@ beforeEach(() => {
   });
 });
 
-it('strips per-model cost but keeps model + requests when cost is not visible, reordered by model name', async () => {
-  (buildCostVisibility as jest.Mock).mockResolvedValue({ canSeeCost: () => false, canSeeAnyCost: false });
+it('strips per-model cost and requests when cost is not visible, reordered by model name', async () => {
+  const canSeeCost = jest.fn(() => false);
+  (buildCostVisibility as jest.Mock).mockResolvedValue({ canSeeCost, canSeeAnyCost: false });
 
   const body = await (await GET(req() as any, params as any)).json();
 
   // Re-sorted by model name (asc), not the original cost-DESC order, so array
   // position doesn't leak a relative-cost ranking to an unprivileged viewer.
   expect(body.models).toEqual([
-    { model: 'claude-haiku-4', requests: 5 },
-    { model: 'claude-sonnet-5', requests: 20 },
+    { model: 'claude-haiku-4' },
+    { model: 'claude-sonnet-5' },
   ]);
   expect(body.models[0]).not.toHaveProperty('cost');
   expect(body.models[1]).not.toHaveProperty('cost');
+  // requests is gated too: summing models[].requests reconstructs the gated
+  // cc_requests total, so it must be stripped alongside cost.
+  expect(body.models[0]).not.toHaveProperty('requests');
+  expect(body.models[1]).not.toHaveProperty('requests');
   // Skills are ungated telemetry.
   expect(body.skills).toEqual([{ product: 'cowork', skills_used: 12, skills_distinct: 4 }]);
   expect(body.developer.cc_skills_used).toBe(12);
   expect(body.developer).not.toHaveProperty('cc_total_cost');
+  // Prove the gate was consulted for the focused developer, not some other identity.
+  expect(canSeeCost).toHaveBeenCalledWith('alice');
 });
 
 it('keeps per-model cost and cost-DESC order when cost is visible', async () => {
-  (buildCostVisibility as jest.Mock).mockResolvedValue({ canSeeCost: () => true, canSeeAnyCost: true });
+  const canSeeCost = jest.fn(() => true);
+  (buildCostVisibility as jest.Mock).mockResolvedValue({ canSeeCost, canSeeAnyCost: true });
 
   const body = await (await GET(req() as any, params as any)).json();
 
@@ -66,4 +74,5 @@ it('keeps per-model cost and cost-DESC order when cost is visible', async () => 
     { model: 'claude-haiku-4', cost: 100, requests: 5 },
   ]);
   expect(body.developer.cc_total_cost).toBe(100);
+  expect(canSeeCost).toHaveBeenCalledWith('alice');
 });
