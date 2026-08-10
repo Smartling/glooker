@@ -248,6 +248,26 @@ CREATE TABLE IF NOT EXISTS unmerged_commits (
   UNIQUE (report_id, repo, commit_sha)
 );
 
+CREATE TABLE IF NOT EXISTS cc_skills_usage (
+  report_id       TEXT    NOT NULL,
+  github_login    TEXT    NOT NULL,
+  product         TEXT    NOT NULL,
+  skills_used     INTEGER NOT NULL DEFAULT 0,
+  skills_distinct INTEGER NOT NULL DEFAULT 0,
+  FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
+  UNIQUE (report_id, github_login, product)
+);
+
+CREATE TABLE IF NOT EXISTS cc_model_usage (
+  report_id    TEXT    NOT NULL,
+  github_login TEXT    NOT NULL,
+  model        TEXT    NOT NULL,
+  cost         REAL    NOT NULL DEFAULT 0,
+  requests     INTEGER NOT NULL DEFAULT 0,
+  FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
+  UNIQUE (report_id, github_login, model)
+);
+
 CREATE INDEX IF NOT EXISTS idx_devstats_login ON developer_stats(github_login);
 CREATE INDEX IF NOT EXISTS idx_reports_org_status_created ON reports(org, status, created_at);
 `;
@@ -274,6 +294,9 @@ export function createSQLiteDB(): DB {
   try { db.exec('ALTER TABLE developer_stats DROP COLUMN cc_sessions'); } catch (_) {}
   try { db.exec('ALTER TABLE developer_stats ADD COLUMN cc_total_cost REAL NOT NULL DEFAULT 0'); } catch (_) {}
   try { db.exec('ALTER TABLE developer_stats ADD COLUMN cc_requests INTEGER NOT NULL DEFAULT 0'); } catch (_) {}
+  // GLOOK-30: rollup so existing per-developer tooling picks up a headline
+  // "skills invoked" number without special-casing. Breakdown lives in cc_skills_usage.
+  try { db.exec('ALTER TABLE developer_stats ADD COLUMN cc_skills_used INTEGER NOT NULL DEFAULT 0'); } catch (_) {}
   try { db.exec('ALTER TABLE reports ADD COLUMN cc_period_start TEXT'); } catch (_) {}
   try { db.exec('ALTER TABLE reports ADD COLUMN cc_period_end TEXT'); } catch (_) {}
   try { db.exec("ALTER TABLE team_pulse_summaries ADD COLUMN prompt_version TEXT NOT NULL DEFAULT 'v1'"); } catch (_) {}
@@ -303,7 +326,7 @@ export function createSQLiteDB(): DB {
 
       try {
         const stmt = db.prepare(translated);
-        if (translated.trimStart().match(/^(SELECT|SHOW)/i)) {
+        if (translated.trimStart().match(/^(SELECT|SHOW|PRAGMA)/i)) {
           const rows = stmt.all(...normalizedParams) as T[];
           return Promise.resolve([rows, null]);
         } else {
