@@ -147,6 +147,20 @@ export async function getDevReport(reportId: string, login: string) {
     active_repos: typeof row.active_repos === 'string' ? JSON.parse(row.active_repos || '[]') : (row.active_repos || []),
   });
 
+  const [skillsRows] = await db.execute(
+    `SELECT product, skills_used, skills_distinct
+     FROM cc_skills_usage WHERE report_id = ? AND github_login = ?
+     ORDER BY skills_used DESC, product`,
+    [reportId, login],
+  ) as [any[], any];
+
+  const [modelRows] = await db.execute(
+    `SELECT model, cost, requests
+     FROM cc_model_usage WHERE report_id = ? AND github_login = ?
+     ORDER BY cost DESC, model`,
+    [reportId, login],
+  ) as [any[], any];
+
   return {
     report: reportRows[0],
     developer: parseDev(devRows[0]),
@@ -154,5 +168,15 @@ export async function getDevReport(reportId: string, login: string) {
     commits: commitRows,
     timeline,
     unmergedWork: { openPrs, branchCommits },
+    skills: skillsRows.map((r: any) => ({
+      product: String(r.product),
+      skills_used: Number(r.skills_used) || 0,
+      skills_distinct: Number(r.skills_distinct) || 0,
+    })),
+    models: modelRows.map((r: any) => ({
+      model: String(r.model),
+      cost: Number(r.cost) || 0,
+      requests: Number(r.requests) || 0,
+    })),
   };
 }
