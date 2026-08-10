@@ -27,28 +27,43 @@ beforeEach(() => {
     allDevelopers: [],
     commits: [], timeline: [], unmergedWork: { openPrs: [], branchCommits: [] },
     skills: [{ product: 'cowork', skills_used: 12, skills_distinct: 4 }],
-    models: [{ model: 'claude-sonnet-5', cost: 500, requests: 20 }],
+    // Cost-ordered (DESC), as dev.ts's ORDER BY cost DESC would produce. Names
+    // deliberately sort the opposite way from cost, so an assertion on model-name
+    // order can't be satisfied by accident when cost is stripped.
+    models: [
+      { model: 'claude-sonnet-5', cost: 500, requests: 20 },
+      { model: 'claude-haiku-4', cost: 100, requests: 5 },
+    ],
   });
 });
 
-it('strips per-model cost but keeps model + requests when cost is not visible', async () => {
+it('strips per-model cost but keeps model + requests when cost is not visible, reordered by model name', async () => {
   (buildCostVisibility as jest.Mock).mockResolvedValue({ canSeeCost: () => false, canSeeAnyCost: false });
 
   const body = await (await GET(req() as any, params as any)).json();
 
-  expect(body.models).toEqual([{ model: 'claude-sonnet-5', requests: 20 }]);
+  // Re-sorted by model name (asc), not the original cost-DESC order, so array
+  // position doesn't leak a relative-cost ranking to an unprivileged viewer.
+  expect(body.models).toEqual([
+    { model: 'claude-haiku-4', requests: 5 },
+    { model: 'claude-sonnet-5', requests: 20 },
+  ]);
   expect(body.models[0]).not.toHaveProperty('cost');
+  expect(body.models[1]).not.toHaveProperty('cost');
   // Skills are ungated telemetry.
   expect(body.skills).toEqual([{ product: 'cowork', skills_used: 12, skills_distinct: 4 }]);
   expect(body.developer.cc_skills_used).toBe(12);
   expect(body.developer).not.toHaveProperty('cc_total_cost');
 });
 
-it('keeps per-model cost when cost is visible', async () => {
+it('keeps per-model cost and cost-DESC order when cost is visible', async () => {
   (buildCostVisibility as jest.Mock).mockResolvedValue({ canSeeCost: () => true, canSeeAnyCost: true });
 
   const body = await (await GET(req() as any, params as any)).json();
 
-  expect(body.models).toEqual([{ model: 'claude-sonnet-5', cost: 500, requests: 20 }]);
+  expect(body.models).toEqual([
+    { model: 'claude-sonnet-5', cost: 500, requests: 20 },
+    { model: 'claude-haiku-4', cost: 100, requests: 5 },
+  ]);
   expect(body.developer.cc_total_cost).toBe(100);
 });

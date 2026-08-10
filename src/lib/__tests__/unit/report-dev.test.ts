@@ -30,6 +30,7 @@ const devRow = {
   impact_score: '87.5',
   pr_percentage: '25.0',
   ai_percentage: '10.0',
+  cc_skills_used: 12,
   type_breakdown: '{"feat":5,"fix":3}',
   active_repos: '["repo-a","repo-b"]',
 };
@@ -123,6 +124,18 @@ describe('getDevReport', () => {
 
     await expect(getDevReport('report-1', 'unknown')).rejects.toThrow(DeveloperNotFoundError);
     await expect(getDevReport('report-1', 'unknown')).rejects.toThrow('unknown');
+  });
+
+  it('includes cc_skills_used on developer (ungated telemetry rollup, GLOOK-30)', async () => {
+    // Regression guard: cc_skills_used is written by developer_stats but must
+    // also be SELECTed here, or Task 9's "Skills invoked" stat silently renders
+    // 0 for every user regardless of real usage. Column-list edits to this
+    // query must keep this field or this test fails.
+    setupHappyPath();
+
+    const result = await getDevReport('report-1', 'alice');
+
+    expect(result.developer.cc_skills_used).toBe(12);
   });
 
   it('parses JSON string columns (type_breakdown, active_repos)', async () => {
