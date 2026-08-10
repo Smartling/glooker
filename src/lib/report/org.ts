@@ -2,6 +2,21 @@ import db from '../db/index';
 import { ReportNotFoundError } from './service';
 import { dedupCommitsBySha, aggregateWeekly, weekKeyForDate } from './timeline';
 
+/**
+ * Per-model usage rows, one per (login, model), unaggregated. `cost`/`requests`
+ * are typed optional even though this function's DB read always produces
+ * numbers, because the org route strips both fields per login for viewers who
+ * may not see that developer's cost (mirrors `DevModelUsage` in `dev.ts`).
+ * Typing them as required here would contradict that contract and force a
+ * cast at the route's reassignment.
+ */
+export interface OrgModelUsage {
+  github_login: string;
+  model: string;
+  cost?: number;
+  requests?: number;
+}
+
 export async function getOrgReport(reportId: string) {
   // 1. Report metadata
   const [reportRows] = await db.execute(
@@ -23,7 +38,7 @@ export async function getOrgReport(reportId: string) {
             avg_complexity, impact_score, pr_percentage, ai_percentage,
             total_jira_issues,
             type_breakdown, active_repos,
-            cc_total_cost, cc_requests
+            cc_total_cost, cc_requests, cc_skills_used
      FROM developer_stats WHERE report_id = ? ORDER BY impact_score DESC`,
     [reportId],
   ) as [any[], any];
@@ -261,5 +276,34 @@ export async function getOrgReport(reportId: string) {
     };
   }
 
-  return { report: reportRows[0], developers, timeline, spendWindow, unmergedSummary };
+  // GLOOK-30 UI: per-(login, dimension) breakdown rows, returned unaggregated.
+  // The org route strips cost/requests per login and the client aggregates what
+  // survives, so an aggregate can never exceed what a viewer may see.
+  const [modelUsageRows] = await db.execute(
+    `SELECT github_login, model, cost, requests
+     FROM cc_model_usage WHERE report_id = ?
+     ORDER BY github_login, cost DESC, model`,
+    [reportId],
+  ) as [any[], any];
+  const modelUsage = modelUsageRows.map((r: any): OrgModelUsage => ({
+    github_login: String(r.github_login),
+    model: String(r.model),
+    cost: Number(r.cost) || 0,
+    requests: Number(r.requests) || 0,
+  }));
+
+  const [skillsUsageRows] = await db.execute(
+    `SELECT github_login, product, skills_used, skills_distinct
+     FROM cc_skills_usage WHERE report_id = ?
+     ORDER BY github_login, skills_used DESC, product`,
+    [reportId],
+  ) as [any[], any];
+  const skillsUsage = skillsUsageRows.map((r: any) => ({
+    github_login: String(r.github_login),
+    product: String(r.product),
+    skills_used: Number(r.skills_used) || 0,
+    skills_distinct: Number(r.skills_distinct) || 0,
+  }));
+
+  return { report: reportRows[0], developers, timeline, spendWindow, unmergedSummary, modelUsage, skillsUsage };
 }
