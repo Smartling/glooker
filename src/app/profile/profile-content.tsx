@@ -1,8 +1,48 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useAuth } from '../auth-context';
+
+interface SelfUsage {
+  cc_total_cost?: number;
+  cc_requests?: number;
+  cc_skills_used?: number;
+  skills: Array<{ product: string; skills_used: number; skills_distinct: number }>;
+  models: Array<{ model: string; cost?: number; requests: number }>;
+}
+
 export default function ProfileContent() {
   const auth = useAuth();
+
+  const [usage, setUsage] = useState<SelfUsage | null>(null);
+  const [usageLoading, setUsageLoading] = useState(true);
+
+  const login = auth.user?.githubLogin ?? null;
+  useEffect(() => {
+    if (!login) { setUsageLoading(false); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const reports = await (await fetch('/api/report')).json();
+        const latest = (Array.isArray(reports) ? reports : []).find((r: any) => r.status === 'completed');
+        if (!latest) return;
+        // Own login only — never a value from the URL or another developer.
+        const res = await fetch(`/api/report/${latest.id}/dev/${encodeURIComponent(login)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        setUsage({
+          cc_total_cost: data.developer?.cc_total_cost,
+          cc_requests: data.developer?.cc_requests,
+          cc_skills_used: data.developer?.cc_skills_used,
+          skills: data.skills ?? [],
+          models: data.models ?? [],
+        });
+      } catch { /* leave usage null — rendered as "no usage" below */ }
+      finally { if (!cancelled) setUsageLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [login]);
 
   if (auth.loading) {
     return (
@@ -59,6 +99,67 @@ export default function ProfileContent() {
             <div className="flex items-center justify-between">
               <span className="text-sm text-gray-500">Role</span>
               <span className="text-sm text-gray-300 capitalize">{auth.user.role}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-gray-800 pt-6 mt-6">
+          <p className="text-xs text-gray-500 uppercase tracking-wider mb-4">Your Claude Code usage</p>
+
+          {usageLoading && <div className="animate-pulse bg-gray-800 rounded h-16" />}
+
+          {!usageLoading && !usage && (
+            <p className="text-sm text-gray-500">
+              No Claude Code usage found for your account in the latest report.
+            </p>
+          )}
+
+          {!usageLoading && usage && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <p className="text-[10px] text-gray-600 uppercase tracking-wider">Spend</p>
+                  <p className="text-lg font-bold text-green-400">
+                    {usage.cc_total_cost != null ? `$${(Number(usage.cc_total_cost) / 100).toFixed(2)}` : '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-gray-600 uppercase tracking-wider">Requests</p>
+                  <p className="text-lg font-bold text-gray-200">{usage.cc_requests ?? '—'}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-gray-600 uppercase tracking-wider">Skills invoked</p>
+                  <p className="text-lg font-bold text-gray-200">{usage.cc_skills_used ?? 0}</p>
+                </div>
+              </div>
+
+              {usage.skills.length > 0 && (
+                <div>
+                  <p className="text-[10px] text-gray-600 uppercase tracking-wider mb-1.5">Skills by product</p>
+                  {usage.skills.map(s => (
+                    <div key={s.product} className="flex items-center justify-between text-sm py-0.5">
+                      <span className="text-gray-400">{s.product}</span>
+                      <span className="text-gray-300 tabular-nums">
+                        {s.skills_used} used · {s.skills_distinct} distinct
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {usage.models.length > 0 && (
+                <div>
+                  <p className="text-[10px] text-gray-600 uppercase tracking-wider mb-1.5">Models</p>
+                  {usage.models.map(m => (
+                    <div key={m.model} className="flex items-center justify-between text-sm py-0.5">
+                      <span className="text-gray-400">{m.model}</span>
+                      <span className="text-gray-300 tabular-nums">
+                        {m.cost != null ? `$${(Number(m.cost) / 100).toFixed(2)} · ` : ''}{m.requests} req
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
