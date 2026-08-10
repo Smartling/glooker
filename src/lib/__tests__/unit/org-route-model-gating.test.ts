@@ -65,6 +65,14 @@ it('never strips skillsUsage', async () => {
   ]);
 });
 
+it('preserves per-login grouping and cost order in the merged array when multiple developers are visible', async () => {
+  (buildCostVisibility as jest.Mock).mockResolvedValue({ canSeeCost: () => true, canSeeAnyCost: true });
+  const body = await (await GET(req() as any, params as any)).json();
+  expect(body.modelUsage.map((r: any) => `${r.github_login}:${r.model}`)).toEqual([
+    'alice:zeta-model', 'alice:alpha-model', 'carol:zeta-model', 'carol:alpha-model',
+  ]);
+});
+
 it('leak guard: no per-model cost for any developer when nothing is visible', async () => {
   (buildCostVisibility as jest.Mock).mockResolvedValue({ canSeeCost: () => false, canSeeAnyCost: false });
   const body = await (await GET(req() as any, params as any)).json();

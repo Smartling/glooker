@@ -15,13 +15,13 @@ async function getHandler(req: NextRequest, { params }: { params: Promise<{ id: 
     // stripModelCost's name-reordering applies within each developer's models —
     // the rows arrive ordered by cost, which would otherwise leak a relative
     // ranking for a developer whose amounts are hidden.
-    const modelsByLogin = new Map<string, any[]>();
-    for (const row of (result as any).modelUsage ?? []) {
+    const modelsByLogin = new Map<string, typeof result.modelUsage>();
+    for (const row of result.modelUsage ?? []) {
       const arr = modelsByLogin.get(row.github_login) ?? [];
       arr.push(row);
       modelsByLogin.set(row.github_login, arr);
     }
-    (result as any).modelUsage = [...modelsByLogin.entries()].flatMap(
+    result.modelUsage = [...modelsByLogin.entries()].flatMap(
       ([login, rows]) => stripModelCost(rows, canSeeCost, login),
     );
     if (!canSeeAnyCost) {
