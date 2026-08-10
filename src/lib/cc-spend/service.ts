@@ -3,13 +3,23 @@ import db from '@/lib/db';
 import { applyCcSpend, ReportNotFoundError } from './apply';
 import { getCcSpendProvider } from './provider';
 import type { CcApplyResult } from './apply';
+import { applySkillsUsage, applyModelUsage } from './apply-breakdowns';
+import type { BreakdownApplyResult } from './apply-breakdowns';
 
 export { ReportNotFoundError };
+
+export type CcRefreshResult = CcApplyResult & {
+  skills?: BreakdownApplyResult;
+  models?: BreakdownApplyResult;
+};
+
+/** The /users endpoint trails real time by ~2 days and 400s on a too-recent end date. */
+const SKILLS_LAG_DAYS = 2;
 
 export async function refreshCcSpendForReport(
   reportId: string,
   log?: (msg: string) => void,
-): Promise<CcApplyResult> {
+): Promise<CcRefreshResult> {
   const [rows] = await db.execute(
     `SELECT id, org, created_at, period_days FROM reports WHERE id = ?`,
     [reportId],
@@ -37,11 +47,41 @@ export async function refreshCcSpendForReport(
   const provider = getCcSpendProvider();
   const aggregates = await provider.pullByPeriod(startStr, endStr, log);
 
-  return applyCcSpend({
+  const costResult = await applyCcSpend({
     reportId,
     org: String(rows[0].org),
     aggregates,
     periodStart: startStr,
     periodEnd: endStr,
   });
+
+  const org = String(rows[0].org);
+  const result: CcRefreshResult = { ...costResult };
+
+  // Skills: clamp the end date back to the API's latest available data. Each
+  // extra dimension is independently non-fatal — a failure here must not discard
+  // the cost result that already succeeded.
+  const lagCutoff = new Date(Date.now() - SKILLS_LAG_DAYS * 86400_000).toISOString().slice(0, 10);
+  const skillsEnd = endStr < lagCutoff ? endStr : lagCutoff;
+  try {
+    if (skillsEnd < startStr) {
+      log?.(`CC skills: window ${startStr}..${skillsEnd} is empty after the ${SKILLS_LAG_DAYS}-day data lag; skipping`);
+    } else {
+      const skills = await provider.pullSkillsByPeriod(startStr, skillsEnd, log);
+      result.skills = await applySkillsUsage({ reportId, org, skills });
+      log?.(`CC skills: ${result.skills.matched} matched, ${result.skills.rows} rows (${startStr} → ${skillsEnd}) [${result.skills.unmappedEmail} unmapped]`);
+    }
+  } catch (err) {
+    log?.(`CC skills: SKIP (${err instanceof Error ? err.message : String(err)})`);
+  }
+
+  try {
+    const models = await provider.pullModelCostByPeriod(startStr, endStr, log);
+    result.models = await applyModelUsage({ reportId, org, models });
+    log?.(`CC models: ${result.models.matched} matched, ${result.models.rows} rows [${result.models.unmappedEmail} unmapped]`);
+  } catch (err) {
+    log?.(`CC models: SKIP (${err instanceof Error ? err.message : String(err)})`);
+  }
+
+  return result;
 }
