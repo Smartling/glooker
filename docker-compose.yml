@@ -45,6 +45,7 @@ services:
       AUTH_HEADER: ${AUTH_HEADER:-x-amzn-oidc-data}
       AUTH_ADMIN_GROUP: ${AUTH_ADMIN_GROUP:-}
       AUTH_TEST_USER: ${AUTH_TEST_USER:-}
+      AUTH_TEST_EMAIL: ${AUTH_TEST_EMAIL:-}
 
       # Anthropic Analytics API (Claude usage cost ingestion)
       ANTHROPIC_ANALYTICS_API_KEY: ${ANTHROPIC_ANALYTICS_API_KEY:-}

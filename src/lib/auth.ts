@@ -14,12 +14,16 @@ export function isAuthEnabled(): boolean {
 export function extractUser(headers: Headers): AuthUser | null {
   if (!isAuthEnabled()) return null;
 
-  // Test mode: return a fake user based on AUTH_TEST_USER (admin or viewer)
+  // Test mode: return a fake user based on AUTH_TEST_USER (admin or viewer).
+  // AUTH_TEST_EMAIL optionally overrides the identity, so a local run can be
+  // exercised as a real developer (whose user_mappings row already resolves to
+  // a github_login) instead of the synthetic unmapped default.
   const testUser = process.env.AUTH_TEST_USER;
   if (testUser) {
     const adminGroup = process.env.AUTH_ADMIN_GROUP || 'admins';
+    const email = process.env.AUTH_TEST_EMAIL || 'testuser@glooker.dev';
     return {
-      email: 'testuser@glooker.dev',
+      email,
       sub: 'test-user-001',
       name: testUser === 'admin' ? 'Test Admin' : 'Test Viewer',
       groups: testUser === 'admin' ? [adminGroup] : [],
