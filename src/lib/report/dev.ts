@@ -10,6 +10,21 @@ export class DeveloperNotFoundError extends Error {
   }
 }
 
+/**
+ * Per-model usage as returned over the wire. `cost`/`requests` are typed
+ * optional even though this function's DB read always produces numbers,
+ * because the route strips both fields for viewers who may not see this
+ * developer's cost (see `stripModelCost` in cost-visibility.ts). Typing them
+ * as required here would contradict that contract and force a cast at the
+ * route's reassignment; every consumer of this shape must handle their
+ * absence regardless.
+ */
+export interface DevModelUsage {
+  model: string;
+  cost?: number;
+  requests?: number;
+}
+
 export async function getDevReport(reportId: string, login: string) {
   // Report metadata
   const [reportRows] = await db.execute(
@@ -173,7 +188,7 @@ export async function getDevReport(reportId: string, login: string) {
       skills_used: Number(r.skills_used) || 0,
       skills_distinct: Number(r.skills_distinct) || 0,
     })),
-    models: modelRows.map((r: any) => ({
+    models: modelRows.map((r: any): DevModelUsage => ({
       model: String(r.model),
       cost: Number(r.cost) || 0,
       requests: Number(r.requests) || 0,
