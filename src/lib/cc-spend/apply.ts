@@ -1,5 +1,6 @@
 import db from '@/lib/db';
 import type { PerEmailAggregate } from './provider';
+import { buildEmailToLoginMap } from './identity';
 
 export class ReportNotFoundError extends Error {
   constructor(id: string) {
@@ -52,27 +53,7 @@ export async function applyCcSpend(input: CcApplyInput): Promise<CcApplyResult> 
     );
 
     // Build email → github_login map (commit_analyses primary, user_mappings fallback).
-    const emailToLogin = new Map<string, string>();
-    const [commitEmails] = await tx.execute(
-      `SELECT DISTINCT LOWER(author_email) AS email, github_login
-       FROM commit_analyses
-       WHERE report_id = ? AND author_email IS NOT NULL AND author_email <> ''`,
-      [reportId],
-    ) as [any[], any];
-    for (const r of commitEmails) {
-      if (r.email && r.github_login) emailToLogin.set(r.email, r.github_login);
-    }
-    const [jiraMappings] = await tx.execute(
-      `SELECT LOWER(jira_email) AS email, github_login
-       FROM user_mappings
-       WHERE org = ? AND jira_email IS NOT NULL AND jira_email <> ''`,
-      [org],
-    ) as [any[], any];
-    for (const r of jiraMappings) {
-      if (r.email && r.github_login && !emailToLogin.has(r.email)) {
-        emailToLogin.set(r.email, r.github_login);
-      }
-    }
+    const emailToLogin = await buildEmailToLoginMap(tx, reportId, org);
 
     let matched = 0;
     let unmappedEmail = 0;
