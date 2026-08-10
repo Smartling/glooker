@@ -27,6 +27,16 @@ it('adds the cc_skills_used rollup column to developer_stats', async () => {
   expect(cols.map((c: any) => c.name)).toContain('cc_skills_used');
 });
 
+it('routes a setter-only pragma (no return rows) through execute() without throwing', async () => {
+  // `PRAGMA foreign_keys = ON` has `.reader === false` on the prepared
+  // statement (unlike reader-form pragmas such as `table_info`), so it must
+  // go through the run() branch, not all(). Regressed by a keyword-regex
+  // dispatcher that classified any string starting with "PRAGMA" as a
+  // reader statement; fixed by dispatching on `stmt.reader` instead.
+  const [result] = await db.execute(`PRAGMA foreign_keys = ON`) as [any, any];
+  expect(result).toEqual(expect.objectContaining({ affectedRows: expect.any(Number) }));
+});
+
 it('cascades breakdown rows when the report is deleted', async () => {
   await db.execute(
     `INSERT INTO reports (id, org, period_days, status) VALUES ('rX', 'acme', 14, 'completed')`,

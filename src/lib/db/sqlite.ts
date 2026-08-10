@@ -326,7 +326,13 @@ export function createSQLiteDB(): DB {
 
       try {
         const stmt = db.prepare(translated);
-        if (translated.trimStart().match(/^(SELECT|SHOW|PRAGMA)/i)) {
+        // Route by the prepared statement's own `.reader` flag rather than
+        // regex-matching SQL keywords: correct for every SELECT/SHOW/PRAGMA
+        // form (including setter-only pragmas like `PRAGMA foreign_keys = ON`,
+        // which have `.reader === false` and would throw if run through
+        // `.all()`) and any future statement type, without hand-maintaining
+        // a keyword allowlist.
+        if (stmt.reader) {
           const rows = stmt.all(...normalizedParams) as T[];
           return Promise.resolve([rows, null]);
         } else {
