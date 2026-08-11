@@ -279,10 +279,27 @@ export async function getOrgReport(reportId: string) {
   // GLOOK-30 UI: per-(login, dimension) breakdown rows, returned unaggregated.
   // The org route strips cost/requests per login and the client aggregates what
   // survives, so an aggregate can never exceed what a viewer may see.
+  //
+  // Both queries are INNER JOINed against developer_stats for this report_id.
+  // Why: the login resolver behind these tables (buildEmailToLoginMap) falls
+  // back to the historical `user_mappings` table when a login has no
+  // commit_analyses row for this report, so it can attribute cc_model_usage /
+  // cc_skills_usage rows to logins that never made it into this report's
+  // developer_stats. The rest of this page's spend figures (Total Org Spend,
+  // Top Spenders) are deliberately scoped to this report's engineering
+  // population via developer_stats, so an unscoped read here mixes a wider
+  // population into a narrower total. That's exactly what happened before this
+  // join existed: 5 user_mappings-only logins contributed $346.78 that Model
+  // Mix counted but Total Org Spend never could, making the panel's own total
+  // exceed the page's authoritative total. Joining to developer_stats keeps
+  // both figures drawn from the same population.
   const [modelUsageRows] = await db.execute(
-    `SELECT github_login, model, cost, requests
-     FROM cc_model_usage WHERE report_id = ?
-     ORDER BY github_login, cost DESC, model`,
+    `SELECT cc_model_usage.github_login, cc_model_usage.model, cc_model_usage.cost, cc_model_usage.requests
+     FROM cc_model_usage
+     INNER JOIN developer_stats d
+       ON d.report_id = cc_model_usage.report_id AND d.github_login = cc_model_usage.github_login
+     WHERE cc_model_usage.report_id = ?
+     ORDER BY cc_model_usage.github_login, cc_model_usage.cost DESC, cc_model_usage.model`,
     [reportId],
   ) as [any[], any];
   const modelUsage = modelUsageRows.map((r: any): OrgModelUsage => ({
@@ -293,9 +310,12 @@ export async function getOrgReport(reportId: string) {
   }));
 
   const [skillsUsageRows] = await db.execute(
-    `SELECT github_login, product, skills_used, skills_distinct
-     FROM cc_skills_usage WHERE report_id = ?
-     ORDER BY github_login, skills_used DESC, product`,
+    `SELECT cc_skills_usage.github_login, cc_skills_usage.product, cc_skills_usage.skills_used, cc_skills_usage.skills_distinct
+     FROM cc_skills_usage
+     INNER JOIN developer_stats d
+       ON d.report_id = cc_skills_usage.report_id AND d.github_login = cc_skills_usage.github_login
+     WHERE cc_skills_usage.report_id = ?
+     ORDER BY cc_skills_usage.github_login, cc_skills_usage.skills_used DESC, cc_skills_usage.product`,
     [reportId],
   ) as [any[], any];
   const skillsUsage = skillsUsageRows.map((r: any) => ({

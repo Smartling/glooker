@@ -138,6 +138,14 @@ Both routes call it. For the org route the models array is per-login, so the str
 
 Two local-dev changes currently uncommitted in the working tree get committed here rather than left loose where they could sweep into the PR unnoticed (the GLOOK-30 final review caught exactly that failure mode): an `AUTH_TEST_EMAIL` override in `src/lib/auth.ts`'s existing test-mode branch, and its passthrough in `docker-compose.yml`. It lets a local run be exercised as a real developer whose `user_mappings` row already resolves, instead of the synthetic unmapped default — which is what made this feature locally verifiable at all.
 
+## Decision record: reconciling Model Mix with Total Org Spend (2026-08-10)
+
+Post-ship, Model Mix's total ($20,087.73) disagreed with Total Org Spend ($19,740.92). Root cause: the login resolver behind `cc_model_usage`/`cc_skills_usage` (`buildEmailToLoginMap`) has two sources — `commit_analyses` for the report (primary) and the historical `user_mappings` table (fallback). The fallback can resolve logins that have no `developer_stats` row for *this* report; `applyCcSpend`'s `UPDATE developer_stats` silently no-ops for them, so they're invisible to Total Org Spend while still contributing rows to the unscoped breakdown queries. Five such logins accounted for the $346.78 gap. This is a direct consequence of the report's spend figures being deliberately **engineering-scoped** (the Anthropic org is far larger than engineering) — mixing a wider resolver population into a narrower report population inside one tab is the actual bug, not a rounding issue.
+
+Fix: `org.ts`'s two breakdown queries now `INNER JOIN developer_stats` on `(report_id, github_login)`, so both queries return rows only for logins with a `developer_stats` row for this report — the same population every other figure on the tab is drawn from. `dev.ts` was untouched: it already 404s for a login with no `developer_stats` row, so it never had this problem.
+
+Separately, the Model Mix panel's own header total was removed. Even after scoping, each per-model row is rounded to whole cents at ingest while the cost pull rounds once per developer — a ~$0.03 residual on ~$19.7k that no amount of population-scoping removes, because it's a rounding-granularity mismatch, not a scope mismatch. Rather than chase sub-cent parity, the panel now shows only the split (bar, table, %); the summary bar's "Total Org Spend" / "Visible Spend" is the tab's one authoritative total.
+
 ## Follow-ups (unchanged from the GLOOK-30 review, still open)
 
 Generic-walk descendant double-count; `MAX_PAGES` off-by-one plus a same-email cross-page merge test; merged `distinct` should use `max` not `sum`; an integration test asserting all three dimensions land; profile empty-state copy split by cause; the `cc-breakdown-schema` flake.

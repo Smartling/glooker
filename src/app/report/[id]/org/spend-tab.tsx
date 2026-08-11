@@ -271,7 +271,6 @@ export function SpendTab({ developers, reportId, router, report, spendWindow, mo
         <div className="bg-gray-900 rounded-xl p-5">
           <div className="flex items-center justify-between mb-3">
             <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">{modelMixLabel}</p>
-            <p className="text-sm font-bold text-green-400">{formatDollars(modelTotal)}</p>
           </div>
 
           <div className="h-6 bg-gray-800 rounded-full overflow-hidden flex mb-4">

@@ -49,6 +49,17 @@ it('renders Model Mix with share and percent under full visibility', () => {
   expect(within(panel).getAllByText('40%')).toHaveLength(2);
 });
 
+it('does not render a second grand total in the Model Mix panel header', () => {
+  // The panel header used to also render its own total (formatDollars(modelTotal))
+  // beside the label. The summary bar above already shows the single
+  // authoritative total ("Total Org Spend" / "Visible Spend"), and a second
+  // total on the same tab could differ by a few cents from rounding, so the
+  // panel header now renders only the label.
+  render(<SpendTab {...baseProps} developers={allVisible} modelUsage={modelUsage} />);
+  const header = screen.getByText('Model Mix').parentElement!;
+  expect(header.textContent).toBe('Model Mix');
+});
+
 it('relabels and keeps percent under partial visibility', () => {
   // bob's cost is absent => partial visibility. A composition share is still
   // valid on a well-defined subset, so % must SURVIVE (unlike the Pareto stats).
