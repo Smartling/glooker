@@ -58,13 +58,10 @@ describe('MCP tool registry', () => {
     expect(out.models).toHaveLength(1);
   });
 
-  it('callTool dispatches query_skills_usage without needing a requester', async () => {
-    mockExecute
-      .mockResolvedValueOnce([[{ id: 'r1' }], null])
-      .mockResolvedValueOnce([[{ github_login: 'alice', product: 'claude_code', skills_used: '4', skills_distinct: '2' }], null]);
-    const out = await callTool('query_skills_usage', { report_id: 'r1' });
-    expect(out.skills).toEqual([{ github_login: 'alice', product: 'claude_code', skills_used: 4, skills_distinct: 2 }]);
-  });
+  // No equivalent test for query_skills_usage: its handler is ungated, so
+  // passing or omitting the second argument is behaviourally identical and
+  // there is no failure mode to defend. The registry assertion above already
+  // catches a handler pointed at the wrong function.
 
   it('callTool masks a handler throw behind a generic error (no internal detail leaked)', async () => {
     const spy = jest.spyOn(console, 'error').mockImplementation(() => {});

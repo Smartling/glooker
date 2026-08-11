@@ -1,7 +1,7 @@
 import db from '@/lib/db';
 import { resolveReportId } from './resolve';
 import { bucketByPeriod } from './dedup';
-import { buildCostVisibility, stripDevCost, stripModelCost, type Requester, type CostVisibility } from '@/lib/cost-visibility';
+import { buildCostVisibility, stripDevCost, gateModelRowsByLogin, type Requester, type CostVisibility } from '@/lib/cost-visibility';
 
 export const MAX_ROWS = 500;
 const DEFAULT_TIMESERIES_WINDOW_DAYS = 180;
@@ -42,12 +42,11 @@ async function reportOrg(reportId: string): Promise<string | null> {
  * see-all.
  *
  * Admins / auth-disabled short-circuit *before* the reportOrg lookup, so the
- * org and team queries only run on the team-scoped path that actually needs
- * them. That ordering is load-bearing: mcp-cost-gating.test.ts asserts exact
- * db.execute call counts to prove the fail-closed path performs no org lookup.
+ * org and team queries only run on the team-scoped path that needs them.
  *
- * Shared by every MCP query that returns cost-bearing data, so the fail-closed
- * rule has one implementation rather than one per tool (GLOOK-37).
+ * Used by queryDeveloperStats and queryModelUsage — the cost-bearing queries —
+ * so the fail-closed rule has one implementation rather than one per tool.
+ * querySkillsUsage deliberately does not call it: skills are ungated.
  */
 async function resolveCostVisibility(reportId: string, requester?: Requester): Promise<CostVisibility> {
   if (!requester) return { canSeeCost: () => false, canSeeAnyCost: false };
@@ -256,21 +255,33 @@ export async function queryDeveloperStats(
 }
 
 // Both cc breakdown queries below INNER JOIN developer_stats and compare logins
-// case-insensitively, for the same two reasons the org report does — see the
-// long comment above the equivalent queries in report/org.ts. In short: the
-// login resolver can attribute breakdown rows to logins with no
-// developer_stats row for this report, so an unjoined read reports a wider
-// population than every other per-report figure; and github_login is written
-// by three mechanisms that disagree on case, which an exact-case join would
-// silently drop rather than error on.
+// case-insensitively — see the comment above the equivalent queries in
+// report/org.ts for why, and org-model-usage.test.ts / mcp-cc-breakdown-sql
+// assertions for what pins it.
+//
+// Both also bind MAX_ROWS in SQL and apply the caller's `limit` in JS, rather
+// than pushing it into the LIMIT clause. For queryModelUsage that is a
+// correctness requirement, not a style choice: stripModelCost *drops* rows, so
+// a pre-gating LIMIT would spend the row budget on rows that are then deleted —
+// making a caller's own entitled rows unreachable behind an alphabetical prefix,
+// and turning `count` into an oracle for the ordinal positions of hidden rows.
+// (stripDevCost keeps rows and blanks fields, which is why queryDeveloperStats
+// can safely limit in SQL and this cannot.) For querySkillsUsage it buys the
+// `truncated` signal: "all of a–j, none of k–z" is not a defensible sample, and
+// without a flag a caller reports a partial total as an org-wide one.
+
+/** Cap the caller-facing slice; the SQL fetch is always bound to MAX_ROWS. */
+const sliceLimit = (raw: unknown, def: number) => Number(clampLimit(raw, def));
 
 /**
- * Per-developer, per-model Claude Code cost and requests for a report.
+ * Per-developer, per-model Claude cost and requests for a report.
  *
- * Both `cost` and `requests` are gated. `requests` is not currency, but summing
- * a developer's per-model requests reconstructs the gated `cc_requests` exactly
- * — same window, merely grouped by model — so leaving it ungated would reopen
- * what stripDevCost closes.
+ * Both `cost_cents` and `requests` are gated — see MODEL_COST_FIELDS in
+ * cost-visibility.ts for why `requests` is in scope despite not being currency.
+ *
+ * Visibility is resolved *before* the data query so a caller entitled to no
+ * costs costs us no read at all, and so gating happens before the caller's
+ * limit is applied.
  */
 export async function queryModelUsage(
   args: { report_id?: string; login?: string; limit?: number },
@@ -279,10 +290,17 @@ export async function queryModelUsage(
   const r = await resolveReportId(args.report_id);
   if ('error' in r) return r;
 
+  const vis = await resolveCostVisibility(r.id, requester);
+  // No visible costs at all (absent requester, unresolvable org, or an
+  // authenticated user with no user_mappings row). Report it rather than
+  // returning a bare empty list: "you cannot see costs" and "no usage was
+  // recorded" are different answers, and only the latter is about the data.
+  if (!vis.canSeeAnyCost) return { models: [], count: 0, truncated: false, cost_visible: false };
+
   const conditions = ['cc_model_usage.report_id = ?'];
   const params: any[] = [r.id];
   if (args.login) { conditions.push('LOWER(cc_model_usage.github_login) = LOWER(?)'); params.push(args.login); }
-  params.push(clampLimit(args.limit, 100));
+  params.push(String(MAX_ROWS));
 
   const [rows] = await db.execute(
     `SELECT cc_model_usage.github_login, cc_model_usage.model, cc_model_usage.cost, cc_model_usage.requests
@@ -298,33 +316,29 @@ export async function queryModelUsage(
   const models = rows.map((row: any) => ({
     github_login: String(row.github_login),
     model: String(row.model),
-    cost: Number(row.cost) || 0,
+    // cc_model_usage.cost is cents (apply-breakdowns.ts writes costCents). The
+    // UI divides at render; an MCP caller has no such convention to follow, so
+    // the unit is in the field name.
+    cost_cents: Number(row.cost) || 0,
     requests: Number(row.requests) || 0,
   }));
 
-  // Group by login so stripModelCost sees one developer's rows at a time: it
-  // drops a developer's rows *wholesale* rather than blanking the amounts,
-  // because retaining "which models" alone still discloses that a non-teammate
-  // uses Claude Code and roughly how expensively. See its doc comment.
-  const vis = await resolveCostVisibility(r.id, requester);
-  const byLogin = new Map<string, typeof models>();
-  for (const m of models) {
-    const list = byLogin.get(m.github_login);
-    if (list) list.push(m); else byLogin.set(m.github_login, [m]);
-  }
-  const gated = [...byLogin.entries()].flatMap(([login, devRows]) => stripModelCost(devRows, vis.canSeeCost, login));
-
-  return { models: gated, count: gated.length };
+  const visible = gateModelRowsByLogin(models, vis.canSeeCost);
+  const limit = sliceLimit(args.limit, 100);
+  return {
+    models: visible.slice(0, limit),
+    count: Math.min(visible.length, limit),
+    truncated: rows.length >= MAX_ROWS,
+    cost_visible: true,
+  };
 }
 
 /**
  * Per-developer, per-product skills usage for a report.
  *
- * Deliberately ungated, and therefore takes no requester — see the policy
- * comment on CC_FIELDS in cost-visibility.ts. Skill invocations convert to no
- * currency and sum to no gated figure, so unlike model rows there is nothing
- * here to strip. Keeping the parameter off the signature makes that a
- * compile-time fact rather than a convention someone can quietly break.
+ * Deliberately ungated, and therefore takes no requester — see the CC_FIELDS
+ * policy comment in cost-visibility.ts. Omitting the parameter keeps a later
+ * edit from quietly gating this by habit.
  */
 export async function querySkillsUsage(args: { report_id?: string; login?: string; limit?: number }) {
   const r = await resolveReportId(args.report_id);
@@ -333,7 +347,7 @@ export async function querySkillsUsage(args: { report_id?: string; login?: strin
   const conditions = ['cc_skills_usage.report_id = ?'];
   const params: any[] = [r.id];
   if (args.login) { conditions.push('LOWER(cc_skills_usage.github_login) = LOWER(?)'); params.push(args.login); }
-  params.push(clampLimit(args.limit, 100));
+  params.push(String(MAX_ROWS));
 
   const [rows] = await db.execute(
     `SELECT cc_skills_usage.github_login, cc_skills_usage.product,
@@ -354,7 +368,12 @@ export async function querySkillsUsage(args: { report_id?: string; login?: strin
     skills_distinct: Number(row.skills_distinct) || 0,
   }));
 
-  return { skills, count: skills.length };
+  const limit = sliceLimit(args.limit, 100);
+  return {
+    skills: skills.slice(0, limit),
+    count: Math.min(skills.length, limit),
+    truncated: rows.length >= MAX_ROWS,
+  };
 }
 
 export async function queryUnmergedWork(args: { report_id?: string; login?: string; repo?: string }) {
