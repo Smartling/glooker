@@ -72,6 +72,13 @@ export async function refreshCcSpendForReport(
   // Skills: clamp the end date back to the API's latest available data. Each
   // extra dimension is independently non-fatal — a failure here must not discard
   // the cost result that already succeeded.
+  //
+  // This clamp is intentionally NOT relaxed and skillsEnd is intentionally NOT
+  // persisted alongside cc_period_*: the resulting gap between the skills
+  // window and the displayed "Spend Period" (cc_period_start/end) is a
+  // presentational concern, surfaced generically in the Skills usage panel
+  // (spend-tab.tsx) rather than with an exact date, since the actual gap
+  // varies per report (a backfilled/older report may have none at all).
   const lagCutoff = new Date(Date.now() - SKILLS_LAG_DAYS * 86400_000).toISOString().slice(0, 10);
   const skillsEnd = endStr < lagCutoff ? endStr : lagCutoff;
   try {

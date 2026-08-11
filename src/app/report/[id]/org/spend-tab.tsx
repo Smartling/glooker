@@ -79,6 +79,7 @@ function computeSpendMetrics(devs: Developer[]) {
 }
 
 export interface ModelUsageRow { github_login: string; model: string; cost?: number; requests?: number }
+export interface SkillsUsageRow { github_login: string; product: string; skills_used: number; skills_distinct: number }
 export interface ModelMixRow {
   model: string; cost: number; requests: number; devs: number; pct: number; costPerRequest: number;
 }
@@ -137,7 +138,7 @@ export function SpendTab({ developers, reportId, router, report, spendWindow, mo
   report: ReportMeta | null;
   spendWindow: SpendWindow | null;
   modelUsage: ModelUsageRow[];
-  skillsUsage: Array<{ github_login: string; product: string; skills_used: number; skills_distinct: number }>;
+  skillsUsage: SkillsUsageRow[];
 }) {
   const [showCount, setShowCount] = useState<10 | 20 | 'all'>(10);
   const [modelMixTooltip, setModelMixTooltip] = useState<{ label: string; cost: number; pct: number; left: number } | null>(null);
@@ -153,22 +154,38 @@ export function SpendTab({ developers, reportId, router, report, spendWindow, mo
 
   const { rows: modelMix, total: modelTotal } = computeModelMix(modelUsage);
   const modelMixLabel = fullCostVisibility ? 'Model Mix' : "Your teams' model mix";
+  // Skills usage comes from a different Anthropic endpoint than cost/model and is
+  // deliberately never scoped to the viewer's teams (see cost-visibility.ts's
+  // policy comment) — it's activity volume, not a dollar figure, so unlike the
+  // Model Mix numbers above it stays org-wide even under partial cost visibility.
+  // A login can carry a `chat` row with skills_used: 0 (chat reports no
+  // meaningful total), so a developer must have actually invoked something to
+  // count toward "developers" below — otherwise a dev who used nothing gets
+  // counted alongside those who did.
   const skillsInvocations = skillsUsage.reduce((s, r) => s + r.skills_used, 0);
-  const skillsDevs = new Set(skillsUsage.map(r => r.github_login)).size;
+  const skillsDevs = new Set(skillsUsage.filter(r => r.skills_used > 0).map(r => r.github_login)).size;
   const skillsByProduct = [...skillsUsage.reduce((m, r) => m.set(r.product, (m.get(r.product) ?? 0) + r.skills_used), new Map<string, number>())]
     .map(([product, used]) => `${product} ${used}`)
     .join(', ');
-  const SHARE_COLORS = ['bg-accent', 'bg-accent-light', 'bg-accent-dark', 'bg-gray-600', 'bg-gray-700'];
+  // Five distinguishable hues (not shades of one accent color) so adjacent bar
+  // segments read as different models at a glance; label color is chosen per
+  // segment since a single hardcoded text color isn't readable against all five.
+  const SHARE_COLORS = ['bg-accent', 'bg-blue-500', 'bg-purple-500', 'bg-pink-500', 'bg-indigo-500'];
+  const SHARE_LABEL_COLORS = ['text-gray-900', 'text-white', 'text-white', 'text-white', 'text-white'];
   // The bar shows only the top models by cost, following the Pareto pattern —
   // the remainder collapses into a single neutral "Other" segment so the bar
   // stays readable when a report carries many distinct models (real reports
   // see ~9). The table below is unaffected and keeps every model individually.
-  const MODEL_BAR_TOP_N = 5;
+  // Derived from SHARE_COLORS.length (not hardcoded) so the two can never drift
+  // out of sync — a mismatch would leave SHARE_COLORS[i] undefined for the extra
+  // segments, rendering a transparent segment that still occupies its width.
+  const MODEL_BAR_TOP_N = SHARE_COLORS.length;
   const topModelMix = modelMix.slice(0, MODEL_BAR_TOP_N);
   const otherModelMix = modelMix.slice(MODEL_BAR_TOP_N);
   const otherModelCost = otherModelMix.reduce((s, m) => s + m.cost, 0);
   const otherModelPct = modelTotal > 0 ? (otherModelCost / modelTotal) * 100 : 0;
   const OTHER_MODEL_COLOR = 'bg-gray-500';
+  const OTHER_LABEL_COLOR = 'text-gray-900';
   let modelMixCumulative = 0;
 
   const isOutlier = (d: Developer) => {
@@ -290,30 +307,50 @@ export function SpendTab({ developers, reportId, router, report, spendWindow, mo
               {topModelMix.map((m, i) => {
                 const center = modelMixCumulative + m.pct / 2;
                 modelMixCumulative += m.pct;
+                const label = `${m.model}: ${formatDollars(m.cost)}, ${Math.round(m.pct)}%`;
+                const showTooltip = () => setModelMixTooltip({ label: m.model, cost: m.cost, pct: m.pct, left: center });
+                const hideTooltip = () => setModelMixTooltip(null);
                 return (
                   <div key={m.model}
-                    className={`h-full flex items-center justify-center text-xs font-bold text-gray-900 cursor-default ${SHARE_COLORS[i]}`}
+                    className={`h-full flex items-center justify-center text-xs font-bold cursor-default ${SHARE_COLORS[i]} ${SHARE_LABEL_COLORS[i]}`}
                     style={{ width: `${m.pct}%` }}
-                    onMouseEnter={() => setModelMixTooltip({ label: m.model, cost: m.cost, pct: m.pct, left: center })}
-                    onMouseLeave={() => setModelMixTooltip(null)}>
+                    tabIndex={0}
+                    role="img"
+                    title={label}
+                    aria-label={label}
+                    onMouseEnter={showTooltip}
+                    onMouseLeave={hideTooltip}
+                    onFocus={showTooltip}
+                    onBlur={hideTooltip}>
                     {m.pct > 12 && `${Math.round(m.pct)}%`}
                   </div>
                 );
               })}
-              {otherModelMix.length > 0 && (
-                <div
-                  className={`h-full flex items-center justify-center text-xs font-bold text-gray-900 cursor-default ${OTHER_MODEL_COLOR}`}
-                  style={{ width: `${otherModelPct}%` }}
-                  onMouseEnter={() => setModelMixTooltip({
-                    label: 'Other (remaining models)',
-                    cost: otherModelCost,
-                    pct: otherModelPct,
-                    left: modelMixCumulative + otherModelPct / 2,
-                  })}
-                  onMouseLeave={() => setModelMixTooltip(null)}>
-                  {otherModelPct > 12 && `Other — ${Math.round(otherModelPct)}%`}
-                </div>
-              )}
+              {otherModelMix.length > 0 && (() => {
+                const otherLabel = `Other (remaining models): ${formatDollars(otherModelCost)}, ${Math.round(otherModelPct)}%`;
+                const showOtherTooltip = () => setModelMixTooltip({
+                  label: 'Other (remaining models)',
+                  cost: otherModelCost,
+                  pct: otherModelPct,
+                  left: modelMixCumulative + otherModelPct / 2,
+                });
+                const hideOtherTooltip = () => setModelMixTooltip(null);
+                return (
+                  <div
+                    className={`h-full flex items-center justify-center text-xs font-bold cursor-default ${OTHER_MODEL_COLOR} ${OTHER_LABEL_COLOR}`}
+                    style={{ width: `${otherModelPct}%` }}
+                    tabIndex={0}
+                    role="img"
+                    title={otherLabel}
+                    aria-label={otherLabel}
+                    onMouseEnter={showOtherTooltip}
+                    onMouseLeave={hideOtherTooltip}
+                    onFocus={showOtherTooltip}
+                    onBlur={hideOtherTooltip}>
+                    {otherModelPct > 12 && `Other — ${Math.round(otherModelPct)}%`}
+                  </div>
+                );
+              })()}
             </div>
             {modelMixTooltip && (
               <div
@@ -351,13 +388,31 @@ export function SpendTab({ developers, reportId, router, report, spendWindow, mo
               ))}
             </tbody>
           </table>
+        </div>
+      )}
 
-          {skillsUsage.length > 0 && (
-            <p className="text-xs text-gray-500 mt-4">
-              Skills: {skillsInvocations} invocations by {skillsDevs} developer{skillsDevs === 1 ? '' : 's'}
-              {skillsByProduct ? ` (${skillsByProduct})` : ''}
-            </p>
-          )}
+      {/* Skills usage — a separate panel, not nested in Model Mix above. It's
+          sourced from a different Anthropic endpoint and is deliberately
+          org-wide regardless of the viewer's cost visibility (see
+          cost-visibility.ts), so it must never inherit Model Mix's team-scoped
+          label. Also independent of modelMix: a skipped model pull and a
+          successful skills pull are two unrelated outcomes (both non-fatal —
+          see service.ts), so this must render even when modelMix is empty. */}
+      {skillsUsage.length > 0 && (
+        <div className="bg-gray-900 rounded-xl p-5">
+          <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-2">Skills usage (org-wide)</p>
+          <p className="text-xs text-gray-500">
+            {skillsInvocations} invocations by {skillsDevs} developer{skillsDevs === 1 ? '' : 's'}
+            {skillsByProduct ? ` (${skillsByProduct})` : ''}
+          </p>
+          {/* The /users endpoint this is sourced from trails real time (SKILLS_LAG_DAYS
+              in service.ts), so a freshly generated report's skills window can end a
+              few days before the Spend Period above — that's a data-availability lag,
+              not a bug. No day count is repeated here since the actual gap varies by
+              report (an older/backfilled report may have none at all). */}
+          <p className="text-[11px] text-gray-600 mt-1.5">
+            Skills data may trail the Spend Period above by a few days — Anthropic's skills endpoint reports with a delay.
+          </p>
         </div>
       )}
 

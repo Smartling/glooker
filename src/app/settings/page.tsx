@@ -1421,6 +1421,13 @@ function CcSpendRefreshBlock() {
     matched: number; unmappedEmail: number; noDevStatsRow: number;
     totalApiUsers: number; totalSpendUsd: number;
     periodStart: string; periodEnd: string;
+    // Set when the skills/model-breakdown pull threw — cost can still have
+    // succeeded (each dimension is independently non-fatal; see
+    // refreshCcSpendForReport in src/lib/cc-spend/service.ts). Without
+    // surfacing these, a partial failure here reads as a full success and the
+    // Spend tab's Model Mix / Skills usage panels go silently missing.
+    skillsError?: string;
+    modelsError?: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -1483,8 +1490,20 @@ function CcSpendRefreshBlock() {
         </button>
         {error && <div className="text-xs text-red-400">{error}</div>}
         {result && (
-          <div className="text-xs text-emerald-400">
-            ✓ Pulled {result.totalApiUsers} users → {result.matched} matched, {result.unmappedEmail} unmapped, {result.noDevStatsRow} no commits — ${result.totalSpendUsd.toFixed(2)} total ({result.periodStart} → {result.periodEnd})
+          <div className="space-y-1">
+            <div className="text-xs text-emerald-400">
+              ✓ Pulled {result.totalApiUsers} users → {result.matched} matched, {result.unmappedEmail} unmapped, {result.noDevStatsRow} no commits — ${result.totalSpendUsd.toFixed(2)} total ({result.periodStart} → {result.periodEnd})
+            </div>
+            {result.skillsError && (
+              <div className="text-xs text-amber-400">
+                ⚠ Skills usage pull failed, cost above is unaffected: {result.skillsError}
+              </div>
+            )}
+            {result.modelsError && (
+              <div className="text-xs text-amber-400">
+                ⚠ Model breakdown pull failed, cost above is unaffected: {result.modelsError}
+              </div>
+            )}
           </div>
         )}
       </div>

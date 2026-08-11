@@ -88,6 +88,55 @@ it('renders a model with cost and requests both stripped without printing undefi
   expect(screen.queryByText(/undefined|NaN|\$/)).toBeNull();
 });
 
+it('does not treat a failed /api/report as "no usage" by attempting to parse it', async () => {
+  fetchMock.mockImplementation(async (url: string) => {
+    if (url === '/api/report') {
+      return { ok: false, status: 500, json: async () => { throw new Error('should not be parsed'); } } as any;
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  });
+  render(<ProfileContent />);
+
+  // Resolves to the same empty-state copy (a distinct error message is a
+  // separate, deferred follow-up), but critically never attempts .json() on
+  // the failed response and never requests a dev report at all.
+  expect(await screen.findByText(/No Claude Code usage/i)).toBeTruthy();
+  expect(fetchMock.mock.calls.map(c => String(c[0]))).toEqual(['/api/report']);
+});
+
+it('falls back to the next completed report when the newest 404s for this developer', async () => {
+  // Simulates a multi-org install where the newest completed report belongs
+  // to an org this developer isn't in: the dev-report call 404s for r1, so
+  // the fetch chain must walk forward to r2 rather than giving up.
+  fetchMock.mockImplementation(async (url: string) => {
+    if (url === '/api/report') {
+      return jsonOnce([
+        { id: 'r1', status: 'completed' },
+        { id: 'r2', status: 'completed' },
+      ]) as any;
+    }
+    if (url === '/api/report/r1/dev/alice') {
+      return { ok: false, status: 404, json: async () => ({}) } as any;
+    }
+    if (url === '/api/report/r2/dev/alice') {
+      return jsonOnce({
+        developer: { cc_total_cost: 500, cc_requests: 5, cc_skills_used: 0 },
+        skills: [],
+        models: [],
+      }) as any;
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  });
+  render(<ProfileContent />);
+
+  expect(await screen.findByText('$5.00')).toBeTruthy();
+  expect(fetchMock.mock.calls.map(c => String(c[0]))).toEqual([
+    '/api/report',
+    '/api/report/r1/dev/alice',
+    '/api/report/r2/dev/alice',
+  ]);
+});
+
 it('shows an explanatory message for an unmapped developer and fetches nothing', async () => {
   mockAuth.user = { email: 'ghost@x.com', githubLogin: null, name: 'Ghost', role: 'viewer' };
   render(<ProfileContent />);

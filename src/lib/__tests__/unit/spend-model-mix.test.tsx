@@ -99,9 +99,56 @@ it('shows a tooltip with the hovered segment\'s model name and spend', () => {
   expect(panel.querySelector('.bottom-full')).toBeNull();
 });
 
-it('renders the compact skills line', () => {
+it('exposes each bar segment\'s model, spend and percent via title/aria-label for keyboard and touch users', () => {
+  // The bar's tooltip was previously mouse-only, so a segment under the 12%
+  // inline-label threshold was unreachable by keyboard or on touch. title/
+  // aria-label carry the value regardless of hover support.
   render(<SpendTab {...baseProps} developers={allVisible} modelUsage={modelUsage} />);
-  expect(screen.getByText(/9 invocations by 2 developers/i)).toBeTruthy();
+  const panel = getModelMixPanel('Model Mix');
+  const bar = panel.querySelector('.h-6.bg-gray-800') as HTMLElement;
+  const opusSegment = bar.children[0] as HTMLElement;
+  expect(opusSegment.getAttribute('aria-label')).toBe('opus: $6.00, 60%');
+  expect(opusSegment.getAttribute('title')).toBe('opus: $6.00, 60%');
+  expect(opusSegment.tabIndex).toBe(0);
+});
+
+it('shows the tooltip on keyboard focus, not just mouse hover', () => {
+  render(<SpendTab {...baseProps} developers={allVisible} modelUsage={modelUsage} />);
+  const panel = getModelMixPanel('Model Mix');
+  const bar = panel.querySelector('.h-6.bg-gray-800') as HTMLElement;
+  const opusSegment = bar.children[0] as HTMLElement;
+  expect(panel.querySelector('.bottom-full')).toBeNull();
+  fireEvent.focus(opusSegment);
+  const tooltip = panel.querySelector('.bottom-full') as HTMLElement;
+  expect(tooltip).toBeTruthy();
+  expect(tooltip.textContent).toContain('opus');
+  fireEvent.blur(opusSegment);
+  expect(panel.querySelector('.bottom-full')).toBeNull();
+});
+
+it('renders the org-wide skills usage line, counting only developers who actually invoked something', () => {
+  // baseProps.skillsUsage: alice used 9 (cowork), bob's only row is chat with
+  // skills_used: 0. Previously this asserted "2 developers" — the exact bug
+  // PR #64 review flagged: skillsDevs counted any login with a row, not logins
+  // with skills_used > 0, so a developer who invoked nothing was still counted.
+  render(<SpendTab {...baseProps} developers={allVisible} modelUsage={modelUsage} />);
+  expect(screen.getByText(/9 invocations by 1 developer\b/i)).toBeTruthy();
+  // Explicitly org-wide labeled, and no longer nested inside the (team-scoped
+  // under partial visibility) Model Mix panel.
+  expect(screen.getByText(/Skills usage \(org-wide\)/i)).toBeTruthy();
+  const modelMixPanel = getModelMixPanel('Model Mix');
+  expect(within(modelMixPanel).queryByText(/invocations by/i)).toBeNull();
+});
+
+it('renders the skills usage panel even when there is no model data (independent, non-fatal pulls)', () => {
+  // The cost/model pull and the skills pull are independently non-fatal — a
+  // skipped/failed model pull must not hide a successful skills pull. Before
+  // the fix, the skills line was nested inside `modelMix.length > 0` and so
+  // vanished whenever modelUsage was empty.
+  render(<SpendTab {...baseProps} developers={allVisible} modelUsage={[]} />);
+  expect(screen.queryByText('Model Mix')).toBeNull();
+  expect(screen.getByText(/Skills usage \(org-wide\)/i)).toBeTruthy();
+  expect(screen.getByText(/9 invocations by 1 developer\b/i)).toBeTruthy();
 });
 
 it('omits the Model Mix section entirely when there is no model data', () => {

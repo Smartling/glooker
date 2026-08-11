@@ -6,7 +6,7 @@ import useSWR from 'swr';
 import ChatPanel from '@/app/chat-panel';
 import IntegrityBadge from '@/components/IntegrityBadge';
 import { useUrlState } from '@/lib/url-state';
-import { SpendTab, type Developer, type ReportMeta, type SpendWindow, type ModelUsageRow } from './spend-tab';
+import { SpendTab, type Developer, type ReportMeta, type SpendWindow, type ModelUsageRow, type SkillsUsageRow } from './spend-tab';
 
 const TYPE_COLORS: Record<string, string> = {
   feature:   'bg-blue-500',
@@ -55,7 +55,7 @@ export default function OrgDetailPage() {
   const timeline: WeeklyData[] = data?.timeline ?? [];
   const spendWindow: SpendWindow | null = data?.spendWindow ?? null;
   const modelUsage: ModelUsageRow[] = data?.modelUsage ?? [];
-  const skillsUsage: Array<{ github_login: string; product: string; skills_used: number; skills_distinct: number }> = data?.skillsUsage ?? [];
+  const skillsUsage: SkillsUsageRow[] = data?.skillsUsage ?? [];
   const unmergedSummary: {
     openPrCount: number;
     openPrDevCount: number;

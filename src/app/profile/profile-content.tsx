@@ -30,21 +30,36 @@ export default function ProfileContent() {
     let cancelled = false;
     (async () => {
       try {
-        const reports = await (await fetch('/api/report')).json();
-        const latest = (Array.isArray(reports) ? reports : []).find((r: any) => r.status === 'completed');
-        if (!latest) return;
-        // Own login only — never a value from the URL or another developer.
-        const res = await fetch(`/api/report/${latest.id}/dev/${encodeURIComponent(login)}`);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (cancelled) return;
-        setUsage({
-          cc_total_cost: data.developer?.cc_total_cost,
-          cc_requests: data.developer?.cc_requests,
-          cc_skills_used: data.developer?.cc_skills_used,
-          skills: data.skills ?? [],
-          models: data.models ?? [],
-        });
+        const listRes = await fetch('/api/report');
+        // A 5xx here must not be read as "no usage" — that tells a developer
+        // whose data exists that they have none, which is worse than the
+        // generic loading-failed case of leaving `usage` unset.
+        if (!listRes.ok) return;
+        const reports = await listRes.json();
+        const completed = (Array.isArray(reports) ? reports : []).filter((r: any) => r.status === 'completed');
+        // `/api/report` isn't scoped to the requester's org (no org is available
+        // on the authenticated identity to filter by — /api/auth/me doesn't
+        // return one). In a multi-org install the newest completed report may
+        // belong to an org this developer isn't in, in which case the dev-report
+        // call 404s for them. Walk completed reports newest-first until one
+        // actually has this developer, instead of trusting only the first.
+        for (const report of completed) {
+          if (cancelled) return;
+          // Own login only — never a value from the URL or another developer.
+          const res = await fetch(`/api/report/${report.id}/dev/${encodeURIComponent(login)}`);
+          if (res.status === 404) continue; // not in this report (e.g. different org) — try the next
+          if (!res.ok) return; // a real server error — don't mask it as "no usage" either
+          const data = await res.json();
+          if (cancelled) return;
+          setUsage({
+            cc_total_cost: data.developer?.cc_total_cost,
+            cc_requests: data.developer?.cc_requests,
+            cc_skills_used: data.developer?.cc_skills_used,
+            skills: data.skills ?? [],
+            models: data.models ?? [],
+          });
+          return;
+        }
       } catch { /* leave usage null — rendered as "no usage" below */ }
       finally { if (!cancelled) setUsageLoading(false); }
     })();
