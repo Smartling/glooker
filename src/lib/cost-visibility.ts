@@ -12,6 +12,23 @@ export interface CostVisibility {
   canSeeAnyCost: boolean;
 }
 
+/**
+ * Visibility policy line: dollars, and anything that arithmetically
+ * reconstructs dollars, are team-scoped; per-developer Claude *activity
+ * volume* is org-readable, same as this app already publishes org-wide for
+ * non-Claude activity (total_commits, ai_percentage, impact_score).
+ *
+ * `cc_requests` is here (team-scoped) because it sums directly to spend at a
+ * roughly fixed per-request cost. `cc_skills_used` / the skills breakdown are
+ * deliberately NOT here and are never stripped (see report/org.ts's
+ * getOrgReport): they come from a different Analytics endpoint over a
+ * differently-clamped window (SKILLS_LAG_DAYS) than the cost/model pulls, and
+ * skill invocations don't convert to any currency — so unlike `requests`,
+ * summing them recovers no gated dollar figure. Next person adding a Claude
+ * usage field: if it converts to money (or sums to one that's already
+ * gated), it belongs in CC_FIELDS / gets stripped like modelUsage; if it's
+ * activity volume with no dollar conversion, it stays ungated like this.
+ */
 const CC_FIELDS = ['cc_total_cost', 'cc_requests'] as const;
 type CcField = typeof CC_FIELDS[number];
 
@@ -119,6 +136,47 @@ export function stripDevCost<T extends { github_login: string } & CostBearing>(
   canSeeCost: (login: string) => boolean,
 ): Array<Omit<T, CcField> & Partial<Pick<T, CcField>>> {
   return devs.map((d) => (canSeeCost(d.github_login) ? d : stripCostFields(d)));
+}
+
+/**
+ * Per-model cost fields. `requests` is included deliberately: summing
+ * models[].requests across a developer's array reconstructs the gated
+ * cc_requests value exactly (same user_cost_report window, merely grouped by
+ * model), so leaving it in would let a non-privileged viewer recover a stripped
+ * field by arithmetic.
+ */
+const MODEL_COST_FIELDS = ['cost', 'requests'] as const;
+type ModelCostField = typeof MODEL_COST_FIELDS[number];
+
+interface ModelBearing {
+  model: string;
+  cost?: number | null;
+  requests?: number | null;
+}
+
+/**
+ * Return this developer's per-model rows unless the requester may see their
+ * cost, in which case return none at all.
+ *
+ * An earlier version stripped cost/requests but kept one row per model (with
+ * `model` retained). That still discloses that a non-teammate uses Claude
+ * Code and which models — a coarse spend signal even with amounts hidden,
+ * since model choice is the dominant per-request cost driver — and lets the
+ * whole org be enumerated and ranked by "uses expensive models" via the org
+ * route. Dropping the rows entirely makes "cannot see this developer's cost"
+ * and "this developer has no Claude usage" indistinguishable on the wire,
+ * matching how stripCostFields/stripDevCost already treat the scalar
+ * cc_total_cost/cc_requests fields. It also makes the old "re-sort by model
+ * name so order doesn't leak a cost ranking" scrubbing unnecessary — an
+ * absent row leaks no ordering either.
+ */
+export function stripModelCost<T extends ModelBearing>(
+  models: T[],
+  canSeeCost: (devLogin: string) => boolean,
+  devLogin: string,
+): Array<Omit<T, ModelCostField> & Partial<Pick<T, ModelCostField>>> {
+  if (canSeeCost(devLogin)) return models;
+  return [];
 }
 
 /**

@@ -1,4 +1,4 @@
-import type { CcSpendProvider, PerEmailAggregate, CcSpendProbeResult } from './provider';
+import type { CcSpendProvider, PerEmailAggregate, CcSpendProbeResult, PerEmailSkills, PerEmailModelCost } from './provider';
 import { MOCK_DEVELOPERS } from '../../../scripts/mock-identities';
 
 function hashEmail(email: string): number {
@@ -18,6 +18,36 @@ function aggregateFor(email: string): PerEmailAggregate {
   return { email, costCents, requests };
 }
 
+const MOCK_PRODUCTS = ['cowork', 'chat', 'office.excel', 'science'] as const;
+const MOCK_MODELS = ['claude-opus-4-8', 'claude-sonnet-5'] as const;
+
+function skillsFor(email: string): PerEmailSkills {
+  const h = hashEmail(email);
+  const products = MOCK_PRODUCTS
+    .map((product, i) => {
+      const used = (h >>> (i * 3)) % 25;          // 0–24
+      const distinct = used === 0 ? 0 : 1 + (used % 5);
+      // chat reports no total, mirroring the real API.
+      return product === 'chat'
+        ? { product, used: 0, distinct: used === 0 ? 0 : 1 + (used % 4) }
+        : { product, used, distinct };
+    })
+    .filter(p => p.used > 0 || p.distinct > 0);
+  return { email, products };
+}
+
+function modelsFor(email: string): PerEmailModelCost {
+  const h = hashEmail(email);
+  return {
+    email,
+    models: MOCK_MODELS.map((model, i) => ({
+      model,
+      costCents: 5000 + ((h >>> (i * 5)) % 60000),
+      requests: 50 + ((h >>> (i * 7)) % 900),
+    })),
+  };
+}
+
 export function createMockCcSpendProvider(): CcSpendProvider {
   async function pullByPeriod(): Promise<PerEmailAggregate[]> {
     return MOCK_DEVELOPERS
@@ -33,5 +63,13 @@ export function createMockCcSpendProvider(): CcSpendProvider {
     };
   }
 
-  return { pullByPeriod, probe };
+  async function pullSkillsByPeriod(): Promise<PerEmailSkills[]> {
+    return MOCK_DEVELOPERS.filter(d => d.jiraEmail).map(d => skillsFor(d.jiraEmail));
+  }
+
+  async function pullModelCostByPeriod(): Promise<PerEmailModelCost[]> {
+    return MOCK_DEVELOPERS.filter(d => d.jiraEmail).map(d => modelsFor(d.jiraEmail));
+  }
+
+  return { pullByPeriod, probe, pullSkillsByPeriod, pullModelCostByPeriod };
 }

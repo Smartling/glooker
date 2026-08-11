@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import useSWR from 'swr';
 import Breadcrumb from '@/components/Breadcrumb';
 import { findFirstJiraKey } from '@/lib/jira-key-utils';
+import { ClaudeCodeUsageCard, type SkillRow, type ModelRow } from './usage-card';
 
 const TYPE_COLORS: Record<string, string> = {
   feature: 'bg-blue-500', bug: 'bg-red-500', refactor: 'bg-purple-500',
@@ -25,6 +26,7 @@ interface DevStats {
   total_reviews?: number;
   cc_total_cost?: number;
   cc_requests?: number;
+  cc_skills_used?: number;
 }
 
 interface JiraIssue {
@@ -122,6 +124,8 @@ export default function DevDetailPage() {
   const timeline: WeeklyData[] = devData?.timeline ?? [];
   const unmergedWork: { openPrs: OpenPr[]; branchCommits: BareBranchCommit[] } =
     devData?.unmergedWork ?? { openPrs: [], branchCommits: [] };
+  const skills: SkillRow[] = devData?.skills ?? [];
+  const models: ModelRow[] = devData?.models ?? [];
 
   // 3. Summary (dependent on devData)
   const { data: summaryData, isLoading: summaryLoading, error: summaryError } = useSWR(
@@ -247,16 +251,13 @@ export default function DevDetailPage() {
         })}
       </div>
 
-      {/* Anthropic Spend tile — shown only when this developer's cost is both
-          visible (present) and non-zero; a 0 default on installs with no
-          Anthropic data should not render an empty tile. */}
-      {dev.cc_total_cost != null && Number(dev.cc_total_cost) > 0 && (
-        <div className="bg-gray-900 rounded-xl p-4 mb-6">
-          <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Anthropic Spend</p>
-          <p className="text-xl font-bold text-green-400">${(Number(dev.cc_total_cost) / 100).toFixed(2)}</p>
-          <p className="text-xs text-gray-600 mt-0.5">{dev.cc_requests ?? 0} requests</p>
-        </div>
-      )}
+      <ClaudeCodeUsageCard
+        costCents={dev.cc_total_cost}
+        requests={dev.cc_requests}
+        skillsUsed={dev.cc_skills_used}
+        skills={skills}
+        models={models}
+      />
 
       {/* Type Breakdown + Active Repos */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">

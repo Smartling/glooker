@@ -196,6 +196,50 @@ describe('applyCcSpend', () => {
     expect(mappingsCall![1]).toEqual(['acme-org']);
   });
 
+  // PR #64 review: cc_model_usage merges by login before writing (see
+  // apply-breakdowns.ts), but this absolute per-email UPDATE used to let the
+  // second email silently clobber the first's cost/requests instead of
+  // summing them — the two tables would then disagree on a login's total.
+  it('sums cost and requests across two emails resolving to the same login instead of clobbering', async () => {
+    arrangeDbCalls(
+      [
+        { email: 'a@corp.com', github_login: 'alice' },
+        { email: 'alice@corp.com', github_login: 'alice' },
+      ],
+      [],
+    );
+    // Single per-login UPDATE (merged), then the reports.cc_period_* UPDATE.
+    mockExec.mockResolvedValueOnce([{ affectedRows: 1 }, null]);
+    mockExec.mockResolvedValueOnce([{ affectedRows: 1 }, null]);
+
+    const result = await applyCcSpend({
+      reportId: 'rep1',
+      org: 'my-org',
+      aggregates: [
+        { email: 'a@corp.com', costCents: 300, requests: 3 },
+        { email: 'alice@corp.com', costCents: 700, requests: 7 },
+      ],
+      periodStart: '2026-04-01',
+      periodEnd: '2026-04-14',
+    });
+
+    // Both input emails resolved and the (single, merged) write succeeded —
+    // matched counts input emails, not distinct logins (same convention as
+    // BreakdownApplyResult.matched).
+    expect(result.matched).toBe(2);
+    expect(result.unmappedEmail).toBe(0);
+    expect(result.noDevStatsRow).toBe(0);
+    expect(result.totalSpendUsd).toBe(10); // 300 + 700 cents
+
+    // Exactly one per-login UPDATE for alice, with the SUMMED cost/requests —
+    // not 700/7 (last-email-wins) and not two separate UPDATE calls.
+    const updateCalls = mockExec.mock.calls.filter(
+      (c) => typeof c[0] === 'string' && c[0].includes('UPDATE developer_stats') && c[0].includes('cc_total_cost = ?'),
+    );
+    expect(updateCalls).toHaveLength(1);
+    expect(updateCalls[0][1]).toEqual([1000, 10, 'rep1', 'alice']);
+  });
+
   it('rolls back the apply transaction when a mid-loop UPDATE throws', async () => {
     // Simulate a driver error halfway through the per-user UPDATE loop.
     // Override transaction to assert it rejected (caller would have rolled back).

@@ -54,6 +54,10 @@ describe('getOrgReport unmerged-work integration', () => {
     } else {
       dbExec.mockResolvedValueOnce([[{ openPrCount: 0, openPrDevCount: 0, bareBranchCount: 0, bareBranchDevCount: 0, prLinesAdded: 0, prLinesRemoved: 0, bareLinesAdded: 0, bareLinesRemoved: 0 }], null]);
     }
+    // 8. cc_model_usage rows (GLOOK-30 UI; unrelated to this suite's assertions)
+    dbExec.mockResolvedValueOnce([[], null]);
+    // 9. cc_skills_usage rows (GLOOK-30 UI; unrelated to this suite's assertions)
+    dbExec.mockResolvedValueOnce([[], null]);
   }
 
   it('returns unmergedSummary=null when no in-flight rows', async () => {

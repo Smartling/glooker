@@ -1,8 +1,70 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useAuth } from '../auth-context';
+
+interface SelfUsage {
+  cc_total_cost?: number;
+  cc_requests?: number;
+  cc_skills_used?: number;
+  skills: Array<{ product: string; skills_used: number; skills_distinct: number }>;
+  models: Array<{ model: string; cost?: number; requests?: number }>;
+}
+
 export default function ProfileContent() {
   const auth = useAuth();
+
+  const [usage, setUsage] = useState<SelfUsage | null>(null);
+  const [usageLoading, setUsageLoading] = useState(true);
+
+  const login = auth.user?.githubLogin ?? null;
+  useEffect(() => {
+    // Auth identity is still resolving — `login` is necessarily null here even for a
+    // developer who turns out to be mapped. Don't touch usage state yet: doing so would
+    // leave a stale "not loading" flag around for the render where `auth.loading` and
+    // `login` both flip to their resolved values in the same update, flashing the
+    // empty state before the real fetch has even started.
+    if (auth.loading) return;
+    if (!login) { setUsageLoading(false); return; }
+    setUsageLoading(true);
+    let cancelled = false;
+    (async () => {
+      try {
+        const listRes = await fetch('/api/report');
+        // A 5xx here must not be read as "no usage" — that tells a developer
+        // whose data exists that they have none, which is worse than the
+        // generic loading-failed case of leaving `usage` unset.
+        if (!listRes.ok) return;
+        const reports = await listRes.json();
+        const completed = (Array.isArray(reports) ? reports : []).filter((r: any) => r.status === 'completed');
+        // `/api/report` isn't scoped to the requester's org (no org is available
+        // on the authenticated identity to filter by — /api/auth/me doesn't
+        // return one). In a multi-org install the newest completed report may
+        // belong to an org this developer isn't in, in which case the dev-report
+        // call 404s for them. Walk completed reports newest-first until one
+        // actually has this developer, instead of trusting only the first.
+        for (const report of completed) {
+          if (cancelled) return;
+          // Own login only — never a value from the URL or another developer.
+          const res = await fetch(`/api/report/${report.id}/dev/${encodeURIComponent(login)}`);
+          if (res.status === 404) continue; // not in this report (e.g. different org) — try the next
+          if (!res.ok) return; // a real server error — don't mask it as "no usage" either
+          const data = await res.json();
+          if (cancelled) return;
+          setUsage({
+            cc_total_cost: data.developer?.cc_total_cost,
+            cc_requests: data.developer?.cc_requests,
+            cc_skills_used: data.developer?.cc_skills_used,
+            skills: data.skills ?? [],
+            models: data.models ?? [],
+          });
+          return;
+        }
+      } catch { /* leave usage null — rendered as "no usage" below */ }
+      finally { if (!cancelled) setUsageLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [login, auth.loading]);
 
   if (auth.loading) {
     return (
@@ -59,6 +121,73 @@ export default function ProfileContent() {
             <div className="flex items-center justify-between">
               <span className="text-sm text-gray-500">Role</span>
               <span className="text-sm text-gray-300 capitalize">{auth.user.role}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-gray-800 pt-6 mt-6">
+          <p className="text-xs text-gray-500 uppercase tracking-wider mb-4">Your Claude Code usage</p>
+
+          {usageLoading && <div className="animate-pulse bg-gray-800 rounded h-16" />}
+
+          {!usageLoading && !usage && (
+            <p className="text-sm text-gray-500">
+              No Claude Code usage found for your account in the latest report.
+            </p>
+          )}
+
+          {!usageLoading && usage && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <p className="text-[10px] text-gray-600 uppercase tracking-wider">Spend</p>
+                  <p className="text-lg font-bold text-green-400">
+                    {usage.cc_total_cost != null ? `$${(Number(usage.cc_total_cost) / 100).toFixed(2)}` : '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-gray-600 uppercase tracking-wider">Requests</p>
+                  <p className="text-lg font-bold text-gray-200">{usage.cc_requests ?? '—'}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-gray-600 uppercase tracking-wider">Skills invoked</p>
+                  <p className="text-lg font-bold text-gray-200">{usage.cc_skills_used ?? 0}</p>
+                </div>
+              </div>
+
+              {usage.skills.length > 0 && (
+                <div>
+                  <p className="text-[10px] text-gray-600 uppercase tracking-wider mb-1.5">Skills by product</p>
+                  {usage.skills.map(s => (
+                    <div key={s.product} className="flex items-center justify-between text-sm py-0.5">
+                      <span className="text-gray-400">{s.product}</span>
+                      <span className="text-gray-300 tabular-nums">
+                        {s.skills_used} used · {s.skills_distinct} distinct
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {usage.models.length > 0 && (
+                <div>
+                  <p className="text-[10px] text-gray-600 uppercase tracking-wider mb-1.5">Models</p>
+                  {usage.models.map(m => (
+                    <div key={m.model} className="flex items-center justify-between text-sm py-0.5">
+                      <span className="text-gray-400">{m.model}</span>
+                      <span className="text-gray-300 tabular-nums">
+                        {m.cost != null && m.requests != null
+                          ? `$${(Number(m.cost) / 100).toFixed(2)} · ${m.requests} req`
+                          : m.cost != null
+                            ? `$${(Number(m.cost) / 100).toFixed(2)}`
+                            : m.requests != null
+                              ? `${m.requests} req`
+                              : ''}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

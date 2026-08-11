@@ -156,6 +156,35 @@ CREATE TABLE IF NOT EXISTS unmerged_commits (
 );
 `;
 
+const CC_SKILLS_USAGE_SCHEMA = `
+CREATE TABLE IF NOT EXISTS cc_skills_usage (
+  report_id       VARCHAR(36)  NOT NULL,
+  github_login    VARCHAR(255) NOT NULL,
+  -- 191 (not 64): extractSkillsEntries builds this as the full dotted walk
+  -- path (office.excel, deeper if Anthropic nests further) and is deliberately
+  -- unbounded so a new product bucket needs no code change. 191 is the
+  -- largest VARCHAR length still safely indexable under utf8mb4's 767-byte
+  -- limit alongside this table's other UNIQUE KEY columns. SQLite's product
+  -- column is TEXT (no cap) — see skills-parser.ts for the shared-behavior
+  -- truncation guard that keeps the two backends from diverging beyond this.
+  product         VARCHAR(191) NOT NULL,
+  skills_used     INT          NOT NULL DEFAULT 0,
+  skills_distinct INT          NOT NULL DEFAULT 0,
+  UNIQUE KEY uniq_cc_skills (report_id, github_login, product),
+  FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`;
+
+const CC_MODEL_USAGE_SCHEMA = `
+CREATE TABLE IF NOT EXISTS cc_model_usage (
+  report_id    VARCHAR(36)   NOT NULL,
+  github_login VARCHAR(255)  NOT NULL,
+  model        VARCHAR(128)  NOT NULL,
+  cost         DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  requests     BIGINT        NOT NULL DEFAULT 0,
+  UNIQUE KEY uniq_cc_model (report_id, github_login, model),
+  FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`;
+
 export function createMySQLDB(): DB {
   const pool = mysql.createPool({
     host:     process.env.DB_HOST     || 'localhost',
@@ -213,6 +242,12 @@ export function createMySQLDB(): DB {
   await pool.execute(UNMERGED_COMMITS_SCHEMA).catch((err) => {
     console.error('[db/mysql] Failed to create unmerged_commits table:', err);
   });
+  await pool.execute(CC_SKILLS_USAGE_SCHEMA).catch((err) => {
+    console.error('[db/mysql] Failed to create cc_skills_usage table:', err);
+  });
+  await pool.execute(CC_MODEL_USAGE_SCHEMA).catch((err) => {
+    console.error('[db/mysql] Failed to create cc_model_usage table:', err);
+  });
   await pool.execute('DROP TABLE IF EXISTS unmerged_work').catch((err) => {
     console.error('[db/mysql] Failed to drop unmerged_work table:', err);
   });
@@ -244,6 +279,15 @@ export function createMySQLDB(): DB {
   });
   await pool.execute('ALTER TABLE developer_stats ADD COLUMN cc_requests BIGINT NOT NULL DEFAULT 0').catch((err) => {
     if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add cc_requests:', err);
+  });
+  await pool.execute('ALTER TABLE developer_stats ADD COLUMN cc_skills_used INT NOT NULL DEFAULT 0').catch((err) => {
+    if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add cc_skills_used:', err);
+  });
+  // Widen cc_skills_usage.product 64->191 for databases created before this
+  // migration existed; CREATE TABLE IF NOT EXISTS above only sizes it
+  // correctly for brand-new databases. See CC_SKILLS_USAGE_SCHEMA's comment.
+  await pool.execute('ALTER TABLE cc_skills_usage MODIFY COLUMN product VARCHAR(191) NOT NULL').catch((err) => {
+    console.error('[db/mysql] Failed to widen cc_skills_usage.product:', err);
   });
   await pool.execute('ALTER TABLE reports ADD COLUMN cc_period_start DATE NULL').catch((err) => {
     if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add cc_period_start:', err);

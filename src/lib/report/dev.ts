@@ -10,6 +10,21 @@ export class DeveloperNotFoundError extends Error {
   }
 }
 
+/**
+ * Per-model usage as returned over the wire. `cost`/`requests` are typed
+ * optional even though this function's DB read always produces numbers,
+ * because the route strips both fields for viewers who may not see this
+ * developer's cost (see `stripModelCost` in cost-visibility.ts). Typing them
+ * as required here would contradict that contract and force a cast at the
+ * route's reassignment; every consumer of this shape must handle their
+ * absence regardless.
+ */
+export interface DevModelUsage {
+  model: string;
+  cost?: number;
+  requests?: number;
+}
+
 export async function getDevReport(reportId: string, login: string) {
   // Report metadata
   const [reportRows] = await db.execute(
@@ -30,7 +45,7 @@ export async function getDevReport(reportId: string, login: string) {
             total_prs, total_commits, lines_added, lines_removed,
             avg_complexity, impact_score, pr_percentage, ai_percentage,
             total_jira_issues, total_reviews,
-            cc_total_cost, cc_requests,
+            cc_total_cost, cc_requests, cc_skills_used,
             type_breakdown, active_repos
      FROM developer_stats
      WHERE report_id = ? AND github_login = ?`,
@@ -147,6 +162,20 @@ export async function getDevReport(reportId: string, login: string) {
     active_repos: typeof row.active_repos === 'string' ? JSON.parse(row.active_repos || '[]') : (row.active_repos || []),
   });
 
+  const [skillsRows] = await db.execute(
+    `SELECT product, skills_used, skills_distinct
+     FROM cc_skills_usage WHERE report_id = ? AND github_login = ?
+     ORDER BY skills_used DESC, product`,
+    [reportId, login],
+  ) as [any[], any];
+
+  const [modelRows] = await db.execute(
+    `SELECT model, cost, requests
+     FROM cc_model_usage WHERE report_id = ? AND github_login = ?
+     ORDER BY cost DESC, model`,
+    [reportId, login],
+  ) as [any[], any];
+
   return {
     report: reportRows[0],
     developer: parseDev(devRows[0]),
@@ -154,5 +183,15 @@ export async function getDevReport(reportId: string, login: string) {
     commits: commitRows,
     timeline,
     unmergedWork: { openPrs, branchCommits },
+    skills: skillsRows.map((r: any) => ({
+      product: String(r.product),
+      skills_used: Number(r.skills_used) || 0,
+      skills_distinct: Number(r.skills_distinct) || 0,
+    })),
+    models: modelRows.map((r: any): DevModelUsage => ({
+      model: String(r.model),
+      cost: Number(r.cost) || 0,
+      requests: Number(r.requests) || 0,
+    })),
   };
 }

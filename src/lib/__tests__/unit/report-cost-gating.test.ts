@@ -16,6 +16,7 @@ jest.mock('@/lib/cost-visibility', () => ({
   buildCostVisibility: jest.fn(),
   stripDevCost: jest.requireActual('@/lib/cost-visibility').stripDevCost,
   stripCostFields: jest.requireActual('@/lib/cost-visibility').stripCostFields,
+  stripModelCost: jest.requireActual('@/lib/cost-visibility').stripModelCost,
   costCacheHeaders: jest.requireActual('@/lib/cost-visibility').costCacheHeaders,
 }));
 

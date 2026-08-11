@@ -1,13 +1,23 @@
-import type { CcSpendProvider, PerEmailAggregate, CcSpendProbeResult } from './provider';
+import { extractSkillsEntries } from './skills-parser';
+import type { CcSpendProvider, PerEmailAggregate, CcSpendProbeResult, PerEmailSkills, PerEmailModelCost, ModelUsage } from './provider';
 
 const ANTHROPIC_BASE = 'https://api.anthropic.com';
 const ANTHROPIC_VERSION = '2023-06-01';
 const ANALYTICS_PATH = '/v1/organizations/analytics/user_cost_report';
+const USERS_PATH = '/v1/organizations/analytics/users';
 
 const FETCH_TIMEOUT_MS = 30_000;
 const MAX_RETRIES = 2;
 const MAX_RETRY_WAIT_MS = 60_000;
 const MAX_PAGES = 100;
+/**
+ * The grouped model-cost pull appends group_by[]=model, which fans one
+ * per-user row out into one row per (user, model) — roughly an order of
+ * magnitude more rows than the ungrouped pull for the same population and
+ * window. Sharing MAX_PAGES would trip at ~10x fewer users than the ungrouped
+ * pull tolerates, so it gets its own, larger cap.
+ */
+const MODEL_MAX_PAGES = 1000;
 
 export class AnthropicAnalyticsKeyMissingError extends Error {
   constructor() {
@@ -44,6 +54,21 @@ function buildUrl(periodStart: string, periodEnd: string, cursor: string | null,
   const url = new URL(`${ANTHROPIC_BASE}${ANALYTICS_PATH}`);
   url.searchParams.set('starting_at', `${periodStart}T00:00:00Z`);
   url.searchParams.set('ending_at', `${periodEnd}T23:59:59Z`);
+  url.searchParams.set('limit', String(limit));
+  if (cursor) url.searchParams.set('page', cursor);
+  return url.toString();
+}
+
+/**
+ * The /users endpoint takes DATES (starting_date/ending_date), not the
+ * starting_at/ending_at timestamps the cost endpoint uses. Its cursor param is
+ * `page`; passing the token as `next_page`/`cursor` is silently ignored and
+ * re-serves page 1, which would spin until MAX_PAGES.
+ */
+function buildUsersUrl(periodStart: string, periodEnd: string, cursor: string | null, limit: number): string {
+  const url = new URL(`${ANTHROPIC_BASE}${USERS_PATH}`);
+  url.searchParams.set('starting_date', periodStart);
+  url.searchParams.set('ending_date', periodEnd);
   url.searchParams.set('limit', String(limit));
   if (cursor) url.searchParams.set('page', cursor);
   return url.toString();
@@ -172,7 +197,11 @@ export function createAnthropicCcSpendProvider(): CcSpendProvider {
       const page = await fetchPage(apiKey, url, log);
       accumulate(agg, page.data ?? []);
       cursor = page.next_page ?? null;
-      if (++pages >= MAX_PAGES) {
+      // Only count the cap against a page we're actually about to fetch next —
+      // checking unconditionally would trip on a legitimate final page whose
+      // count happens to land on MAX_PAGES even though cursor is already null.
+      pages++;
+      if (cursor && pages >= MAX_PAGES) {
         throw new Error(`Anthropic analytics pagination exceeded ${MAX_PAGES} pages — refusing to continue`);
       }
     } while (cursor);
@@ -203,5 +232,106 @@ export function createAnthropicCcSpendProvider(): CcSpendProvider {
     };
   }
 
-  return { pullByPeriod, probe };
+  async function pullSkillsByPeriod(
+    periodStart: string,
+    periodEnd: string,
+    log?: (msg: string) => void,
+  ): Promise<PerEmailSkills[]> {
+    const apiKey = process.env.ANTHROPIC_ANALYTICS_API_KEY;
+    if (!apiKey) throw new AnthropicAnalyticsKeyMissingError();
+
+    // A date range returns one aggregated row per user (keyset-paginated by
+    // email), so this Map is defensive rather than load-bearing.
+    const byEmail = new Map<string, PerEmailSkills>();
+    let cursor: string | null = null;
+    let pages = 0;
+    do {
+      const url = buildUsersUrl(periodStart, periodEnd, cursor, 1000);
+      const page = await fetchPage(apiKey, url, log) as { data?: any[]; next_page?: string | null };
+      for (const row of page.data ?? []) {
+        const rawEmail = row?.user?.email_address;
+        if (!rawEmail) continue;
+        const email = String(rawEmail).trim().toLowerCase();
+        const products = extractSkillsEntries(row);
+        if (products.length === 0) continue;
+        const existing = byEmail.get(email);
+        if (existing) existing.products.push(...products);
+        else byEmail.set(email, { email, products });
+      }
+      cursor = page.next_page ?? null;
+      // See pullByPeriod's identical guard for why this only counts against a
+      // page we're about to fetch, not the one we just finished.
+      pages++;
+      if (cursor && pages >= MAX_PAGES) {
+        throw new Error(`Anthropic analytics pagination exceeded ${MAX_PAGES} pages — refusing to continue`);
+      }
+    } while (cursor);
+
+    return [...byEmail.values()];
+  }
+
+  async function pullModelCostByPeriod(
+    periodStart: string,
+    periodEnd: string,
+    log?: (msg: string) => void,
+  ): Promise<PerEmailModelCost[]> {
+    const apiKey = process.env.ANTHROPIC_ANALYTICS_API_KEY;
+    if (!apiKey) throw new AnthropicAnalyticsKeyMissingError();
+
+    const byEmail = new Map<string, Map<string, ModelUsage>>();
+    let cursor: string | null = null;
+    let pages = 0;
+    // Dollars dropped because the API didn't attribute a row to an email
+    // and/or a model — the ungrouped pullByPeriod counts these same dollars
+    // into cc_total_cost, so a nonzero total here means this grouped
+    // breakdown undercounts it. Logged once per pull rather than per row.
+    let droppedCents = 0;
+    do {
+      // The `[]` is required: group_by=model (no brackets) is silently ignored
+      // and every row comes back with model: null.
+      const url = `${buildUrl(periodStart, periodEnd, cursor, 1000)}&group_by%5B%5D=model`;
+      const page = await fetchPage(apiKey, url, log) as { data?: any[]; next_page?: string | null };
+      for (const row of page.data ?? []) {
+        if (row?.actor?.type !== 'user_actor') continue;
+        if (row?.actor?.deleted === true) continue;
+        const rawEmail = row?.actor?.email;
+        const model = row?.model;
+        // Number(...) (not a string-only parseFloat) so a JSON-number amount
+        // isn't silently read as NaN -> 0 — Anthropic sends `amount` as a
+        // decimal string today, but nothing documents that as guaranteed.
+        const amountNum = Number(row?.amount);
+        if (!rawEmail || !model) {
+          if (Number.isFinite(amountNum)) droppedCents += Math.round(amountNum);
+          continue;
+        }
+        const email = String(rawEmail).trim().toLowerCase();
+
+        const costCents = Number.isFinite(amountNum) ? Math.round(amountNum) : 0;
+        const requests = Number(row.requests) || 0;
+
+        let models = byEmail.get(email);
+        if (!models) { models = new Map<string, ModelUsage>(); byEmail.set(email, models); }
+        const entry = models.get(String(model)) ?? { model: String(model), costCents: 0, requests: 0 };
+        entry.costCents += costCents;
+        entry.requests += requests;
+        models.set(entry.model, entry);
+      }
+      cursor = page.next_page ?? null;
+      // This pull fans one per-user row out into one row per (user, model), so
+      // it needs its own, larger cap than the ungrouped pulls (MODEL_MAX_PAGES,
+      // not MAX_PAGES) — see its doc comment. Off-by-one guard as above.
+      pages++;
+      if (cursor && pages >= MODEL_MAX_PAGES) {
+        throw new Error(`Anthropic analytics pagination exceeded ${MODEL_MAX_PAGES} pages — refusing to continue`);
+      }
+    } while (cursor);
+
+    if (droppedCents > 0) {
+      log?.(`CC models: dropped ${droppedCents}c with no email/model attribution`);
+    }
+
+    return [...byEmail.entries()].map(([email, models]) => ({ email, models: [...models.values()] }));
+  }
+
+  return { pullByPeriod, probe, pullSkillsByPeriod, pullModelCostByPeriod };
 }

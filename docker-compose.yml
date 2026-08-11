@@ -45,6 +45,11 @@ services:
       AUTH_HEADER: ${AUTH_HEADER:-x-amzn-oidc-data}
       AUTH_ADMIN_GROUP: ${AUTH_ADMIN_GROUP:-}
       AUTH_TEST_USER: ${AUTH_TEST_USER:-}
+      AUTH_TEST_EMAIL: ${AUTH_TEST_EMAIL:-}
+      # This image runs NODE_ENV=production (see Dockerfile), so the
+      # AUTH_TEST_USER bypass needs this explicit second opt-in — see
+      # auth.ts and .env.example. Never set in a real deployment.
+      AUTH_TEST_ALLOW_IN_PRODUCTION: ${AUTH_TEST_ALLOW_IN_PRODUCTION:-}
 
       # Anthropic Analytics API (Claude usage cost ingestion)
       ANTHROPIC_ANALYTICS_API_KEY: ${ANTHROPIC_ANALYTICS_API_KEY:-}

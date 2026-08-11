@@ -14,12 +14,28 @@ export function isAuthEnabled(): boolean {
 export function extractUser(headers: Headers): AuthUser | null {
   if (!isAuthEnabled()) return null;
 
-  // Test mode: return a fake user based on AUTH_TEST_USER (admin or viewer)
+  // Test mode: return a fake user based on AUTH_TEST_USER (admin or viewer).
+  // AUTH_TEST_EMAIL optionally overrides the identity, so a local run can be
+  // exercised as a real developer (whose user_mappings row already resolves to
+  // a github_login) instead of the synthetic unmapped default.
+  //
+  // This bypass never consults the ALB OIDC header, so if it were ever active
+  // on a real deployment it would let anyone who can set env vars there
+  // impersonate whichever identity AUTH_TEST_USER/AUTH_TEST_EMAIL name, for
+  // every request. Gated to non-production by default. The local
+  // podman/docker-compose flow runs the built production image
+  // (NODE_ENV=production is baked into the Dockerfile), so a bare NODE_ENV
+  // check would break that flow — AUTH_TEST_ALLOW_IN_PRODUCTION=true is the
+  // explicit second opt-in that flow uses. Never set that in a real deployment;
+  // env-validation.ts logs loudly at startup whenever this bypass is active.
   const testUser = process.env.AUTH_TEST_USER;
-  if (testUser) {
+  const testModeAllowed =
+    process.env.NODE_ENV !== 'production' || process.env.AUTH_TEST_ALLOW_IN_PRODUCTION === 'true';
+  if (testUser && testModeAllowed) {
     const adminGroup = process.env.AUTH_ADMIN_GROUP || 'admins';
+    const email = process.env.AUTH_TEST_EMAIL || 'testuser@glooker.dev';
     return {
-      email: 'testuser@glooker.dev',
+      email,
       sub: 'test-user-001',
       name: testUser === 'admin' ? 'Test Admin' : 'Test Viewer',
       groups: testUser === 'admin' ? [adminGroup] : [],

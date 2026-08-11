@@ -41,6 +41,8 @@ async function main() {
   await seed('schedules', data.seedSchedules);
   await seed('release_notes', data.seedReleaseNotes);
   await seed('unmerged_prs', data.seedUnmergedPrs);
+  await seed('cc_skills_usage', data.seedCcSkillsUsage);
+  await seed('cc_model_usage', data.seedCcModelUsage);
 
   console.log('\nDone! Run `npm run dev:mock` to start the app with mock providers.');
 }

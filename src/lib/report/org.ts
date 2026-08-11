@@ -2,6 +2,21 @@ import db from '../db/index';
 import { ReportNotFoundError } from './service';
 import { dedupCommitsBySha, aggregateWeekly, weekKeyForDate } from './timeline';
 
+/**
+ * Per-model usage rows, one per (login, model), unaggregated. `cost`/`requests`
+ * are typed optional even though this function's DB read always produces
+ * numbers, because the org route strips both fields per login for viewers who
+ * may not see that developer's cost (mirrors `DevModelUsage` in `dev.ts`).
+ * Typing them as required here would contradict that contract and force a
+ * cast at the route's reassignment.
+ */
+export interface OrgModelUsage {
+  github_login: string;
+  model: string;
+  cost?: number;
+  requests?: number;
+}
+
 export async function getOrgReport(reportId: string) {
   // 1. Report metadata
   const [reportRows] = await db.execute(
@@ -23,7 +38,7 @@ export async function getOrgReport(reportId: string) {
             avg_complexity, impact_score, pr_percentage, ai_percentage,
             total_jira_issues,
             type_breakdown, active_repos,
-            cc_total_cost, cc_requests
+            cc_total_cost, cc_requests, cc_skills_used
      FROM developer_stats WHERE report_id = ? ORDER BY impact_score DESC`,
     [reportId],
   ) as [any[], any];
@@ -261,5 +276,60 @@ export async function getOrgReport(reportId: string) {
     };
   }
 
-  return { report: reportRows[0], developers, timeline, spendWindow, unmergedSummary };
+  // GLOOK-30 UI: per-(login, dimension) breakdown rows, returned unaggregated.
+  // The org route strips cost/requests per login and the client aggregates what
+  // survives, so an aggregate can never exceed what a viewer may see.
+  //
+  // Both queries are INNER JOINed against developer_stats for this report_id.
+  // Why: the login resolver behind these tables (buildEmailToLoginMap) falls
+  // back to the historical `user_mappings` table when a login has no
+  // commit_analyses row for this report, so it can attribute cc_model_usage /
+  // cc_skills_usage rows to logins that never made it into this report's
+  // developer_stats. The rest of this page's spend figures (Total Org Spend,
+  // Top Spenders) are deliberately scoped to this report's engineering
+  // population via developer_stats, so an unscoped read here mixes a wider
+  // population into a narrower total. That's exactly what happened before this
+  // join existed: 5 user_mappings-only logins contributed $346.78 that Model
+  // Mix counted but Total Org Spend never could, making the panel's own total
+  // exceed the page's authoritative total. Joining to developer_stats keeps
+  // both figures drawn from the same population.
+  // LOWER() on both sides of the login predicate: github_login is populated by
+  // three different mechanisms (admin entry, Jira auto-discovery, GitHub API —
+  // see cost-visibility.ts's buildCostVisibility doc comment for the same
+  // issue) that don't agree on case, and this DB layer's TEXT/VARCHAR
+  // comparison is case-sensitive. An exact-case join would silently drop a
+  // case-mismatched login's rows from the panel instead of raising an error.
+  const [modelUsageRows] = await db.execute(
+    `SELECT cc_model_usage.github_login, cc_model_usage.model, cc_model_usage.cost, cc_model_usage.requests
+     FROM cc_model_usage
+     INNER JOIN developer_stats d
+       ON d.report_id = cc_model_usage.report_id AND LOWER(d.github_login) = LOWER(cc_model_usage.github_login)
+     WHERE cc_model_usage.report_id = ?
+     ORDER BY cc_model_usage.github_login, cc_model_usage.cost DESC, cc_model_usage.model`,
+    [reportId],
+  ) as [any[], any];
+  const modelUsage = modelUsageRows.map((r: any): OrgModelUsage => ({
+    github_login: String(r.github_login),
+    model: String(r.model),
+    cost: Number(r.cost) || 0,
+    requests: Number(r.requests) || 0,
+  }));
+
+  const [skillsUsageRows] = await db.execute(
+    `SELECT cc_skills_usage.github_login, cc_skills_usage.product, cc_skills_usage.skills_used, cc_skills_usage.skills_distinct
+     FROM cc_skills_usage
+     INNER JOIN developer_stats d
+       ON d.report_id = cc_skills_usage.report_id AND LOWER(d.github_login) = LOWER(cc_skills_usage.github_login)
+     WHERE cc_skills_usage.report_id = ?
+     ORDER BY cc_skills_usage.github_login, cc_skills_usage.skills_used DESC, cc_skills_usage.product`,
+    [reportId],
+  ) as [any[], any];
+  const skillsUsage = skillsUsageRows.map((r: any) => ({
+    github_login: String(r.github_login),
+    product: String(r.product),
+    skills_used: Number(r.skills_used) || 0,
+    skills_distinct: Number(r.skills_distinct) || 0,
+  }));
+
+  return { report: reportRows[0], developers, timeline, spendWindow, unmergedSummary, modelUsage, skillsUsage };
 }
