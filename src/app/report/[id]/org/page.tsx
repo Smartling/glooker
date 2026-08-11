@@ -984,6 +984,46 @@ function computeSpendMetrics(devs: Developer[]) {
   return { withSpend, total, avg, median, top20Count, top20Spend, top20Pct, medianCPI };
 }
 
+export interface ModelUsageRow { github_login: string; model: string; cost?: number; requests?: number }
+export interface ModelMixRow {
+  model: string; cost: number; requests: number; devs: number; pct: number; costPerRequest: number;
+}
+
+/**
+ * Aggregate per-(login, model) rows into an org/team model mix.
+ *
+ * Scope coherence: only rows whose `cost` survived per-login stripping are
+ * counted. The route keeps a row's `model` while deleting `cost`/`requests` for
+ * developers the viewer may not see, so counting every row would mix scopes —
+ * org-wide model names and developer counts beside team-only cost.
+ */
+export function computeModelMix(rows: ModelUsageRow[]): { rows: ModelMixRow[]; total: number } {
+  const visible = rows.filter(r => r.cost != null);
+
+  const byModel = new Map<string, { cost: number; requests: number; devs: Set<string> }>();
+  for (const r of visible) {
+    const entry = byModel.get(r.model) ?? { cost: 0, requests: 0, devs: new Set<string>() };
+    entry.cost += Number(r.cost) || 0;
+    entry.requests += Number(r.requests) || 0;
+    entry.devs.add(r.github_login);
+    byModel.set(r.model, entry);
+  }
+
+  const total = [...byModel.values()].reduce((s, e) => s + e.cost, 0);
+  const out: ModelMixRow[] = [...byModel.entries()]
+    .map(([model, e]) => ({
+      model,
+      cost: e.cost,
+      requests: e.requests,
+      devs: e.devs.size,
+      pct: total > 0 ? (e.cost / total) * 100 : 0,
+      costPerRequest: e.requests > 0 ? e.cost / e.requests : 0,
+    }))
+    .sort((a, b) => b.cost - a.cost || a.model.localeCompare(b.model));
+
+  return { rows: out, total };
+}
+
 function formatDateRange(startIso: string, endIso: string): { label: string; days: number } {
   const s = new Date(startIso + 'T00:00:00');
   const e = new Date(endIso + 'T00:00:00');
