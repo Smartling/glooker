@@ -196,10 +196,11 @@ docker compose up --build -d
 
 ## MCP Server
 
-Glooker exposes a **read-only [MCP](https://modelcontextprotocol.io) server** at `POST /api/mcp` so you can query its data and analysis from Claude Code / Claude.ai — including cross-report analysis over time. It speaks stateless Streamable-HTTP JSON-RPC and provides 14 tools:
+Glooker exposes a **read-only [MCP](https://modelcontextprotocol.io) server** at `POST /api/mcp` so you can query its data and analysis from Claude Code / Claude.ai — including cross-report analysis over time. It speaks stateless Streamable-HTTP JSON-RPC and provides 16 tools:
 
 - **Discovery:** `list_reports`, `get_org_summary`
 - **Raw entities:** `query_commits`, `query_jira_issues`, `query_developer_stats`, `query_unmerged_work`
+- **Claude usage:** `query_model_usage` (per-model `cost_cents`/requests, all Anthropic surfaces — cost-gated per developer), `query_skills_usage` (skills invoked per product — ungated activity volume)
 - **LLM/semantic:** `get_project_insights`, `get_project_details`, `get_highlights`, `get_team_pulse`, `get_developer_summary`, `get_release_notes`, `get_epic_summaries`
 - **Time-series:** `get_metric_timeseries` (`metric` × `group_by` = week/month/report/developer/repo/type)
 

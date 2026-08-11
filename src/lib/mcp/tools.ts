@@ -2,6 +2,7 @@ import db from '@/lib/db';
 import {
   listReports, getOrgSummaryTool, queryCommits, queryJiraIssues,
   queryDeveloperStats, queryUnmergedWork, getEpicSummaries, getMetricTimeseries,
+  queryModelUsage, querySkillsUsage,
 } from './queries';
 import { resolveReportId } from './resolve';
 import { getProjectInsights } from '@/lib/projects/insights';
@@ -100,7 +101,7 @@ export const MCP_TOOLS: McpTool[] = [
   },
   {
     name: 'query_developer_stats',
-    description: 'Per-developer aggregate stats for a report, ranked. Metrics: commits, PRs, lines, impact score, AI %.',
+    description: 'Per-developer aggregate stats for a report, ranked. Metrics: commits, PRs, lines, impact score, AI %. Also `cc_total_cost`, which despite its name is Claude spend in USD **cents** across all Anthropic surfaces (claude.ai + Claude Code + API); it and `cc_requests` are absent for developers whose spend the caller may not see.',
     inputSchema: { type: 'object', properties: {
       ...REPORT_ID,
       login: { type: 'string', description: 'Filter to one developer' },
@@ -108,6 +109,26 @@ export const MCP_TOOLS: McpTool[] = [
       limit: { type: 'number', description: 'Max rows (default 100, max 500)' },
     } },
     handler: (a, requester) => queryDeveloperStats(a, requester),
+  },
+  {
+    name: 'query_model_usage',
+    description: "Per-developer Claude cost in USD cents (field `cost_cents`) and request counts, broken down by model, for a report. Covers all Anthropic surfaces the org's analytics feed reports — claude.ai, Claude Code and API — not Claude Code alone. Rows appear only for developers whose spend the caller may see; other developers' rows are omitted entirely, so an absent developer means either no usage or no visibility. `cost_visible: false` means the caller may see no costs at all, which is different from the report having no usage.",
+    inputSchema: { type: 'object', properties: {
+      ...REPORT_ID,
+      login: { type: 'string', description: 'Filter to one developer (case-insensitive)' },
+      limit: { type: 'number', description: 'Max rows (default 100, max 500)' },
+    } },
+    handler: (a, requester) => queryModelUsage(a, requester),
+  },
+  {
+    name: 'query_skills_usage',
+    description: 'Per-developer Claude skills usage by product (`claude_code`, `chat`, `cowork`, …) — skills invoked and distinct skills, for a report. Activity volume only, no cost, and visible for every developer in the report. Covers a window ending a few days before the report period because the analytics endpoint lags real time, so do not compare these counts against report-period commits or spend as if the windows matched.',
+    inputSchema: { type: 'object', properties: {
+      ...REPORT_ID,
+      login: { type: 'string', description: 'Filter to one developer (case-insensitive)' },
+      limit: { type: 'number', description: 'Max rows (default 100, max 500)' },
+    } },
+    handler: (a) => querySkillsUsage(a),
   },
   {
     name: 'query_unmerged_work',

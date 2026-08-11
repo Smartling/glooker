@@ -1,7 +1,7 @@
 import db from '@/lib/db';
 import { resolveReportId } from './resolve';
 import { bucketByPeriod } from './dedup';
-import { buildCostVisibility, stripDevCost, type Requester, type CostVisibility } from '@/lib/cost-visibility';
+import { buildCostVisibility, stripDevCost, gateModelRowsByLogin, type Requester, type CostVisibility } from '@/lib/cost-visibility';
 
 export const MAX_ROWS = 500;
 const DEFAULT_TIMESERIES_WINDOW_DAYS = 180;
@@ -34,6 +34,27 @@ function isoDate(value: any): string {
 async function reportOrg(reportId: string): Promise<string | null> {
   const [rows] = await db.execute(`SELECT org FROM reports WHERE id = ?`, [reportId]) as [any[], any];
   return rows[0]?.org ?? null;
+}
+
+/**
+ * Team-scoped cost visibility for a report (GLOOK-27). Fail closed: a missing
+ * requester, or an org we couldn't resolve, means no cost visibility — never
+ * see-all.
+ *
+ * Admins / auth-disabled short-circuit *before* the reportOrg lookup, so the
+ * org and team queries only run on the team-scoped path that needs them.
+ *
+ * Used by queryDeveloperStats and queryModelUsage — the cost-bearing queries —
+ * so the fail-closed rule has one implementation rather than one per tool.
+ * querySkillsUsage deliberately does not call it: skills are ungated.
+ */
+async function resolveCostVisibility(reportId: string, requester?: Requester): Promise<CostVisibility> {
+  if (!requester) return { canSeeCost: () => false, canSeeAnyCost: false };
+  if (requester.authDisabled || requester.isAdmin) return { canSeeCost: () => true, canSeeAnyCost: true };
+  const org = await reportOrg(reportId);
+  return org
+    ? buildCostVisibility(org, requester)
+    : { canSeeCost: () => false, canSeeAnyCost: false };
 }
 
 export async function listReports(args: { org?: string; status?: string; limit?: number }) {
@@ -228,23 +249,131 @@ export async function queryDeveloperStats(
     return out;
   });
 
-  // Team-scoped cost gating (GLOOK-27). Fail closed: a missing requester (or an
-  // org we couldn't resolve) means no cost visibility — strip all cc, never
-  // see-all. Admins / auth-disabled short-circuit before the reportOrg lookup so
-  // that query only runs on the team-scoped path that actually needs it.
-  let vis: CostVisibility;
-  if (!requester) {
-    vis = { canSeeCost: () => false, canSeeAnyCost: false };
-  } else if (requester.authDisabled || requester.isAdmin) {
-    vis = { canSeeCost: () => true, canSeeAnyCost: true };
-  } else {
-    const org = await reportOrg(r.id);
-    vis = org
-      ? await buildCostVisibility(org, requester)
-      : { canSeeCost: () => false, canSeeAnyCost: false };
-  }
+  const vis = await resolveCostVisibility(r.id, requester);
   const gated = stripDevCost(developers, vis.canSeeCost);
   return { developers: gated, count: gated.length };
+}
+
+// Both cc breakdown queries below INNER JOIN developer_stats and compare logins
+// case-insensitively — see the comment above the equivalent queries in
+// report/org.ts for why, and org-model-usage.test.ts / mcp-cc-breakdown-sql
+// assertions for what pins it.
+//
+// Both also bind MAX_ROWS in SQL and apply the caller's `limit` in JS, rather
+// than pushing it into the LIMIT clause. For queryModelUsage that is a
+// correctness requirement, not a style choice: stripModelCost *drops* rows, so
+// a pre-gating LIMIT would spend the row budget on rows that are then deleted —
+// making a caller's own entitled rows unreachable behind an alphabetical prefix,
+// and turning `count` into an oracle for the ordinal positions of hidden rows.
+// (stripDevCost keeps rows and blanks fields, which is why queryDeveloperStats
+// can safely limit in SQL and this cannot.) For querySkillsUsage it buys the
+// `truncated` signal: "all of a–j, none of k–z" is not a defensible sample, and
+// without a flag a caller reports a partial total as an org-wide one.
+
+/** Cap the caller-facing slice; the SQL fetch is always bound to MAX_ROWS. */
+const sliceLimit = (raw: unknown, def: number) => Number(clampLimit(raw, def));
+
+/**
+ * Per-developer, per-model Claude cost and requests for a report.
+ *
+ * Both `cost_cents` and `requests` are gated — see MODEL_COST_FIELDS in
+ * cost-visibility.ts for why `requests` is in scope despite not being currency.
+ *
+ * Visibility is resolved *before* the data query so a caller entitled to no
+ * costs costs us no read at all, and so gating happens before the caller's
+ * limit is applied.
+ */
+export async function queryModelUsage(
+  args: { report_id?: string; login?: string; limit?: number },
+  requester?: Requester,
+) {
+  const r = await resolveReportId(args.report_id);
+  if ('error' in r) return r;
+
+  const vis = await resolveCostVisibility(r.id, requester);
+  // No visible costs at all (absent requester, unresolvable org, or an
+  // authenticated user with no user_mappings row). Report it rather than
+  // returning a bare empty list: "you cannot see costs" and "no usage was
+  // recorded" are different answers, and only the latter is about the data.
+  if (!vis.canSeeAnyCost) return { models: [], count: 0, truncated: false, cost_visible: false };
+
+  const conditions = ['cc_model_usage.report_id = ?'];
+  const params: any[] = [r.id];
+  if (args.login) { conditions.push('LOWER(cc_model_usage.github_login) = LOWER(?)'); params.push(args.login); }
+  params.push(String(MAX_ROWS));
+
+  const [rows] = await db.execute(
+    `SELECT cc_model_usage.github_login, cc_model_usage.model, cc_model_usage.cost, cc_model_usage.requests
+     FROM cc_model_usage
+     INNER JOIN developer_stats d
+       ON d.report_id = cc_model_usage.report_id AND LOWER(d.github_login) = LOWER(cc_model_usage.github_login)
+     WHERE ${conditions.join(' AND ')}
+     ORDER BY cc_model_usage.github_login, cc_model_usage.cost DESC, cc_model_usage.model
+     LIMIT ?`,
+    params,
+  ) as [any[], any];
+
+  const models = rows.map((row: any) => ({
+    github_login: String(row.github_login),
+    model: String(row.model),
+    // cc_model_usage.cost is cents (apply-breakdowns.ts writes costCents). The
+    // UI divides at render; an MCP caller has no such convention to follow, so
+    // the unit is in the field name.
+    cost_cents: Number(row.cost) || 0,
+    requests: Number(row.requests) || 0,
+  }));
+
+  const visible = gateModelRowsByLogin(models, vis.canSeeCost);
+  const limit = sliceLimit(args.limit, 100);
+  return {
+    models: visible.slice(0, limit),
+    count: Math.min(visible.length, limit),
+    truncated: rows.length >= MAX_ROWS,
+    cost_visible: true,
+  };
+}
+
+/**
+ * Per-developer, per-product skills usage for a report.
+ *
+ * Deliberately ungated, and therefore takes no requester — see the CC_FIELDS
+ * policy comment in cost-visibility.ts. Omitting the parameter keeps a later
+ * edit from quietly gating this by habit.
+ */
+export async function querySkillsUsage(args: { report_id?: string; login?: string; limit?: number }) {
+  const r = await resolveReportId(args.report_id);
+  if ('error' in r) return r;
+
+  const conditions = ['cc_skills_usage.report_id = ?'];
+  const params: any[] = [r.id];
+  if (args.login) { conditions.push('LOWER(cc_skills_usage.github_login) = LOWER(?)'); params.push(args.login); }
+  params.push(String(MAX_ROWS));
+
+  const [rows] = await db.execute(
+    `SELECT cc_skills_usage.github_login, cc_skills_usage.product,
+            cc_skills_usage.skills_used, cc_skills_usage.skills_distinct
+     FROM cc_skills_usage
+     INNER JOIN developer_stats d
+       ON d.report_id = cc_skills_usage.report_id AND LOWER(d.github_login) = LOWER(cc_skills_usage.github_login)
+     WHERE ${conditions.join(' AND ')}
+     ORDER BY cc_skills_usage.github_login, cc_skills_usage.skills_used DESC, cc_skills_usage.product
+     LIMIT ?`,
+    params,
+  ) as [any[], any];
+
+  const skills = rows.map((row: any) => ({
+    github_login: String(row.github_login),
+    product: String(row.product),
+    skills_used: Number(row.skills_used) || 0,
+    skills_distinct: Number(row.skills_distinct) || 0,
+  }));
+
+  const limit = sliceLimit(args.limit, 100);
+  return {
+    skills: skills.slice(0, limit),
+    count: Math.min(skills.length, limit),
+    truncated: rows.length >= MAX_ROWS,
+  };
 }
 
 export async function queryUnmergedWork(args: { report_id?: string; login?: string; repo?: string }) {

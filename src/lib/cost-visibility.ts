@@ -155,20 +155,25 @@ interface ModelBearing {
 }
 
 /**
- * Return this developer's per-model rows unless the requester may see their
- * cost, in which case return none at all.
+ * Return this developer's per-model rows only if the requester may see their
+ * cost; otherwise return none at all.
  *
  * An earlier version stripped cost/requests but kept one row per model (with
  * `model` retained). That still discloses that a non-teammate uses Claude
  * Code and which models — a coarse spend signal even with amounts hidden,
  * since model choice is the dominant per-request cost driver — and lets the
  * whole org be enumerated and ranked by "uses expensive models" via the org
- * route. Dropping the rows entirely makes "cannot see this developer's cost"
- * and "this developer has no Claude usage" indistinguishable on the wire,
- * matching how stripCostFields/stripDevCost already treat the scalar
- * cc_total_cost/cc_requests fields. It also makes the old "re-sort by model
- * name so order doesn't leak a cost ranking" scrubbing unnecessary — an
- * absent row leaks no ordering either.
+ * route. Dropping the rows entirely withholds the amounts and the model mix
+ * alike, and makes the old "re-sort by model name so order doesn't leak a cost
+ * ranking" scrubbing unnecessary — an absent row leaks no ordering either.
+ *
+ * What this does NOT achieve: within one payload a hidden developer looks like
+ * a developer with no Claude usage, but that is not a property of the system as
+ * a whole. stripCostFields *deletes* cc_total_cost while the column is NOT NULL
+ * DEFAULT 0, so a genuinely idle developer returns 0 and a hidden one returns
+ * no key — one call distinguishes them. Skills rows are ungated by policy and
+ * correlate with model usage. So the guarantee to rely on is "amounts and model
+ * mix are withheld", not "hiddenness is unobservable".
  */
 export function stripModelCost<T extends ModelBearing>(
   models: T[],
@@ -177,6 +182,29 @@ export function stripModelCost<T extends ModelBearing>(
 ): Array<Omit<T, ModelCostField> & Partial<Pick<T, ModelCostField>>> {
   if (canSeeCost(devLogin)) return models;
   return [];
+}
+
+/**
+ * Apply stripModelCost across a mixed-developer list of per-model rows.
+ *
+ * stripModelCost decides per developer, so callers must group by login first.
+ * That grouping lived in two places (the org REST route and the MCP query) —
+ * and since this is a security control whose policy has already changed once
+ * (#64 moved it from field-stripping to row-dropping), a second copy is a
+ * second place a future change has to be found. Routing through stripModelCost
+ * rather than a local `filter` is deliberate for the same reason: a filter is
+ * exactly what would have silently kept working when the policy changed.
+ */
+export function gateModelRowsByLogin<T extends ModelBearing & { github_login: string }>(
+  rows: T[],
+  canSeeCost: (login: string) => boolean,
+): Array<Omit<T, ModelCostField> & Partial<Pick<T, ModelCostField>>> {
+  const byLogin = new Map<string, T[]>();
+  for (const row of rows) {
+    const arr = byLogin.get(row.github_login);
+    if (arr) arr.push(row); else byLogin.set(row.github_login, [row]);
+  }
+  return [...byLogin.entries()].flatMap(([login, devRows]) => stripModelCost(devRows, canSeeCost, login));
 }
 
 /**
