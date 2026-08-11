@@ -17,7 +17,7 @@ describe('MCP tool registry', () => {
     'query_developer_stats', 'query_unmerged_work', 'get_project_insights',
     'get_project_details', 'get_highlights', 'get_team_pulse',
     'get_developer_summary', 'get_release_notes', 'get_epic_summaries',
-    'get_metric_timeseries',
+    'get_metric_timeseries', 'query_model_usage', 'query_skills_usage',
   ];
 
   it('registers exactly the expected tools with unique names', () => {
@@ -43,6 +43,27 @@ describe('MCP tool registry', () => {
 
   it('callTool returns an error object for an unknown tool', async () => {
     expect(await callTool('nope', {})).toEqual({ error: 'unknown tool: nope' });
+  });
+
+  // GLOOK-37. query_model_usage gates on the requester, so a handler registered
+  // as `(a) => queryModelUsage(a)` — dropping the second arg — would fail closed
+  // and silently return nothing for everyone. That bug is invisible to tests
+  // that call queryModelUsage directly, so assert the wiring here: an admin
+  // requester must reach the query and keep the rows.
+  it('callTool forwards the requester to query_model_usage', async () => {
+    mockExecute
+      .mockResolvedValueOnce([[{ id: 'r1' }], null])                                            // resolveReportId
+      .mockResolvedValueOnce([[{ github_login: 'alice', model: 'opus', cost: '1', requests: '2' }], null]);
+    const out = await callTool('query_model_usage', { report_id: 'r1' }, { githubLogin: 'a', isAdmin: true, authDisabled: false });
+    expect(out.models).toHaveLength(1);
+  });
+
+  it('callTool dispatches query_skills_usage without needing a requester', async () => {
+    mockExecute
+      .mockResolvedValueOnce([[{ id: 'r1' }], null])
+      .mockResolvedValueOnce([[{ github_login: 'alice', product: 'claude_code', skills_used: '4', skills_distinct: '2' }], null]);
+    const out = await callTool('query_skills_usage', { report_id: 'r1' });
+    expect(out.skills).toEqual([{ github_login: 'alice', product: 'claude_code', skills_used: 4, skills_distinct: 2 }]);
   });
 
   it('callTool masks a handler throw behind a generic error (no internal detail leaked)', async () => {

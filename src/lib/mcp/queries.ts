@@ -1,7 +1,7 @@
 import db from '@/lib/db';
 import { resolveReportId } from './resolve';
 import { bucketByPeriod } from './dedup';
-import { buildCostVisibility, stripDevCost, type Requester, type CostVisibility } from '@/lib/cost-visibility';
+import { buildCostVisibility, stripDevCost, stripModelCost, type Requester, type CostVisibility } from '@/lib/cost-visibility';
 
 export const MAX_ROWS = 500;
 const DEFAULT_TIMESERIES_WINDOW_DAYS = 180;
@@ -34,6 +34,28 @@ function isoDate(value: any): string {
 async function reportOrg(reportId: string): Promise<string | null> {
   const [rows] = await db.execute(`SELECT org FROM reports WHERE id = ?`, [reportId]) as [any[], any];
   return rows[0]?.org ?? null;
+}
+
+/**
+ * Team-scoped cost visibility for a report (GLOOK-27). Fail closed: a missing
+ * requester, or an org we couldn't resolve, means no cost visibility — never
+ * see-all.
+ *
+ * Admins / auth-disabled short-circuit *before* the reportOrg lookup, so the
+ * org and team queries only run on the team-scoped path that actually needs
+ * them. That ordering is load-bearing: mcp-cost-gating.test.ts asserts exact
+ * db.execute call counts to prove the fail-closed path performs no org lookup.
+ *
+ * Shared by every MCP query that returns cost-bearing data, so the fail-closed
+ * rule has one implementation rather than one per tool (GLOOK-37).
+ */
+async function resolveCostVisibility(reportId: string, requester?: Requester): Promise<CostVisibility> {
+  if (!requester) return { canSeeCost: () => false, canSeeAnyCost: false };
+  if (requester.authDisabled || requester.isAdmin) return { canSeeCost: () => true, canSeeAnyCost: true };
+  const org = await reportOrg(reportId);
+  return org
+    ? buildCostVisibility(org, requester)
+    : { canSeeCost: () => false, canSeeAnyCost: false };
 }
 
 export async function listReports(args: { org?: string; status?: string; limit?: number }) {
@@ -228,23 +250,111 @@ export async function queryDeveloperStats(
     return out;
   });
 
-  // Team-scoped cost gating (GLOOK-27). Fail closed: a missing requester (or an
-  // org we couldn't resolve) means no cost visibility — strip all cc, never
-  // see-all. Admins / auth-disabled short-circuit before the reportOrg lookup so
-  // that query only runs on the team-scoped path that actually needs it.
-  let vis: CostVisibility;
-  if (!requester) {
-    vis = { canSeeCost: () => false, canSeeAnyCost: false };
-  } else if (requester.authDisabled || requester.isAdmin) {
-    vis = { canSeeCost: () => true, canSeeAnyCost: true };
-  } else {
-    const org = await reportOrg(r.id);
-    vis = org
-      ? await buildCostVisibility(org, requester)
-      : { canSeeCost: () => false, canSeeAnyCost: false };
-  }
+  const vis = await resolveCostVisibility(r.id, requester);
   const gated = stripDevCost(developers, vis.canSeeCost);
   return { developers: gated, count: gated.length };
+}
+
+// Both cc breakdown queries below INNER JOIN developer_stats and compare logins
+// case-insensitively, for the same two reasons the org report does — see the
+// long comment above the equivalent queries in report/org.ts. In short: the
+// login resolver can attribute breakdown rows to logins with no
+// developer_stats row for this report, so an unjoined read reports a wider
+// population than every other per-report figure; and github_login is written
+// by three mechanisms that disagree on case, which an exact-case join would
+// silently drop rather than error on.
+
+/**
+ * Per-developer, per-model Claude Code cost and requests for a report.
+ *
+ * Both `cost` and `requests` are gated. `requests` is not currency, but summing
+ * a developer's per-model requests reconstructs the gated `cc_requests` exactly
+ * — same window, merely grouped by model — so leaving it ungated would reopen
+ * what stripDevCost closes.
+ */
+export async function queryModelUsage(
+  args: { report_id?: string; login?: string; limit?: number },
+  requester?: Requester,
+) {
+  const r = await resolveReportId(args.report_id);
+  if ('error' in r) return r;
+
+  const conditions = ['cc_model_usage.report_id = ?'];
+  const params: any[] = [r.id];
+  if (args.login) { conditions.push('LOWER(cc_model_usage.github_login) = LOWER(?)'); params.push(args.login); }
+  params.push(clampLimit(args.limit, 100));
+
+  const [rows] = await db.execute(
+    `SELECT cc_model_usage.github_login, cc_model_usage.model, cc_model_usage.cost, cc_model_usage.requests
+     FROM cc_model_usage
+     INNER JOIN developer_stats d
+       ON d.report_id = cc_model_usage.report_id AND LOWER(d.github_login) = LOWER(cc_model_usage.github_login)
+     WHERE ${conditions.join(' AND ')}
+     ORDER BY cc_model_usage.github_login, cc_model_usage.cost DESC, cc_model_usage.model
+     LIMIT ?`,
+    params,
+  ) as [any[], any];
+
+  const models = rows.map((row: any) => ({
+    github_login: String(row.github_login),
+    model: String(row.model),
+    cost: Number(row.cost) || 0,
+    requests: Number(row.requests) || 0,
+  }));
+
+  // Group by login so stripModelCost sees one developer's rows at a time: it
+  // drops a developer's rows *wholesale* rather than blanking the amounts,
+  // because retaining "which models" alone still discloses that a non-teammate
+  // uses Claude Code and roughly how expensively. See its doc comment.
+  const vis = await resolveCostVisibility(r.id, requester);
+  const byLogin = new Map<string, typeof models>();
+  for (const m of models) {
+    const list = byLogin.get(m.github_login);
+    if (list) list.push(m); else byLogin.set(m.github_login, [m]);
+  }
+  const gated = [...byLogin.entries()].flatMap(([login, devRows]) => stripModelCost(devRows, vis.canSeeCost, login));
+
+  return { models: gated, count: gated.length };
+}
+
+/**
+ * Per-developer, per-product skills usage for a report.
+ *
+ * Deliberately ungated, and therefore takes no requester — see the policy
+ * comment on CC_FIELDS in cost-visibility.ts. Skill invocations convert to no
+ * currency and sum to no gated figure, so unlike model rows there is nothing
+ * here to strip. Keeping the parameter off the signature makes that a
+ * compile-time fact rather than a convention someone can quietly break.
+ */
+export async function querySkillsUsage(args: { report_id?: string; login?: string; limit?: number }) {
+  const r = await resolveReportId(args.report_id);
+  if ('error' in r) return r;
+
+  const conditions = ['cc_skills_usage.report_id = ?'];
+  const params: any[] = [r.id];
+  if (args.login) { conditions.push('LOWER(cc_skills_usage.github_login) = LOWER(?)'); params.push(args.login); }
+  params.push(clampLimit(args.limit, 100));
+
+  const [rows] = await db.execute(
+    `SELECT cc_skills_usage.github_login, cc_skills_usage.product,
+            cc_skills_usage.skills_used, cc_skills_usage.skills_distinct
+     FROM cc_skills_usage
+     INNER JOIN developer_stats d
+       ON d.report_id = cc_skills_usage.report_id AND LOWER(d.github_login) = LOWER(cc_skills_usage.github_login)
+     WHERE ${conditions.join(' AND ')}
+     ORDER BY cc_skills_usage.github_login, cc_skills_usage.skills_used DESC, cc_skills_usage.product
+     LIMIT ?`,
+    params,
+  ) as [any[], any];
+
+  const skills = rows.map((row: any) => ({
+    github_login: String(row.github_login),
+    product: String(row.product),
+    skills_used: Number(row.skills_used) || 0,
+    skills_distinct: Number(row.skills_distinct) || 0,
+  }));
+
+  return { skills, count: skills.length };
 }
 
 export async function queryUnmergedWork(args: { report_id?: string; login?: string; repo?: string }) {

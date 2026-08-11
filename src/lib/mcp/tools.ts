@@ -2,6 +2,7 @@ import db from '@/lib/db';
 import {
   listReports, getOrgSummaryTool, queryCommits, queryJiraIssues,
   queryDeveloperStats, queryUnmergedWork, getEpicSummaries, getMetricTimeseries,
+  queryModelUsage, querySkillsUsage,
 } from './queries';
 import { resolveReportId } from './resolve';
 import { getProjectInsights } from '@/lib/projects/insights';
@@ -108,6 +109,26 @@ export const MCP_TOOLS: McpTool[] = [
       limit: { type: 'number', description: 'Max rows (default 100, max 500)' },
     } },
     handler: (a, requester) => queryDeveloperStats(a, requester),
+  },
+  {
+    name: 'query_model_usage',
+    description: "Per-developer Claude Code cost and requests broken down by model, for a report. Cost and requests are visible only for developers whose spend the caller may see; other developers' rows are omitted entirely.",
+    inputSchema: { type: 'object', properties: {
+      ...REPORT_ID,
+      login: { type: 'string', description: 'Filter to one developer' },
+      limit: { type: 'number', description: 'Max rows (default 100, max 500)' },
+    } },
+    handler: (a, requester) => queryModelUsage(a, requester),
+  },
+  {
+    name: 'query_skills_usage',
+    description: 'Per-developer Claude Code skills usage broken down by product (skills invoked, distinct skills), for a report. Activity volume only, no cost — visible for all developers in the report.',
+    inputSchema: { type: 'object', properties: {
+      ...REPORT_ID,
+      login: { type: 'string', description: 'Filter to one developer' },
+      limit: { type: 'number', description: 'Max rows (default 100, max 500)' },
+    } },
+    handler: (a) => querySkillsUsage(a),
   },
   {
     name: 'query_unmerged_work',
