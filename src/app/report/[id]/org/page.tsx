@@ -1066,6 +1066,16 @@ export function SpendTab({ developers, reportId, router, report, spendWindow, mo
     .map(([product, used]) => `${product} ${used}`)
     .join(', ');
   const SHARE_COLORS = ['bg-accent', 'bg-accent-light', 'bg-accent-dark', 'bg-gray-600', 'bg-gray-700'];
+  // The bar shows only the top models by cost, following the Pareto pattern —
+  // the remainder collapses into a single neutral "Other" segment so the bar
+  // stays readable when a report carries many distinct models (real reports
+  // see ~9). The table below is unaffected and keeps every model individually.
+  const MODEL_BAR_TOP_N = 5;
+  const topModelMix = modelMix.slice(0, MODEL_BAR_TOP_N);
+  const otherModelMix = modelMix.slice(MODEL_BAR_TOP_N);
+  const otherModelCost = otherModelMix.reduce((s, m) => s + m.cost, 0);
+  const otherModelPct = modelTotal > 0 ? (otherModelCost / modelTotal) * 100 : 0;
+  const OTHER_MODEL_COLOR = 'bg-gray-500';
 
   const isOutlier = (d: Developer) => {
     const cost = Number(d.cc_total_cost ?? 0);
@@ -1183,13 +1193,20 @@ export function SpendTab({ developers, reportId, router, report, spendWindow, mo
           </div>
 
           <div className="h-6 bg-gray-800 rounded-full overflow-hidden flex mb-4">
-            {modelMix.slice(0, 5).map((m, i) => (
+            {topModelMix.map((m, i) => (
               <div key={m.model}
                 className={`h-full flex items-center justify-center text-xs font-bold text-gray-900 ${SHARE_COLORS[i]}`}
                 style={{ width: `${m.pct}%` }}>
                 {m.pct > 12 && `${Math.round(m.pct)}%`}
               </div>
             ))}
+            {otherModelMix.length > 0 && (
+              <div
+                className={`h-full flex items-center justify-center text-xs font-bold text-gray-900 ${OTHER_MODEL_COLOR}`}
+                style={{ width: `${otherModelPct}%` }}>
+                {otherModelPct > 12 && `Other — ${Math.round(otherModelPct)}%`}
+              </div>
+            )}
           </div>
 
           <table className="w-full text-sm">
