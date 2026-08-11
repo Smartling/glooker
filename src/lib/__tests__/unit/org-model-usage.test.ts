@@ -93,6 +93,10 @@ it('scopes cc_model_usage and cc_skills_usage to developers present in this repo
   ] as const) {
     expect(sql).toMatch(/INNER JOIN developer_stats\s+d\b/);
     expect(sql).toMatch(new RegExp(`d\\.report_id\\s*=\\s*${table}\\.report_id`));
-    expect(sql).toMatch(new RegExp(`d\\.github_login\\s*=\\s*${table}\\.github_login`));
+    // github_login is LOWER()'d on both sides: the three source columns feeding
+    // this join (team roster, user_mappings, developer_stats) are populated by
+    // different mechanisms that don't agree on case, and an exact-case join
+    // would silently drop a case-mismatched login's rows from the panel.
+    expect(sql).toMatch(new RegExp(`LOWER\\(d\\.github_login\\)\\s*=\\s*LOWER\\(${table}\\.github_login\\)`));
   }
 });

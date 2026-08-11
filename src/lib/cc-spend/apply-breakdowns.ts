@@ -2,6 +2,24 @@ import db from '@/lib/db';
 import { buildEmailToLoginMap } from './identity';
 import type { PerEmailSkills, PerEmailModelCost } from './provider';
 
+/**
+ * Lowercased set of logins with a developer_stats row for this report — the
+ * same population org.ts's getOrgReport INNER JOINs against (LOWER() on both
+ * sides there too; see its doc comment). Used only to count noDevStatsRow
+ * below; it isn't a gate, since these tables are intentionally written for
+ * every login buildEmailToLoginMap can resolve, developer_stats row or not.
+ */
+async function getDevStatsLogins(
+  tx: { execute: (sql: string, params?: any[]) => Promise<any> },
+  reportId: string,
+): Promise<Set<string>> {
+  const [rows] = await tx.execute(
+    `SELECT LOWER(github_login) AS login FROM developer_stats WHERE report_id = ?`,
+    [reportId],
+  ) as [Array<{ login: string }>, any];
+  return new Set(rows.map((r) => r.login));
+}
+
 export interface BreakdownApplyResult {
   /**
    * Input emails resolved to a github_login — NOT distinct logins. A
@@ -14,6 +32,16 @@ export interface BreakdownApplyResult {
   unmappedEmail: number;
   /** Breakdown rows written (one per distinct login+product / login+model, after merging). */
   rows: number;
+  /**
+   * Of the rows above, how many belong to a login with no developer_stats row
+   * for this report. buildEmailToLoginMap's user_mappings fallback can resolve
+   * a login that never appears in this report's developer_stats (a login known
+   * from a *different* report or from Jira auto-discovery alone) — org.ts's
+   * getOrgReport INNER JOINs this table against developer_stats, so those rows
+   * are written here but never rendered in the Spend tab. Without this
+   * counter, "N matched, M rows" silently overstates what the panel can show.
+   */
+  noDevStatsRow: number;
 }
 
 /**
@@ -41,6 +69,7 @@ export async function applySkillsUsage(input: {
     await tx.execute(`UPDATE developer_stats SET cc_skills_used = 0 WHERE report_id = ?`, [reportId]);
 
     const emailToLogin = await buildEmailToLoginMap(tx, reportId, org);
+    const devStatsLogins = await getDevStatsLogins(tx, reportId);
 
     let matched = 0;
     let unmappedEmail = 0;
@@ -66,7 +95,9 @@ export async function applySkillsUsage(input: {
     }
 
     let rows = 0;
+    let noDevStatsRow = 0;
     for (const [login, products] of merged) {
+      const hasDevStatsRow = devStatsLogins.has(login.toLowerCase());
       let usedTotal = 0;
       for (const [product, agg] of products) {
         await tx.execute(
@@ -75,17 +106,19 @@ export async function applySkillsUsage(input: {
           [reportId, login, product, agg.used, agg.distinct],
         );
         rows++;
+        if (!hasDevStatsRow) noDevStatsRow++;
         usedTotal += agg.used;
       }
 
       // Rollup is Σ skills_used only; chat reports no total so it adds nothing.
+      // Affects nothing when !hasDevStatsRow — there's no row to update.
       await tx.execute(
         `UPDATE developer_stats SET cc_skills_used = ? WHERE report_id = ? AND github_login = ?`,
         [usedTotal, reportId, login],
       );
     }
 
-    return { matched, unmappedEmail, rows };
+    return { matched, unmappedEmail, rows, noDevStatsRow };
   });
 }
 
@@ -98,6 +131,7 @@ export async function applyModelUsage(input: {
     await tx.execute(`DELETE FROM cc_model_usage WHERE report_id = ?`, [reportId]);
 
     const emailToLogin = await buildEmailToLoginMap(tx, reportId, org);
+    const devStatsLogins = await getDevStatsLogins(tx, reportId);
 
     let matched = 0;
     let unmappedEmail = 0;
@@ -124,7 +158,9 @@ export async function applyModelUsage(input: {
     }
 
     let rows = 0;
+    let noDevStatsRow = 0;
     for (const [login, modelMap] of merged) {
+      const hasDevStatsRow = devStatsLogins.has(login.toLowerCase());
       for (const [model, agg] of modelMap) {
         await tx.execute(
           `INSERT INTO cc_model_usage (report_id, github_login, model, cost, requests)
@@ -132,9 +168,10 @@ export async function applyModelUsage(input: {
           [reportId, login, model, agg.costCents, agg.requests],
         );
         rows++;
+        if (!hasDevStatsRow) noDevStatsRow++;
       }
     }
 
-    return { matched, unmappedEmail, rows };
+    return { matched, unmappedEmail, rows, noDevStatsRow };
   });
 }

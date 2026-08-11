@@ -180,6 +180,22 @@ export function validateEnv(): void {
     }
   }
 
+  // Special-case: AUTH_TEST_USER bypass. This skips the ALB OIDC header
+  // entirely and serves a fabricated identity to every request, so if it is
+  // ever active on a deployed environment it must never be silent. Logged
+  // regardless of NODE_ENV — auth.ts is what actually gates whether the
+  // bypass takes effect (see AUTH_TEST_ALLOW_IN_PRODUCTION); this is purely
+  // the "someone left it configured" alarm.
+  if (process.env.AUTH_ENABLED === 'true' && process.env.AUTH_TEST_USER) {
+    const email = process.env.AUTH_TEST_EMAIL || 'testuser@glooker.dev';
+    console.error(
+      `\n[ALERT] Glooker: AUTH_TEST_USER=${process.env.AUTH_TEST_USER} is set with AUTH_ENABLED=true.\n` +
+      `   Every request will be served as the fabricated identity "${email}" — the real ALB OIDC\n` +
+      `   header is never read. AUTH_TEST_USER/AUTH_TEST_EMAIL are for local development only and\n` +
+      `   must never be set in a deployed environment. See .env.example.\n`
+    );
+  }
+
   // Special-case: LOG_DIR writability check (requires filesystem I/O)
   const logDir = process.env.LOG_DIR;
   if (logDir) {

@@ -75,3 +75,56 @@ it('models: sends group_by[] with brackets and groups per email', async () => {
     ],
   }]);
 });
+
+it('models: parses a JSON-number amount, not just a decimal string (Number(), not string-only parseFloat)', async () => {
+  // Anthropic sends `amount` as a decimal string today, but nothing documents
+  // that as guaranteed — a `typeof === 'string'` gate would silently read a
+  // numeric amount as NaN -> 0 instead of the real cost.
+  global.fetch = jest.fn(async () => ok({
+    data: [{ actor: { type: 'user_actor', email: 'a@x.com' }, model: 'claude-sonnet-5', amount: 250, requests: 3 }],
+    next_page: null,
+  }) as any) as any;
+
+  const out = await createAnthropicCcSpendProvider().pullModelCostByPeriod('2026-07-01', '2026-07-14');
+
+  expect(out).toEqual([{
+    email: 'a@x.com',
+    models: [{ model: 'claude-sonnet-5', costCents: 250, requests: 3 }],
+  }]);
+});
+
+it('models: logs the total dropped dollars once per pull when rows lack email/model attribution', async () => {
+  global.fetch = jest.fn(async () => ok({
+    data: [
+      { actor: { type: 'user_actor', email: 'a@x.com' }, model: 'claude-sonnet-5', amount: '100', requests: 1 },
+      { actor: { type: 'user_actor', email: 'a@x.com' }, model: null, amount: '7', requests: 1 },
+      { actor: { type: 'user_actor', email: null },       model: 'claude-sonnet-5', amount: '3', requests: 1 },
+    ],
+    next_page: null,
+  }) as any) as any;
+
+  const log = jest.fn();
+  const out = await createAnthropicCcSpendProvider().pullModelCostByPeriod('2026-07-01', '2026-07-14', log);
+
+  // The two unattributed rows (7 + 3 cents) are excluded from the breakdown...
+  expect(out).toEqual([{
+    email: 'a@x.com',
+    models: [{ model: 'claude-sonnet-5', costCents: 100, requests: 1 }],
+  }]);
+  // ...but logged once, as a total, not once per row.
+  const dropMsgs = log.mock.calls.map((c) => String(c[0])).filter((m) => m.includes('dropped'));
+  expect(dropMsgs).toHaveLength(1);
+  expect(dropMsgs[0]).toContain('10c');
+});
+
+it('models: does not log a drop message when every row is fully attributed', async () => {
+  global.fetch = jest.fn(async () => ok({
+    data: [{ actor: { type: 'user_actor', email: 'a@x.com' }, model: 'claude-sonnet-5', amount: '100', requests: 1 }],
+    next_page: null,
+  }) as any) as any;
+
+  const log = jest.fn();
+  await createAnthropicCcSpendProvider().pullModelCostByPeriod('2026-07-01', '2026-07-14', log);
+
+  expect(log.mock.calls.map((c) => String(c[0])).some((m) => m.includes('dropped'))).toBe(false);
+});

@@ -11,6 +11,17 @@ export { ReportNotFoundError };
 export type CcRefreshResult = CcApplyResult & {
   skills?: BreakdownApplyResult;
   models?: BreakdownApplyResult;
+  /**
+   * Set when the skills/model pull threw. Each dimension is independently
+   * non-fatal by design (a failure here must not discard the cost result that
+   * already succeeded), but that only stays honest if a caller can tell
+   * "succeeded with 0 rows" (skills present, no error) apart from "failed"
+   * (skills absent, skillsError set) — otherwise POST
+   * /api/report/[id]/cc-spend/refresh returns HTTP 200 with no signal that
+   * the Spend tab's Model Mix/Skills panel will be silently missing.
+   */
+  skillsError?: string;
+  modelsError?: string;
 };
 
 /** The /users endpoint trails real time by ~2 days and 400s on a too-recent end date. */
@@ -69,18 +80,20 @@ export async function refreshCcSpendForReport(
     } else {
       const skills = await provider.pullSkillsByPeriod(startStr, skillsEnd, log);
       result.skills = await applySkillsUsage({ reportId, org, skills });
-      log?.(`CC skills: ${result.skills.matched} matched, ${result.skills.rows} rows (${startStr} → ${skillsEnd}) [${result.skills.unmappedEmail} unmapped]`);
+      log?.(`CC skills: ${result.skills.matched} matched, ${result.skills.rows} rows (${startStr} → ${skillsEnd}) [${result.skills.unmappedEmail} unmapped, ${result.skills.noDevStatsRow} no-devstats-row]`);
     }
   } catch (err) {
-    log?.(`CC skills: SKIP (${err instanceof Error ? err.message : String(err)})`);
+    result.skillsError = err instanceof Error ? err.message : String(err);
+    log?.(`CC skills: SKIP (${result.skillsError})`);
   }
 
   try {
     const models = await provider.pullModelCostByPeriod(startStr, endStr, log);
     result.models = await applyModelUsage({ reportId, org, models });
-    log?.(`CC models: ${result.models.matched} matched, ${result.models.rows} rows [${result.models.unmappedEmail} unmapped]`);
+    log?.(`CC models: ${result.models.matched} matched, ${result.models.rows} rows [${result.models.unmappedEmail} unmapped, ${result.models.noDevStatsRow} no-devstats-row]`);
   } catch (err) {
-    log?.(`CC models: SKIP (${err instanceof Error ? err.message : String(err)})`);
+    result.modelsError = err instanceof Error ? err.message : String(err);
+    log?.(`CC models: SKIP (${result.modelsError})`);
   }
 
   return result;

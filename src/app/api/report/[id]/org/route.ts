@@ -11,10 +11,11 @@ async function getHandler(req: NextRequest, { params }: { params: Promise<{ id: 
     const requester = await resolveRequester(req.headers, result.report.org);
     const { canSeeCost, canSeeAnyCost } = await buildCostVisibility(result.report.org, requester);
     result.developers = stripDevCost(result.developers, canSeeCost);
-    // Per-model cost/requests are gated per developer. Group by login so
-    // stripModelCost's name-reordering applies within each developer's models —
-    // the rows arrive ordered by cost, which would otherwise leak a relative
-    // ranking for a developer whose amounts are hidden.
+    // Per-model rows are gated per developer. Group by login so stripModelCost
+    // can decide per developer whether to keep that developer's rows (cost
+    // visible) or drop them entirely (cost hidden) — see its doc comment for
+    // why a hidden developer's rows are dropped rather than emitted with just
+    // cost/requests stripped.
     const modelsByLogin = new Map<string, typeof result.modelUsage>();
     for (const row of result.modelUsage ?? []) {
       const arr = modelsByLogin.get(row.github_login) ?? [];

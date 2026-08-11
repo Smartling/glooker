@@ -10,6 +10,14 @@ const FETCH_TIMEOUT_MS = 30_000;
 const MAX_RETRIES = 2;
 const MAX_RETRY_WAIT_MS = 60_000;
 const MAX_PAGES = 100;
+/**
+ * The grouped model-cost pull appends group_by[]=model, which fans one
+ * per-user row out into one row per (user, model) — roughly an order of
+ * magnitude more rows than the ungrouped pull for the same population and
+ * window. Sharing MAX_PAGES would trip at ~10x fewer users than the ungrouped
+ * pull tolerates, so it gets its own, larger cap.
+ */
+const MODEL_MAX_PAGES = 1000;
 
 export class AnthropicAnalyticsKeyMissingError extends Error {
   constructor() {
@@ -189,7 +197,11 @@ export function createAnthropicCcSpendProvider(): CcSpendProvider {
       const page = await fetchPage(apiKey, url, log);
       accumulate(agg, page.data ?? []);
       cursor = page.next_page ?? null;
-      if (++pages >= MAX_PAGES) {
+      // Only count the cap against a page we're actually about to fetch next —
+      // checking unconditionally would trip on a legitimate final page whose
+      // count happens to land on MAX_PAGES even though cursor is already null.
+      pages++;
+      if (cursor && pages >= MAX_PAGES) {
         throw new Error(`Anthropic analytics pagination exceeded ${MAX_PAGES} pages — refusing to continue`);
       }
     } while (cursor);
@@ -247,7 +259,10 @@ export function createAnthropicCcSpendProvider(): CcSpendProvider {
         else byEmail.set(email, { email, products });
       }
       cursor = page.next_page ?? null;
-      if (++pages >= MAX_PAGES) {
+      // See pullByPeriod's identical guard for why this only counts against a
+      // page we're about to fetch, not the one we just finished.
+      pages++;
+      if (cursor && pages >= MAX_PAGES) {
         throw new Error(`Anthropic analytics pagination exceeded ${MAX_PAGES} pages — refusing to continue`);
       }
     } while (cursor);
@@ -266,6 +281,11 @@ export function createAnthropicCcSpendProvider(): CcSpendProvider {
     const byEmail = new Map<string, Map<string, ModelUsage>>();
     let cursor: string | null = null;
     let pages = 0;
+    // Dollars dropped because the API didn't attribute a row to an email
+    // and/or a model — the ungrouped pullByPeriod counts these same dollars
+    // into cc_total_cost, so a nonzero total here means this grouped
+    // breakdown undercounts it. Logged once per pull rather than per row.
+    let droppedCents = 0;
     do {
       // The `[]` is required: group_by=model (no brackets) is silently ignored
       // and every row comes back with model: null.
@@ -276,10 +296,16 @@ export function createAnthropicCcSpendProvider(): CcSpendProvider {
         if (row?.actor?.deleted === true) continue;
         const rawEmail = row?.actor?.email;
         const model = row?.model;
-        if (!rawEmail || !model) continue;
+        // Number(...) (not a string-only parseFloat) so a JSON-number amount
+        // isn't silently read as NaN -> 0 — Anthropic sends `amount` as a
+        // decimal string today, but nothing documents that as guaranteed.
+        const amountNum = Number(row?.amount);
+        if (!rawEmail || !model) {
+          if (Number.isFinite(amountNum)) droppedCents += Math.round(amountNum);
+          continue;
+        }
         const email = String(rawEmail).trim().toLowerCase();
 
-        const amountNum = typeof row.amount === 'string' ? parseFloat(row.amount) : NaN;
         const costCents = Number.isFinite(amountNum) ? Math.round(amountNum) : 0;
         const requests = Number(row.requests) || 0;
 
@@ -291,10 +317,18 @@ export function createAnthropicCcSpendProvider(): CcSpendProvider {
         models.set(entry.model, entry);
       }
       cursor = page.next_page ?? null;
-      if (++pages >= MAX_PAGES) {
-        throw new Error(`Anthropic analytics pagination exceeded ${MAX_PAGES} pages — refusing to continue`);
+      // This pull fans one per-user row out into one row per (user, model), so
+      // it needs its own, larger cap than the ungrouped pulls (MODEL_MAX_PAGES,
+      // not MAX_PAGES) — see its doc comment. Off-by-one guard as above.
+      pages++;
+      if (cursor && pages >= MODEL_MAX_PAGES) {
+        throw new Error(`Anthropic analytics pagination exceeded ${MODEL_MAX_PAGES} pages — refusing to continue`);
       }
     } while (cursor);
+
+    if (droppedCents > 0) {
+      log?.(`CC models: dropped ${droppedCents}c with no email/model attribution`);
+    }
 
     return [...byEmail.entries()].map(([email, models]) => ({ email, models: [...models.values()] }));
   }

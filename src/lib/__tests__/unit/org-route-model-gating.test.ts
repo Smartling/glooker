@@ -47,15 +47,14 @@ it('keeps per-model cost for a developer the requester can see', async () => {
   ]);
 });
 
-it('strips cost AND requests for a developer the requester cannot see', async () => {
+it('drops all model rows for a developer the requester cannot see', async () => {
+  // PR #64 review: keeping bare `{model}` rows for a hidden developer still
+  // discloses that they use Claude Code and which models — a coarse spend
+  // signal even with cost/requests stripped. stripModelCost now returns no
+  // rows at all for a developer whose cost is not visible.
   const body = await (await GET(req() as any, params as any)).json();
   const carol = body.modelUsage.filter((r: any) => r.github_login === 'carol');
-  expect(carol.map((r: any) => r.model)).toEqual(['alpha-model', 'zeta-model']); // name-ordered
-  for (const r of carol) {
-    expect(r).not.toHaveProperty('cost');
-    expect(r).not.toHaveProperty('requests');
-    expect(r.github_login).toBe('carol');
-  }
+  expect(carol).toEqual([]);
 });
 
 it('never strips skillsUsage', async () => {
@@ -73,12 +72,12 @@ it('preserves per-login grouping and cost order in the merged array when multipl
   ]);
 });
 
-it('leak guard: no per-model cost for any developer when nothing is visible', async () => {
+it('leak guard: no model rows for any developer when nothing is visible', async () => {
+  // PR #64 review: previously this pinned toHaveLength(4) — bare `{model}`
+  // rows for every developer. That discloses Claude Code usage and model
+  // mix org-wide to a viewer who can see no one's cost. stripModelCost now
+  // drops the rows entirely instead of stripping fields and keeping them.
   (buildCostVisibility as jest.Mock).mockResolvedValue({ canSeeCost: () => false, canSeeAnyCost: false });
   const body = await (await GET(req() as any, params as any)).json();
-  expect(body.modelUsage).toHaveLength(4);
-  for (const r of body.modelUsage) {
-    expect(r).not.toHaveProperty('cost');
-    expect(r).not.toHaveProperty('requests');
-  }
+  expect(body.modelUsage).toHaveLength(0);
 });

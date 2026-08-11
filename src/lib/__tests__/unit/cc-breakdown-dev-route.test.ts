@@ -38,24 +38,17 @@ beforeEach(() => {
   });
 });
 
-it('strips per-model cost and requests when cost is not visible, reordered by model name', async () => {
+it('drops all model rows when cost is not visible', async () => {
   const canSeeCost = jest.fn(() => false);
   (buildCostVisibility as jest.Mock).mockResolvedValue({ canSeeCost, canSeeAnyCost: false });
 
   const body = await (await GET(req() as any, params as any)).json();
 
-  // Re-sorted by model name (asc), not the original cost-DESC order, so array
-  // position doesn't leak a relative-cost ranking to an unprivileged viewer.
-  expect(body.models).toEqual([
-    { model: 'claude-haiku-4' },
-    { model: 'claude-sonnet-5' },
-  ]);
-  expect(body.models[0]).not.toHaveProperty('cost');
-  expect(body.models[1]).not.toHaveProperty('cost');
-  // requests is gated too: summing models[].requests reconstructs the gated
-  // cc_requests total, so it must be stripped alongside cost.
-  expect(body.models[0]).not.toHaveProperty('requests');
-  expect(body.models[1]).not.toHaveProperty('requests');
+  // PR #64 review: keeping bare `{model}` rows (cost/requests stripped) still
+  // discloses that this developer uses Claude Code and which models — a
+  // coarse spend signal even with amounts hidden. stripModelCost now returns
+  // no rows at all rather than fields-stripped, name-reordered ones.
+  expect(body.models).toEqual([]);
   // Skills are ungated telemetry.
   expect(body.skills).toEqual([{ product: 'cowork', skills_used: 12, skills_distinct: 4 }]);
   expect(body.developer.cc_skills_used).toBe(12);

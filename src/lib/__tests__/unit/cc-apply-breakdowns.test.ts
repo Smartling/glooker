@@ -39,7 +39,7 @@ it('writes one row per product and sets the cc_skills_used rollup', async () => 
     ],
   });
 
-  expect(res).toEqual({ matched: 1, unmappedEmail: 1, rows: 2 });
+  expect(res).toEqual({ matched: 1, unmappedEmail: 1, rows: 2, noDevStatsRow: 0 });
 
   const [rows] = await db.execute(
     `SELECT product, skills_used, skills_distinct FROM cc_skills_usage WHERE report_id = 'r1' ORDER BY product`,
@@ -79,7 +79,7 @@ it('writes one row per model', async () => {
     ] }],
   });
 
-  expect(res).toEqual({ matched: 1, unmappedEmail: 0, rows: 2 });
+  expect(res).toEqual({ matched: 1, unmappedEmail: 0, rows: 2, noDevStatsRow: 0 });
 
   const [rows] = await db.execute(
     `SELECT model, cost, requests FROM cc_model_usage WHERE report_id = 'r1' ORDER BY model`,
@@ -116,7 +116,7 @@ it('merges two entries with different emails resolving to the same login, non-ov
   });
 
   // matched counts input emails resolved (2), not distinct logins (1).
-  expect(res).toEqual({ matched: 2, unmappedEmail: 0, rows: 2 });
+  expect(res).toEqual({ matched: 2, unmappedEmail: 0, rows: 2, noDevStatsRow: 0 });
 
   const [rows] = await db.execute(
     `SELECT product, skills_used, skills_distinct FROM cc_skills_usage
@@ -142,7 +142,7 @@ it('merges the same product from two entries resolving to the same login instead
     ],
   });
 
-  expect(res).toEqual({ matched: 2, unmappedEmail: 0, rows: 1 });
+  expect(res).toEqual({ matched: 2, unmappedEmail: 0, rows: 1, noDevStatsRow: 0 });
 
   const [rows] = await db.execute(
     `SELECT product, skills_used, skills_distinct FROM cc_skills_usage
@@ -165,7 +165,7 @@ it('merges two entries with different emails resolving to the same login for app
     ],
   });
 
-  expect(res).toEqual({ matched: 2, unmappedEmail: 0, rows: 1 });
+  expect(res).toEqual({ matched: 2, unmappedEmail: 0, rows: 1, noDevStatsRow: 0 });
 
   const [rows] = await db.execute(
     `SELECT model, cost, requests FROM cc_model_usage WHERE report_id = 'r1' AND github_login = 'carol'`,
@@ -173,4 +173,37 @@ it('merges two entries with different emails resolving to the same login for app
   expect(rows.map((r: any) => ({ model: r.model, cost: Number(r.cost), requests: Number(r.requests) }))).toEqual([
     { model: 'claude-opus-4-8', cost: 500, requests: 7 },
   ]);
+});
+
+// org.ts's getOrgReport INNER JOINs cc_skills_usage/cc_model_usage against
+// this report's developer_stats, so a login resolved only via the
+// user_mappings fallback (no commits in this report's window) is written here
+// but never rendered in the Spend tab. noDevStatsRow makes that gap visible
+// instead of "N matched, M rows" silently overstating what's displayable.
+it('counts noDevStatsRow for a login resolved via user_mappings with no developer_stats row for this report', async () => {
+  await db.execute(
+    `INSERT INTO user_mappings (org, github_login, jira_account_id, jira_email)
+     VALUES ('acme', 'dave', 'jira-dave', 'dave@x.com')`,
+  );
+  // Deliberately no developer_stats row for 'dave' under report r1.
+
+  const skillsRes = await applySkillsUsage({
+    reportId: 'r1', org: 'acme',
+    skills: [{ email: 'dave@x.com', products: [{ product: 'cowork', used: 3, distinct: 2 }] }],
+  });
+  expect(skillsRes).toEqual({ matched: 1, unmappedEmail: 0, rows: 1, noDevStatsRow: 1 });
+
+  const modelsRes = await applyModelUsage({
+    reportId: 'r1', org: 'acme',
+    models: [{ email: 'dave@x.com', models: [{ model: 'claude-haiku-4', costCents: 50, requests: 2 }] }],
+  });
+  expect(modelsRes).toEqual({ matched: 1, unmappedEmail: 0, rows: 1, noDevStatsRow: 1 });
+
+  // No developer_stats row exists for dave, so the rollup UPDATE is a no-op —
+  // confirms noDevStatsRow isn't just counting rows that also silently fail
+  // elsewhere.
+  const [devs] = await db.execute(
+    `SELECT * FROM developer_stats WHERE report_id = 'r1' AND github_login = 'dave'`,
+  ) as [any[], any];
+  expect(devs).toHaveLength(0);
 });

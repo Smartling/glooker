@@ -55,18 +55,29 @@ it('clamps the skills end date to today-2 for the data lag', async () => {
   expect(pullByPeriod.mock.calls[0][1]).toBe(recent);
 });
 
-it('a skills failure does not fail the refresh or block the model pull', async () => {
+it('a skills failure does not fail the refresh or block the model pull, and is surfaced on skillsError', async () => {
   pullSkillsByPeriod.mockRejectedValueOnce(new Error('Anthropic Analytics API 400'));
   const res: any = await refreshCcSpendForReport('r1');
   expect(res.matched).toBe(1);          // cost result preserved
   expect(res.skills).toBeUndefined();
+  // PR #64 review: the refresh route returns HTTP 200 with no other failure
+  // channel, so "skills absent because it failed" must be distinguishable
+  // from "skills absent because 0 rows" (skills would be a present, empty
+  // BreakdownApplyResult in that case, not undefined).
+  expect(res.skillsError).toBe('Anthropic Analytics API 400');
   expect(applySkillsUsage).not.toHaveBeenCalled();
   expect(applyModelUsage).toHaveBeenCalled();
+  expect(res.models).toEqual({ matched: 1, unmappedEmail: 0, rows: 3 });
+  expect(res.modelsError).toBeUndefined();
 });
 
-it('a model failure does not fail the refresh', async () => {
+it('a model failure does not fail the refresh, and is surfaced on modelsError', async () => {
   pullModelCostByPeriod.mockRejectedValueOnce(new Error('boom'));
   const res: any = await refreshCcSpendForReport('r1');
   expect(res.matched).toBe(1);
   expect(res.models).toBeUndefined();
+  expect(res.modelsError).toBe('boom');
+  // The independently-failed skills pull is unaffected.
+  expect(res.skills).toEqual({ matched: 1, unmappedEmail: 0, rows: 2 });
+  expect(res.skillsError).toBeUndefined();
 });

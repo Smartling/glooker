@@ -51,3 +51,37 @@ it('is safe on null, undefined and non-objects', () => {
   expect(extractSkillsEntries(undefined)).toEqual([]);
   expect(extractSkillsEntries({})).toEqual([]);
 });
+
+it('truncates an unusually deep product path to 191 chars (matches the MySQL column width)', () => {
+  // A pathological nesting depth so the joined dotted path exceeds 191 chars.
+  // Truncating here — the same way on both backends — means a deep bucket
+  // degrades gracefully instead of only ever failing the MySQL INSERT.
+  const deepKey = 'x'.repeat(50);
+  const row = {
+    [`${deepKey}_a_metrics`]: {
+      [`${deepKey}_b`]: {
+        [`${deepKey}_c`]: {
+          [`${deepKey}_d`]: { skills_used_count: 5, distinct_skills_used_count: 2 },
+        },
+      },
+    },
+  };
+  const out = extractSkillsEntries(row);
+  expect(out).toHaveLength(1);
+  expect(out[0].product.length).toBeLessThanOrEqual(191);
+  expect(out[0].used).toBe(5);
+});
+
+it('emits only the deepest node when a bucket and its child both carry counters (no double count)', () => {
+  // office_metrics itself reports a total AND nests office_metrics.excel with
+  // its own total — if the API ever shapes a payload like this, emitting both
+  // would double-count the same usage under two product names.
+  const out = extractSkillsEntries({
+    office_metrics: {
+      skills_used_count: 20,
+      distinct_skills_used_count: 8,
+      excel: { skills_used_count: 2, distinct_skills_used_count: 1 },
+    },
+  });
+  expect(out).toEqual([{ product: 'office.excel', used: 2, distinct: 1 }]);
+});

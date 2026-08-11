@@ -293,11 +293,17 @@ export async function getOrgReport(reportId: string) {
   // Mix counted but Total Org Spend never could, making the panel's own total
   // exceed the page's authoritative total. Joining to developer_stats keeps
   // both figures drawn from the same population.
+  // LOWER() on both sides of the login predicate: github_login is populated by
+  // three different mechanisms (admin entry, Jira auto-discovery, GitHub API —
+  // see cost-visibility.ts's buildCostVisibility doc comment for the same
+  // issue) that don't agree on case, and this DB layer's TEXT/VARCHAR
+  // comparison is case-sensitive. An exact-case join would silently drop a
+  // case-mismatched login's rows from the panel instead of raising an error.
   const [modelUsageRows] = await db.execute(
     `SELECT cc_model_usage.github_login, cc_model_usage.model, cc_model_usage.cost, cc_model_usage.requests
      FROM cc_model_usage
      INNER JOIN developer_stats d
-       ON d.report_id = cc_model_usage.report_id AND d.github_login = cc_model_usage.github_login
+       ON d.report_id = cc_model_usage.report_id AND LOWER(d.github_login) = LOWER(cc_model_usage.github_login)
      WHERE cc_model_usage.report_id = ?
      ORDER BY cc_model_usage.github_login, cc_model_usage.cost DESC, cc_model_usage.model`,
     [reportId],
@@ -313,7 +319,7 @@ export async function getOrgReport(reportId: string) {
     `SELECT cc_skills_usage.github_login, cc_skills_usage.product, cc_skills_usage.skills_used, cc_skills_usage.skills_distinct
      FROM cc_skills_usage
      INNER JOIN developer_stats d
-       ON d.report_id = cc_skills_usage.report_id AND d.github_login = cc_skills_usage.github_login
+       ON d.report_id = cc_skills_usage.report_id AND LOWER(d.github_login) = LOWER(cc_skills_usage.github_login)
      WHERE cc_skills_usage.report_id = ?
      ORDER BY cc_skills_usage.github_login, cc_skills_usage.skills_used DESC, cc_skills_usage.product`,
     [reportId],
