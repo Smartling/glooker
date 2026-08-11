@@ -9,6 +9,12 @@ let applySkillsUsage: any;
 let applyModelUsage: any;
 let db: any;
 
+// See cc-breakdown-schema.test.ts: process.env is shared across test files in a
+// worker, so leaving SQLITE_PATH/DB_TYPE mutated leaks into whichever file runs
+// next — an order-dependent flake. Restore both in afterAll.
+const priorSqlitePath = process.env.SQLITE_PATH;
+const priorDbType = process.env.DB_TYPE;
+
 beforeAll(async () => {
   dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'glooker-bd-')), 'test.db');
   process.env.SQLITE_PATH = dbPath;
@@ -25,7 +31,13 @@ beforeAll(async () => {
      VALUES ('r1', 'sha1', 'repo', 'alice', 'alice@x.com', 'msg')`,
   );
 });
-afterAll(() => { try { fs.unlinkSync(dbPath); } catch {} });
+afterAll(() => {
+  if (priorSqlitePath === undefined) delete process.env.SQLITE_PATH;
+  else process.env.SQLITE_PATH = priorSqlitePath;
+  if (priorDbType === undefined) delete process.env.DB_TYPE;
+  else process.env.DB_TYPE = priorDbType;
+  try { fs.unlinkSync(dbPath); } catch {}
+});
 
 it('writes one row per product and sets the cc_skills_used rollup', async () => {
   const res = await applySkillsUsage({

@@ -25,9 +25,18 @@ jest.mock('@/lib/db/index', () => {
   // Lazily build the SQLite test DB the first time the module is imported,
   // so the schema is created once per test file.
   const path = require('path');
+  // createSQLiteDB() reads SQLITE_PATH at call time, so the override only needs
+  // to last for that one call. Restoring it immediately keeps ':memory:' from
+  // leaking into whichever test file runs next in this worker — process.env is
+  // shared across files even though the module registry is not. (A module-scope
+  // capture would not work here: jest.mock factories run before the surrounding
+  // module body, so it would read the already-overridden value.)
+  const priorSqlitePath = process.env.SQLITE_PATH;
   process.env.SQLITE_PATH = ':memory:';
   const { createSQLiteDB } = require(path.resolve(__dirname, '../../db/sqlite'));
   const db = createSQLiteDB();
+  if (priorSqlitePath === undefined) delete process.env.SQLITE_PATH;
+  else process.env.SQLITE_PATH = priorSqlitePath;
   // Save it for the test bodies below.
   // We attach to a known global so the outer scope can reach it.
   (globalThis as any).__cc_test_db__ = db;

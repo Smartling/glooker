@@ -8,12 +8,22 @@ import { createSQLiteDB } from '@/lib/db/sqlite';
 let dbPath: string;
 let db: any;
 
+// Jest resets the module registry per test file but NOT process.env, so a file
+// that points SQLITE_PATH at its own temp DB and walks away leaves every later
+// file in the same worker pointed at a path this file's afterAll then deletes.
+// Restore what we found.
+const priorSqlitePath = process.env.SQLITE_PATH;
+
 beforeAll(async () => {
   dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'glooker-schema-')), 'test.db');
   process.env.SQLITE_PATH = dbPath;
   db = createSQLiteDB();
 });
-afterAll(() => { try { fs.unlinkSync(dbPath); } catch {} });
+afterAll(() => {
+  if (priorSqlitePath === undefined) delete process.env.SQLITE_PATH;
+  else process.env.SQLITE_PATH = priorSqlitePath;
+  try { fs.unlinkSync(dbPath); } catch {}
+});
 
 it('creates both breakdown tables', async () => {
   const [rows] = await db.execute(
@@ -63,8 +73,32 @@ it('rejects a duplicate (report, login, dimension)', async () => {
     `INSERT INTO cc_skills_usage (report_id, github_login, product, skills_used, skills_distinct)
      VALUES ('rY', 'bob', 'chat', 0, 3)`,
   );
-  await expect(db.execute(
-    `INSERT INTO cc_skills_usage (report_id, github_login, product, skills_used, skills_distinct)
-     VALUES ('rY', 'bob', 'chat', 1, 1)`,
-  )).rejects.toThrow(/UNIQUE/i);
+  // Capture the rejection by hand instead of using `.rejects.toThrow(/UNIQUE/i)`.
+  // When a promise rejects with a payload carrying no string `message`, that
+  // matcher reports only "Received function did not throw" — which reads as
+  // "the duplicate was accepted" and sends the next reader hunting for a
+  // missing UNIQUE constraint or a vanished row, neither of which is what
+  // happened. Naming the payload keeps the failure self-diagnosing.
+  const NOT_REJECTED = Symbol('not rejected');
+  let rejection: unknown = NOT_REJECTED;
+  try {
+    await db.execute(
+      `INSERT INTO cc_skills_usage (report_id, github_login, product, skills_used, skills_distinct)
+       VALUES ('rY', 'bob', 'chat', 1, 1)`,
+    );
+  } catch (err) {
+    rejection = err;
+  }
+
+  if (rejection === NOT_REJECTED) {
+    throw new Error('expected the duplicate INSERT to be rejected, but it succeeded');
+  }
+  // Duck-type on `message` rather than `instanceof Error`: that is exactly what
+  // Jest's toThrow inspects, so any payload it would have matched still matches
+  // here, and anything else is printed verbatim rather than swallowed.
+  const detail =
+    typeof (rejection as any)?.message === 'string'
+      ? `${(rejection as any).name ?? 'Error'}: ${(rejection as any).message}`
+      : `non-Error rejection (${typeof rejection}): ${JSON.stringify(rejection)}`;
+  expect(detail).toMatch(/UNIQUE/i);
 });
