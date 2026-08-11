@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import { render, screen, within } from '@testing-library/react';
-import { SpendTab } from '@/app/report/[id]/org/page';
+import { SpendTab } from '@/app/report/[id]/org/spend-tab';
 
 const baseProps = {
   reportId: 'r1',

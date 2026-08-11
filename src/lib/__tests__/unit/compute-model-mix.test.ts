@@ -1,4 +1,4 @@
-import { computeModelMix } from '@/app/report/[id]/org/page';
+import { computeModelMix } from '@/app/report/[id]/org/spend-tab';
 
 it('merges a model across developers and counts distinct developers', () => {
   const { rows, total } = computeModelMix([

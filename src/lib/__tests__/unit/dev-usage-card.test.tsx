@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import { render, screen } from '@testing-library/react';
-import { ClaudeCodeUsageCard } from '@/app/report/[id]/dev/[login]/page';
+import { ClaudeCodeUsageCard } from '@/app/report/[id]/dev/[login]/usage-card';
 
 it('renders spend, requests, skills invoked and both lists', () => {
   render(<ClaudeCodeUsageCard

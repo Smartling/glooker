@@ -68,6 +68,8 @@ Glooker is a Next.js 15 web app that generates developer impact reports for a Gi
 - Admin/viewer role is derived from JWT `groups` claim on every request — no DB storage. Changing a user's Okta groups takes effect on their next page load.
 - All API route handlers must be wrapped with `withRequestLog()` — a Jest enforcement test (`logger-enforcement.test.ts`) checks for the import in every `src/app/api/**/route.ts` file. When adding a new API route, wrap every exported handler (GET, POST, PUT, PATCH, DELETE).
 - `LOG_DIR` env var enables API request logging — when unset, `withRequestLog` is a no-op. When set, creates the directory on first write. Log rotation is handled by infrastructure, not the app.
+- Next.js App Router page files (`src/app/**/page.tsx`) may export ONLY `default` (plus Next's own reserved fields) — exporting a component or helper for testing breaks `npm run build` while `npm test` and `tsc --noEmit` both pass; put shared pieces in a sibling module instead.
+- Jest `testMatch` includes `.tsx`; behavioural component tests need a `/** @jest-environment jsdom */` docblock (precedent: `src/lib/__tests__/unit/profile-self-view.test.tsx`). Before this was configured, `.tsx` test files were silently skipped rather than failing.
 
 ## Local Development (Mock Mode)
 

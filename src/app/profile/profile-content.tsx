@@ -8,7 +8,7 @@ interface SelfUsage {
   cc_requests?: number;
   cc_skills_used?: number;
   skills: Array<{ product: string; skills_used: number; skills_distinct: number }>;
-  models: Array<{ model: string; cost?: number; requests: number }>;
+  models: Array<{ model: string; cost?: number; requests?: number }>;
 }
 
 export default function ProfileContent() {
@@ -161,7 +161,13 @@ export default function ProfileContent() {
                     <div key={m.model} className="flex items-center justify-between text-sm py-0.5">
                       <span className="text-gray-400">{m.model}</span>
                       <span className="text-gray-300 tabular-nums">
-                        {m.cost != null ? `$${(Number(m.cost) / 100).toFixed(2)} · ` : ''}{m.requests} req
+                        {m.cost != null && m.requests != null
+                          ? `$${(Number(m.cost) / 100).toFixed(2)} · ${m.requests} req`
+                          : m.cost != null
+                            ? `$${(Number(m.cost) / 100).toFixed(2)}`
+                            : m.requests != null
+                              ? `${m.requests} req`
+                              : ''}
                       </span>
                     </div>
                   ))}

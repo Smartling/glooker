@@ -69,6 +69,25 @@ it('omits per-model cost when the payload has none (gated away)', async () => {
   expect(screen.queryByText(/\$/)).toBeNull();
 });
 
+it('renders a model with cost and requests both stripped without printing undefined or NaN', async () => {
+  // The real shape stripModelCost can produce: it deletes `cost` and `requests`
+  // atomically, so `{ model }` alone (neither field present) is a payload the
+  // route can actually emit — unlike `{ model, requests }` used elsewhere in
+  // this file, which stripModelCost never produces on its own.
+  fetchMock.mockImplementation(async (url: string) => {
+    if (url === '/api/report') return jsonOnce([{ id: 'r1', status: 'completed' }]) as any;
+    return jsonOnce({
+      developer: { cc_skills_used: 0 },
+      skills: [],
+      models: [{ model: 'claude-sonnet-5' }],   // no `cost`, no `requests`
+    }) as any;
+  });
+  render(<ProfileContent />);
+
+  expect(await screen.findByText('claude-sonnet-5')).toBeTruthy();
+  expect(screen.queryByText(/undefined|NaN|\$/)).toBeNull();
+});
+
 it('shows an explanatory message for an unmapped developer and fetches nothing', async () => {
   mockAuth.user = { email: 'ghost@x.com', githubLogin: null, name: 'Ghost', role: 'viewer' };
   render(<ProfileContent />);

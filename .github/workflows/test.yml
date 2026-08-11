@@ -28,3 +28,7 @@ jobs:
             exit 1
           fi
       - run: npm test -- --ci --coverage
+      - name: Type-check
+        run: npx tsc --noEmit
+      - name: Build
+        run: npm run build
