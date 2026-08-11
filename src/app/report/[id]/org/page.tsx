@@ -79,6 +79,8 @@ export default function OrgDetailPage() {
   const developers: Developer[] = data?.developers ?? [];
   const timeline: WeeklyData[] = data?.timeline ?? [];
   const spendWindow: SpendWindow | null = data?.spendWindow ?? null;
+  const modelUsage: ModelUsageRow[] = data?.modelUsage ?? [];
+  const skillsUsage: Array<{ github_login: string; product: string; skills_used: number; skills_distinct: number }> = data?.skillsUsage ?? [];
   const unmergedSummary: {
     openPrCount: number;
     openPrDevCount: number;
@@ -197,7 +199,7 @@ export default function OrgDetailPage() {
       )}
 
       {/* Spend Tab */}
-      {hasSpend && activeTab === 'spend' && report?.run_metadata?.state !== 'failed' && <SpendTab developers={developers} reportId={params.id} router={router} report={report} spendWindow={spendWindow} />}
+      {hasSpend && activeTab === 'spend' && report?.run_metadata?.state !== 'failed' && <SpendTab developers={developers} reportId={params.id} router={router} report={report} spendWindow={spendWindow} modelUsage={modelUsage} skillsUsage={skillsUsage} />}
 
       {/* Impact Tab (default) */}
       {(!hasSpend || activeTab === 'impact') && report?.run_metadata?.state !== 'failed' && <>
@@ -1036,12 +1038,14 @@ function formatDateRange(startIso: string, endIso: string): { label: string; day
   return { label: sameMonth ? `${left} – ${e.getDate()}, ${e.getFullYear()}` : `${left} – ${right}${sameYear ? `, ${e.getFullYear()}` : ''}`, days };
 }
 
-function SpendTab({ developers, reportId, router, report, spendWindow }: {
+export function SpendTab({ developers, reportId, router, report, spendWindow, modelUsage, skillsUsage }: {
   developers: Developer[];
   reportId: string;
   router: ReturnType<typeof useRouter>;
   report: ReportMeta | null;
   spendWindow: SpendWindow | null;
+  modelUsage: ModelUsageRow[];
+  skillsUsage: Array<{ github_login: string; product: string; skills_used: number; skills_distinct: number }>;
 }) {
   const [showCount, setShowCount] = useState<10 | 20 | 'all'>(10);
 
@@ -1053,6 +1057,15 @@ function SpendTab({ developers, reportId, router, report, spendWindow }: {
   // the viewer's own team. Relabel the summable ones and suppress the
   // concentration stats (a Pareto over a permission-filtered subset is meaningless).
   const spendLabel = fullCostVisibility ? 'Total Org Spend' : 'Visible Spend';
+
+  const { rows: modelMix, total: modelTotal } = computeModelMix(modelUsage);
+  const modelMixLabel = fullCostVisibility ? 'Model Mix' : "Your teams' model mix";
+  const skillsInvocations = skillsUsage.reduce((s, r) => s + r.skills_used, 0);
+  const skillsDevs = new Set(skillsUsage.map(r => r.github_login)).size;
+  const skillsByProduct = [...skillsUsage.reduce((m, r) => m.set(r.product, (m.get(r.product) ?? 0) + r.skills_used), new Map<string, number>())]
+    .map(([product, used]) => `${product} ${used}`)
+    .join(', ');
+  const SHARE_COLORS = ['bg-accent', 'bg-accent-light', 'bg-accent-dark', 'bg-gray-600', 'bg-gray-700'];
 
   const isOutlier = (d: Developer) => {
     const cost = Number(d.cc_total_cost ?? 0);
@@ -1156,6 +1169,61 @@ function SpendTab({ developers, reportId, router, report, spendWindow }: {
           <span>{withSpend.length - top20Count} developer{withSpend.length - top20Count !== 1 ? 's' : ''} ({formatDollars(total - top20Spend)})</span>
         </div>
       </div>
+      )}
+
+      {/* Model Mix — composition of visible spend by model. Unlike the Pareto
+          concentration stat above, a composition share stays meaningful on a
+          permission-filtered subset, so the % and bar are kept under partial
+          visibility and the label carries the scope instead. */}
+      {modelMix.length > 0 && (
+        <div className="bg-gray-900 rounded-xl p-5">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">{modelMixLabel}</p>
+            <p className="text-sm font-bold text-green-400">{formatDollars(modelTotal)}</p>
+          </div>
+
+          <div className="h-6 bg-gray-800 rounded-full overflow-hidden flex mb-4">
+            {modelMix.slice(0, 5).map((m, i) => (
+              <div key={m.model}
+                className={`h-full flex items-center justify-center text-xs font-bold text-gray-900 ${SHARE_COLORS[i]}`}
+                style={{ width: `${m.pct}%` }}>
+                {m.pct > 12 && `${Math.round(m.pct)}%`}
+              </div>
+            ))}
+          </div>
+
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-gray-500 uppercase tracking-wider border-b border-gray-800">
+                <th className="px-4 py-3">Model</th>
+                <th className="px-4 py-3 text-right">Spend</th>
+                <th className="px-4 py-3 text-right">%</th>
+                <th className="px-4 py-3 text-right">Requests</th>
+                <th className="px-4 py-3 text-right">$/Request</th>
+                <th className="px-4 py-3 text-right">Devs</th>
+              </tr>
+            </thead>
+            <tbody>
+              {modelMix.map(m => (
+                <tr key={m.model} className="border-b border-gray-800/50">
+                  <td className="px-4 py-3 text-gray-300">{m.model}</td>
+                  <td className="px-4 py-3 text-right text-green-400 font-mono">{formatDollars(m.cost)}</td>
+                  <td className="px-4 py-3 text-right text-gray-400 tabular-nums">{Math.round(m.pct)}%</td>
+                  <td className="px-4 py-3 text-right text-gray-400 tabular-nums">{m.requests.toLocaleString()}</td>
+                  <td className="px-4 py-3 text-right text-gray-400 font-mono">${(m.costPerRequest / 100).toFixed(3)}</td>
+                  <td className="px-4 py-3 text-right text-gray-400 tabular-nums">{m.devs}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {skillsUsage.length > 0 && (
+            <p className="text-xs text-gray-500 mt-4">
+              Skills: {skillsInvocations} invocations by {skillsDevs} developer{skillsDevs === 1 ? '' : 's'}
+              {skillsByProduct ? ` (${skillsByProduct})` : ''}
+            </p>
+          )}
+        </div>
       )}
 
       {/* Top Spenders Table */}
