@@ -156,6 +156,16 @@ CREATE TABLE IF NOT EXISTS unmerged_commits (
 );
 `;
 
+// Neither table pins a charset, and neither may: MySQL rejects a foreign key
+// whose string column differs in charset/collation from the column it
+// references (ER_FK_INCOMPATIBLE_COLUMNS, errno 3780). `reports.id` inherits
+// the database's default charset, as does every other table here, so these
+// must inherit it too. An explicit `DEFAULT CHARSET=utf8mb4` looks harmless
+// and is silently fine on a utf8mb4 database — but on the older utf8mb3
+// database in dev it made CREATE TABLE fail, and since the failure is caught
+// and logged rather than thrown, the tables were simply absent until the org
+// report queried them and 500'd. Verified by reproduction: same DDL against a
+// utf8mb3 schema errors 3780; without the clause it creates and matches.
 const CC_SKILLS_USAGE_SCHEMA = `
 CREATE TABLE IF NOT EXISTS cc_skills_usage (
   report_id       VARCHAR(36)  NOT NULL,
@@ -172,7 +182,7 @@ CREATE TABLE IF NOT EXISTS cc_skills_usage (
   skills_distinct INT          NOT NULL DEFAULT 0,
   UNIQUE KEY uniq_cc_skills (report_id, github_login, product),
   FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`;
+)`;
 
 const CC_MODEL_USAGE_SCHEMA = `
 CREATE TABLE IF NOT EXISTS cc_model_usage (
@@ -183,7 +193,7 @@ CREATE TABLE IF NOT EXISTS cc_model_usage (
   requests     BIGINT        NOT NULL DEFAULT 0,
   UNIQUE KEY uniq_cc_model (report_id, github_login, model),
   FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`;
+)`;
 
 export function createMySQLDB(): DB {
   const pool = mysql.createPool({
