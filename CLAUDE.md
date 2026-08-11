@@ -43,6 +43,8 @@ Glooker is a Next.js 15 web app that generates developer impact reports for a Gi
 ## Gotchas
 
 - `DECIMAL`/`REAL` columns from both MySQL and SQLite may come back as strings — always use `Number()` before `.toFixed()`
+- **Never pin a charset on a MySQL table** (`DEFAULT CHARSET=...`). `reports.id` and every other table inherit the database default, and MySQL refuses a foreign key whose string column differs in charset/collation from its referent (`ER_FK_INCOMPATIBLE_COLUMNS`, errno 3780). Dev's DB is utf8mb3 while a stock local MySQL 8/9 defaults to utf8mb4, so a pinned `utf8mb4` passes locally and fails only in dev. `initSchema()` **catches and logs** DDL failures instead of throwing, so the table just silently doesn't exist until a query hits it — the 2026-08-11 org-report outage. Guarded by `mysql-schema-fk-charset.test.ts`. To verify MySQL schema changes locally: `CREATE DATABASE x CHARACTER SET utf8mb3`, apply `sed '1,2d' schema.sql` (its first two lines are `CREATE DATABASE`/`USE glooker` and will otherwise hit your real local DB), then run the app against it.
+- Base tables (`reports`, `developer_stats`, `commit_analyses`) come from `schema.sql` on MySQL — `db/mysql.ts` only creates the newer tables and runs `ALTER` migrations. SQLite creates everything in `db/sqlite.ts`. A new table therefore needs adding in **both** places.
 - GitHub search API returns max 1000 results per query — per-user search avoids this
 - GitHub secondary rate limits trigger on rapid successive search calls — 2.5s sleeps between requests + exponential back-off retry on 403/429
 - Some LLM providers wrap JSON in markdown fences despite `response_format: json_object` — the parser strips ` ```json ``` ` fences
