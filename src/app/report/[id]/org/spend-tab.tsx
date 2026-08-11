@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import type { useRouter } from 'next/navigation';
 import type { RunMetadata } from '@/lib/report-runner/types';
 
@@ -35,6 +35,16 @@ export interface SpendWindow {
 
 function formatDollars(cents: number) {
   return `$${(cents / 100).toFixed(2)}`;
+}
+
+// Positions a hover tooltip along a horizontal bar given the hovered segment's
+// center as a % of the bar's width. Centering (translateX(-50%)) works for
+// interior segments, but would push the tooltip off-page for segments near
+// either edge, so those anchor flush to the wrapper's edge instead.
+function mixTooltipStyle(centerPct: number): CSSProperties {
+  if (centerPct <= 12) return { left: 0 };
+  if (centerPct >= 88) return { right: 0 };
+  return { left: `${centerPct}%`, transform: 'translateX(-50%)' };
 }
 
 function computeSpendMetrics(devs: Developer[]) {
@@ -130,6 +140,7 @@ export function SpendTab({ developers, reportId, router, report, spendWindow, mo
   skillsUsage: Array<{ github_login: string; product: string; skills_used: number; skills_distinct: number }>;
 }) {
   const [showCount, setShowCount] = useState<10 | 20 | 'all'>(10);
+  const [modelMixTooltip, setModelMixTooltip] = useState<{ label: string; cost: number; pct: number; left: number } | null>(null);
 
   const { withSpend, total, avg, median, top20Count, top20Spend, top20Pct, medianCPI } = computeSpendMetrics(developers);
   const bottom80Pct = 100 - top20Pct;
@@ -158,6 +169,7 @@ export function SpendTab({ developers, reportId, router, report, spendWindow, mo
   const otherModelCost = otherModelMix.reduce((s, m) => s + m.cost, 0);
   const otherModelPct = modelTotal > 0 ? (otherModelCost / modelTotal) * 100 : 0;
   const OTHER_MODEL_COLOR = 'bg-gray-500';
+  let modelMixCumulative = 0;
 
   const isOutlier = (d: Developer) => {
     const cost = Number(d.cc_total_cost ?? 0);
@@ -273,19 +285,44 @@ export function SpendTab({ developers, reportId, router, report, spendWindow, mo
             <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">{modelMixLabel}</p>
           </div>
 
-          <div className="h-6 bg-gray-800 rounded-full overflow-hidden flex mb-4">
-            {topModelMix.map((m, i) => (
-              <div key={m.model}
-                className={`h-full flex items-center justify-center text-xs font-bold text-gray-900 ${SHARE_COLORS[i]}`}
-                style={{ width: `${m.pct}%` }}>
-                {m.pct > 12 && `${Math.round(m.pct)}%`}
-              </div>
-            ))}
-            {otherModelMix.length > 0 && (
+          <div className="relative mb-4">
+            <div className="h-6 bg-gray-800 rounded-full overflow-hidden flex">
+              {topModelMix.map((m, i) => {
+                const center = modelMixCumulative + m.pct / 2;
+                modelMixCumulative += m.pct;
+                return (
+                  <div key={m.model}
+                    className={`h-full flex items-center justify-center text-xs font-bold text-gray-900 cursor-default ${SHARE_COLORS[i]}`}
+                    style={{ width: `${m.pct}%` }}
+                    onMouseEnter={() => setModelMixTooltip({ label: m.model, cost: m.cost, pct: m.pct, left: center })}
+                    onMouseLeave={() => setModelMixTooltip(null)}>
+                    {m.pct > 12 && `${Math.round(m.pct)}%`}
+                  </div>
+                );
+              })}
+              {otherModelMix.length > 0 && (
+                <div
+                  className={`h-full flex items-center justify-center text-xs font-bold text-gray-900 cursor-default ${OTHER_MODEL_COLOR}`}
+                  style={{ width: `${otherModelPct}%` }}
+                  onMouseEnter={() => setModelMixTooltip({
+                    label: 'Other (remaining models)',
+                    cost: otherModelCost,
+                    pct: otherModelPct,
+                    left: modelMixCumulative + otherModelPct / 2,
+                  })}
+                  onMouseLeave={() => setModelMixTooltip(null)}>
+                  {otherModelPct > 12 && `Other — ${Math.round(otherModelPct)}%`}
+                </div>
+              )}
+            </div>
+            {modelMixTooltip && (
               <div
-                className={`h-full flex items-center justify-center text-xs font-bold text-gray-900 ${OTHER_MODEL_COLOR}`}
-                style={{ width: `${otherModelPct}%` }}>
-                {otherModelPct > 12 && `Other — ${Math.round(otherModelPct)}%`}
+                className="absolute z-10 bottom-full mb-2 bg-gray-800 border border-gray-700 rounded px-2 py-1 whitespace-nowrap text-xs pointer-events-none"
+                style={mixTooltipStyle(modelMixTooltip.left)}
+              >
+                <span className="text-white font-medium">{modelMixTooltip.label}</span>
+                <span className="text-gray-400 ml-2">{formatDollars(modelMixTooltip.cost)}</span>
+                <span className="text-gray-500 ml-1">· {Math.round(modelMixTooltip.pct)}%</span>
               </div>
             )}
           </div>

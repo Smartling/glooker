@@ -46,3 +46,26 @@ it('renders when only skills have data (zero spend)', () => {
   expect(screen.getByText('chat')).toBeTruthy();
   expect(screen.getByText(/3 distinct/)).toBeTruthy();
 });
+
+it('lays out model rows on a fixed 3-column grid so the bar and value stay aligned regardless of content, including a row with no cost', () => {
+  render(<ClaudeCodeUsageCard
+    skills={[]}
+    models={[
+      { model: 'claude-opus-4', cost: 49854, requests: 1672 },
+      { model: 'claude-haiku-4', requests: 364 },
+    ]}
+  />);
+  const rowWithCost = screen.getByText('claude-opus-4').parentElement!;
+  const rowWithoutCost = screen.getByText('claude-haiku-4').parentElement!;
+  // Fixed grid (not flex) is what keeps the bar's x-position constant across
+  // rows regardless of how wide each row's value text is.
+  expect(rowWithCost.className).toMatch(/\bgrid\b/);
+  expect(rowWithCost.className).toContain('grid-cols-');
+  // Same column template for both shapes — the row with no cost must not
+  // collapse to fewer cells and let the value slide into the bar's column.
+  expect(rowWithoutCost.className).toBe(rowWithCost.className);
+  expect(rowWithCost.children).toHaveLength(3);
+  expect(rowWithoutCost.children).toHaveLength(3);
+  expect(screen.getByText('claude-haiku-4')).toBeTruthy();
+  expect(screen.getByText(/364 req/)).toBeTruthy();
+});

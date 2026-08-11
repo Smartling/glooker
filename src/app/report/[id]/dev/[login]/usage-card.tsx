@@ -59,15 +59,17 @@ export function ClaudeCodeUsageCard({ costCents, requests, skillsUsed, skills, m
           <p className="text-[10px] text-gray-600 uppercase tracking-wider mb-1.5">Models</p>
           <div className="space-y-1">
             {models.map(m => (
-              <div key={m.model} className="flex items-center gap-3 text-sm py-0.5">
-                <span className="text-gray-400 truncate min-w-0 flex-1">{m.model}</span>
-                {m.cost != null && (
-                  <div className="w-24 h-1.5 bg-gray-800 rounded-full overflow-hidden shrink-0">
-                    <div className="h-full bg-accent-light rounded-full"
-                      style={{ width: `${(Number(m.cost) / maxModelCost) * 100}%` }} />
-                  </div>
-                )}
-                <span className="text-gray-300 tabular-nums shrink-0">
+              <div key={m.model} className="grid grid-cols-[minmax(0,1fr)_6rem_10rem] items-center gap-3 text-sm py-0.5">
+                <span className="text-gray-400 truncate min-w-0">{m.model}</span>
+                <div className="w-24 h-1.5">
+                  {m.cost != null && (
+                    <div className="w-24 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                      <div className="h-full bg-accent-light rounded-full"
+                        style={{ width: `${(Number(m.cost) / maxModelCost) * 100}%` }} />
+                    </div>
+                  )}
+                </div>
+                <span className="text-gray-300 tabular-nums text-right">
                   {m.cost != null && m.requests != null
                     ? `$${(Number(m.cost) / 100).toFixed(2)} · ${m.requests} req`
                     : m.cost != null

@@ -1,7 +1,7 @@
 /**
  * @jest-environment jsdom
  */
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, fireEvent } from '@testing-library/react';
 import { SpendTab } from '@/app/report/[id]/org/spend-tab';
 
 const baseProps = {
@@ -82,6 +82,21 @@ it('relabels and keeps percent under partial visibility', () => {
   // not left implicit, since it's what tells the viewer why the section is
   // scoped down instead of showing an org-wide mix.
   expect(screen.getByText(/Cost shown for developers on your team\(s\) only/i)).toBeTruthy();
+});
+
+it('shows a tooltip with the hovered segment\'s model name and spend', () => {
+  render(<SpendTab {...baseProps} developers={allVisible} modelUsage={modelUsage} />);
+  const panel = getModelMixPanel('Model Mix');
+  const bar = panel.querySelector('.h-6.bg-gray-800') as HTMLElement;
+  // No tooltip until something is hovered.
+  expect(panel.querySelector('.bottom-full')).toBeNull();
+  fireEvent.mouseEnter(bar.children[0]); // opus: cost 600 => $6.00
+  const tooltip = panel.querySelector('.bottom-full') as HTMLElement;
+  expect(tooltip).toBeTruthy();
+  expect(tooltip.textContent).toContain('opus');
+  expect(tooltip.textContent).toContain('$6.00');
+  fireEvent.mouseLeave(bar.children[0]);
+  expect(panel.querySelector('.bottom-full')).toBeNull();
 });
 
 it('renders the compact skills line', () => {
