@@ -192,10 +192,14 @@ single-team view, so:
 > with em-dash hierarchy.
 
 Research epics therefore still show up on the unfiltered board — they are not hidden — they
-just don't restructure it. To make Ben's view a bookmark rather than a two-click ritual, add
-a `?team=` query param that preselects the filter, so `/projects?team=Research` lands
-directly on the board in the mockup. (Deep-linking precedent:
-`docs/superpowers/plans/2026-05-07-deep-linking.md`.)
+just don't restructure it.
+
+`/projects?team=Research` already works as a bookmark: `filterTeam` is
+`useUrlState({ key: 'team' })` at `projects-content.tsx:83`, so the deep link needs no new
+work. What is actually missing is passing that team to the **API** — the SWR key is
+`/api/projects?org=…&status=…` with no team parameter — so server-side source resolution and
+the `boardConfig` lookup never see it. That plumbing, and keying the client's `tabCache` by
+team as well as tab, is the real task.
 
 ## Data model
 
