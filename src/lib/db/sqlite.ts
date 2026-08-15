@@ -137,6 +137,7 @@ CREATE TABLE IF NOT EXISTS teams (
   org         TEXT    NOT NULL,
   name        TEXT    NOT NULL,
   color       TEXT    NOT NULL DEFAULT '#3B82F6',
+  board_config TEXT,
   created_at  TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
   UNIQUE (org, name)
 );
@@ -304,6 +305,8 @@ export function createSQLiteDB(): DB {
   try { db.exec('ALTER TABLE team_pulse_summaries ADD COLUMN projects TEXT'); } catch (_) {}
   // GLOOK-13: report integrity (run_metadata column + skip-allowlist table)
   try { db.exec('ALTER TABLE reports ADD COLUMN run_metadata TEXT'); } catch (_) {}
+  // GLOOK-38: per-team board behaviour for the /projects page
+  try { db.exec('ALTER TABLE teams ADD COLUMN board_config TEXT'); } catch (_) {}
   try {
     db.exec(`CREATE TABLE IF NOT EXISTS report_skip_allowlist (
       github_login  TEXT NOT NULL PRIMARY KEY,

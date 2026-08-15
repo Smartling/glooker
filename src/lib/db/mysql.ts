@@ -316,6 +316,10 @@ export function createMySQLDB(): DB {
   await pool.execute('ALTER TABLE reports ADD COLUMN run_metadata JSON NULL').catch((err) => {
     if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add run_metadata:', err);
   });
+  // GLOOK-38: per-team board behaviour for the /projects page
+  await pool.execute('ALTER TABLE teams ADD COLUMN board_config JSON NULL').catch((err) => {
+    if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add board_config:', err);
+  });
   await pool.execute(`CREATE TABLE IF NOT EXISTS report_skip_allowlist (
     github_login  VARCHAR(255) NOT NULL PRIMARY KEY,
     reason        TEXT         NOT NULL,

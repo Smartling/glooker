@@ -129,6 +129,7 @@ CREATE TABLE IF NOT EXISTS teams (
   org         VARCHAR(255) NOT NULL,
   name        VARCHAR(255) NOT NULL,
   color       VARCHAR(7)   NOT NULL DEFAULT '#3B82F6',
+  board_config JSON        NULL,
   created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_org_team (org, name)
 );

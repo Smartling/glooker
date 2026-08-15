@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import db from '../db/index';
+import { parseBoardConfig, validateBoardConfig, type BoardConfig } from './board-config';
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -8,12 +9,16 @@ export interface TeamInput {
   name: string;
   color?: string;
   members?: string[];
+  /** Raw operator input; validated before persisting. Omit to store NULL. */
+  boardConfig?: unknown;
 }
 
 export interface TeamUpdateInput {
   name?: string;
   color?: string;
   members?: string[];
+  /** `undefined` leaves the column untouched; `null` clears it. */
+  boardConfig?: unknown | null;
 }
 
 export class TeamNotFoundError extends Error {
@@ -34,7 +39,7 @@ export class TeamDuplicateError extends Error {
 
 export async function listTeams(org: string) {
   const [teams] = await db.execute(
-    `SELECT id, org, name, color, created_at FROM teams WHERE org = ? ORDER BY name`,
+    `SELECT id, org, name, color, board_config, created_at FROM teams WHERE org = ? ORDER BY name`,
     [org],
   ) as [any[], any];
 
@@ -44,6 +49,8 @@ export async function listTeams(org: string) {
       [team.id],
     ) as [any[], any];
     team.members = members.map((m: any) => m.github_login);
+    // Stored NULL — every team predating GLOOK-38 — becomes today's defaults.
+    team.board_config = parseBoardConfig(team.board_config);
   }
 
   return teams;
@@ -55,10 +62,14 @@ export async function createTeam(input: TeamInput) {
   const trimmedName = name.trim();
   const resolvedColor = color || '#3B82F6';
 
+  const boardConfigJson = input.boardConfig === undefined || input.boardConfig === null
+    ? null
+    : JSON.stringify(validateBoardConfig(input.boardConfig));
+
   try {
     await db.execute(
-      `INSERT INTO teams (id, org, name, color) VALUES (?, ?, ?, ?)`,
-      [id, org, trimmedName, resolvedColor],
+      `INSERT INTO teams (id, org, name, color, board_config) VALUES (?, ?, ?, ?, ?)`,
+      [id, org, trimmedName, resolvedColor, boardConfigJson],
     );
   } catch (err: any) {
     if (err?.code === 'ER_DUP_ENTRY' || err?.message?.includes('UNIQUE')) {
@@ -76,18 +87,26 @@ export async function createTeam(input: TeamInput) {
     }
   }
 
-  return { id, org, name: trimmedName, color: resolvedColor, members: members || [] };
+  return {
+    id, org, name: trimmedName, color: resolvedColor,
+    members: members || [],
+    board_config: parseBoardConfig(boardConfigJson),
+  };
 }
 
 export async function updateTeam(id: string, input: TeamUpdateInput): Promise<void> {
   const [existing] = await db.execute(`SELECT id FROM teams WHERE id = ?`, [id]) as [any[], any];
   if (existing.length === 0) throw new TeamNotFoundError(id);
 
-  const { name, color, members } = input;
+  const { name, color, members, boardConfig } = input;
 
-  if (name || color) {
+  if (name || color || boardConfig !== undefined) {
     const sets: string[] = [];
     const vals: any[] = [];
+    if (boardConfig !== undefined) {
+      sets.push('board_config = ?');
+      vals.push(boardConfig === null ? null : JSON.stringify(validateBoardConfig(boardConfig)));
+    }
     if (name) { sets.push('name = ?'); vals.push(name.trim()); }
     if (color) { sets.push('color = ?'); vals.push(color); }
     vals.push(id);
