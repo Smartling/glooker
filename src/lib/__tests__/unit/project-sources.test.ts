@@ -51,6 +51,26 @@ describe('buildTeamJql', () => {
   it('throws when given no project keys', () => {
     expect(() => buildTeamJql([], 'In Progress', cfg())).toThrow(/at least one project key/i);
   });
+
+  it('throws when a project key contains a double quote, naming the offending key', () => {
+    expect(() => buildTeamJql(['RND" OR key = "X'], 'In Progress', cfg()))
+      .toThrow(/RND" OR key = "X/);
+  });
+
+  it('throws when a project key is lowercase', () => {
+    expect(() => buildTeamJql(['rnd'], 'In Progress', cfg()))
+      .toThrow(/rnd/);
+  });
+
+  it('throws when a project key contains a space', () => {
+    expect(() => buildTeamJql(['RN D'], 'In Progress', cfg()))
+      .toThrow(/RN D/);
+  });
+
+  it('still produces the exact JQL for a valid multi-key list', () => {
+    expect(buildTeamJql(['RND', 'LAB'], 'In Progress', cfg()))
+      .toBe('project in ("RND", "LAB") AND issuetype = Epic AND statusCategory = "In Progress"');
+  });
 });
 
 describe('resolveProjectSources', () => {

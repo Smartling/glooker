@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import db from '../db/index';
-import { parseBoardConfig, validateBoardConfig, type BoardConfig } from './board-config';
+import { parseBoardConfig, validateBoardConfig } from './board-config';
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -18,7 +18,7 @@ export interface TeamUpdateInput {
   color?: string;
   members?: string[];
   /** `undefined` leaves the column untouched; `null` clears it. */
-  boardConfig?: unknown | null;
+  boardConfig?: unknown;
 }
 
 export class TeamNotFoundError extends Error {

@@ -441,7 +441,7 @@ function TeamsTab({ org }: { org: string }) {
     setFormName(team.name);
     setFormColor(team.color);
     setFormMembers([...team.members]);
-    const bc = team.board_config || {};
+    const bc = team.board_config;
     setFormProjectKeys((bc.jiraProjectKeys || []).join(', '));
     setFormHierarchy(bc.hierarchy || 'goal-initiative');
     setFormMiddleTab(bc.middleTab || 'Rollout');

@@ -14,7 +14,7 @@ async function putHandler(
   const body = await req.json();
 
   try {
-    await updateTeam(id, { ...body, boardConfig: body.boardConfig });
+    await updateTeam(id, body);
     return NextResponse.json({ updated: true });
   } catch (err) {
     if (err instanceof TeamNotFoundError) {

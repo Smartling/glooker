@@ -28,7 +28,11 @@ export function buildBoardConfigPayload(form: BoardConfigFormState): BoardConfig
     hierarchy: form.hierarchy,
     middleTab: form.middleTab,
     ringMode: form.ringMode,
-    doneWindowDays: Number.isFinite(parsed) && parsed >= 1 && parsed <= 365 ? parsed : 30,
+    // Pass parsed through unclamped so an out-of-range value hits the server's
+    // own validation and surfaces its message via boardError, instead of being
+    // silently coerced to 30. NaN becomes null under JSON.stringify, which the
+    // server also rejects with a clear message.
+    doneWindowDays: parsed,
     includeRejected: form.includeRejected,
   };
 }

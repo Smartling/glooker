@@ -38,12 +38,39 @@ describe('buildBoardConfigPayload', () => {
     expect(payload.jiraProjectKeys).toEqual(['RND']);
   });
 
-  it('falls back to 30 for an unparseable window', () => {
+  it('passes an unparseable window through as NaN, rather than silently falling back to 30', () => {
     const payload = buildBoardConfigPayload({
       projectKeysRaw: 'RND',
       hierarchy: 'owner', middleTab: 'Backlog', ringMode: 'jira',
       doneWindowDays: 'abc', includeRejected: true,
     })!;
-    expect(payload.doneWindowDays).toBe(30);
+    expect(payload.doneWindowDays).toBeNaN();
+  });
+
+  it('passes an out-of-range window (500) through unclamped, for the server to reject', () => {
+    const payload = buildBoardConfigPayload({
+      projectKeysRaw: 'RND',
+      hierarchy: 'owner', middleTab: 'Backlog', ringMode: 'jira',
+      doneWindowDays: '500', includeRejected: true,
+    })!;
+    expect(payload.doneWindowDays).toBe(500);
+  });
+
+  it('passes an out-of-range window (0) through unclamped, for the server to reject', () => {
+    const payload = buildBoardConfigPayload({
+      projectKeysRaw: 'RND',
+      hierarchy: 'owner', middleTab: 'Backlog', ringMode: 'jira',
+      doneWindowDays: '0', includeRejected: true,
+    })!;
+    expect(payload.doneWindowDays).toBe(0);
+  });
+
+  it('passes a negative window (-5) through unclamped, for the server to reject', () => {
+    const payload = buildBoardConfigPayload({
+      projectKeysRaw: 'RND',
+      hierarchy: 'owner', middleTab: 'Backlog', ringMode: 'jira',
+      doneWindowDays: '-5', includeRejected: true,
+    })!;
+    expect(payload.doneWindowDays).toBe(-5);
   });
 });

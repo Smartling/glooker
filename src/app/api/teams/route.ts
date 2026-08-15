@@ -20,7 +20,7 @@ async function postHandler(req: NextRequest) {
   if (!org || !name) return NextResponse.json({ error: 'org and name are required' }, { status: 400 });
 
   try {
-    const team = await createTeam({ ...body, boardConfig: body.boardConfig });
+    const team = await createTeam(body);
     return NextResponse.json(team);
   } catch (err) {
     if (err instanceof TeamDuplicateError) {

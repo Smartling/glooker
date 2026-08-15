@@ -37,7 +37,7 @@ const RING_MODES: BoardRingMode[] = ['commits', 'jira'];
 
 /** Jira project keys are letters, digits and underscores only. Anything else
  *  could break out of the quoted JQL literal we interpolate them into. */
-const PROJECT_KEY_RE = /^[A-Z][A-Z0-9_]*$/;
+export const PROJECT_KEY_RE = /^[A-Z][A-Z0-9_]*$/;
 
 export class BoardConfigError extends Error {
   constructor(message: string) {

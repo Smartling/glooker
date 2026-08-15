@@ -143,3 +143,33 @@ describe('GET /api/projects', () => {
     expect((await res.json()).error).toBe('Jira exploded');
   });
 });
+
+describe('GET /api/projects — global JQL tab rewriting', () => {
+  it('In Progress: passes JIRA_PROJECTS_JQL through unmodified', async () => {
+    await GET(req('?org=o'));
+    expect(mockSources).toHaveBeenCalledWith('o', expect.objectContaining({
+      globalJql: 'project = SPS AND issuetype = Epic AND status = "In Progress"',
+    }));
+  });
+
+  it('Rollout: rewrites the status clause to Rollout', async () => {
+    await GET(req('?org=o&status=Rollout'));
+    expect(mockSources).toHaveBeenCalledWith('o', expect.objectContaining({
+      globalJql: 'project = SPS AND issuetype = Epic AND status = "Rollout"',
+    }));
+  });
+
+  it('Done: rewrites the clause to statusCategory = "Done" and appends the 30d window', async () => {
+    await GET(req('?org=o&status=Done'));
+    expect(mockSources).toHaveBeenCalledWith('o', expect.objectContaining({
+      globalJql: 'project = SPS AND issuetype = Epic AND statusCategory = "Done" AND updated >= -30d',
+    }));
+  });
+
+  it('Backlog: globalJql is null', async () => {
+    await GET(req('?org=o&status=Backlog'));
+    expect(mockSources).toHaveBeenCalledWith('o', expect.objectContaining({
+      globalJql: null,
+    }));
+  });
+});

@@ -1,5 +1,5 @@
 import { listTeams } from '@/lib/teams/service';
-import { parseBoardConfig, type BoardConfig, type BoardTab } from '@/lib/teams/board-config';
+import { parseBoardConfig, PROJECT_KEY_RE, type BoardConfig, type BoardTab } from '@/lib/teams/board-config';
 
 /**
  * Where the Projects board gets its epics.
@@ -32,6 +32,11 @@ export interface ResolveSourcesOptions {
 export function buildTeamJql(projectKeys: string[], tab: BoardTab, config: BoardConfig): string {
   if (projectKeys.length === 0) {
     throw new Error('buildTeamJql requires at least one project key');
+  }
+  for (const key of projectKeys) {
+    if (!PROJECT_KEY_RE.test(key)) {
+      throw new Error(`buildTeamJql received an invalid project key: ${key}`);
+    }
   }
   const inList = projectKeys.map(k => `"${k}"`).join(', ');
   const base = `project in (${inList}) AND issuetype = Epic`;
