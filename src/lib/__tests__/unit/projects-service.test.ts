@@ -67,15 +67,15 @@ describe('fetchProjectEpics', () => {
     expect(mockSearchEpics).toHaveBeenCalledWith('project = FOO');
   });
 
-  it('filters out epics whose parent is not an Initiative', async () => {
+  it('keeps epics with no Initiative parent, with null initiative and goal', async () => {
     const epics = [
       makeEpic({ key: 'EPIC-1', summary: 'Has no parent', parentKey: null, parentTypeName: null }),
       makeEpic({ key: 'EPIC-2', summary: 'Story parent', parentKey: 'STORY-1', parentTypeName: 'Story' }),
       makeEpic({ key: 'EPIC-3', summary: 'Initiative parent', parentKey: 'INIT-1', parentSummary: 'My Initiative', parentTypeName: 'Initiative' }),
     ];
     const mockSearchEpics = jest.fn()
-      .mockResolvedValueOnce(epics)           // first call: epics JQL
-      .mockResolvedValueOnce([               // second call: initiative batch fetch
+      .mockResolvedValueOnce(epics)
+      .mockResolvedValueOnce([
         makeEpic({ key: 'INIT-1', summary: 'My Initiative', parentKey: 'GOAL-1', parentSummary: 'My Goal', parentTypeName: 'Goal' }),
       ]);
     mockGetJiraClient.mockReturnValue({ searchEpics: mockSearchEpics });
@@ -83,8 +83,30 @@ describe('fetchProjectEpics', () => {
 
     const result = await fetchProjectEpics('project = FOO', 'my-org');
 
-    expect(result).toHaveLength(1);
-    expect(result[0].key).toBe('EPIC-3');
+    // GLOOK-38: parentless epics used to be silently dropped. RND has 25 of them.
+    expect(result).toHaveLength(3);
+    const byKey = Object.fromEntries(result.map(e => [e.key, e]));
+
+    expect(byKey['EPIC-1'].initiative).toBeNull();
+    expect(byKey['EPIC-1'].goal).toBeNull();
+
+    // A non-Initiative parent must not be shown as an initiative.
+    expect(byKey['EPIC-2'].initiative).toBeNull();
+    expect(byKey['EPIC-2'].goal).toBeNull();
+
+    expect(byKey['EPIC-3'].initiative).toEqual({ key: 'INIT-1', summary: 'My Initiative' });
+    expect(byKey['EPIC-3'].goal).toEqual({ key: 'GOAL-1', summary: 'My Goal' });
+  });
+
+  it('derives projectKey from the epic key prefix', async () => {
+    const mockSearchEpics = jest.fn()
+      .mockResolvedValueOnce([makeEpic({ key: 'RND-1181', parentKey: null, parentTypeName: null })]);
+    mockGetJiraClient.mockReturnValue({ searchEpics: mockSearchEpics });
+    noMappingsDb();
+
+    const result = await fetchProjectEpics('project = RND', 'my-org');
+
+    expect(result[0].projectKey).toBe('RND');
   });
 
   it('resolves initiative and goal for epics with Initiative parent', async () => {
