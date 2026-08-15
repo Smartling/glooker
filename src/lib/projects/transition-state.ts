@@ -10,7 +10,14 @@
  * `Map<epicKey, PendingTransition>` and runs every fetch response through
  * `applyPendingTransitions` before populating its in-component tabCache.
  */
-export type StatusTab = 'In Progress' | 'Rollout' | 'Done';
+import type { BoardTab } from '@/lib/teams/board-config';
+
+/**
+ * Tabs a pending transition may target. Aliased to the board-config tab union
+ * (GLOOK-38) so a per-team board's Backlog tab participates in optimistic moves
+ * exactly as Rollout does on the default board.
+ */
+export type StatusTab = BoardTab;
 
 /**
  * Minimum shape required for the transition logic. Callers may pass any

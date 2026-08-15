@@ -10,6 +10,8 @@ import { useUrlState, useUrlBatch } from '@/lib/url-state';
 import type { EpicSummaryResult } from '@/lib/projects/epic-summary';
 import { applyPendingTransitions, type PendingTransition } from '@/lib/projects/transition-state';
 import { ProgressRing, type EpicRingStats } from './progress-ring';
+import { ALL_TABS, visibleTabs, columnLayout, computeSpans } from './board-layout';
+import type { BoardConfig, BoardTab } from '@/lib/teams/board-config';
 
 interface ProjectEpic {
   key: string;
@@ -44,20 +46,24 @@ interface UntrackedTeam {
   totalCommits: number;
 }
 
-const STATUS_TABS = ['In Progress', 'Rollout', 'Done'] as const;
-type StatusTab = typeof STATUS_TABS[number];
+type StatusTab = BoardTab;
 
 export default function ProjectsContent() {
   const { canAct } = useAuth();
+  // Validated against every legally addressable tab, not just the ones this
+  // board shows — `?status=Backlog` must survive the first render, before the
+  // board config has arrived and told us Backlog is one of our three tabs.
   const [activeTab, setActiveTab] = useUrlState<StatusTab>({
     key: 'status',
     type: 'enum',
-    values: STATUS_TABS,
+    values: ALL_TABS,
     default: 'In Progress',
     history: 'push',
   });
   // `tabCache` stays as useState — it's a memoization cache, not URL state.
-  const [tabCache, setTabCache] = useState<Partial<Record<StatusTab, { epics: ProjectEpic[]; jiraHost: string | null }>>>({});
+  // Keyed by `${tab}|${team}`: the same tab holds different epics per team,
+  // because the team filter is applied server-side by the board's own JQL.
+  const [tabCache, setTabCache] = useState<Record<string, { epics: ProjectEpic[]; jiraHost: string | null }>>({});
   const [org, setOrg] = useUrlState<string>({
     key: 'org',
     type: 'string',
@@ -66,6 +72,9 @@ export default function ProjectsContent() {
   });
   // `jiraHost` stays as useState — comes from the API, not user input.
   const [jiraHost, setJiraHost] = useState<string | null>(null);
+  // Non-null only when the filter names exactly one configured team; a mixed
+  // board has no single config to honour and keeps the historical layout.
+  const [boardConfig, setBoardConfig] = useState<BoardConfig | null>(null);
 
   // Filters
   const [filterTeam, setFilterTeam] = useUrlState<string>({
@@ -159,9 +168,12 @@ export default function ProjectsContent() {
       // registry in the populate-tabCache useEffect, so the move sticks
       // regardless of Jira's index lag.
       const targetTab = toStatus as StatusTab;
+      // tabCache is keyed by `${tab}|${team}`, so the destination entry is the
+      // target tab under the team currently in view.
+      const targetCacheKey = `${targetTab}|${filterTeam}`;
       let movedEpic: ProjectEpic | null = null;
-      for (const tab of Object.keys(tabCache) as StatusTab[]) {
-        const entry = tabCache[tab];
+      for (const key of Object.keys(tabCache)) {
+        const entry = tabCache[key];
         if (!entry) continue;
         const found = entry.epics.find(e => e.key === epicKey);
         if (found && !movedEpic) movedEpic = { ...found, status: toStatus };
@@ -176,15 +188,15 @@ export default function ProjectsContent() {
         // Jira returns and seeds tabCache with the patched full list.
         setTabCache(prev => {
           const updated: typeof prev = { ...prev };
-          for (const tab of Object.keys(updated) as StatusTab[]) {
-            const entry = updated[tab];
+          for (const key of Object.keys(updated)) {
+            const entry = updated[key];
             if (entry) {
-              updated[tab] = { ...entry, epics: entry.epics.filter(e => e.key !== epicKey) };
+              updated[key] = { ...entry, epics: entry.epics.filter(e => e.key !== epicKey) };
             }
           }
-          const targetEntry = updated[targetTab];
+          const targetEntry = updated[targetCacheKey];
           if (targetEntry) {
-            updated[targetTab] = { ...targetEntry, epics: [movedEpic!, ...targetEntry.epics] };
+            updated[targetCacheKey] = { ...targetEntry, epics: [movedEpic!, ...targetEntry.epics] };
           }
           return updated;
         });
@@ -244,10 +256,10 @@ export default function ProjectsContent() {
       // Optimistic update in tab cache
       setTabCache(prev => {
         const updated = { ...prev };
-        for (const tab of Object.keys(updated) as StatusTab[]) {
-          const entry = updated[tab];
+        for (const key of Object.keys(updated)) {
+          const entry = updated[key];
           if (entry) {
-            updated[tab] = {
+            updated[key] = {
               ...entry,
               epics: entry.epics.map(e => e.key === epicKey ? { ...e, dueDate: newDate } : e),
             };
@@ -328,8 +340,13 @@ export default function ProjectsContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- setOrg identity churns on URL change; safely omitted
   }, [orgsData, orgsError, reportsData, org]);
 
-  // SWR: fetch epics for the active tab
-  const tabUrl = org ? `/api/projects?org=${encodeURIComponent(org)}&status=${encodeURIComponent(activeTab)}` : null;
+  // SWR: fetch epics for the active tab. The team filter goes to the server so
+  // a configured team's own JQL (and board config) drives the response.
+  const cacheKey = `${activeTab}|${filterTeam}`;
+  const tabUrl = org
+    ? `/api/projects?org=${encodeURIComponent(org)}&status=${encodeURIComponent(activeTab)}`
+      + (filterTeam && filterTeam !== '__none__' ? `&team=${encodeURIComponent(filterTeam)}` : '')
+    : null;
   // `revalidateIfStale: false` is essential here. With the default (true), a
   // background revalidation fires every time `useSWR` rebinds (e.g. on tab
   // switch). That revalidation can race optimistic transitions: the response
@@ -344,34 +361,53 @@ export default function ProjectsContent() {
   useEffect(() => {
     if (tabData?.epics) {
       const epics = applyPendingTransitions(tabData.epics, activeTab, pendingTransitionsRef.current);
-      setTabCache(prev => ({ ...prev, [activeTab]: { epics, jiraHost: tabData.jiraHost } }));
+      setTabCache(prev => ({ ...prev, [cacheKey]: { epics, jiraHost: tabData.jiraHost } }));
       setJiraHost(tabData.jiraHost);
+      setBoardConfig(tabData.boardConfig ?? null);
     }
-  }, [tabData, activeTab]);
+  }, [tabData, activeTab, cacheKey]);
 
-  // Prefetch other tabs in background after the active tab loads.
-  // We only preload once per org because preload's fetch responses would
+  // Prefetch the board's other tabs in background after the active tab loads.
+  // We only preload once per org+team because preload's fetch responses would
   // otherwise race optimistic transitions: a re-fire after a `mutate` returns
   // Jira's still-lagging list and overwrites the optimistic state.
   const fetcher = (url: string) => fetch(url).then(r => {
     if (!r.ok) throw new Error(`${r.status}`);
     return r.json();
   });
-  const preloadedOrgRef = useRef<string | null>(null);
+  const preloadedKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!org || !tabData) return;
-    if (preloadedOrgRef.current === org) return;
-    preloadedOrgRef.current = org;
-    const otherTabs = STATUS_TABS.filter(t => t !== activeTab);
-    for (const tab of otherTabs) {
-      preload(`/api/projects?org=${encodeURIComponent(org)}&status=${encodeURIComponent(tab)}`, fetcher);
+    const key = `${org}|${filterTeam}`;
+    if (preloadedKeyRef.current === key) return;
+    preloadedKeyRef.current = key;
+    const teamParam = filterTeam && filterTeam !== '__none__' ? `&team=${encodeURIComponent(filterTeam)}` : '';
+    for (const tab of visibleTabs(tabData.boardConfig ?? null).filter(t => t !== activeTab)) {
+      preload(`/api/projects?org=${encodeURIComponent(org)}&status=${encodeURIComponent(tab)}${teamParam}`, fetcher);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally one-shot per org; re-running on tabData/activeTab changes would race optimistic mutations
-  }, [org, tabData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot per org+team; re-running would race optimistic mutations
+  }, [org, filterTeam, tabData]);
 
   // Derive epics from tab cache
-  const epics = useMemo(() => tabCache[activeTab]?.epics || [], [tabCache, activeTab]);
+  const epics = useMemo(() => tabCache[cacheKey]?.epics || [], [tabCache, cacheKey]);
+
+  const tabs = useMemo(() => visibleTabs(boardConfig), [boardConfig]);
+
+  // Guard against sitting on a tab the newly-selected board does not offer —
+  // e.g. switching from a Backlog board back to a Rollout board while on
+  // Backlog would otherwise leave no tab active and an empty table.
+  //
+  // Judged against the *response's* config, not the `boardConfig` state, and
+  // only once a response exists. Before then `boardConfig` is either null (cold
+  // load) or the previous team's, and `setBoardConfig` lands one render after
+  // `tabData` — resetting on either would bounce a `?status=Backlog&team=…`
+  // deep link straight back to In Progress, which is the very thing ALL_TABS
+  // exists to allow.
+  useEffect(() => {
+    if (!tabData) return;
+    if (!visibleTabs(tabData.boardConfig ?? null).includes(activeTab)) setActiveTab('In Progress');
+  }, [tabData, activeTab, setActiveTab]);
 
   useEffect(() => {
     if (!org || epics.length === 0) return;
@@ -473,47 +509,38 @@ export default function ProjectsContent() {
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
-  // Precompute rowSpans for merged goal and initiative cells
-  const spans = useMemo(() => {
-    const result: Array<{ goalSpan: number; initSpan: number; showGoal: boolean; showInit: boolean; goalGroupId: string; initGroupId: string }> = [];
-    for (let i = 0; i < filteredEpics.length; i++) {
-      const goalKey = filteredEpics[i].goal?.summary || '—';
-      const initKey = (filteredEpics[i].goal?.summary || '—') + '|' + (filteredEpics[i].initiative?.summary || '—');
+  const layout = useMemo(() => columnLayout(boardConfig), [boardConfig]);
 
-      // Count how many consecutive rows share the same goal
-      let goalSpan = 0;
-      for (let j = i; j < filteredEpics.length; j++) {
-        if ((filteredEpics[j].goal?.summary || '—') === goalKey) goalSpan++;
-        else break;
-      }
+  // In owner mode the merged column is the assignee, so rows must be ordered by
+  // assignee for run-length merging to produce one block per person. The service
+  // sorts by goal → initiative → summary, which is meaningless for a flat project.
+  const orderedEpics = useMemo(() => {
+    if (boardConfig?.hierarchy !== 'owner') return filteredEpics;
+    return [...filteredEpics].sort((a, b) => {
+      const an = a.assignee || '￿';
+      const bn = b.assignee || '￿';
+      if (an !== bn) return an.localeCompare(bn);
+      return a.summary.localeCompare(b.summary);
+    });
+  }, [filteredEpics, boardConfig]);
 
-      // Count how many consecutive rows share the same initiative (within same goal)
-      let initSpan = 0;
-      for (let j = i; j < filteredEpics.length; j++) {
-        const jKey = (filteredEpics[j].goal?.summary || '—') + '|' + (filteredEpics[j].initiative?.summary || '—');
-        if (jKey === initKey) initSpan++;
-        else break;
-      }
-
-      // Is this the first row of a goal group?
-      const showGoal = i === 0 || (filteredEpics[i - 1].goal?.summary || '—') !== goalKey;
-      // Is this the first row of an initiative group?
-      const prevInitKey = i > 0 ? (filteredEpics[i - 1].goal?.summary || '—') + '|' + (filteredEpics[i - 1].initiative?.summary || '—') : '';
-      const showInit = i === 0 || prevInitKey !== initKey;
-
-      result.push({ goalSpan, initSpan, showGoal, showInit, goalGroupId: `g-${goalKey}`, initGroupId: `i-${initKey}` });
-    }
-    return result;
-  }, [filteredEpics]);
+  // Precompute rowSpans for the merged leading cells
+  const spans = useMemo(
+    () => computeSpans(orderedEpics, boardConfig?.hierarchy ?? 'goal-initiative'),
+    [orderedEpics, boardConfig],
+  );
 
   // Map epic key → group IDs so merged cells can highlight when any sibling row is hovered
   const epicGroupMap = useMemo(() => {
-    const map = new Map<string, { goalGroupId: string; initGroupId: string }>();
-    for (let i = 0; i < filteredEpics.length; i++) {
-      map.set(filteredEpics[i].key, { goalGroupId: spans[i].goalGroupId, initGroupId: spans[i].initGroupId });
+    const map = new Map<string, { primaryGroupId: string; secondaryGroupId: string }>();
+    for (let i = 0; i < orderedEpics.length; i++) {
+      map.set(orderedEpics[i].key, {
+        primaryGroupId: spans[i].primaryGroupId,
+        secondaryGroupId: spans[i].secondaryGroupId,
+      });
     }
     return map;
-  }, [filteredEpics, spans]);
+  }, [orderedEpics, spans]);
 
   const getNextMonday = () => {
     const d = new Date();
@@ -672,17 +699,15 @@ export default function ProjectsContent() {
 
           {/* Status tabs — below filters */}
           <div className="flex border-b border-gray-800 mb-4">
-            {STATUS_TABS.map(tab => (
+            {tabs.map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
                 className={`px-4 py-2 text-xs font-medium transition-colors relative ${
-                  activeTab === tab
-                    ? 'text-accent-lighter'
-                    : 'text-gray-500 hover:text-gray-300'
+                  activeTab === tab ? 'text-accent-lighter' : 'text-gray-500 hover:text-gray-300'
                 }`}
               >
-                {tab}{tab === 'Done' ? ' (30d)' : ''}
+                {tab}{tab === 'Done' ? ` (${boardConfig?.doneWindowDays ?? 30}d)` : ''}
                 {activeTab === tab && (
                   <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-accent-light rounded-t" />
                 )}
@@ -691,38 +716,28 @@ export default function ProjectsContent() {
           </div>
 
           {epics.length === 0 ? (
-            <div className="text-gray-500 py-8">No epics with status &ldquo;{activeTab}&rdquo;{activeTab === 'Done' ? ' in the last 30 days' : ''}.</div>
-          ) : filteredEpics.length === 0 ? (
+            <div className="text-gray-500 py-8">No epics with status &ldquo;{activeTab}&rdquo;{activeTab === 'Done' ? ` in the last ${boardConfig?.doneWindowDays ?? 30} days` : ''}.</div>
+          ) : orderedEpics.length === 0 ? (
             <div className="text-gray-500 py-8">No epics match the selected filters.</div>
           ) : (
             <div className="rounded-lg border border-gray-800">
               <table className="w-full text-sm table-fixed">
                 <colgroup>
-                  <col style={{ width: '14%' }} />
-                  <col style={{ width: '14%' }} />
-                  <col style={{ width: '4%' }} />
-                  <col style={{ width: '34%' }} />
-                  <col style={{ width: '10%' }} />
-                  <col style={{ width: '13%' }} />
-                  <col style={{ width: '11%' }} />
+                  {layout.widths.map((w, i) => <col key={i} style={{ width: `${w}%` }} />)}
                 </colgroup>
                 <thead>
                   <tr className="bg-gray-900/50 text-gray-400 text-left text-xs uppercase tracking-wider">
-                    <th className="px-4 py-3 font-medium">Business Goal</th>
-                    <th className="px-4 py-3 font-medium">Initiative</th>
-                    <th className="px-2 py-3 font-medium"></th>
-                    <th className="px-4 py-3 font-medium">Epic</th>
-                    <th className="px-4 py-3 font-medium">Due</th>
-                    <th className="px-4 py-3 font-medium">Lead</th>
-                    <th className="px-4 py-3 font-medium">Team</th>
+                    {layout.headers.map((h, i) => (
+                      <th key={i} className={h === '' ? 'px-2 py-3 font-medium' : 'px-4 py-3 font-medium'}>{h}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredEpics.map((epic, i) => {
-                    const { goalSpan, initSpan, showGoal, showInit, goalGroupId, initGroupId } = spans[i];
+                  {orderedEpics.map((epic, i) => {
+                    const { primarySpan, secondarySpan, showPrimary, showSecondary, primaryGroupId, secondaryGroupId } = spans[i];
                     const hoveredGroups = hoveredEpic ? epicGroupMap.get(hoveredEpic) : null;
-                    const isGoalHovered = hoveredGroups?.goalGroupId === goalGroupId;
-                    const isInitHovered = hoveredGroups?.initGroupId === initGroupId;
+                    const isPrimaryHovered = hoveredGroups?.primaryGroupId === primaryGroupId;
+                    const isSecondaryHovered = hoveredGroups?.secondaryGroupId === secondaryGroupId;
 
                     return (
                       <tr
@@ -731,10 +746,20 @@ export default function ProjectsContent() {
                         onMouseEnter={() => setHoveredEpic(epic.key)}
                         onMouseLeave={() => setHoveredEpic(null)}
                       >
-                        {showGoal && (
+                        {layout.showOwnerColumn && showPrimary && (
                           <td
-                            className={`px-4 py-3 align-top border-r border-gray-800/30 transition-colors ${isGoalHovered && hoveredEpic !== epic.key ? 'bg-gray-800/30' : ''}`}
-                            rowSpan={goalSpan}
+                            className={`px-4 py-3 align-top border-r border-gray-800/30 transition-colors ${isPrimaryHovered && hoveredEpic !== epic.key ? 'bg-gray-800/30' : ''}`}
+                            rowSpan={primarySpan}
+                          >
+                            {epic.assignee
+                              ? <span className="text-gray-300 text-[13px]">{epic.assignee}</span>
+                              : <span className="text-gray-600">Unassigned</span>}
+                          </td>
+                        )}
+                        {layout.showHierarchy && showPrimary && (
+                          <td
+                            className={`px-4 py-3 align-top border-r border-gray-800/30 transition-colors ${isPrimaryHovered && hoveredEpic !== epic.key ? 'bg-gray-800/30' : ''}`}
+                            rowSpan={primarySpan}
                           >
                             {epic.goal ? (
                               <a href={jiraHost ? `https://${jiraHost}/browse/${epic.goal.key}` : '#'} target="_blank" rel="noopener noreferrer" className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-accent-bg/30 text-accent-lighter hover:text-white transition-colors">
@@ -745,10 +770,10 @@ export default function ProjectsContent() {
                             )}
                           </td>
                         )}
-                        {showInit && (
+                        {layout.showHierarchy && showSecondary && (
                           <td
-                            className={`px-4 py-3 align-top border-r border-gray-800/30 transition-colors ${isInitHovered && hoveredEpic !== epic.key ? 'bg-gray-800/30' : ''}`}
-                            rowSpan={initSpan}
+                            className={`px-4 py-3 align-top border-r border-gray-800/30 transition-colors ${isSecondaryHovered && hoveredEpic !== epic.key ? 'bg-gray-800/30' : ''}`}
+                            rowSpan={secondarySpan}
                           >
                             {epic.initiative ? (
                               <a href={jiraHost ? `https://${jiraHost}/browse/${epic.initiative.key}` : '#'} target="_blank" rel="noopener noreferrer" className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-gray-800 text-gray-300 hover:text-white transition-colors">
@@ -765,6 +790,7 @@ export default function ProjectsContent() {
                               stats={ringStats[epic.key]}
                               maxVolume={maxVolume}
                               avgCommitsPerJira={avgCommitsPerJira}
+                              mode={boardConfig?.ringMode}
                             />
                           ) : (
                             <div className="w-4 h-4 rounded-full bg-gray-800 animate-pulse mx-auto" />
@@ -921,8 +947,8 @@ export default function ProjectsContent() {
                           )}
                         </td>
                         <td className="px-4 py-3 text-gray-300">
-                          <div>{epic.assignee || '—'}</div>
-                          <div className="mt-0.5">
+                          {!layout.showOwnerColumn && <div>{epic.assignee || '—'}</div>}
+                          <div className={layout.showOwnerColumn ? '' : 'mt-0.5'}>
                             {canAct ? (
                               <div
                                 onClick={(e) => { e.stopPropagation(); openStatusEditor(epic.key, e.currentTarget as HTMLElement); }}
@@ -996,8 +1022,11 @@ export default function ProjectsContent() {
                       </tr>
                     );
                   })}
-                  {/* Not in Project rows — only on In Progress tab */}
-                  {activeTab === 'In Progress' && (() => {
+                  {/* Not in Project rows — only on In Progress tab, and never on a
+                      configured team board: these rows hard-code the seven-column
+                      layout, and untracked work is commit-derived, which is exactly
+                      what a research board should not be judged on. */}
+                  {!boardConfig && activeTab === 'In Progress' && (() => {
                     const filtered = untrackedTeams.filter(t => {
                       if (filterGoal && filterGoal !== 'Not in Project') return false;
                       if (filterTeam && filterTeam !== '__none__' && filterTeam !== t.name) return false;
@@ -1146,7 +1175,7 @@ export default function ProjectsContent() {
                   {filteredEpics.length}{filteredEpics.length !== epics.length ? ` of ${epics.length}` : ''} epic{filteredEpics.length !== 1 ? 's' : ''}
                   {untrackedTeams.length > 0 && ` · ${untrackedTeams.length} team${untrackedTeams.length !== 1 ? 's' : ''} with untracked work`}
                 </span>
-                {activeTab === 'In Progress' && untrackedTeams.length === 0 && !untrackedLoading && (
+                {!boardConfig && activeTab === 'In Progress' && untrackedTeams.length === 0 && !untrackedLoading && (
                   <button
                     onClick={() => loadUntracked()}
                     className="text-xs text-gray-500 hover:text-gray-300 bg-gray-800 hover:bg-gray-700 px-2.5 py-1 rounded border border-gray-700 transition-colors"
