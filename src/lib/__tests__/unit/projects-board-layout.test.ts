@@ -15,6 +15,15 @@ describe('visibleTabs', () => {
   it('swaps in Backlog when configured', () => {
     expect(visibleTabs(cfg({ middleTab: 'Backlog' }))).toEqual(['In Progress', 'Backlog', 'Done']);
   });
+
+  // The page uses visibleTabs(null) as its recovery target when the tab fetch
+  // fails: on an error there is no config to trust, and the user has no tab bar
+  // to click because the error banner replaces it. If this set ever grew to
+  // include a config-only tab, a failed `?status=Backlog` would reset to itself
+  // and strand the user on a dead-end URL.
+  it('never offers a config-only tab as the no-config fallback set', () => {
+    expect(visibleTabs(null)).not.toContain('Backlog');
+  });
 });
 
 describe('columnLayout', () => {
@@ -22,6 +31,9 @@ describe('columnLayout', () => {
     const layout = columnLayout(null);
     expect(layout.headers).toEqual(['Business Goal', 'Initiative', '', 'Epic', 'Due', 'Lead', 'Team']);
     expect(layout.widths).toHaveLength(7);
+    // A widths/headers length mismatch is exactly what silently misaligns a
+    // `table-fixed` table, so pin the parity, not just the count and the sum.
+    expect(layout.widths).toHaveLength(layout.headers.length);
     expect(layout.widths.reduce((a, b) => a + b, 0)).toBe(100);
     expect(layout.showHierarchy).toBe(true);
     expect(layout.showOwnerColumn).toBe(false);
@@ -30,6 +42,7 @@ describe('columnLayout', () => {
   it('gives owner mode six columns summing to 100%, with Researcher first and Status split out', () => {
     const layout = columnLayout(cfg({ hierarchy: 'owner' }));
     expect(layout.headers).toEqual(['Researcher', '', 'Epic', 'Due', 'Status', 'Team']);
+    expect(layout.widths).toHaveLength(layout.headers.length);
     expect(layout.widths.reduce((a, b) => a + b, 0)).toBe(100);
     expect(layout.showHierarchy).toBe(false);
     expect(layout.showOwnerColumn).toBe(true);

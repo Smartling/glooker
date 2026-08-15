@@ -405,9 +405,19 @@ export default function ProjectsContent() {
   // deep link straight back to In Progress, which is the very thing ALL_TABS
   // exists to allow.
   useEffect(() => {
+    // A failed fetch renders an error banner *instead of* the tab bar, so the
+    // user has nothing to click their way out with. `?status=Backlog` is a
+    // legal URL now, and the route 404s on it once no team declares
+    // jiraProjectKeys — e.g. a bookmarked `?team=Research&status=Backlog`
+    // after Research's board config is cleared in Settings. Recover to the
+    // default tab set: with no response we have no config to trust.
+    if (tabError) {
+      if (!visibleTabs(null).includes(activeTab)) setActiveTab('In Progress');
+      return;
+    }
     if (!tabData) return;
     if (!visibleTabs(tabData.boardConfig ?? null).includes(activeTab)) setActiveTab('In Progress');
-  }, [tabData, activeTab, setActiveTab]);
+  }, [tabData, tabError, activeTab, setActiveTab]);
 
   useEffect(() => {
     if (!org || epics.length === 0) return;
@@ -1173,7 +1183,10 @@ export default function ProjectsContent() {
               <div className="px-4 py-2 text-xs text-gray-500 bg-gray-900/30 border-t border-gray-800 flex items-center justify-between">
                 <span>
                   {filteredEpics.length}{filteredEpics.length !== epics.length ? ` of ${epics.length}` : ''} epic{filteredEpics.length !== 1 ? 's' : ''}
-                  {untrackedTeams.length > 0 && ` · ${untrackedTeams.length} team${untrackedTeams.length !== 1 ? 's' : ''} with untracked work`}
+                  {/* Gated like the rows and the trigger button: `untrackedTeams`
+                      persists across team switches, so an ungated count advertises
+                      untracked work that a configured board never renders. */}
+                  {!boardConfig && untrackedTeams.length > 0 && ` · ${untrackedTeams.length} team${untrackedTeams.length !== 1 ? 's' : ''} with untracked work`}
                 </span>
                 {!boardConfig && activeTab === 'In Progress' && untrackedTeams.length === 0 && !untrackedLoading && (
                   <button
