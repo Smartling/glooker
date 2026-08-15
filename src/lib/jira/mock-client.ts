@@ -21,6 +21,37 @@ function extractProjectKeys(jql: string): string[] {
   return eqMatch ? [eqMatch[1].toUpperCase()] : [];
 }
 
+/**
+ * Jira's status -> statusCategory mapping for our fixture statuses. A real
+ * Jira instance derives this per-workflow; here it's just the fixed set of
+ * statuses MOCK_EPICS / MOCK_RESEARCH_EPICS actually use.
+ */
+const STATUS_CATEGORY: Record<string, string> = {
+  'In Progress': 'In Progress',
+  Backlog: 'To Do',
+  Done: 'Done',
+  // Rejected sits in the Done category despite carrying no resolution date —
+  // real Jira behaviour, and the reason buildTeamJql's Done clause needs the
+  // `OR updated` window.
+  Rejected: 'Done',
+  Rollout: 'In Progress',
+};
+
+/**
+ * Pull a status filter out of `statusCategory = "X"` or `status = "X"`.
+ * Returns null when the JQL has neither clause (e.g. the `key in (...)`
+ * initiative batch lookup), meaning "no status filtering".
+ */
+function extractStatusFilter(jql: string): { field: 'statusCategory' | 'status'; value: string } | null {
+  const categoryMatch = jql.match(/statusCategory\s*=\s*["']([^"']+)["']/i);
+  if (categoryMatch) return { field: 'statusCategory', value: categoryMatch[1] };
+
+  const statusMatch = jql.match(/\bstatus\s*=\s*["']([^"']+)["']/i);
+  if (statusMatch) return { field: 'status', value: statusMatch[1] };
+
+  return null;
+}
+
 export class MockJiraClient implements JiraClientInterface {
   async testConnection(): Promise<JiraUser> {
     return {
@@ -84,8 +115,18 @@ export class MockJiraClient implements JiraClientInterface {
     // A JQL with no project clause (the `key in (...)` initiative batch lookup)
     // matches everything, preserving the previous behaviour.
     const keys = extractProjectKeys(jql);
-    if (keys.length === 0) return all;
-    return all.filter(e => keys.includes(e.key.split('-')[0]));
+    const byProject = keys.length === 0 ? all : all.filter(e => keys.includes(e.key.split('-')[0]));
+
+    // Honour a status clause so board tabs (In Progress / Backlog / Done)
+    // show distinct epics instead of the same set for every tab. A JQL with
+    // neither a statusCategory nor a status clause (e.g. the batch lookup
+    // above) matches everything, same as the project filter.
+    const statusFilter = extractStatusFilter(jql);
+    if (!statusFilter) return byProject;
+    if (statusFilter.field === 'statusCategory') {
+      return byProject.filter(e => STATUS_CATEGORY[e.status] === statusFilter.value);
+    }
+    return byProject.filter(e => e.status === statusFilter.value);
   }
 
   async searchChildIssues(epicKey: string): Promise<Array<{

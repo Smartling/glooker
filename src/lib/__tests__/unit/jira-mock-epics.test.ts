@@ -35,3 +35,55 @@ describe('MockJiraClient.searchEpics project filtering', () => {
     expect(epics.some(e => e.key.startsWith('MOCK-'))).toBe(true);
   });
 });
+
+describe('MockJiraClient.searchEpics status filtering', () => {
+  const client = new MockJiraClient();
+
+  it('filters to In Progress research epics via statusCategory', async () => {
+    const epics = await client.searchEpics(
+      'project in ("RSCH") AND issuetype = Epic AND statusCategory = "In Progress"',
+    );
+    expect(epics).toHaveLength(3);
+    expect(epics.map(e => e.key).sort()).toEqual(['RSCH-101', 'RSCH-102', 'RSCH-103']);
+  });
+
+  it('filters to Backlog research epics via statusCategory = "To Do"', async () => {
+    const epics = await client.searchEpics(
+      'project in ("RSCH") AND issuetype = Epic AND statusCategory = "To Do"',
+    );
+    expect(epics).toHaveLength(2);
+    expect(epics.map(e => e.key).sort()).toEqual(['RSCH-201', 'RSCH-202']);
+  });
+
+  it('filters to Done-category research epics via statusCategory = "Done"', async () => {
+    const epics = await client.searchEpics(
+      'project in ("RSCH") AND issuetype = Epic AND statusCategory = "Done"',
+    );
+    expect(epics).toHaveLength(2);
+    // RSCH-302 is the Rejected epic: rejected hypotheses sit in the Done
+    // statusCategory in real Jira despite carrying no resolution date, which
+    // is exactly why buildTeamJql's Done clause needs the `OR updated` window.
+    expect(epics.map(e => e.key)).toContain('RSCH-302');
+    expect(epics.map(e => e.key).sort()).toEqual(['RSCH-301', 'RSCH-302']);
+  });
+
+  it('filters to an exact status match via status = "Rollout"', async () => {
+    const epics = await client.searchEpics(
+      'project in ("RSCH") AND issuetype = Epic AND status = "Rollout"',
+    );
+    expect(epics).toHaveLength(0);
+  });
+
+  it('returns all research epics when the JQL carries no status clause', async () => {
+    const epics = await client.searchEpics('project in ("RSCH") AND issuetype = Epic');
+    expect(epics).toHaveLength(7);
+  });
+
+  it('composes the project and status filters rather than conflicting', async () => {
+    const epics = await client.searchEpics(
+      'project in ("MOCK") AND issuetype = Epic AND statusCategory = "In Progress"',
+    );
+    expect(epics).toHaveLength(4);
+    expect(epics.every(e => e.key.startsWith('MOCK-'))).toBe(true);
+  });
+});
