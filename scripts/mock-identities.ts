@@ -121,12 +121,34 @@ export interface MockTeam {
   id: string;
   name: string;
   color: string;
+  /** GLOOK-38: per-team board behaviour. Omit for teams that use the default board. */
+  boardConfig?: {
+    jiraProjectKeys: string[];
+    hierarchy: 'goal-initiative' | 'owner';
+    middleTab: 'Rollout' | 'Backlog';
+    ringMode: 'commits' | 'jira';
+    doneWindowDays: number;
+    includeRejected: boolean;
+  };
 }
 
 export const MOCK_TEAMS: MockTeam[] = [
   { id: '00000000-0000-4000-b000-000000000001', name: 'Platform', color: '#2563EB' },
   { id: '00000000-0000-4000-b000-000000000002', name: 'Frontend', color: '#7C3AED' },
   { id: '00000000-0000-4000-b000-000000000003', name: 'Data', color: '#059669' },
+  {
+    id: '00000000-0000-4000-b000-000000000004',
+    name: 'Research',
+    color: '#0891B2',
+    boardConfig: {
+      jiraProjectKeys: ['RSCH'],
+      hierarchy: 'owner',
+      middleTab: 'Backlog',
+      ringMode: 'jira',
+      doneWindowDays: 30,
+      includeRejected: true,
+    },
+  },
 ];
 
 export interface MockEpic {
@@ -144,4 +166,30 @@ export const MOCK_EPICS: MockEpic[] = [
   { key: 'MOCK-102', summary: 'Implement rate limiting middleware', goalKey: 'MOCK-1', goalSummary: 'Security Hardening', initiativeKey: 'MOCK-10', initiativeSummary: 'Auth Modernization', assigneeEmail: 'bob@mockorg.dev' },
   { key: 'MOCK-201', summary: 'Redesign dashboard components', goalKey: 'MOCK-2', goalSummary: 'User Experience Refresh', initiativeKey: 'MOCK-20', initiativeSummary: 'Frontend Overhaul', assigneeEmail: 'dave@mockorg.dev' },
   { key: 'MOCK-202', summary: 'Build data pipeline v2', goalKey: 'MOCK-2', goalSummary: 'User Experience Refresh', initiativeKey: 'MOCK-21', initiativeSummary: 'Data Infrastructure', assigneeEmail: 'grace@mockorg.dev' },
+];
+
+/**
+ * GLOOK-38: research epics are deliberately parentless and span all three
+ * board tabs, so the flat-hierarchy and Backlog paths are exercised in mock mode.
+ * Assignee emails are intentionally NOT in MOCK_DEVELOPERS: a research team's
+ * members may have no GitHub identity, which is exactly what provenance
+ * attribution exists to handle.
+ */
+export interface MockResearchEpic {
+  key: string;
+  summary: string;
+  status: string;
+  dueDate: string | null;
+  assigneeName: string | null;
+  assigneeEmail: string | null;
+}
+
+export const MOCK_RESEARCH_EPICS: MockResearchEpic[] = [
+  { key: 'RSCH-101', summary: 'Hypothesis: retrieval improves summary faithfulness', status: 'In Progress', dueDate: '2026-05-20', assigneeName: 'Rita Solberg', assigneeEmail: 'rita@mockorg.dev' },
+  { key: 'RSCH-102', summary: 'Benchmark small models against the house baseline', status: 'In Progress', dueDate: '2026-05-08', assigneeName: 'Rita Solberg', assigneeEmail: 'rita@mockorg.dev' },
+  { key: 'RSCH-103', summary: 'Q2 prompt maintenance sweep', status: 'In Progress', dueDate: null, assigneeName: 'Ivo Brandt', assigneeEmail: 'ivo@mockorg.dev' },
+  { key: 'RSCH-201', summary: 'Investigate structured output drift across versions', status: 'Backlog', dueDate: null, assigneeName: 'Ivo Brandt', assigneeEmail: 'ivo@mockorg.dev' },
+  { key: 'RSCH-202', summary: 'Edit-nature assessment for post-edit signals', status: 'Backlog', dueDate: null, assigneeName: null, assigneeEmail: null },
+  { key: 'RSCH-301', summary: 'Hypothesis: longer context reduces terminology error', status: 'Done', dueDate: '2026-03-31', assigneeName: 'Rita Solberg', assigneeEmail: 'rita@mockorg.dev' },
+  { key: 'RSCH-302', summary: 'Fine-tuning is not worth the serving cost', status: 'Rejected', dueDate: '2026-03-15', assigneeName: 'Ivo Brandt', assigneeEmail: 'ivo@mockorg.dev' },
 ];

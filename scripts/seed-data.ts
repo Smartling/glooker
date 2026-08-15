@@ -311,6 +311,7 @@ export const seedTeams = MOCK_TEAMS.map(t => ({
   org: MOCK_ORG,
   name: t.name,
   color: t.color,
+  board_config: t.boardConfig ? JSON.stringify(t.boardConfig) : null,
   created_at: daysAgo(90),
 }));
 
