@@ -94,6 +94,23 @@ describe('resolveProjectSources', () => {
     expect(sources[0].kind).toBe('team');
   });
 
+  it('excludes a configured team that the filter does not name', async () => {
+    mockListTeams.mockResolvedValue([
+      { name: 'Research', color: '#7C3AED', board_config: cfg({ jiraProjectKeys: ['RND'] }) },
+      { name: 'Labs', color: '#059669', board_config: cfg({ jiraProjectKeys: ['LAB'] }) },
+    ]);
+
+    const sources = await resolveProjectSources('o', { globalJql: 'project = SPS', team: 'Research' });
+
+    expect(sources).toHaveLength(1);
+    expect(sources[0]).toEqual({
+      kind: 'team',
+      team: { name: 'Research', color: '#7C3AED' },
+      projectKeys: ['RND'],
+      config: cfg({ jiraProjectKeys: ['RND'] }),
+    });
+  });
+
   it('keeps the global source when the filtered team has no project keys', async () => {
     mockListTeams.mockResolvedValue([
       { name: 'Platform', color: '#2563EB', board_config: cfg() },
