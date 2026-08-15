@@ -9,6 +9,7 @@ import { useUrlState, useUrlBatch } from '@/lib/url-state';
 // letting the client fail fast if the shared response shape changes.
 import type { EpicSummaryResult } from '@/lib/projects/epic-summary';
 import { applyPendingTransitions, type PendingTransition } from '@/lib/projects/transition-state';
+import { ProgressRing, type EpicRingStats } from './progress-ring';
 
 interface ProjectEpic {
   key: string;
@@ -34,19 +35,6 @@ interface WorkGroup {
   name: string;
   summary: string;
   commits: UntrackedCommit[];
-}
-
-interface EpicRingStats {
-  epicKey: string;
-  totalJiras: number;
-  resolvedJiras: number;
-  remainingJiras: number;
-  commitCount: number;
-  devCount: number;
-  linesAdded: number;
-  linesRemoved: number;
-  repos: string[];
-  cached: boolean;
 }
 
 interface UntrackedTeam {
@@ -601,66 +589,6 @@ export default function ProjectsContent() {
     );
   };
 
-  const ProgressRing = ({ stats }: { stats: EpicRingStats }) => {
-    // Match the maxVolume metric (commits + jiras) so jira-only epics size
-    // correctly. Floor bumped to 22px so even a zero-volume epic shows a
-    // legible ring if it has any progress at all.
-    const volume = Math.log(stats.commitCount + stats.totalJiras + 1);
-    const sizePct = maxVolume > 0 ? volume / maxVolume : 0;
-    const px = Math.max(22, Math.round(sizePct * 48));
-
-    const jiraPct = stats.totalJiras > 0 ? stats.resolvedJiras / stats.totalJiras : 0;
-    const expectedCommits = stats.totalJiras * avgCommitsPerJira;
-    const commitPct = expectedCommits > 0 ? Math.min(1, stats.commitCount / expectedCommits) : 0;
-
-    // SVG ring math
-    const outerR = 20;
-    const innerR = 13;
-    const outerCirc = 2 * Math.PI * outerR;
-    const innerCirc = 2 * Math.PI * innerR;
-    const outerOffset = outerCirc * (1 - jiraPct);
-    const innerOffset = innerCirc * (1 - commitPct);
-
-    // Stroke width scales inversely with size for readability
-    const outerStroke = Math.max(3, 8 - sizePct * 5);
-    const innerStroke = Math.max(3, 8 - sizePct * 5);
-
-    const jiraPctDisplay = Math.round(jiraPct * 100);
-    const commitPctDisplay = Math.round(commitPct * 100);
-
-    const totalLines = stats.linesAdded + stats.linesRemoved;
-    const linesPerDev = stats.devCount > 0 ? totalLines / stats.devCount : 0;
-    const isAiSpeed = linesPerDev >= 20000;
-
-    return (
-      <div className="relative group" style={{ width: px, height: px }}>
-        <svg width={px} height={px} viewBox="0 0 48 48" style={{ transform: 'rotate(-90deg)' }}>
-          <circle cx="24" cy="24" r={outerR} fill="none" stroke="#1f2937" strokeWidth={outerStroke} />
-          <circle cx="24" cy="24" r={outerR} fill="none" stroke="#D97706" strokeWidth={outerStroke}
-            strokeDasharray={outerCirc} strokeDashoffset={outerOffset} strokeLinecap="round" />
-          <circle cx="24" cy="24" r={innerR} fill="none" stroke="#1f2937" strokeWidth={innerStroke} />
-          <circle cx="24" cy="24" r={innerR} fill="none" stroke="#10B981" strokeWidth={innerStroke}
-            strokeDasharray={innerCirc} strokeDashoffset={innerOffset} strokeLinecap="round" />
-        </svg>
-        <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 font-bold text-gray-200"
-          style={{ fontSize: Math.max(7, Math.round(px * 0.28)) }}>
-          {stats.devCount}
-        </span>
-        {isAiSpeed && (
-          <span className="absolute -top-1 -left-1 text-[10px] leading-none" title="AI speed">⚡</span>
-        )}
-        {/* Tooltip */}
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-20
-          bg-gray-800 border border-gray-700 rounded-md px-3 py-2 text-xs text-gray-300 whitespace-nowrap shadow-lg">
-          Jira: <span className="text-amber-400 font-semibold">{stats.resolvedJiras}/{stats.totalJiras}</span> closed ({jiraPctDisplay}%)
-          {' · '}Commits: <span className="text-emerald-400 font-semibold">{stats.commitCount}</span> ({commitPctDisplay}% of expected)
-          {' · '}<span className="text-gray-200 font-semibold">{stats.devCount}</span> dev{stats.devCount !== 1 ? 's' : ''}
-          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-700" />
-        </div>
-      </div>
-    );
-  };
-
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
       {/* Header */}
@@ -833,7 +761,11 @@ export default function ProjectsContent() {
                         )}
                         <td className="px-2 py-3 text-center">
                           {ringStats[epic.key] ? (
-                            <ProgressRing stats={ringStats[epic.key]} />
+                            <ProgressRing
+                              stats={ringStats[epic.key]}
+                              maxVolume={maxVolume}
+                              avgCommitsPerJira={avgCommitsPerJira}
+                            />
                           ) : (
                             <div className="w-4 h-4 rounded-full bg-gray-800 animate-pulse mx-auto" />
                           )}
