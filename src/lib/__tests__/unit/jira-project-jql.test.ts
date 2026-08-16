@@ -65,4 +65,24 @@ describe('injection defence at the point of use', () => {
     expect(() => buildProjectJql({ ...RND, activeStatus: 'a"b' }, 'active')).toThrow(/activeStatus/);
     expect(() => buildProjectJql({ ...RND, middleStatus: 'a"b' }, 'middle')).toThrow(/middleStatus/);
   });
+
+  it('rejects a status ending in a backslash, which would escape the closing quote', () => {
+    expect(() => buildProjectJql({ ...RND, activeStatus: 'In Progress\\' }, 'active')).toThrow(/activeStatus/);
+    expect(() => buildProjectJql({ ...RND, middleStatus: 'Backlog\\' }, 'middle')).toThrow(/middleStatus/);
+  });
+
+  it('rejects a backslash anywhere in a status name', () => {
+    expect(() => buildProjectJql({ ...RND, activeStatus: 'In\\Progress' }, 'active')).toThrow(/activeStatus/);
+  });
+
+  it('throws a typed error rather than a TypeError for a null activeStatus', () => {
+    expect(() => buildProjectJql({ ...RND, activeStatus: null as unknown as string }, 'active'))
+      .toThrow(/activeStatus/);
+  });
+
+  it('still accepts status names Jira really uses', () => {
+    // SPS genuinely has "Specs & Design" — do not over-restrict to a whitelist.
+    expect(buildProjectJql({ ...SPS, activeStatus: 'Specs & Design' }, 'active'))
+      .toBe('project = "SPS" AND issuetype = Epic AND status = "Specs & Design"');
+  });
 });

@@ -12,7 +12,7 @@ export function buildProjectJql(project: JiraProject, tab: BoardTabKind): string
 
   switch (tab) {
     case 'active': {
-      if (project.activeStatus.includes('"')) {
+      if (!project.activeStatus || project.activeStatus.includes('"') || project.activeStatus.includes('\\')) {
         throw new JiraProjectError(`buildProjectJql received an invalid activeStatus: ${project.activeStatus}`);
       }
       return `${base} AND status = "${project.activeStatus}"`;
@@ -21,7 +21,7 @@ export function buildProjectJql(project: JiraProject, tab: BoardTabKind): string
       if (!project.middleStatus) {
         throw new JiraProjectError(`Project ${project.projectKey} has no middle tab`);
       }
-      if (project.middleStatus.includes('"')) {
+      if (project.middleStatus.includes('"') || project.middleStatus.includes('\\')) {
         throw new JiraProjectError(`buildProjectJql received an invalid middleStatus: ${project.middleStatus}`);
       }
       return `${base} AND status = "${project.middleStatus}"`;
