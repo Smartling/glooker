@@ -70,4 +70,23 @@ describe('validateJiraProject', () => {
     expect(() => validateJiraProject('nope')).toThrow(JiraProjectError);
     expect(() => validateJiraProject(null)).toThrow(JiraProjectError);
   });
+
+  it('rejects a status name ending in a backslash, which would escape the closing quote', () => {
+    expect(() => validateJiraProject({ ...valid, activeStatus: 'Rollout\\' })).toThrow(/activeStatus/);
+    expect(() => validateJiraProject({ ...valid, middleStatus: 'Backlog\\' })).toThrow(/middleStatus/);
+  });
+
+  it('rejects a status name containing a backslash anywhere', () => {
+    expect(() => validateJiraProject({ ...valid, activeStatus: 'In\\Progress' })).toThrow(/activeStatus/);
+  });
+
+  it('still accepts status names with characters Jira really uses', () => {
+    // SPS genuinely has a "Specs & Design" status; do not over-restrict.
+    expect(validateJiraProject({ ...valid, activeStatus: 'Specs & Design' }).activeStatus).toBe('Specs & Design');
+    expect(validateJiraProject({ ...valid, activeStatus: 'Ready for Dev (QA)' }).activeStatus).toBe('Ready for Dev (QA)');
+  });
+
+  it('rejects a negative position', () => {
+    expect(() => validateJiraProject({ ...valid, position: -1 })).toThrow(/position/);
+  });
 });

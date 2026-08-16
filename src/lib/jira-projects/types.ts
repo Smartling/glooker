@@ -42,11 +42,13 @@ export class JiraProjectError extends Error {
   }
 }
 
-/** Status names are interpolated into quoted JQL literals, so a double quote
- *  would let a name break out of the string. */
+/** Status names are interpolated into quoted JQL literals. A backslash or
+ *  double quote would let a name break out of the string: a trailing backslash
+ *  escapes the closing quote, and a double quote closes it early. These are
+ *  the only two characters that need rejection for JQL double-quoted literals. */
 function checkStatus(field: string, value: string): string {
-  if (value.includes('"')) {
-    throw new JiraProjectError(`${field} must not contain a double quote`);
+  if (value.includes('"') || value.includes('\\')) {
+    throw new JiraProjectError(`${field} must not contain a backslash or double quote`);
   }
   return value;
 }
