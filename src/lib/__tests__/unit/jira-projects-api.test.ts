@@ -18,7 +18,7 @@ jest.mock('@/lib/jira-projects/service', () => {
   };
 });
 
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { GET, POST } from '@/app/api/jira-projects/route';
 import { PUT, DELETE } from '@/app/api/jira-projects/[id]/route';
 import {
@@ -77,6 +77,20 @@ describe('POST /api/jira-projects', () => {
   it('400s without an org', async () => {
     expect((await POST(post({ projectKey: 'RND', activeStatus: 'x' }))).status).toBe(400);
   });
+
+  it('refuses a non-admin and does not touch the service', async () => {
+    // Real shape from src/lib/auth.ts's requireAdmin: NextResponse.json({ error: 'Forbidden' }, { status: 403 }).
+    // mockResolvedValueOnce is consumed by this single call, so the factory's
+    // default mockResolvedValue(null) is back in effect for every later test —
+    // no manual reset needed.
+    const { requireAdmin } = jest.requireMock('@/lib/auth');
+    requireAdmin.mockResolvedValueOnce(
+      NextResponse.json({ error: 'Forbidden' }, { status: 403 }),
+    );
+    const res = await POST(post({ org: 'o', projectKey: 'RND', activeStatus: 'In Progress' }));
+    expect(res.status).toBe(403);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
 });
 
 describe('PUT /api/jira-projects/[id]', () => {
@@ -86,9 +100,16 @@ describe('PUT /api/jira-projects/[id]', () => {
     expect((await res.json())).toEqual({ updated: true });
   });
 
-  it('400s on a validation failure', async () => {
+  it('400s on a validation failure, carrying the message', async () => {
     mockUpdate.mockRejectedValue(new JiraProjectError('activeStatus must not contain a double quote'));
-    expect((await PUT(put({ projectKey: 'RND', activeStatus: 'a"b' }), ctx)).status).toBe(400);
+    const res = await PUT(put({ projectKey: 'RND', activeStatus: 'a"b' }), ctx);
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/activeStatus/);
+  });
+
+  it('409s on a duplicate key', async () => {
+    mockUpdate.mockRejectedValue(new JiraProjectDuplicateError('RND'));
+    expect((await PUT(put({ projectKey: 'RND', activeStatus: 'In Progress' }), ctx)).status).toBe(409);
   });
 
   it('404s when the row is gone', async () => {
