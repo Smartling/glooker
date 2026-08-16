@@ -1,3 +1,4 @@
+import db from '@/lib/db';
 import { listJiraProjects, createJiraProject } from './service';
 
 /**
@@ -18,6 +19,18 @@ export function parseLegacyJql(jql: string): { projectKey: string; activeStatus:
  * Seed one project from the legacy env var when nothing is configured, so an
  * existing deployment keeps its board without operator action. Never throws:
  * a failure here must not take the Projects page down.
+ *
+ * `org` is called from GET /api/projects and GET /api/jira-projects, both
+ * read-only and neither admin-gated (viewers must be able to read the
+ * board), with `org` taken straight from a caller-controlled query param —
+ * the same unvalidated convention every route in this codebase uses. Because
+ * this function INSERTs, seeding unconditionally would let any caller mint a
+ * jira_projects row for an arbitrary org string just by requesting it. So we
+ * only seed for an org this deployment already knows about (has a team or a
+ * report); a brand-new deployment with neither simply doesn't auto-seed and
+ * instead falls through to the existing "No Jira projects configured. Add
+ * one in Settings → Projects." message — strictly better than an
+ * unauthenticated GET writing rows for org strings nobody chose.
  */
 export async function ensureSeedProject(org: string): Promise<void> {
   try {
@@ -29,6 +42,18 @@ export async function ensureSeedProject(org: string): Promise<void> {
 
     const parsed = parseLegacyJql(raw);
     if (!parsed) return;
+
+    const [teamRows] = await db.execute(
+      `SELECT 1 FROM teams WHERE org = ? LIMIT 1`,
+      [org],
+    ) as [any[], any];
+    if (teamRows.length === 0) {
+      const [reportRows] = await db.execute(
+        `SELECT 1 FROM reports WHERE org = ? LIMIT 1`,
+        [org],
+      ) as [any[], any];
+      if (reportRows.length === 0) return;
+    }
 
     await createJiraProject(org, {
       projectKey: parsed.projectKey,

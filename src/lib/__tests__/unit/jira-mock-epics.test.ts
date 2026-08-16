@@ -62,7 +62,8 @@ describe('MockJiraClient.searchEpics status filtering', () => {
     expect(epics).toHaveLength(2);
     // RSCH-302 is the Rejected epic: rejected hypotheses sit in the Done
     // statusCategory in real Jira despite carrying no resolution date, which
-    // is exactly why buildTeamJql's Done clause needs the `OR updated` window.
+    // is exactly why buildProjectJql's Done clause filters on `updated`
+    // rather than a resolution date.
     expect(epics.map(e => e.key)).toContain('RSCH-302');
     expect(epics.map(e => e.key).sort()).toEqual(['RSCH-301', 'RSCH-302']);
   });

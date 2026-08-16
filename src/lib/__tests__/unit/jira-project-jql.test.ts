@@ -75,6 +75,11 @@ describe('injection defence at the point of use', () => {
     expect(() => buildProjectJql({ ...RND, activeStatus: 'In\\Progress' }, 'active')).toThrow(/activeStatus/);
   });
 
+  it('rejects an interior newline in a status name', () => {
+    expect(() => buildProjectJql({ ...RND, activeStatus: 'In\nProgress' }, 'active')).toThrow(/activeStatus/);
+    expect(() => buildProjectJql({ ...RND, middleStatus: 'Roll\rout' }, 'middle')).toThrow(/middleStatus/);
+  });
+
   it('throws a typed error rather than a TypeError for a null activeStatus', () => {
     expect(() => buildProjectJql({ ...RND, activeStatus: null as unknown as string }, 'active'))
       .toThrow(/activeStatus/);

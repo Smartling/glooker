@@ -80,6 +80,11 @@ describe('validateJiraProject', () => {
     expect(() => validateJiraProject({ ...valid, activeStatus: 'In\\Progress' })).toThrow(/activeStatus/);
   });
 
+  it('rejects a status name containing an interior newline', () => {
+    expect(() => validateJiraProject({ ...valid, activeStatus: 'In\nProgress' })).toThrow(/activeStatus/);
+    expect(() => validateJiraProject({ ...valid, middleStatus: 'Roll\rout' })).toThrow(/middleStatus/);
+  });
+
   it('still accepts status names with characters Jira really uses', () => {
     // SPS genuinely has a "Specs & Design" status; do not over-restrict.
     expect(validateJiraProject({ ...valid, activeStatus: 'Specs & Design' }).activeStatus).toBe('Specs & Design');

@@ -116,6 +116,16 @@ describe('PUT /api/jira-projects/[id]', () => {
     mockUpdate.mockRejectedValue(new JiraProjectNotFoundError('p1'));
     expect((await PUT(put({ projectKey: 'RND', activeStatus: 'x' }), ctx)).status).toBe(404);
   });
+
+  it('refuses a non-admin and does not touch the service', async () => {
+    const { requireAdmin } = jest.requireMock('@/lib/auth');
+    requireAdmin.mockResolvedValueOnce(
+      NextResponse.json({ error: 'Forbidden' }, { status: 403 }),
+    );
+    const res = await PUT(put({ projectKey: 'RND', activeStatus: 'In Progress' }), ctx);
+    expect(res.status).toBe(403);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
 });
 
 describe('DELETE /api/jira-projects/[id]', () => {
@@ -123,5 +133,15 @@ describe('DELETE /api/jira-projects/[id]', () => {
     mockDelete.mockResolvedValue(undefined);
     const res = await DELETE(new NextRequest('http://localhost/api/jira-projects/p1', { method: 'DELETE' }), ctx);
     expect((await res.json())).toEqual({ deleted: true });
+  });
+
+  it('refuses a non-admin and does not touch the service', async () => {
+    const { requireAdmin } = jest.requireMock('@/lib/auth');
+    requireAdmin.mockResolvedValueOnce(
+      NextResponse.json({ error: 'Forbidden' }, { status: 403 }),
+    );
+    const res = await DELETE(new NextRequest('http://localhost/api/jira-projects/p1', { method: 'DELETE' }), ctx);
+    expect(res.status).toBe(403);
+    expect(mockDelete).not.toHaveBeenCalled();
   });
 });

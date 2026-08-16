@@ -108,7 +108,10 @@ describe('GET /api/projects', () => {
   });
 
   it('returns an empty list rather than 500 when the middle tab is not configured', async () => {
-    mockGet.mockResolvedValue({ ...RND, middleStatus: null });
+    // The project is resolved from the `configured` list (FIX 6), not a
+    // separate getJiraProject call — so the no-middle-tab shape has to come
+    // from mockList, not mockGet.
+    mockList.mockResolvedValue([SPS, { ...RND, middleStatus: null }]);
     const res = await GET(req('?org=o&project=RND&status=middle'));
     expect(res.status).toBe(200);
     expect((await res.json()).epics).toEqual([]);

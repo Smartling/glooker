@@ -3,7 +3,7 @@ import db from '@/lib/db';
 
 export interface ProjectEpic {
   key: string;
-  /** Jira project key, derived from the epic key prefix. Used for provenance. */
+  /** The Jira project key, parsed from the epic key's prefix (e.g. "SPS" from "SPS-123"). */
   projectKey: string;
   summary: string;
   status: string;

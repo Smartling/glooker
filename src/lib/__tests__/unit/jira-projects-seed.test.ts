@@ -2,12 +2,15 @@ jest.mock('@/lib/jira-projects/service', () => ({
   listJiraProjects: jest.fn(),
   createJiraProject: jest.fn(),
 }));
+jest.mock('@/lib/db', () => ({ __esModule: true, default: { execute: jest.fn() } }));
 
 import { parseLegacyJql, ensureSeedProject } from '@/lib/jira-projects/seed';
 import { listJiraProjects, createJiraProject } from '@/lib/jira-projects/service';
+import db from '@/lib/db';
 
 const mockList = listJiraProjects as jest.Mock;
 const mockCreate = createJiraProject as jest.Mock;
+const mockExecute = db.execute as jest.Mock;
 
 let prev: string | undefined;
 beforeAll(() => { prev = process.env.JIRA_PROJECTS_JQL; });
@@ -19,6 +22,9 @@ afterAll(() => {
 beforeEach(() => {
   jest.clearAllMocks();
   mockList.mockResolvedValue([]);
+  // Default: the org is a known one (has a team), so the org-gating check in
+  // FIX 2 doesn't interfere with tests that aren't about it.
+  mockExecute.mockResolvedValue([[{ 1: 1 }], undefined]);
 });
 
 describe('parseLegacyJql', () => {
@@ -81,5 +87,45 @@ describe('ensureSeedProject', () => {
     process.env.JIRA_PROJECTS_JQL = 'project = SPS AND status = "In Progress"';
     mockCreate.mockRejectedValue(new Error('db down'));
     await expect(ensureSeedProject('o')).resolves.toBeUndefined();
+  });
+
+  describe('org gating', () => {
+    beforeEach(() => {
+      process.env.JIRA_PROJECTS_JQL = 'project = SPS AND issuetype = Epic AND status = "In Progress"';
+    });
+
+    it('seeds when the org is present in teams', async () => {
+      mockExecute.mockImplementation(async (sql: string) => {
+        if (sql.includes('FROM teams')) return [[{ 1: 1 }], undefined];
+        return [[], undefined];
+      });
+      await ensureSeedProject('o');
+      expect(mockCreate).toHaveBeenCalled();
+    });
+
+    it('seeds when the org is present only in reports', async () => {
+      mockExecute.mockImplementation(async (sql: string) => {
+        if (sql.includes('FROM teams')) return [[], undefined];
+        if (sql.includes('FROM reports')) return [[{ 1: 1 }], undefined];
+        return [[], undefined];
+      });
+      await ensureSeedProject('o');
+      expect(mockCreate).toHaveBeenCalled();
+      // Both queries run, teams first, since the org wasn't found there.
+      expect(mockExecute).toHaveBeenCalledWith(expect.stringContaining('FROM teams'), ['o']);
+      expect(mockExecute).toHaveBeenCalledWith(expect.stringContaining('FROM reports'), ['o']);
+    });
+
+    it('does not insert for an org present in neither teams nor reports', async () => {
+      mockExecute.mockResolvedValue([[], undefined]);
+      await ensureSeedProject('totally-made-up-org');
+      expect(mockCreate).not.toHaveBeenCalled();
+    });
+
+    it('never throws when the org-gating query itself fails', async () => {
+      mockExecute.mockRejectedValue(new Error('db down'));
+      await expect(ensureSeedProject('o')).resolves.toBeUndefined();
+      expect(mockCreate).not.toHaveBeenCalled();
+    });
   });
 });

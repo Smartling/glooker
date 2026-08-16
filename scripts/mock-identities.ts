@@ -181,8 +181,9 @@ export const MOCK_EPICS: MockEpic[] = [
  * GLOOK-38: research epics are deliberately parentless and span all three
  * board tabs, so the flat-hierarchy and Backlog paths are exercised in mock mode.
  * Assignee emails are intentionally NOT in MOCK_DEVELOPERS: a research team's
- * members may have no GitHub identity, which is exactly what provenance
- * attribution exists to handle.
+ * members may have no GitHub identity, and the board's team lookup (assignee
+ * email → user_mappings → team_members) has no fallback for that case — it
+ * renders the team cell as an em-dash, which this fixture exists to exercise.
  */
 export interface MockResearchEpic {
   key: string;

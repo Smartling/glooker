@@ -31,8 +31,8 @@ const STATUS_CATEGORY: Record<string, string> = {
   Backlog: 'To Do',
   Done: 'Done',
   // Rejected sits in the Done category despite carrying no resolution date —
-  // real Jira behaviour, and the reason buildTeamJql's Done clause needs the
-  // `OR updated` window.
+  // real Jira behaviour, and the reason buildProjectJql's Done clause filters
+  // on `updated` rather than a resolution date.
   Rejected: 'Done',
   Rollout: 'In Progress',
 };
@@ -111,9 +111,9 @@ export class MockJiraClient implements JiraClientInterface {
 
     const all = [...mockEpics, ...researchEpics];
 
-    // Honour a project clause so provenance sources don't cross-contaminate.
-    // A JQL with no project clause (the `key in (...)` initiative batch lookup)
-    // matches everything, preserving the previous behaviour.
+    // Honour a project clause so each project's board only sees its own
+    // epics. A JQL with no project clause (the `key in (...)` initiative
+    // batch lookup) matches everything, preserving the previous behaviour.
     const keys = extractProjectKeys(jql);
     const byProject = keys.length === 0 ? all : all.filter(e => keys.includes(e.key.split('-')[0]));
 

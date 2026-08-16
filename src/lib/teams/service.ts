@@ -76,10 +76,7 @@ export async function createTeam(input: TeamInput) {
     }
   }
 
-  return {
-    id, org, name: trimmedName, color: resolvedColor,
-    members: members || [],
-  };
+  return { id, org, name: trimmedName, color: resolvedColor, members: members || [] };
 }
 
 export async function updateTeam(id: string, input: TeamUpdateInput): Promise<void> {

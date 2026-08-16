@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchProjectEpics } from '@/lib/projects/service';
-import { listJiraProjects, getJiraProject } from '@/lib/jira-projects/service';
+import { listJiraProjects } from '@/lib/jira-projects/service';
 import { ensureSeedProject } from '@/lib/jira-projects/seed';
 import { buildProjectJql } from '@/lib/jira-projects/jql';
 import type { BoardTabKind } from '@/lib/jira-projects/types';
@@ -36,8 +36,10 @@ async function getHandler(req: NextRequest) {
       );
     }
 
+    // `configured` was just fetched above; resolve the requested project from
+    // it instead of a second round trip to the DB for data already in hand.
     const project = projectKey
-      ? await getJiraProject(org, projectKey)
+      ? configured.find(p => p.projectKey === projectKey.trim().toUpperCase())
       : configured[0];
 
     if (!project) {

@@ -44,11 +44,14 @@ export class JiraProjectError extends Error {
 
 /** Status names are interpolated into quoted JQL literals. A backslash or
  *  double quote would let a name break out of the string: a trailing backslash
- *  escapes the closing quote, and a double quote closes it early. These are
- *  the only two characters that need rejection for JQL double-quoted literals. */
+ *  escapes the closing quote, and a double quote closes it early. A literal
+ *  newline or carriage return doesn't escape the literal, but it does produce
+ *  JQL Jira rejects outright — a status containing one would otherwise pass
+ *  validation and only fail as a 500 from the board. These four characters
+ *  are the ones that need rejection for JQL double-quoted literals. */
 function checkStatus(field: string, value: string): string {
-  if (value.includes('"') || value.includes('\\')) {
-    throw new JiraProjectError(`${field} must not contain a backslash or double quote`);
+  if (value.includes('"') || value.includes('\\') || value.includes('\n') || value.includes('\r')) {
+    throw new JiraProjectError(`${field} must not contain a backslash, double quote, or newline`);
   }
   return value;
 }
