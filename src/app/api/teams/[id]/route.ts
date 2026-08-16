@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { updateTeam, deleteTeam, TeamNotFoundError } from '@/lib/teams/service';
-import { BoardConfigError } from '@/lib/teams/board-config';
 import { requireAdmin } from '@/lib/auth';
 import { withRequestLog } from '@/lib/logger';
 
@@ -19,9 +18,6 @@ async function putHandler(
   } catch (err) {
     if (err instanceof TeamNotFoundError) {
       return NextResponse.json({ error: err.message }, { status: 404 });
-    }
-    if (err instanceof BoardConfigError) {
-      return NextResponse.json({ error: err.message }, { status: 400 });
     }
     throw err;
   }

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { listTeams, createTeam, TeamDuplicateError } from '@/lib/teams/service';
-import { BoardConfigError } from '@/lib/teams/board-config';
 import { requireAdmin } from '@/lib/auth';
 import { withRequestLog } from '@/lib/logger';
 
@@ -25,9 +24,6 @@ async function postHandler(req: NextRequest) {
   } catch (err) {
     if (err instanceof TeamDuplicateError) {
       return NextResponse.json({ error: err.message }, { status: 409 });
-    }
-    if (err instanceof BoardConfigError) {
-      return NextResponse.json({ error: err.message }, { status: 400 });
     }
     throw err;
   }

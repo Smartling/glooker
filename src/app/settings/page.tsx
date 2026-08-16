@@ -4,9 +4,9 @@ import { useState, useEffect, useRef } from 'react';
 import { useTheme } from '../theme-context';
 import { THEMES, type ThemeColors } from '../themes';
 import { useAuth } from '../auth-context';
-import { buildBoardConfigPayload } from './board-config-form';
+import ProjectsTab from './projects-tab';
 
-type Tab = 'schedules' | 'teams' | 'app' | 'appearance' | 'cc-spend' | 'skip-allowlist';
+type Tab = 'schedules' | 'teams' | 'projects' | 'app' | 'appearance' | 'cc-spend' | 'skip-allowlist';
 
 const CADENCE_PRESETS = [
   { label: 'Every hour',           cron: '0 * * * *' },
@@ -39,11 +39,11 @@ export default function SettingsPage() {
   const [selectedOrg, setSelectedOrg] = useState('');
 
   // Set default tab: hash overrides, otherwise 'app' for admins
-  const adminTabs = ['schedules', 'teams', 'app', 'cc-spend', 'skip-allowlist'];
+  const adminTabs = ['schedules', 'teams', 'projects', 'app', 'cc-spend', 'skip-allowlist'];
   useEffect(() => {
     if (!loading) {
       const hash = window.location.hash.replace('#', '') as Tab;
-      if (['schedules', 'teams', 'app', 'appearance', 'cc-spend', 'skip-allowlist'].includes(hash)) {
+      if (['schedules', 'teams', 'projects', 'app', 'appearance', 'cc-spend', 'skip-allowlist'].includes(hash)) {
         // Only allow admin tabs if user is admin
         if (adminTabs.includes(hash) && !canAct) {
           setActiveTab('appearance');
@@ -72,6 +72,7 @@ export default function SettingsPage() {
         {([
           { id: 'schedules' as Tab, label: 'Schedules', icon: '🕐', adminOnly: true },
           { id: 'teams' as Tab, label: 'Teams', icon: '👥', adminOnly: true },
+          { id: 'projects' as Tab, label: 'Projects', icon: '📋', adminOnly: true },
           { id: 'app' as Tab, label: 'App Settings', icon: '⚙️', adminOnly: true },
           { id: 'cc-spend' as Tab, label: 'CC Spend', icon: '💰', adminOnly: true },
           { id: 'skip-allowlist' as Tab, label: 'Skip Allowlist', icon: '🚫', adminOnly: true },
@@ -95,6 +96,7 @@ export default function SettingsPage() {
       {/* Tab Content */}
       {activeTab === 'schedules' && <SchedulesTab />}
       {activeTab === 'teams' && selectedOrg && <TeamsTab org={selectedOrg} />}
+      {activeTab === 'projects' && selectedOrg && <ProjectsTab org={selectedOrg} />}
       {activeTab === 'app' && <AppSettingsTab org={selectedOrg} />}
       {activeTab === 'cc-spend' && <CCSpendTab />}
       {activeTab === 'skip-allowlist' && <SkipAllowlistTab />}
@@ -394,13 +396,6 @@ function TeamsTab({ org }: { org: string }) {
   const [formName, setFormName] = useState('');
   const [formColor, setFormColor] = useState(TEAM_COLORS[0]);
   const [formMembers, setFormMembers] = useState<string[]>([]);
-  const [formProjectKeys, setFormProjectKeys] = useState('');
-  const [formHierarchy, setFormHierarchy] = useState<'goal-initiative' | 'owner'>('goal-initiative');
-  const [formMiddleTab, setFormMiddleTab] = useState<'Rollout' | 'Backlog'>('Rollout');
-  const [formRingMode, setFormRingMode] = useState<'commits' | 'jira'>('commits');
-  const [formDoneWindow, setFormDoneWindow] = useState('30');
-  const [formIncludeRejected, setFormIncludeRejected] = useState(false);
-  const [boardError, setBoardError] = useState<string | null>(null);
   const [memberQuery, setMemberQuery] = useState('');
   const [memberResults, setMemberResults] = useState<any[]>([]);
   const [memberHighlight, setMemberHighlight] = useState(0);
@@ -423,13 +418,6 @@ function TeamsTab({ org }: { org: string }) {
     setFormName('');
     setFormColor(TEAM_COLORS[teams.length % TEAM_COLORS.length]);
     setFormMembers([]);
-    setFormProjectKeys('');
-    setFormHierarchy('goal-initiative');
-    setFormMiddleTab('Rollout');
-    setFormRingMode('commits');
-    setFormDoneWindow('30');
-    setFormIncludeRejected(false);
-    setBoardError(null);
     setEditingTeam(null);
     setMemberQuery('');
     setMemberResults([]);
@@ -441,30 +429,13 @@ function TeamsTab({ org }: { org: string }) {
     setFormName(team.name);
     setFormColor(team.color);
     setFormMembers([...team.members]);
-    const bc = team.board_config;
-    setFormProjectKeys((bc.jiraProjectKeys || []).join(', '));
-    setFormHierarchy(bc.hierarchy || 'goal-initiative');
-    setFormMiddleTab(bc.middleTab || 'Rollout');
-    setFormRingMode(bc.ringMode || 'commits');
-    setFormDoneWindow(String(bc.doneWindowDays ?? 30));
-    setFormIncludeRejected(Boolean(bc.includeRejected));
-    setBoardError(null);
     setMemberQuery('');
     setMemberResults([]);
     setShowForm(true);
   }
 
   async function save() {
-    setBoardError(null);
-    const boardConfig = buildBoardConfigPayload({
-      projectKeysRaw: formProjectKeys,
-      hierarchy: formHierarchy,
-      middleTab: formMiddleTab,
-      ringMode: formRingMode,
-      doneWindowDays: formDoneWindow,
-      includeRejected: formIncludeRejected,
-    });
-    const body = { org, name: formName, color: formColor, members: formMembers, boardConfig };
+    const body = { org, name: formName, color: formColor, members: formMembers };
     try {
       const url = editingTeam ? `/api/teams/${editingTeam.id}` : '/api/teams';
       const method = editingTeam ? 'PUT' : 'POST';
@@ -475,9 +446,7 @@ function TeamsTab({ org }: { org: string }) {
       });
       if (!res.ok) {
         const d = await res.json();
-        // 400 is a board_config validation failure — show it next to the fields.
-        if (res.status === 400) setBoardError(d.error || 'Invalid board settings');
-        else alert(d.error || 'Failed');
+        alert(d.error || 'Failed');
         return;
       }
       loadTeams();
@@ -781,100 +750,6 @@ function TeamsTab({ org }: { org: string }) {
               </div>
               {formMembers.length > 0 && (
                 <button onClick={() => setFormMembers([])} className="text-xs text-gray-600 hover:text-gray-400 mt-1">Clear all</button>
-              )}
-            </div>
-
-            {/* Board */}
-            <div className="mt-4 pt-4 border-t border-gray-800">
-              <div className="text-[10px] uppercase tracking-wider font-semibold text-gray-500 mb-2">
-                Board
-              </div>
-
-              <label className="block text-xs text-gray-400 mb-1">Jira project keys</label>
-              <input
-                type="text"
-                value={formProjectKeys}
-                onChange={e => setFormProjectKeys(e.target.value)}
-                placeholder="RND"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-gray-300 placeholder-gray-600 focus:outline-none focus:border-accent"
-              />
-              <p className="text-[11px] text-gray-600 mt-1">
-                Comma-separated. Epics in these projects belong to this team regardless of who commits.
-                Leave blank to use the standard board.
-              </p>
-
-              {formProjectKeys.trim() !== '' && (
-                <div className="mt-3 grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs text-gray-400 mb-1">Group rows by</label>
-                    <select
-                      value={formHierarchy}
-                      onChange={e => setFormHierarchy(e.target.value as 'goal-initiative' | 'owner')}
-                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-accent cursor-pointer"
-                    >
-                      <option value="goal-initiative">Goal and initiative</option>
-                      <option value="owner">Person</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs text-gray-400 mb-1">Middle tab</label>
-                    <select
-                      value={formMiddleTab}
-                      onChange={e => setFormMiddleTab(e.target.value as 'Rollout' | 'Backlog')}
-                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-accent cursor-pointer"
-                    >
-                      <option value="Rollout">Rollout</option>
-                      <option value="Backlog">Backlog</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs text-gray-400 mb-1">Progress ring</label>
-                    <select
-                      value={formRingMode}
-                      onChange={e => setFormRingMode(e.target.value as 'commits' | 'jira')}
-                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-accent cursor-pointer"
-                    >
-                      <option value="commits">Jira and commits</option>
-                      <option value="jira">Jira only</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs text-gray-400 mb-1">Keep finished work</label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        min={1}
-                        max={365}
-                        value={formDoneWindow}
-                        onChange={e => setFormDoneWindow(e.target.value)}
-                        className="w-20 bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-accent"
-                      />
-                      <span className="text-xs text-gray-500">days</span>
-                    </div>
-                  </div>
-
-                  <div className="col-span-2">
-                    <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={formIncludeRejected}
-                        onChange={e => setFormIncludeRejected(e.target.checked)}
-                        className="accent-amber-600"
-                      />
-                      Include rejected work
-                    </label>
-                    <p className="text-[11px] text-gray-600 mt-1">
-                      Rejected items carry no resolution date, so this also matches on last updated.
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {boardError && (
-                <div className="mt-2 text-xs text-red-400">{boardError}</div>
               )}
             </div>
 
