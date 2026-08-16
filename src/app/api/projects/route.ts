@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchProjectEpics, type ProjectEpic } from '@/lib/projects/service';
-import { resolveProjectSources, resolveBoardConfig, buildTeamJql } from '@/lib/projects/sources';
-import type { BoardTab } from '@/lib/teams/board-config';
+import { fetchProjectEpics } from '@/lib/projects/service';
+import { listJiraProjects, getJiraProject } from '@/lib/jira-projects/service';
+import { ensureSeedProject } from '@/lib/jira-projects/seed';
+import { buildProjectJql } from '@/lib/jira-projects/jql';
+import type { BoardTabKind } from '@/lib/jira-projects/types';
 import { withRequestLog } from '@/lib/logger';
 
-const TABS: BoardTab[] = ['In Progress', 'Rollout', 'Backlog', 'Done'];
+const TABS: BoardTabKind[] = ['active', 'middle', 'done'];
 
 async function getHandler(req: NextRequest) {
   const org = req.nextUrl.searchParams.get('org');
@@ -17,52 +19,41 @@ async function getHandler(req: NextRequest) {
   }
 
   const statusParam = req.nextUrl.searchParams.get('status');
-  const tab: BoardTab = TABS.includes(statusParam as BoardTab)
-    ? (statusParam as BoardTab)
-    : 'In Progress';
-  const teamFilter = req.nextUrl.searchParams.get('team');
-
-  // The global source keeps its historical string-surgery behaviour verbatim.
-  // Do not "improve" this regex here — see the plan's Global Constraints.
-  const baseJql = process.env.JIRA_PROJECTS_JQL;
-  let globalJql: string | null = baseJql ?? null;
-  if (baseJql) {
-    if (tab === 'Rollout') {
-      globalJql = baseJql.replace(/status\s*=\s*"[^"]*"/, 'status = "Rollout"');
-    } else if (tab === 'Done') {
-      globalJql = baseJql.replace(/status\s*=\s*"[^"]*"/, 'statusCategory = "Done"') + ' AND updated >= -30d';
-    } else if (tab === 'Backlog') {
-      // Backlog is a team-source concept; the global board has no such tab.
-      globalJql = null;
-    }
-  }
+  const tab: BoardTabKind = TABS.includes(statusParam as BoardTabKind)
+    ? (statusParam as BoardTabKind)
+    : 'active';
+  const projectKey = req.nextUrl.searchParams.get('project');
 
   try {
-    const sources = await resolveProjectSources(org, { globalJql, team: teamFilter });
-    if (sources.length === 0) {
+    // Migrates an existing deployment on first request; no-op thereafter.
+    await ensureSeedProject(org);
+
+    const configured = await listJiraProjects(org);
+    if (configured.length === 0) {
       return NextResponse.json(
-        { error: 'No project sources configured. Set JIRA_PROJECTS_JQL or give a team Jira project keys.' },
+        { error: 'No Jira projects configured. Add one in Settings → Projects.' },
         { status: 404 },
       );
     }
 
-    const byKey = new Map<string, ProjectEpic>();
-    for (const source of sources) {
-      const jql = source.kind === 'global'
-        ? source.jql
-        : buildTeamJql(source.projectKeys, tab, source.config);
-      const provenanceTeam = source.kind === 'team' ? source.team : null;
-      const epics = await fetchProjectEpics(jql, org, { provenanceTeam });
-      for (const epic of epics) {
-        // Provenance wins: a team source runs after the global one and overwrites.
-        const existing = byKey.get(epic.key);
-        if (!existing || provenanceTeam) byKey.set(epic.key, epic);
-      }
+    const project = projectKey
+      ? await getJiraProject(org, projectKey)
+      : configured[0];
+
+    if (!project) {
+      return NextResponse.json({ error: `Unknown Jira project: ${projectKey}` }, { status: 404 });
     }
 
-    const boardConfig = await resolveBoardConfig(org, teamFilter);
     const jiraHost = process.env.JIRA_HOST || null;
-    return NextResponse.json({ epics: Array.from(byKey.values()), jiraHost, boardConfig });
+
+    // A project with no middle status has a two-tab board; asking for its
+    // middle tab is a legal URL that simply has nothing behind it.
+    if (tab === 'middle' && !project.middleStatus) {
+      return NextResponse.json({ epics: [], jiraHost, project });
+    }
+
+    const epics = await fetchProjectEpics(buildProjectJql(project, tab), org);
+    return NextResponse.json({ epics, jiraHost, project });
   } catch (err) {
     console.error('[projects] Error fetching epics:', err);
     return NextResponse.json(
