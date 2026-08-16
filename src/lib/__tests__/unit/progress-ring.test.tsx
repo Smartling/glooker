@@ -45,47 +45,10 @@ describe('ProgressRing commits mode (unchanged default)', () => {
   });
 });
 
-describe('ProgressRing jira mode', () => {
-  it('draws only two circles — one track, one amber arc', () => {
-    const { container } = render(
-      <ProgressRing stats={stats()} maxVolume={MAX_VOLUME} avgCommitsPerJira={1} mode="jira" />,
-    );
-    expect(container.querySelectorAll('circle')).toHaveLength(2);
-    expect(container.querySelector('circle[stroke="#10B981"]')).toBeNull();
-    expect(container.querySelector('circle[stroke="#D97706"]')).not.toBeNull();
-  });
-
-  it('shows the child-issue count in the centre, not the dev count', () => {
-    const { getByText, queryByText } = render(
-      <ProgressRing stats={stats({ totalJiras: 6, devCount: 0 })} maxVolume={MAX_VOLUME} avgCommitsPerJira={1} mode="jira" />,
-    );
-    expect(getByText('6')).toBeTruthy();
-    expect(queryByText('0')).toBeNull();
-  });
-
-  it('omits commit figures from the tooltip', () => {
-    const { container } = render(
-      <ProgressRing stats={stats()} maxVolume={MAX_VOLUME} avgCommitsPerJira={1} mode="jira" />,
-    );
-    expect(container.textContent).toContain('closed');
-    expect(container.textContent).not.toContain('of expected');
-  });
-
-  it('never shows the AI-speed bolt, since it is lines-per-committer', () => {
-    const { container } = render(
-      <ProgressRing
-        stats={stats({ linesAdded: 46000, devCount: 1 })}
-        maxVolume={MAX_VOLUME} avgCommitsPerJira={1} mode="jira"
-      />,
-    );
-    expect(container.textContent).not.toContain('⚡');
-  });
-});
-
 describe('ProgressRing sizing (identical in both modes)', () => {
   it('renders the largest epic at 48px with a 3px stroke', () => {
     const { container } = render(
-      <ProgressRing stats={stats({ totalJiras: 30, resolvedJiras: 30 })} maxVolume={MAX_VOLUME} avgCommitsPerJira={0} mode="jira" />,
+      <ProgressRing stats={stats({ totalJiras: 30, resolvedJiras: 30 })} maxVolume={MAX_VOLUME} avgCommitsPerJira={0} />,
     );
     const svg = container.querySelector('svg')!;
     expect(svg.getAttribute('width')).toBe('48');
@@ -94,7 +57,7 @@ describe('ProgressRing sizing (identical in both modes)', () => {
 
   it('floors a childless epic at 22px with an 8px stroke', () => {
     const { container } = render(
-      <ProgressRing stats={stats({ totalJiras: 0, resolvedJiras: 0 })} maxVolume={MAX_VOLUME} avgCommitsPerJira={0} mode="jira" />,
+      <ProgressRing stats={stats({ totalJiras: 0, resolvedJiras: 0 })} maxVolume={MAX_VOLUME} avgCommitsPerJira={0} />,
     );
     expect(container.querySelector('svg')!.getAttribute('width')).toBe('22');
     expect(container.querySelector('circle')!.getAttribute('stroke-width')).toBe('8');
@@ -102,8 +65,18 @@ describe('ProgressRing sizing (identical in both modes)', () => {
 
   it('does not divide by zero when maxVolume is 0', () => {
     const { container } = render(
-      <ProgressRing stats={stats({ totalJiras: 0 })} maxVolume={0} avgCommitsPerJira={0} mode="jira" />,
+      <ProgressRing stats={stats({ totalJiras: 0 })} maxVolume={0} avgCommitsPerJira={0} />,
     );
     expect(container.querySelector('svg')!.getAttribute('width')).toBe('22');
+  });
+});
+
+describe('ProgressRing has no mode', () => {
+  it('always draws four circles — two tracks and two arcs', () => {
+    const { container } = render(
+      <ProgressRing stats={stats()} maxVolume={MAX_VOLUME} avgCommitsPerJira={1} />,
+    );
+    expect(container.querySelectorAll('circle')).toHaveLength(4);
+    expect(container.querySelector('circle[stroke="#10B981"]')).not.toBeNull();
   });
 });

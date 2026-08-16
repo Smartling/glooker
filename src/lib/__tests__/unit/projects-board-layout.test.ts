@@ -1,56 +1,63 @@
-import { visibleTabs, columnLayout, computeSpans } from '@/app/projects/board-layout';
-import { DEFAULT_BOARD_CONFIG } from '@/lib/teams/board-config';
+import { visibleTabs, tabLabel, columnLayout, computeSpans } from '@/app/projects/board-layout';
+import type { JiraProject } from '@/lib/jira-projects/types';
 
-const cfg = (over: Partial<typeof DEFAULT_BOARD_CONFIG> = {}) => ({ ...DEFAULT_BOARD_CONFIG, ...over });
+const SPS: JiraProject = {
+  id: 'a', org: 'o', projectKey: 'SPS', displayName: 'Smartling Platform',
+  activeStatus: 'In Progress', middleStatus: 'Rollout', hierarchy: 'goal-initiative', position: 0,
+};
+const RND: JiraProject = { ...SPS, id: 'b', projectKey: 'RND', middleStatus: 'Backlog', hierarchy: 'owner' };
 
 describe('visibleTabs', () => {
-  it('shows Rollout for the default board', () => {
-    expect(visibleTabs(null)).toEqual(['In Progress', 'Rollout', 'Done']);
+  it('gives a three-tab board when the project has a middle status', () => {
+    expect(visibleTabs(SPS)).toEqual(['active', 'middle', 'done']);
   });
 
-  it('shows Rollout when a config leaves middleTab alone', () => {
-    expect(visibleTabs(cfg())).toEqual(['In Progress', 'Rollout', 'Done']);
+  it('gives a two-tab board when it does not', () => {
+    expect(visibleTabs({ ...SPS, middleStatus: null })).toEqual(['active', 'done']);
   });
 
-  it('swaps in Backlog when configured', () => {
-    expect(visibleTabs(cfg({ middleTab: 'Backlog' }))).toEqual(['In Progress', 'Backlog', 'Done']);
+  it('falls back to a two-tab board with no project', () => {
+    expect(visibleTabs(null)).toEqual(['active', 'done']);
+  });
+});
+
+describe('tabLabel', () => {
+  it('labels the active and middle tabs with the project status names', () => {
+    expect(tabLabel(SPS, 'active')).toBe('In Progress');
+    expect(tabLabel(SPS, 'middle')).toBe('Rollout');
+    expect(tabLabel(RND, 'middle')).toBe('Backlog');
   });
 
-  // The page uses visibleTabs(null) as its recovery target when the tab fetch
-  // fails: on an error there is no config to trust, and the user has no tab bar
-  // to click because the error banner replaces it. If this set ever grew to
-  // include a config-only tab, a failed `?status=Backlog` would reset to itself
-  // and strand the user on a dead-end URL.
-  it('never offers a config-only tab as the no-config fallback set', () => {
-    expect(visibleTabs(null)).not.toContain('Backlog');
+  it('labels done with the fixed window', () => {
+    expect(tabLabel(SPS, 'done')).toBe('Done (30d)');
+  });
+
+  it('is safe with no project', () => {
+    expect(tabLabel(null, 'active')).toBe('In Progress');
   });
 });
 
 describe('columnLayout', () => {
-  it('gives the default board seven columns summing to 100%', () => {
-    const layout = columnLayout(null);
-    expect(layout.headers).toEqual(['Business Goal', 'Initiative', '', 'Epic', 'Due', 'Lead', 'Team']);
-    expect(layout.widths).toHaveLength(7);
-    // A widths/headers length mismatch is exactly what silently misaligns a
-    // `table-fixed` table, so pin the parity, not just the count and the sum.
-    expect(layout.widths).toHaveLength(layout.headers.length);
-    expect(layout.widths.reduce((a, b) => a + b, 0)).toBe(100);
-    expect(layout.showHierarchy).toBe(true);
-    expect(layout.showOwnerColumn).toBe(false);
+  it('gives seven columns for goal-initiative, summing to 100', () => {
+    const l = columnLayout(SPS);
+    expect(l.headers).toEqual(['Business Goal', 'Initiative', '', 'Epic', 'Due', 'Lead', 'Team']);
+    expect(l.widths).toHaveLength(l.headers.length);
+    expect(l.widths.reduce((a, b) => a + b, 0)).toBe(100);
+    expect(l.showHierarchy).toBe(true);
+    expect(l.showOwnerColumn).toBe(false);
   });
 
-  it('gives owner mode six columns summing to 100%, with Researcher first and Status split out', () => {
-    const layout = columnLayout(cfg({ hierarchy: 'owner' }));
-    expect(layout.headers).toEqual(['Researcher', '', 'Epic', 'Due', 'Status', 'Team']);
-    expect(layout.widths).toHaveLength(layout.headers.length);
-    expect(layout.widths.reduce((a, b) => a + b, 0)).toBe(100);
-    expect(layout.showHierarchy).toBe(false);
-    expect(layout.showOwnerColumn).toBe(true);
+  it('gives six columns for owner, summing to 100', () => {
+    const l = columnLayout(RND);
+    expect(l.headers).toEqual(['Owner', '', 'Epic', 'Due', 'Status', 'Team']);
+    expect(l.widths).toHaveLength(l.headers.length);
+    expect(l.widths.reduce((a, b) => a + b, 0)).toBe(100);
+    expect(l.showHierarchy).toBe(false);
+    expect(l.showOwnerColumn).toBe(true);
   });
 
-  it('keeps the ring column at 4% in both layouts', () => {
-    expect(columnLayout(null).widths[2]).toBe(4);
-    expect(columnLayout(cfg({ hierarchy: 'owner' })).widths[1]).toBe(4);
+  it('defaults to the seven-column layout with no project', () => {
+    expect(columnLayout(null).headers).toHaveLength(7);
   });
 });
 

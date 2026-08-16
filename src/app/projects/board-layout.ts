@@ -1,15 +1,25 @@
-import type { BoardConfig, BoardHierarchy, BoardTab } from '@/lib/teams/board-config';
+import type { JiraProject, BoardHierarchy, BoardTabKind } from '@/lib/jira-projects/types';
+import { DONE_WINDOW_DAYS } from '@/lib/jira-projects/jql';
 
-/** Every tab the URL may legally carry, across all board configurations. */
-export const ALL_TABS: BoardTab[] = ['In Progress', 'Rollout', 'Backlog', 'Done'];
+/** Every tab kind the URL may legally carry. */
+export const ALL_TABS: BoardTabKind[] = ['active', 'middle', 'done'];
 
 /**
- * The three tabs a given board shows. The middle slot is Rollout by default;
- * a research board swaps it for Backlog, where its queued hypotheses live.
+ * The tabs a given project shows. A project with no middle status has a
+ * two-tab board — there is no third status worth a permanently empty tab.
  */
-export function visibleTabs(config: BoardConfig | null): BoardTab[] {
-  const middle: BoardTab = config?.middleTab === 'Backlog' ? 'Backlog' : 'Rollout';
-  return ['In Progress', middle, 'Done'];
+export function visibleTabs(project: JiraProject | null): BoardTabKind[] {
+  return project?.middleStatus
+    ? ['active', 'middle', 'done']
+    : ['active', 'done'];
+}
+
+/** Tabs are labelled with the project's own status names, so a board reads in
+ *  the vocabulary of its Jira workflow rather than SPS's. */
+export function tabLabel(project: JiraProject | null, tab: BoardTabKind): string {
+  if (tab === 'done') return `Done (${DONE_WINDOW_DAYS}d)`;
+  if (tab === 'middle') return project?.middleStatus || 'Middle';
+  return project?.activeStatus || 'In Progress';
 }
 
 export interface ColumnLayout {
@@ -19,15 +29,10 @@ export interface ColumnLayout {
   showOwnerColumn: boolean;
 }
 
-/**
- * Column set for the board. Widths must sum to 100 and headers must have the
- * same length as widths — the table is `table-fixed`, so a mismatch silently
- * misaligns every row.
- */
-export function columnLayout(config: BoardConfig | null): ColumnLayout {
-  if (config?.hierarchy === 'owner') {
+export function columnLayout(project: JiraProject | null): ColumnLayout {
+  if (project?.hierarchy === 'owner') {
     return {
-      headers: ['Researcher', '', 'Epic', 'Due', 'Status', 'Team'],
+      headers: ['Owner', '', 'Epic', 'Due', 'Status', 'Team'],
       widths: [18, 4, 43, 11, 11, 13],
       showHierarchy: false,
       showOwnerColumn: true,
