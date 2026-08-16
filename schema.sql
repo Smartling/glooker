@@ -129,7 +129,6 @@ CREATE TABLE IF NOT EXISTS teams (
   org         VARCHAR(255) NOT NULL,
   name        VARCHAR(255) NOT NULL,
   color       VARCHAR(7)   NOT NULL DEFAULT '#3B82F6',
-  board_config JSON        NULL,
   created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_org_team (org, name)
 );
@@ -141,6 +140,19 @@ CREATE TABLE IF NOT EXISTS team_members (
   added_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
   UNIQUE KEY uq_team_member (team_id, github_login)
+);
+
+CREATE TABLE IF NOT EXISTS jira_projects (
+  id            VARCHAR(36)  NOT NULL PRIMARY KEY,
+  org           VARCHAR(255) NOT NULL,
+  project_key   VARCHAR(64)  NOT NULL,
+  display_name  VARCHAR(255) NOT NULL,
+  active_status VARCHAR(255) NOT NULL,
+  middle_status VARCHAR(255) NULL,
+  hierarchy     VARCHAR(32)  NOT NULL DEFAULT 'goal-initiative',
+  position      INT          NOT NULL DEFAULT 0,
+  created_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_org_project (org, project_key)
 );
 
 CREATE TABLE IF NOT EXISTS release_notes (

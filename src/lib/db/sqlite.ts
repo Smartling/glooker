@@ -137,7 +137,6 @@ CREATE TABLE IF NOT EXISTS teams (
   org         TEXT    NOT NULL,
   name        TEXT    NOT NULL,
   color       TEXT    NOT NULL DEFAULT '#3B82F6',
-  board_config TEXT,
   created_at  TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
   UNIQUE (org, name)
 );
@@ -149,6 +148,19 @@ CREATE TABLE IF NOT EXISTS team_members (
   added_at     TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
   FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
   UNIQUE (team_id, github_login)
+);
+
+CREATE TABLE IF NOT EXISTS jira_projects (
+  id            TEXT NOT NULL PRIMARY KEY,
+  org           TEXT NOT NULL,
+  project_key   TEXT NOT NULL,
+  display_name  TEXT NOT NULL,
+  active_status TEXT NOT NULL,
+  middle_status TEXT,
+  hierarchy     TEXT NOT NULL DEFAULT 'goal-initiative',
+  position      INTEGER NOT NULL DEFAULT 0,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  UNIQUE (org, project_key)
 );
 
 CREATE TABLE IF NOT EXISTS epic_summaries (
@@ -305,8 +317,8 @@ export function createSQLiteDB(): DB {
   try { db.exec('ALTER TABLE team_pulse_summaries ADD COLUMN projects TEXT'); } catch (_) {}
   // GLOOK-13: report integrity (run_metadata column + skip-allowlist table)
   try { db.exec('ALTER TABLE reports ADD COLUMN run_metadata TEXT'); } catch (_) {}
-  // GLOOK-38: per-team board behaviour for the /projects page
-  try { db.exec('ALTER TABLE teams ADD COLUMN board_config TEXT'); } catch (_) {}
+  // GLOOK-38: board config moved from teams to the jira_projects table
+  try { db.exec('ALTER TABLE teams DROP COLUMN board_config'); } catch (_) {}
   try {
     db.exec(`CREATE TABLE IF NOT EXISTS report_skip_allowlist (
       github_login  TEXT NOT NULL PRIMARY KEY,

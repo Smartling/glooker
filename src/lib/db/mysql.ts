@@ -316,9 +316,21 @@ export function createMySQLDB(): DB {
   await pool.execute('ALTER TABLE reports ADD COLUMN run_metadata JSON NULL').catch((err) => {
     if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add run_metadata:', err);
   });
-  // GLOOK-38: per-team board behaviour for the /projects page
-  await pool.execute('ALTER TABLE teams ADD COLUMN board_config JSON NULL').catch((err) => {
-    if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add board_config:', err);
+  // GLOOK-38: board config moved from teams to the jira_projects table
+  await pool.execute('ALTER TABLE teams DROP COLUMN board_config').catch(() => {});
+  await pool.execute(`CREATE TABLE IF NOT EXISTS jira_projects (
+    id            VARCHAR(36)  NOT NULL PRIMARY KEY,
+    org           VARCHAR(255) NOT NULL,
+    project_key   VARCHAR(64)  NOT NULL,
+    display_name  VARCHAR(255) NOT NULL,
+    active_status VARCHAR(255) NOT NULL,
+    middle_status VARCHAR(255) NULL,
+    hierarchy     VARCHAR(32)  NOT NULL DEFAULT 'goal-initiative',
+    position      INT          NOT NULL DEFAULT 0,
+    created_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_org_project (org, project_key)
+  )`).catch((err) => {
+    console.error('[db/mysql] Failed to create jira_projects:', err);
   });
   await pool.execute(`CREATE TABLE IF NOT EXISTS report_skip_allowlist (
     github_login  VARCHAR(255) NOT NULL PRIMARY KEY,
