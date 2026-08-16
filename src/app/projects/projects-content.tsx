@@ -138,8 +138,9 @@ export default function ProjectsContent() {
   const [transitionError, setTransitionError] = useState<string | null>(null);
   // Pending transitions registry: every fetch response (useSWR, preload, etc.)
   // is patched through this map before populating `tabCache`, so optimistic
-  // moves stay applied regardless of Jira's JQL index lag. Cleared only on
-  // page reload — by then Jira's state will have reconciled.
+  // moves stay applied regardless of Jira's JQL index lag. Scoped to the board
+  // in view — cleared on page reload and whenever the org or project changes,
+  // since its entries only make sense against the board they were made on.
   const pendingTransitionsRef = useRef<Map<string, PendingTransition<ProjectEpic>>>(new Map());
 
   const openStatusEditor = async (epicKey: string, triggerEl?: HTMLElement) => {
@@ -384,6 +385,23 @@ export default function ProjectsContent() {
   // entry we just mutated. We trust our optimistic state until a page reload
   // or an explicit `mutate(url)` call invalidates it.
   const { data: tabData, isLoading: tabLoading, error: tabError } = useSWR(tabUrl, { revalidateIfStale: false });
+
+  // The pending-transitions registry belongs to one board, not to the page.
+  // Its entries are keyed by epic key alone and `applyPendingTransitions`
+  // *prepends* any epic whose target tab is the active one — so an SPS epic
+  // moved to Done would be injected at the top of RSCH's Done tab, and
+  // re-injected on every subsequent fetch, because Jira will never return it
+  // there. `tabCache` is already keyed by project; this ref was the last
+  // channel through which one board's state could reach another's, so drop it
+  // whenever the board changes. Org is in the key too: `selectedProject` can
+  // stay `''` across an org switch, which would otherwise leak the same way.
+  //
+  // Declared above the populate effect so that on the render which switches
+  // board, the clear runs first and the incoming response is reconciled
+  // against an empty registry.
+  useEffect(() => {
+    pendingTransitionsRef.current.clear();
+  }, [org, selectedProject]);
 
   // When tabData arrives, populate the tabCache after applying any pending
   // transitions. This is the single point where Jira's view (possibly with

@@ -10,14 +10,14 @@
  * `Map<epicKey, PendingTransition>` and runs every fetch response through
  * `applyPendingTransitions` before populating its in-component tabCache.
  */
+import type { BoardTabKind } from '@/lib/jira-projects/types';
+
 /**
- * Tabs a pending transition may target. The tab vocabulary belongs to the
- * board that calls this — since GLOOK-38 that is `BoardTabKind`, whose members
- * are named per Jira project rather than fixed here. This module only ever
- * compares tab identities for equality, so it takes the caller's word for what
- * a tab is called.
+ * Tabs a pending transition may target. Aliased to the board's tab union
+ * (GLOOK-38): the tabs are `active` / `middle` / `done`, and which Jira status
+ * each one names is a per-project setting this module never needs to see.
  */
-export type StatusTab = string;
+export type StatusTab = BoardTabKind;
 
 /**
  * Minimum shape required for the transition logic. Callers may pass any
