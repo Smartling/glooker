@@ -14,19 +14,9 @@ export interface ProjectEpic {
   goal: { key: string; summary: string } | null;
 }
 
-export interface FetchEpicsOptions {
-  /**
-   * When set, every epic from this call is attributed to this team regardless of
-   * assignee. GLOOK-38: a research team's members may have no GitHub identity, so
-   * the user_mappings -> team_members chain cannot attribute their epics.
-   */
-  provenanceTeam?: { name: string; color: string } | null;
-}
-
 export async function fetchProjectEpics(
   jql: string,
   org: string,
-  options: FetchEpicsOptions = {},
 ): Promise<ProjectEpic[]> {
   const client = getJiraClient();
   if (!client) throw new Error('Jira is not configured');
@@ -69,8 +59,7 @@ export async function fetchProjectEpics(
       ? { key: epic.parentKey as string, summary: epic.parentSummary || '' }
       : null;
     const goal = hasInitiative ? initiativeToGoal.get(epic.parentKey as string) || null : null;
-    const team = options.provenanceTeam
-      ?? (epic.assigneeEmail ? teamMap.get(epic.assigneeEmail.toLowerCase()) || null : null);
+    const team = epic.assigneeEmail ? teamMap.get(epic.assigneeEmail.toLowerCase()) || null : null;
 
     return {
       key: epic.key,

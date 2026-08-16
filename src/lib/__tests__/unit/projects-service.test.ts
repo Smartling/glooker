@@ -359,4 +359,28 @@ describe('fetchProjectEpics', () => {
     // INIT-5 should not appear twice
     expect(initiativeJql.split('"INIT-5"').length - 1).toBe(1);
   });
+
+  it('resolves team from the assignee map only', async () => {
+    const epics = [
+      makeEpic({ key: 'RND-1', assigneeEmail: 'daria@smartling.com', parentKey: null, parentTypeName: null }),
+      makeEpic({ key: 'RND-2', assigneeEmail: 'alex@smartling.com', parentKey: null, parentTypeName: null }),
+    ];
+    const mockSearchEpics = jest.fn().mockResolvedValueOnce(epics);
+    mockGetJiraClient.mockReturnValue({ searchEpics: mockSearchEpics });
+
+    mockDbExecute.mockResolvedValueOnce([
+      [{ github_login: 'daria-gh', jira_email: 'daria@smartling.com' }], null,
+    ]);
+    mockDbExecute.mockResolvedValueOnce([
+      [{ github_login: 'daria-gh', name: 'Research', color: '#0891B2' }], null,
+    ]);
+
+    const result = await fetchProjectEpics('project = "RND"', 'my-org');
+
+    const byKey = Object.fromEntries(result.map(e => [e.key, e]));
+    expect(byKey['RND-1'].team).toEqual({ name: 'Research', color: '#0891B2' });
+    // GLOOK-38: no provenance fallback. An assignee with no user_mappings row
+    // yields null, which the UI renders as an em-dash.
+    expect(byKey['RND-2'].team).toBeNull();
+  });
 });
