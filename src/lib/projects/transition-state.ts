@@ -10,14 +10,14 @@
  * `Map<epicKey, PendingTransition>` and runs every fetch response through
  * `applyPendingTransitions` before populating its in-component tabCache.
  */
-import type { BoardTab } from '@/lib/teams/board-config';
-
 /**
- * Tabs a pending transition may target. Aliased to the board-config tab union
- * (GLOOK-38) so a per-team board's Backlog tab participates in optimistic moves
- * exactly as Rollout does on the default board.
+ * Tabs a pending transition may target. The tab vocabulary belongs to the
+ * board that calls this — since GLOOK-38 that is `BoardTabKind`, whose members
+ * are named per Jira project rather than fixed here. This module only ever
+ * compares tab identities for equality, so it takes the caller's word for what
+ * a tab is called.
  */
-export type StatusTab = BoardTab;
+export type StatusTab = string;
 
 /**
  * Minimum shape required for the transition logic. Callers may pass any

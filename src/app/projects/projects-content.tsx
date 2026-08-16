@@ -10,8 +10,8 @@ import { useUrlState, useUrlBatch } from '@/lib/url-state';
 import type { EpicSummaryResult } from '@/lib/projects/epic-summary';
 import { applyPendingTransitions, type PendingTransition } from '@/lib/projects/transition-state';
 import { ProgressRing, type EpicRingStats } from './progress-ring';
-import { ALL_TABS, visibleTabs, columnLayout, computeSpans } from './board-layout';
-import type { BoardConfig, BoardTab } from '@/lib/teams/board-config';
+import { ALL_TABS, visibleTabs, tabLabel, columnLayout, computeSpans } from './board-layout';
+import type { JiraProject, BoardTabKind } from '@/lib/jira-projects/types';
 
 interface ProjectEpic {
   key: string;
@@ -46,23 +46,24 @@ interface UntrackedTeam {
   totalCommits: number;
 }
 
-type StatusTab = BoardTab;
+type StatusTab = BoardTabKind;
 
 export default function ProjectsContent() {
   const { canAct } = useAuth();
   // Validated against every legally addressable tab, not just the ones this
-  // board shows — `?status=Backlog` must survive the first render, before the
-  // board config has arrived and told us Backlog is one of our three tabs.
+  // board shows — `?status=middle` must survive the first render, before the
+  // project has arrived and told us whether it declares a middle status.
   const [activeTab, setActiveTab] = useUrlState<StatusTab>({
     key: 'status',
     type: 'enum',
     values: ALL_TABS,
-    default: 'In Progress',
+    default: 'active',
     history: 'push',
   });
   // `tabCache` stays as useState — it's a memoization cache, not URL state.
-  // Keyed by `${tab}|${team}`: the same tab holds different epics per team,
-  // because the team filter is applied server-side by the board's own JQL.
+  // Keyed by `${tab}|${project}`: the same tab holds different epics per
+  // project, because the project selection is applied server-side by the
+  // board's own JQL.
   const [tabCache, setTabCache] = useState<Record<string, { epics: ProjectEpic[]; jiraHost: string | null }>>({});
   const [org, setOrg] = useUrlState<string>({
     key: 'org',
@@ -70,11 +71,21 @@ export default function ProjectsContent() {
     default: '',
     history: 'replace',
   });
+  // Empty means "whatever the server picks", which is the first configured
+  // project. The selector writes a key here once the user chooses.
+  const [selectedProject, setSelectedProject] = useUrlState<string>({
+    key: 'project',
+    type: 'string',
+    default: '',
+    history: 'replace',
+  });
   // `jiraHost` stays as useState — comes from the API, not user input.
   const [jiraHost, setJiraHost] = useState<string | null>(null);
-  // Non-null only when the filter names exactly one configured team; a mixed
-  // board has no single config to honour and keeps the historical layout.
-  const [boardConfig, setBoardConfig] = useState<BoardConfig | null>(null);
+  // The project row the board is currently showing. Drives the tab set, the
+  // tab labels and the column layout.
+  const [project, setProject] = useState<JiraProject | null>(null);
+  // The configured list, for the selector.
+  const [projectList, setProjectList] = useState<JiraProject[]>([]);
 
   // Filters
   const [filterTeam, setFilterTeam] = useUrlState<string>({
@@ -167,10 +178,18 @@ export default function ProjectsContent() {
       // tabData (from useSWR / preload / refetch) is patched through the
       // registry in the populate-tabCache useEffect, so the move sticks
       // regardless of Jira's index lag.
-      const targetTab = toStatus as StatusTab;
-      // tabCache is keyed by `${tab}|${team}`, so the destination entry is the
-      // target tab under the team currently in view.
-      const targetCacheKey = `${targetTab}|${filterTeam}`;
+      // Tabs are no longer named after Jira statuses (GLOOK-38), so the
+      // destination has to be resolved against this project's own status
+      // vocabulary. Anything that is neither the active nor the middle status
+      // is a Done-category status — the only other kind of transition the
+      // board offers — and lands on the Done tab.
+      const targetTab: StatusTab =
+        toStatus === project?.activeStatus ? 'active'
+          : toStatus === project?.middleStatus ? 'middle'
+            : 'done';
+      // tabCache is keyed by `${tab}|${project}`, so the destination entry is
+      // the target tab under the project currently in view.
+      const targetCacheKey = `${targetTab}|${selectedProject}`;
       let movedEpic: ProjectEpic | null = null;
       for (const key of Object.keys(tabCache)) {
         const entry = tabCache[key];
@@ -340,12 +359,23 @@ export default function ProjectsContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- setOrg identity churns on URL change; safely omitted
   }, [orgsData, orgsError, reportsData, org]);
 
-  // SWR: fetch epics for the active tab. The team filter goes to the server so
-  // a configured team's own JQL (and board config) drives the response.
-  const cacheKey = `${activeTab}|${filterTeam}`;
+  // The configured projects, for the selector. Independent of the epic fetch:
+  // the list is small, changes rarely and must be present before the first
+  // board response so the dropdown never renders empty.
+  useEffect(() => {
+    if (!org) return;
+    fetch(`/api/jira-projects?org=${encodeURIComponent(org)}`)
+      .then(r => r.json())
+      .then((list: JiraProject[]) => setProjectList(Array.isArray(list) ? list : []))
+      .catch(() => {});
+  }, [org]);
+
+  // SWR: fetch epics for the active tab. The selected project goes to the
+  // server so that project's own JQL drives the response.
+  const cacheKey = `${activeTab}|${selectedProject}`;
   const tabUrl = org
     ? `/api/projects?org=${encodeURIComponent(org)}&status=${encodeURIComponent(activeTab)}`
-      + (filterTeam && filterTeam !== '__none__' ? `&team=${encodeURIComponent(filterTeam)}` : '')
+      + (selectedProject ? `&project=${encodeURIComponent(selectedProject)}` : '')
     : null;
   // `revalidateIfStale: false` is essential here. With the default (true), a
   // background revalidation fires every time `useSWR` rebinds (e.g. on tab
@@ -363,14 +393,14 @@ export default function ProjectsContent() {
       const epics = applyPendingTransitions(tabData.epics, activeTab, pendingTransitionsRef.current);
       setTabCache(prev => ({ ...prev, [cacheKey]: { epics, jiraHost: tabData.jiraHost } }));
       setJiraHost(tabData.jiraHost);
-      setBoardConfig(tabData.boardConfig ?? null);
+      setProject(tabData.project ?? null);
     }
   }, [tabData, activeTab, cacheKey]);
 
   // Prefetch the board's other tabs in background after the active tab loads.
-  // We only preload once per org+team because preload's fetch responses would
-  // otherwise race optimistic transitions: a re-fire after a `mutate` returns
-  // Jira's still-lagging list and overwrites the optimistic state.
+  // We only preload once per org+project because preload's fetch responses
+  // would otherwise race optimistic transitions: a re-fire after a `mutate`
+  // returns Jira's still-lagging list and overwrites the optimistic state.
   const fetcher = (url: string) => fetch(url).then(r => {
     if (!r.ok) throw new Error(`${r.status}`);
     return r.json();
@@ -379,44 +409,44 @@ export default function ProjectsContent() {
 
   useEffect(() => {
     if (!org || !tabData) return;
-    const key = `${org}|${filterTeam}`;
+    const key = `${org}|${selectedProject}`;
     if (preloadedKeyRef.current === key) return;
     preloadedKeyRef.current = key;
-    const teamParam = filterTeam && filterTeam !== '__none__' ? `&team=${encodeURIComponent(filterTeam)}` : '';
-    for (const tab of visibleTabs(tabData.boardConfig ?? null).filter(t => t !== activeTab)) {
-      preload(`/api/projects?org=${encodeURIComponent(org)}&status=${encodeURIComponent(tab)}${teamParam}`, fetcher);
+    const projectParam = selectedProject ? `&project=${encodeURIComponent(selectedProject)}` : '';
+    for (const tab of visibleTabs(tabData.project ?? null).filter(t => t !== activeTab)) {
+      preload(`/api/projects?org=${encodeURIComponent(org)}&status=${encodeURIComponent(tab)}${projectParam}`, fetcher);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot per org+team; re-running would race optimistic mutations
-  }, [org, filterTeam, tabData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot per org+project; re-running would race optimistic mutations
+  }, [org, selectedProject, tabData]);
 
   // Derive epics from tab cache
   const epics = useMemo(() => tabCache[cacheKey]?.epics || [], [tabCache, cacheKey]);
 
-  const tabs = useMemo(() => visibleTabs(boardConfig), [boardConfig]);
+  const tabs = useMemo(() => visibleTabs(project), [project]);
 
   // Guard against sitting on a tab the newly-selected board does not offer —
-  // e.g. switching from a Backlog board back to a Rollout board while on
-  // Backlog would otherwise leave no tab active and an empty table.
+  // e.g. switching from a three-tab project to a two-tab one while on the
+  // middle tab would otherwise leave no tab active and an empty table.
   //
-  // Judged against the *response's* config, not the `boardConfig` state, and
-  // only once a response exists. Before then `boardConfig` is either null (cold
-  // load) or the previous team's, and `setBoardConfig` lands one render after
-  // `tabData` — resetting on either would bounce a `?status=Backlog&team=…`
-  // deep link straight back to In Progress, which is the very thing ALL_TABS
-  // exists to allow.
+  // Judged against the *response's* project, not the `project` state, and only
+  // once a response exists. Before then `project` is either null (cold load) or
+  // the previously selected one, and `setProject` lands one render after
+  // `tabData` — resetting on either would bounce a `?status=middle&project=…`
+  // deep link straight back to the active tab, which is the very thing
+  // ALL_TABS exists to allow.
   useEffect(() => {
     // A failed fetch renders an error banner *instead of* the tab bar, so the
-    // user has nothing to click their way out with. `?status=Backlog` is a
-    // legal URL now, and the route 404s on it once no team declares
-    // jiraProjectKeys — e.g. a bookmarked `?team=Research&status=Backlog`
-    // after Research's board config is cleared in Settings. Recover to the
-    // default tab set: with no response we have no config to trust.
+    // user has nothing to click their way out with. `?status=middle` is a
+    // legal URL now, and the route 404s on an unknown `?project=` — e.g. a
+    // bookmarked `?project=RND&status=middle` after RND is removed in
+    // Settings. Recover to the default tab set: with no response we have no
+    // project to trust.
     if (tabError) {
-      if (!visibleTabs(null).includes(activeTab)) setActiveTab('In Progress');
+      if (!visibleTabs(null).includes(activeTab)) setActiveTab('active');
       return;
     }
     if (!tabData) return;
-    if (!visibleTabs(tabData.boardConfig ?? null).includes(activeTab)) setActiveTab('In Progress');
+    if (!visibleTabs(tabData.project ?? null).includes(activeTab)) setActiveTab('active');
   }, [tabData, tabError, activeTab, setActiveTab]);
 
   useEffect(() => {
@@ -519,25 +549,40 @@ export default function ProjectsContent() {
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
-  const layout = useMemo(() => columnLayout(boardConfig), [boardConfig]);
+  const layout = useMemo(() => columnLayout(project), [project]);
 
   // In owner mode the merged column is the assignee, so rows must be ordered by
   // assignee for run-length merging to produce one block per person. The service
   // sorts by goal → initiative → summary, which is meaningless for a flat project.
   const orderedEpics = useMemo(() => {
-    if (boardConfig?.hierarchy !== 'owner') return filteredEpics;
+    if (project?.hierarchy !== 'owner') return filteredEpics;
     return [...filteredEpics].sort((a, b) => {
       const an = a.assignee || '￿';
       const bn = b.assignee || '￿';
       if (an !== bn) return an.localeCompare(bn);
       return a.summary.localeCompare(b.summary);
     });
-  }, [filteredEpics, boardConfig]);
+  }, [filteredEpics, project]);
 
   // Precompute rowSpans for the merged leading cells
   const spans = useMemo(
-    () => computeSpans(orderedEpics, boardConfig?.hierarchy ?? 'goal-initiative'),
-    [orderedEpics, boardConfig],
+    () => computeSpans(orderedEpics, project?.hierarchy ?? 'goal-initiative'),
+    [orderedEpics, project],
+  );
+
+  // Untracked work is computed against JIRA_PROJECTS_JQL, so it is only
+  // meaningful on the project that variable names. Everywhere else it would be
+  // showing one project's leftovers on another project's board.
+  //
+  // The hierarchy clause is a cell-count guard, not a provenance one: the
+  // untracked rows below hard-code the seven-column goal/initiative shape, so
+  // a first-position project configured with the six-column owner layout could
+  // not host them without breaking the table.
+  const isLegacyProject = useMemo(
+    () => !!project && projectList.length > 0
+      && project.projectKey === projectList[0].projectKey
+      && project.hierarchy === 'goal-initiative',
+    [project, projectList],
   );
 
   // Map epic key → group IDs so merged cells can highlight when any sibling row is hovered
@@ -653,6 +698,15 @@ export default function ProjectsContent() {
               className="bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-gray-300 placeholder-gray-600 focus:outline-none focus:border-accent w-48"
             />
             <select
+              value={selectedProject}
+              onChange={e => setSelectedProject(e.target.value)}
+              className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-accent cursor-pointer"
+            >
+              {projectList.map(p => (
+                <option key={p.projectKey} value={p.projectKey}>{p.displayName}</option>
+              ))}
+            </select>
+            <select
               value={filterGoal}
               onChange={e => setFilterGoal(e.target.value)}
               className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-gray-400 focus:outline-none focus:border-accent cursor-pointer"
@@ -717,7 +771,7 @@ export default function ProjectsContent() {
                   activeTab === tab ? 'text-accent-lighter' : 'text-gray-500 hover:text-gray-300'
                 }`}
               >
-                {tab}{tab === 'Done' ? ` (${boardConfig?.doneWindowDays ?? 30}d)` : ''}
+                {tabLabel(project, tab)}
                 {activeTab === tab && (
                   <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-accent-light rounded-t" />
                 )}
@@ -726,7 +780,7 @@ export default function ProjectsContent() {
           </div>
 
           {epics.length === 0 ? (
-            <div className="text-gray-500 py-8">No epics with status &ldquo;{activeTab}&rdquo;{activeTab === 'Done' ? ` in the last ${boardConfig?.doneWindowDays ?? 30} days` : ''}.</div>
+            <div className="text-gray-500 py-8">No epics on the {tabLabel(project, activeTab)} tab.</div>
           ) : orderedEpics.length === 0 ? (
             <div className="text-gray-500 py-8">No epics match the selected filters.</div>
           ) : (
@@ -800,7 +854,6 @@ export default function ProjectsContent() {
                               stats={ringStats[epic.key]}
                               maxVolume={maxVolume}
                               avgCommitsPerJira={avgCommitsPerJira}
-                              mode={boardConfig?.ringMode}
                             />
                           ) : (
                             <div className="w-4 h-4 rounded-full bg-gray-800 animate-pulse mx-auto" />
@@ -919,7 +972,7 @@ export default function ProjectsContent() {
                             </div>
                           </div>
                         </td>
-                        <td className={`px-4 py-3 relative ${activeTab === 'In Progress' && isOverdue(epic.dueDate) ? 'text-red-400' : 'text-gray-400'}`}>
+                        <td className={`px-4 py-3 relative ${activeTab === 'active' && isOverdue(epic.dueDate) ? 'text-red-400' : 'text-gray-400'}`}>
                           <div
                             className={`group/due inline-flex items-center gap-1.5 cursor-pointer px-1.5 py-0.5 rounded-md transition-colors ${
                               editingDue === epic.key ? 'bg-accent/10 border border-accent/30' : 'hover:bg-white/5'
@@ -1032,11 +1085,12 @@ export default function ProjectsContent() {
                       </tr>
                     );
                   })}
-                  {/* Not in Project rows — only on In Progress tab, and never on a
-                      configured team board: these rows hard-code the seven-column
-                      layout, and untracked work is commit-derived, which is exactly
-                      what a research board should not be judged on. */}
-                  {!boardConfig && activeTab === 'In Progress' && (() => {
+                  {/* Not in Project rows — only on the active tab, and only on the
+                      project untracked work is actually computed against: these rows
+                      hard-code the seven-column layout, and untracked work is
+                      commit-derived, which is exactly what a research board should
+                      not be judged on. */}
+                  {isLegacyProject && activeTab === 'active' && (() => {
                     const filtered = untrackedTeams.filter(t => {
                       if (filterGoal && filterGoal !== 'Not in Project') return false;
                       if (filterTeam && filterTeam !== '__none__' && filterTeam !== t.name) return false;
@@ -1184,11 +1238,11 @@ export default function ProjectsContent() {
                 <span>
                   {filteredEpics.length}{filteredEpics.length !== epics.length ? ` of ${epics.length}` : ''} epic{filteredEpics.length !== 1 ? 's' : ''}
                   {/* Gated like the rows and the trigger button: `untrackedTeams`
-                      persists across team switches, so an ungated count advertises
-                      untracked work that a configured board never renders. */}
-                  {!boardConfig && untrackedTeams.length > 0 && ` · ${untrackedTeams.length} team${untrackedTeams.length !== 1 ? 's' : ''} with untracked work`}
+                      persists across project switches, so an ungated count advertises
+                      untracked work that another project's board never renders. */}
+                  {isLegacyProject && untrackedTeams.length > 0 && ` · ${untrackedTeams.length} team${untrackedTeams.length !== 1 ? 's' : ''} with untracked work`}
                 </span>
-                {!boardConfig && activeTab === 'In Progress' && untrackedTeams.length === 0 && !untrackedLoading && (
+                {isLegacyProject && activeTab === 'active' && untrackedTeams.length === 0 && !untrackedLoading && (
                   <button
                     onClick={() => loadUntracked()}
                     className="text-xs text-gray-500 hover:text-gray-300 bg-gray-800 hover:bg-gray-700 px-2.5 py-1 rounded border border-gray-700 transition-colors"
