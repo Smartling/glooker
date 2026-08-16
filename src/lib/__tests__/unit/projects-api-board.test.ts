@@ -58,6 +58,11 @@ describe('GET /api/projects', () => {
   it('runs the self-migration seed before reading the list', async () => {
     await GET(req('?org=o'));
     expect(mockSeed).toHaveBeenCalledWith('o');
+    // Ordering is load-bearing: if the list is read first, a deployment
+    // configured only with the legacy JIRA_PROJECTS_JQL sees an empty table
+    // and 404s instead of migrating itself.
+    expect(mockSeed.mock.invocationCallOrder[0])
+      .toBeLessThan(mockList.mock.invocationCallOrder[0]);
   });
 
   it('404s when no projects are configured', async () => {
