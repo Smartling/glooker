@@ -8,6 +8,7 @@ import {
   MOCK_DEVELOPERS,
   MOCK_TEAMS,
   MOCK_EPICS,
+  MOCK_JIRA_PROJECTS,
 } from './mock-identities';
 
 // ---------------------------------------------------------------------------
@@ -311,7 +312,6 @@ export const seedTeams = MOCK_TEAMS.map(t => ({
   org: MOCK_ORG,
   name: t.name,
   color: t.color,
-  board_config: t.boardConfig ? JSON.stringify(t.boardConfig) : null,
   created_at: daysAgo(90),
 }));
 
@@ -492,3 +492,19 @@ export const seedReleaseNotes = [
     generated_at: daysAgo(1),
   },
 ];
+
+// ---------------------------------------------------------------------------
+// 15. seedJiraProjects
+// ---------------------------------------------------------------------------
+
+export const seedJiraProjects = MOCK_JIRA_PROJECTS.map(p => ({
+  id: p.id,
+  org: MOCK_ORG,
+  project_key: p.projectKey,
+  display_name: p.displayName,
+  active_status: p.activeStatus,
+  middle_status: p.middleStatus,
+  hierarchy: p.hierarchy,
+  position: p.position,
+  created_at: daysAgo(90),
+}));

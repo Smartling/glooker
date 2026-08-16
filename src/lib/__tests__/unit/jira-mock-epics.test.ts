@@ -87,3 +87,22 @@ describe('MockJiraClient.searchEpics status filtering', () => {
     expect(epics.every(e => e.key.startsWith('MOCK-'))).toBe(true);
   });
 });
+
+describe('MockJiraClient.searchEpics with buildProjectJql shapes (project = "KEY")', () => {
+  const client = new MockJiraClient();
+
+  it('filters the RSCH active tab by its status name', async () => {
+    const epics = await client.searchEpics('project = "RSCH" AND issuetype = Epic AND status = "In Progress"');
+    expect(epics.map(e => e.key).sort()).toEqual(['RSCH-101', 'RSCH-102', 'RSCH-103']);
+  });
+
+  it('filters the RSCH middle tab by Backlog', async () => {
+    const epics = await client.searchEpics('project = "RSCH" AND issuetype = Epic AND status = "Backlog"');
+    expect(epics.map(e => e.key).sort()).toEqual(['RSCH-201', 'RSCH-202']);
+  });
+
+  it('still returns rejected epics on the Done category', async () => {
+    const epics = await client.searchEpics('project = "RSCH" AND issuetype = Epic AND statusCategory = "Done" AND updated >= -30d');
+    expect(epics.map(e => e.key).sort()).toEqual(['RSCH-301', 'RSCH-302']);
+  });
+});

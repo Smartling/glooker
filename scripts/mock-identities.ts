@@ -121,33 +121,42 @@ export interface MockTeam {
   id: string;
   name: string;
   color: string;
-  /** GLOOK-38: per-team board behaviour. Omit for teams that use the default board. */
-  boardConfig?: {
-    jiraProjectKeys: string[];
-    hierarchy: 'goal-initiative' | 'owner';
-    middleTab: 'Rollout' | 'Backlog';
-    ringMode: 'commits' | 'jira';
-    doneWindowDays: number;
-    includeRejected: boolean;
-  };
 }
 
 export const MOCK_TEAMS: MockTeam[] = [
   { id: '00000000-0000-4000-b000-000000000001', name: 'Platform', color: '#2563EB' },
   { id: '00000000-0000-4000-b000-000000000002', name: 'Frontend', color: '#7C3AED' },
   { id: '00000000-0000-4000-b000-000000000003', name: 'Data', color: '#059669' },
+  { id: '00000000-0000-4000-b000-000000000004', name: 'Research', color: '#0891B2' },
+];
+
+/**
+ * GLOOK-38: board configuration lives per-Jira-project, not per-team.
+ * An admin picks which project a board shows from Settings; these are the
+ * two seeded choices for mock mode.
+ */
+export interface MockJiraProject {
+  id: string;
+  projectKey: string;
+  displayName: string;
+  activeStatus: string;
+  middleStatus: string | null;
+  hierarchy: 'goal-initiative' | 'owner';
+  position: number;
+}
+
+export const MOCK_JIRA_PROJECTS: MockJiraProject[] = [
   {
-    id: '00000000-0000-4000-b000-000000000004',
-    name: 'Research',
-    color: '#0891B2',
-    boardConfig: {
-      jiraProjectKeys: ['RSCH'],
-      hierarchy: 'owner',
-      middleTab: 'Backlog',
-      ringMode: 'jira',
-      doneWindowDays: 30,
-      includeRejected: true,
-    },
+    id: '00000000-0000-4000-e000-000000000001',
+    projectKey: 'MOCK', displayName: 'Mock Platform',
+    activeStatus: 'In Progress', middleStatus: 'Rollout',
+    hierarchy: 'goal-initiative', position: 0,
+  },
+  {
+    id: '00000000-0000-4000-e000-000000000002',
+    projectKey: 'RSCH', displayName: 'Mock Research',
+    activeStatus: 'In Progress', middleStatus: 'Backlog',
+    hierarchy: 'owner', position: 1,
   },
 ];
 

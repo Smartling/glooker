@@ -32,6 +32,7 @@ async function main() {
   await seed('commit_analyses', data.seedCommitAnalyses);
   await seed('jira_issues', data.seedJiraIssues);
   await seed('teams', data.seedTeams);
+  await seed('jira_projects', data.seedJiraProjects);
   await seed('team_members', data.seedTeamMembers);
   await seed('user_mappings', data.seedUserMappings);
   await seed('developer_summaries', data.seedDeveloperSummaries);
