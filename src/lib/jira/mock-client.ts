@@ -1,5 +1,5 @@
 import type { JiraClientInterface } from './types';
-import type { JiraUser, JiraIssueData } from './client';
+import type { JiraUser, JiraIssueData, JiraTransition } from './client';
 
 // Lazy-load mock identities to avoid bundling in production
 let _identities: typeof import('../../../scripts/mock-identities') | null = null;
@@ -172,10 +172,17 @@ export class MockJiraClient implements JiraClientInterface {
 
   async updateDueDate(_issueKey: string, _dueDate: string | null): Promise<void> {}
 
-  async getTransitions(_issueKey: string): Promise<Array<{ id: string; name: string; to: { name: string } }>> {
+  // Mirrors the shape of a real Jira workflow, which offers a transition to
+  // every status the workflow allows — not only the ones a board names for its
+  // tabs. `Blocked` is deliberately here and deliberately not Done-category:
+  // it is the case that used to pin an epic to the top of the Done tab, so
+  // mock mode has to be able to reproduce it.
+  async getTransitions(_issueKey: string): Promise<JiraTransition[]> {
     return [
-      { id: '21', name: 'Start Rollout', to: { name: 'Rollout' } },
-      { id: '31', name: 'Done', to: { name: 'Done' } },
+      { id: '11', name: 'Start Progress', to: { name: 'In Progress' }, toStatusCategory: 'indeterminate' },
+      { id: '21', name: 'Start Rollout', to: { name: 'Rollout' }, toStatusCategory: 'indeterminate' },
+      { id: '31', name: 'Done', to: { name: 'Done' }, toStatusCategory: 'done' },
+      { id: '41', name: 'Block', to: { name: 'Blocked' }, toStatusCategory: 'new' },
     ];
   }
 

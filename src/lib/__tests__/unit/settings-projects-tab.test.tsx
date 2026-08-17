@@ -37,6 +37,49 @@ describe('ProjectsTab', () => {
     expect(key.value).toBe('');
   });
 
+  it('surfaces a failed list load instead of showing an empty table', async () => {
+    // A session that lapsed to viewer gets a 403 here. Swallowed, it reads as
+    // "no projects configured" — the opposite of what happened.
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: false, status: 403, json: async () => ({ error: 'Forbidden' }),
+    });
+    render(<ProjectsTab org="o" />);
+    expect(await screen.findByText('Forbidden')).toBeTruthy();
+  });
+
+  it('reports a failed delete and leaves the confirm panel open', async () => {
+    render(<ProjectsTab org="o" />);
+    fireEvent.click((await screen.findAllByText(/^edit$/i))[0]);  // first row: SPS
+    fireEvent.click(screen.getByText(/^delete$/i));  // arm the confirm panel
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: false, status: 403, json: async () => ({ error: 'Forbidden' }),
+    });
+    // Arming swaps the toolbar's Delete for the confirm panel's, so there is
+    // still exactly one on screen — the one that actually fires the request.
+    fireEvent.click(screen.getByText(/^delete$/i));
+
+    expect(await screen.findByText('Forbidden')).toBeTruthy();
+    // Still armed, so the admin can retry rather than assuming it worked.
+    expect(screen.getByText(/remove this project from the board\?/i)).toBeTruthy();
+  });
+
+  it('closes the confirm panel and reloads on a successful delete', async () => {
+    render(<ProjectsTab org="o" />);
+    fireEvent.click((await screen.findAllByText(/^edit$/i))[0]);
+    fireEvent.click(screen.getByText(/^delete$/i));
+    expect(screen.getByText(/remove this project from the board\?/i)).toBeTruthy();
+
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => ({ deleted: true }) });
+    fireEvent.click(screen.getByText(/^delete$/i));
+
+    await waitFor(() =>
+      expect(screen.queryByText(/remove this project from the board\?/i)).toBeNull());
+    const urls = (global.fetch as jest.Mock).mock.calls.map(c => `${c[0]} ${c[1]?.method ?? 'GET'}`);
+    expect(urls).toContain('/api/jira-projects/a DELETE');
+    // The list is re-read afterwards, so the row disappears without a refresh.
+    expect(urls.filter(u => u.startsWith('/api/jira-projects?org=o')).length).toBeGreaterThan(1);
+  });
+
   it('surfaces a 400 message inline instead of throwing', async () => {
     render(<ProjectsTab org="o" />);
     fireEvent.click(await screen.findByText(/add project/i));

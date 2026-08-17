@@ -1,4 +1,4 @@
-import type { JiraUser, JiraIssueData } from './client';
+import type { JiraUser, JiraIssueData, JiraTransition } from './client';
 
 export interface JiraClientInterface {
   testConnection(): Promise<JiraUser>;
@@ -17,6 +17,6 @@ export interface JiraClientInterface {
     projects?: string[], storyPointsFields?: string[],
   ): Promise<JiraIssueData[]>;
   updateDueDate(issueKey: string, dueDate: string | null): Promise<void>;
-  getTransitions(issueKey: string): Promise<Array<{ id: string; name: string; to: { name: string } }>>;
+  getTransitions(issueKey: string): Promise<JiraTransition[]>;
   transitionIssue(issueKey: string, transitionId: string): Promise<void>;
 }

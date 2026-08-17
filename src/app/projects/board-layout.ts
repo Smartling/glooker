@@ -1,5 +1,6 @@
 import type { JiraProject, BoardHierarchy, BoardTabKind } from '@/lib/jira-projects/types';
 import { DONE_WINDOW_DAYS } from '@/lib/jira-projects/jql';
+import { resolveStatusTab, DONE_CATEGORY } from '@/lib/projects/transition-state';
 
 /** Every tab kind the URL may legally carry. */
 export const ALL_TABS: BoardTabKind[] = ['active', 'middle', 'done'];
@@ -20,6 +21,51 @@ export function tabLabel(project: JiraProject | null, tab: BoardTabKind): string
   if (tab === 'done') return `Done (${DONE_WINDOW_DAYS}d)`;
   if (tab === 'middle') return project?.middleStatus || 'Middle';
   return project?.activeStatus || 'In Progress';
+}
+
+/**
+ * Status-dot colours, keyed by the board role a status plays. These are the
+ * pre-GLOOK-38 SPS colours, re-pointed from the literals `In Progress` /
+ * `Rollout` / `Done` to the roles those three used to be the only names for —
+ * so the SPS board looks unchanged while a board configured with any other
+ * vocabulary now gets the same colouring instead of three grey dots.
+ */
+const TAB_DOT_COLOR: Record<BoardTabKind, string> = {
+  active: '#D97706',
+  middle: '#3B82F6',
+  done: '#10B981',
+};
+
+/** A status with no place on this board — grey, as it always was. */
+export const NO_TAB_DOT_COLOR = '#6B7280';
+
+/**
+ * Colour for the dot beside a status name.
+ *
+ * `statusCategory` is the destination's status-category key where it is known
+ * (every transition in the dropdown carries one). Pass `DONE_CATEGORY` for a
+ * status the board is already showing — see `boardRowDotColor`.
+ */
+export function statusDotColor(
+  project: Pick<JiraProject, 'activeStatus' | 'middleStatus'> | null,
+  statusName: string,
+  statusCategory: string | null,
+): string {
+  const tab = resolveStatusTab(project, statusName, statusCategory);
+  return tab ? TAB_DOT_COLOR[tab] : NO_TAB_DOT_COLOR;
+}
+
+/**
+ * Colour for the status of an epic already on the board. Every tab's JQL pins
+ * the status it admits — the active status, the middle status, or anything in
+ * the Done category — so a name that is neither of the first two is Done, and
+ * the row needs no category of its own to say so.
+ */
+export function boardRowDotColor(
+  project: Pick<JiraProject, 'activeStatus' | 'middleStatus'> | null,
+  statusName: string,
+): string {
+  return statusDotColor(project, statusName, DONE_CATEGORY);
 }
 
 export interface ColumnLayout {

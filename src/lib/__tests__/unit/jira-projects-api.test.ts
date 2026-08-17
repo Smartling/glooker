@@ -89,6 +89,15 @@ describe('POST /api/jira-projects', () => {
     expect((await POST(post({ projectKey: 'RND', activeStatus: 'x' }))).status).toBe(400);
   });
 
+  it('400s on malformed JSON instead of an unhandled 500', async () => {
+    const req = new NextRequest('http://localhost/api/jira-projects', {
+      method: 'POST', body: '{not valid json', headers: { 'Content-Type': 'application/json' },
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(400);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
   it('refuses a non-admin and does not touch the service', async () => {
     // Real shape from src/lib/auth.ts's requireAdmin: NextResponse.json({ error: 'Forbidden' }, { status: 403 }).
     // mockResolvedValueOnce is consumed by this single call, so the factory's

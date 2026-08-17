@@ -1,8 +1,11 @@
 import {
   applyPendingTransitions,
+  resolveStatusTab,
+  DONE_CATEGORY,
   type PendingTransition,
   type StatusTab,
 } from '@/lib/projects/transition-state';
+import type { JiraProject } from '@/lib/jira-projects/types';
 
 // Test fixture: an "epic" shape sufficient for transition-state logic.
 // The real ProjectEpic has more fields; we only need `key` here and let the
@@ -25,6 +28,76 @@ const SPS_3: Epic = { key: 'SPS-3', status: 'Rollout', team: { name: 'Gamma' } }
 function pending(...entries: Array<[string, PendingTransition<Epic>]>): Map<string, PendingTransition<Epic>> {
   return new Map(entries);
 }
+
+// The live SPS board: two named tab statuses out of a nine-transition workflow.
+const SPS: JiraProject = {
+  id: 'a', org: 'Smartling', projectKey: 'SPS', displayName: 'Smartling Platform',
+  activeStatus: 'In Progress', middleStatus: 'Rollout',
+  hierarchy: 'goal-initiative', position: 0,
+};
+
+describe('resolveStatusTab', () => {
+  it('resolves the project\'s active status to the active tab', () => {
+    expect(resolveStatusTab(SPS, 'In Progress', 'indeterminate')).toBe('active');
+  });
+
+  it('resolves the project\'s middle status to the middle tab', () => {
+    expect(resolveStatusTab(SPS, 'Rollout', 'indeterminate')).toBe('middle');
+  });
+
+  it('resolves a genuine Done-category status to the done tab', () => {
+    // The Done tab's JQL is `statusCategory = "Done"`, so the category — not
+    // the name — is what earns a place there. "Won't Do" is Done-category on
+    // live SPS and belongs on the tab even though nothing is named "Done".
+    expect(resolveStatusTab(SPS, 'Done', DONE_CATEGORY)).toBe('done');
+    expect(resolveStatusTab(SPS, "Won't Do", DONE_CATEGORY)).toBe('done');
+  });
+
+  // The regression this whole path exists for. Each of these was resolving to
+  // 'done' and pinning the epic to the top of the Done tab indefinitely.
+  it.each([
+    ['Backlog', 'new'],
+    ['Discovery', 'indeterminate'],
+    ['Blocked', 'new'],
+    ['Specs & Design', 'indeterminate'],
+    ['Ready for Dev', 'indeterminate'],
+  ])('resolves %s (category %s) to no tab at all', (name, category) => {
+    expect(resolveStatusTab(SPS, name, category)).toBeNull();
+  });
+
+  it('never resolves to done on an unknown category', () => {
+    // A missing category cannot be assumed to be Done — that assumption is the
+    // bug in a different disguise.
+    expect(resolveStatusTab(SPS, 'Blocked', null)).toBeNull();
+  });
+
+  it('honours the project\'s own vocabulary, not the SPS one', () => {
+    const research: JiraProject = {
+      ...SPS, projectKey: 'RND', activeStatus: 'Discovery', middleStatus: 'Ready for Dev',
+    };
+    expect(resolveStatusTab(research, 'Discovery', 'indeterminate')).toBe('active');
+    expect(resolveStatusTab(research, 'Ready for Dev', 'indeterminate')).toBe('middle');
+    // The literal SPS statuses now have no place on this board.
+    expect(resolveStatusTab(research, 'In Progress', 'indeterminate')).toBeNull();
+    expect(resolveStatusTab(research, 'Rollout', 'indeterminate')).toBeNull();
+  });
+
+  it('has no middle tab to resolve to on a two-tab board', () => {
+    const twoTab: JiraProject = { ...SPS, middleStatus: null };
+    expect(resolveStatusTab(twoTab, 'Rollout', 'indeterminate')).toBeNull();
+    expect(resolveStatusTab(twoTab, 'In Progress', 'indeterminate')).toBe('active');
+  });
+
+  it('falls back to the category alone when the project has not loaded yet', () => {
+    expect(resolveStatusTab(null, 'In Progress', 'indeterminate')).toBeNull();
+    expect(resolveStatusTab(null, 'Done', DONE_CATEGORY)).toBe('done');
+  });
+
+  it('does not match a null middleStatus against an empty status name', () => {
+    const twoTab: JiraProject = { ...SPS, middleStatus: null };
+    expect(resolveStatusTab(twoTab, '', null)).toBeNull();
+  });
+});
 
 describe('applyPendingTransitions', () => {
   describe('empty pending map', () => {
@@ -89,6 +162,37 @@ describe('applyPendingTransitions', () => {
         pending(['SPS-1', { targetTab: 'middle', movedEpic }]),
       );
       expect(out.map(e => e.key)).toEqual(['SPS-2']);
+    });
+  });
+
+  describe('epic targeted at no tab at all', () => {
+    // The regression: an epic moved to a status this board shows no tab for
+    // used to be recorded as `targetTab: 'done'`, so it was prepended to the
+    // Done tab on every fetch — Jira's Done JQL never returns it, so the
+    // injection repeated until reload, showing e.g. "Blocked" atop Done.
+    const blocked: Epic = { ...SPS_1, status: 'Blocked' };
+    const map = pending(['SPS-1', { targetTab: null, movedEpic: blocked }]);
+
+    it('strips it from the tab the user was looking at', () => {
+      const out = applyPendingTransitions([SPS_1, SPS_2], 'active', map);
+      expect(out.map(e => e.key)).toEqual(['SPS-2']);
+    });
+
+    it('injects it into no tab, the Done tab included', () => {
+      for (const tab of ['active', 'middle', 'done'] as StatusTab[]) {
+        const out = applyPendingTransitions([], tab, map);
+        expect(out).toEqual([]);
+      }
+    });
+
+    it('leaves Jira free to place it: a later response is passed through', () => {
+      // Once Jira's index catches up the epic simply arrives on whatever tab
+      // owns it, and the registry — which only ever removes — does not fight it.
+      // (Same key, so the registry strips it; on a real board the entry is
+      // dropped when the board changes or the page reloads. What matters is
+      // that nothing is *added* anywhere.)
+      const out = applyPendingTransitions([SPS_2, SPS_3], 'done', map);
+      expect(out.map(e => e.key)).toEqual(['SPS-2', 'SPS-3']);
     });
   });
 

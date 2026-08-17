@@ -119,19 +119,54 @@ describe('JiraClient.getTransitions', () => {
     expect(options?.method).toBeUndefined(); // GET is the default
   });
 
-  it('returns the transitions array from the response', async () => {
-    const transitions = [
-      { id: '11', name: 'To Do', to: { name: 'To Do' } },
-      { id: '21', name: 'In Progress', to: { name: 'In Progress' } },
-      { id: '31', name: 'Done', to: { name: 'Done' } },
-    ];
+  it('returns each transition with its destination status and category key', async () => {
+    // Shape taken from live SPS: the category is nested under `to`, and its
+    // `key` is the only part the board needs. Without it the client cannot tell
+    // Blocked (category `new`) from Done (category `done`), which is what put
+    // non-Done epics on the Done tab.
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve({ transitions }),
+      json: () => Promise.resolve({
+        transitions: [
+          { id: '61', name: 'Blocked', to: { name: 'Blocked', statusCategory: { self: 'https://x/2', id: 2, key: 'new', colorName: 'blue-gray', name: 'To Do' } } },
+          { id: '71', name: 'Rollout', to: { name: 'Rollout', statusCategory: { id: 4, key: 'indeterminate', name: 'In Progress' } } },
+          { id: '41', name: 'Done', to: { name: 'Done', statusCategory: { id: 3, key: 'done', name: 'Done' } } },
+        ],
+      }),
     });
 
     const result = await client.getTransitions('PROJ-42');
-    expect(result).toEqual(transitions);
+    expect(result).toEqual([
+      { id: '61', name: 'Blocked', to: { name: 'Blocked' }, toStatusCategory: 'new' },
+      { id: '71', name: 'Rollout', to: { name: 'Rollout' }, toStatusCategory: 'indeterminate' },
+      { id: '41', name: 'Done', to: { name: 'Done' }, toStatusCategory: 'done' },
+    ]);
+  });
+
+  it('reports a null category when Jira omits one, rather than dropping the transition', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        transitions: [{ id: '11', name: 'Backlog', to: { name: 'Backlog' } }],
+      }),
+    });
+
+    const result = await client.getTransitions('PROJ-42');
+    expect(result).toEqual([
+      { id: '11', name: 'Backlog', to: { name: 'Backlog' }, toStatusCategory: null },
+    ]);
+  });
+
+  it('tolerates a transition with no `to` block at all', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ transitions: [{ id: '11', name: 'Backlog' }] }),
+    });
+
+    const result = await client.getTransitions('PROJ-42');
+    expect(result).toEqual([
+      { id: '11', name: 'Backlog', to: { name: '' }, toStatusCategory: null },
+    ]);
   });
 
   it('throws on non-ok response', async () => {

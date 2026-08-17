@@ -23,11 +23,21 @@ export default function ProjectsTab({ org }: { org: string }) {
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [org]);
 
+  // Routed through `setError` like `save()` is, rather than swallowed. A viewer
+  // (or a session that lapsed to viewer) gets a 403 here, and an empty table
+  // with no message reads as "no projects configured" — the exact opposite of
+  // what happened.
   function load() {
     fetch(`/api/jira-projects?org=${encodeURIComponent(org)}`)
-      .then(r => r.json())
+      .then(async r => {
+        if (!r.ok) {
+          const d = await r.json().catch(() => ({}));
+          throw new Error(d.error || `Failed to load projects (${r.status})`);
+        }
+        return r.json();
+      })
       .then((list: JiraProject[]) => setProjects(Array.isArray(list) ? list : []))
-      .catch(() => {});
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load projects'));
   }
 
   function reset() {
@@ -81,7 +91,21 @@ export default function ProjectsTab({ org }: { org: string }) {
   }
 
   async function del(id: string) {
-    await fetch(`/api/jira-projects/${id}`, { method: 'DELETE' }).catch(() => {});
+    setError(null);
+    try {
+      const res = await fetch(`/api/jira-projects/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        // Keep the confirm panel open on failure: closing it as though the
+        // delete had landed is what made a 403 look like a success, and the
+        // row is still there for the admin to retry on.
+        const d = await res.json().catch(() => ({}));
+        setError(d.error || `Failed to delete project (${res.status})`);
+        return;
+      }
+    } catch {
+      setError('Network error');
+      return;
+    }
     setDeletingId(null);
     if (editing?.id === id) { setShowForm(false); reset(); }
     load();
@@ -100,6 +124,15 @@ export default function ProjectsTab({ org }: { org: string }) {
           Add project
         </button>
       </div>
+
+      {/* The in-form error below covers save and delete; this one covers a
+          failed load, which happens with no form open at all. The two are
+          mutually exclusive so one failure never renders twice. */}
+      {error && !showForm && (
+        <div className="mb-4 px-3 py-2 rounded-lg bg-red-950/40 border border-red-900 text-xs text-red-400">
+          {error}
+        </div>
+      )}
 
       <div className="rounded-lg border border-gray-800 overflow-hidden">
         <table className="w-full text-sm">

@@ -19,13 +19,22 @@ async function postHandler(req: NextRequest) {
   const denied = await requireAdmin(req);
   if (denied) return denied;
 
-  const body = await req.json();
-  const { org, ...input } = body ?? {};
-  if (!org) return NextResponse.json({ error: 'org is required' }, { status: 400 });
-
   try {
+    // Inside the try: `req.json()` throws on a malformed body, and outside it
+    // that became an unhandled 500 rather than a 400.
+    const body = await req.json();
+    const { org, ...input } = body ?? {};
+    if (!org) return NextResponse.json({ error: 'org is required' }, { status: 400 });
+
     return NextResponse.json(await createJiraProject(org, input));
   } catch (err) {
+    // `instanceof SyntaxError` (and even `instanceof Error`) is unreliable
+    // here: req.json()'s parse error comes from undici's internal realm, not
+    // this module's global Error/SyntaxError (observed under the Jest test
+    // environment) — check by `.name` instead.
+    if ((err as { name?: string })?.name === 'SyntaxError') {
+      return NextResponse.json({ error: 'Malformed JSON body' }, { status: 400 });
+    }
     if (err instanceof JiraProjectDuplicateError) {
       return NextResponse.json({ error: err.message }, { status: 409 });
     }

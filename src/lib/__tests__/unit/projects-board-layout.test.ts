@@ -1,4 +1,8 @@
-import { visibleTabs, tabLabel, columnLayout, computeSpans } from '@/app/projects/board-layout';
+import {
+  visibleTabs, tabLabel, columnLayout, computeSpans,
+  statusDotColor, boardRowDotColor, NO_TAB_DOT_COLOR,
+} from '@/app/projects/board-layout';
+import { DONE_CATEGORY } from '@/lib/projects/transition-state';
 import type { JiraProject } from '@/lib/jira-projects/types';
 
 const SPS: JiraProject = {
@@ -58,6 +62,56 @@ describe('columnLayout', () => {
 
   it('defaults to the seven-column layout with no project', () => {
     expect(columnLayout(null).headers).toHaveLength(7);
+  });
+});
+
+describe('statusDotColor', () => {
+  const AMBER = '#D97706';
+  const BLUE = '#3B82F6';
+  const GREEN = '#10B981';
+
+  it('keeps the SPS colours for the roles the SPS literals used to name', () => {
+    // The board must look unchanged for SPS: In Progress amber, Rollout blue,
+    // Done green — now derived from the project's config, not hardcoded.
+    expect(statusDotColor(SPS, 'In Progress', 'indeterminate')).toBe(AMBER);
+    expect(statusDotColor(SPS, 'Rollout', 'indeterminate')).toBe(BLUE);
+    expect(statusDotColor(SPS, 'Done', DONE_CATEGORY)).toBe(GREEN);
+  });
+
+  it('colours another project\'s vocabulary by role instead of leaving it grey', () => {
+    // The whole point of the fix: RND names Backlog as its middle tab, and used
+    // to render every dot grey because the literals were SPS's.
+    expect(statusDotColor(RND, 'In Progress', 'indeterminate')).toBe(AMBER);
+    expect(statusDotColor(RND, 'Backlog', 'new')).toBe(BLUE);
+  });
+
+  it('greys a destination with no tab on this board', () => {
+    for (const [name, category] of [['Blocked', 'new'], ['Specs & Design', 'indeterminate'], ['Ready for Dev', 'indeterminate']]) {
+      expect(statusDotColor(SPS, name, category)).toBe(NO_TAB_DOT_COLOR);
+    }
+  });
+
+  it('greens any Done-category destination, not just one named Done', () => {
+    expect(statusDotColor(SPS, "Won't Do", DONE_CATEGORY)).toBe(GREEN);
+  });
+
+  it('greys rather than greens when the category is unknown', () => {
+    expect(statusDotColor(SPS, 'Blocked', null)).toBe(NO_TAB_DOT_COLOR);
+  });
+});
+
+describe('boardRowDotColor', () => {
+  it('greens a row status that is neither tab status, since a tab\'s JQL admits nothing else', () => {
+    // Rows only ever hold the active status, the middle status or something in
+    // the Done category, so a row needs no category of its own.
+    expect(boardRowDotColor(SPS, 'In Progress')).toBe('#D97706');
+    expect(boardRowDotColor(SPS, 'Rollout')).toBe('#3B82F6');
+    expect(boardRowDotColor(SPS, 'Done')).toBe('#10B981');
+    expect(boardRowDotColor(SPS, "Won't Do")).toBe('#10B981');
+  });
+
+  it('falls back to Done with no project — unreachable in practice, since rows and project arrive in the same response', () => {
+    expect(boardRowDotColor(null, 'In Progress')).toBe('#10B981');
   });
 });
 
