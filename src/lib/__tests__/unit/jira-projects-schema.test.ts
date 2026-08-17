@@ -23,11 +23,6 @@ describe('jira_projects exists in every schema location', () => {
     expect(block.slice(0, block.indexOf(');'))).not.toMatch(/DEFAULT CHARSET/i);
   });
 
-  it('drops the superseded teams.board_config column in both dialects', () => {
-    expect(read('src/lib/db/sqlite.ts')).toMatch(/ALTER TABLE teams DROP COLUMN board_config/i);
-    expect(read('src/lib/db/mysql.ts')).toMatch(/ALTER TABLE teams DROP COLUMN board_config/i);
-  });
-
   it('no longer declares board_config on the teams table', () => {
     const sql = read('schema.sql');
     const teams = sql.slice(
@@ -35,5 +30,13 @@ describe('jira_projects exists in every schema location', () => {
       sql.indexOf('CREATE TABLE IF NOT EXISTS team_members ('),
     );
     expect(teams).not.toMatch(/board_config/i);
+  });
+
+  it('does not run a DROP COLUMN board_config migration in either dialect', () => {
+    // board_config never existed at the merge base — it was added and
+    // dropped entirely inside this branch, so no released deployment ever
+    // had it. The DDL would fail on every boot, forever, on every real DB.
+    expect(read('src/lib/db/sqlite.ts')).not.toMatch(/DROP COLUMN board_config/i);
+    expect(read('src/lib/db/mysql.ts')).not.toMatch(/DROP COLUMN board_config/i);
   });
 });

@@ -316,8 +316,9 @@ export function createMySQLDB(): DB {
   await pool.execute('ALTER TABLE reports ADD COLUMN run_metadata JSON NULL').catch((err) => {
     if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add run_metadata:', err);
   });
-  // GLOOK-38: board config moved from teams to the jira_projects table
-  await pool.execute('ALTER TABLE teams DROP COLUMN board_config').catch(() => {});
+  // GLOOK-38: per-team board config lives in the jira_projects table.
+  // `teams.board_config` never existed outside this branch (added and
+  // dropped within it, before any release) — no DROP is needed.
   await pool.execute(`CREATE TABLE IF NOT EXISTS jira_projects (
     id            VARCHAR(36)  NOT NULL PRIMARY KEY,
     org           VARCHAR(255) NOT NULL,

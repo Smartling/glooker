@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { listJiraProjects, createJiraProject, JiraProjectDuplicateError } from '@/lib/jira-projects/service';
-import { ensureSeedProject } from '@/lib/jira-projects/seed';
 import { JiraProjectError } from '@/lib/jira-projects/types';
 import { requireAdmin } from '@/lib/auth';
 import { withRequestLog } from '@/lib/logger';
@@ -9,14 +8,10 @@ async function getHandler(req: NextRequest) {
   const org = req.nextUrl.searchParams.get('org');
   if (!org) return NextResponse.json({ error: 'org query parameter is required' }, { status: 400 });
 
-  // Settings → Projects and the board's project selector both read this list.
-  // Migrating here too (not just from GET /api/projects) closes the gap where
-  // an admin who opens Settings before anyone opens the board would otherwise
-  // configure a project, make listJiraProjects non-empty, and permanently
-  // short-circuit the legacy JIRA_PROJECTS_JQL seed. Never throws; no-op once
-  // any row exists.
-  await ensureSeedProject(org);
-
+  // Pure read — no seeding here. Settings → Projects reloads this list right
+  // after a DELETE; migrating on every read would resurrect the last project
+  // an admin just deleted. The board (GET /api/projects) still runs the
+  // one-time legacy-var migration on first load.
   return NextResponse.json(await listJiraProjects(org));
 }
 

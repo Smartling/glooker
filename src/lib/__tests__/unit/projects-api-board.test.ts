@@ -2,20 +2,21 @@ jest.mock('@octokit/rest', () => ({ Octokit: jest.fn() }));
 jest.mock('@/lib/projects/service', () => ({ fetchProjectEpics: jest.fn() }));
 jest.mock('@/lib/jira-projects/service', () => ({
   listJiraProjects: jest.fn(),
-  getJiraProject: jest.fn(),
 }));
-jest.mock('@/lib/jira-projects/seed', () => ({ ensureSeedProject: jest.fn() }));
+jest.mock('@/lib/jira-projects/seed', () => {
+  const actual = jest.requireActual('@/lib/jira-projects/seed');
+  return { ...actual, ensureSeedProject: jest.fn() };
+});
 
 import { NextRequest } from 'next/server';
 import { GET } from '@/app/api/projects/route';
 import { fetchProjectEpics } from '@/lib/projects/service';
-import { listJiraProjects, getJiraProject } from '@/lib/jira-projects/service';
+import { listJiraProjects } from '@/lib/jira-projects/service';
 import { ensureSeedProject } from '@/lib/jira-projects/seed';
 import type { JiraProject } from '@/lib/jira-projects/types';
 
 const mockFetch = fetchProjectEpics as jest.Mock;
 const mockList = listJiraProjects as jest.Mock;
-const mockGet = getJiraProject as jest.Mock;
 const mockSeed = ensureSeedProject as jest.Mock;
 
 const SPS: JiraProject = {
@@ -30,18 +31,24 @@ const RND: JiraProject = {
 const req = (qs: string) => new NextRequest(`http://localhost/api/projects${qs}`);
 
 let prevEnabled: string | undefined;
-beforeAll(() => { prevEnabled = process.env.JIRA_ENABLED; });
+let prevJql: string | undefined;
+beforeAll(() => {
+  prevEnabled = process.env.JIRA_ENABLED;
+  prevJql = process.env.JIRA_PROJECTS_JQL;
+});
 afterAll(() => {
   if (prevEnabled === undefined) delete process.env.JIRA_ENABLED;
   else process.env.JIRA_ENABLED = prevEnabled;
+  if (prevJql === undefined) delete process.env.JIRA_PROJECTS_JQL;
+  else process.env.JIRA_PROJECTS_JQL = prevJql;
 });
 
 beforeEach(() => {
   jest.clearAllMocks();
   process.env.JIRA_ENABLED = 'true';
+  delete process.env.JIRA_PROJECTS_JQL;
   mockFetch.mockResolvedValue([]);
   mockList.mockResolvedValue([SPS, RND]);
-  mockGet.mockResolvedValue(SPS);
   mockSeed.mockResolvedValue(undefined);
 });
 
@@ -80,12 +87,13 @@ describe('GET /api/projects', () => {
   });
 
   it('404s for an unknown project key', async () => {
-    mockGet.mockResolvedValue(null);
+    // Driven entirely through mockList (the route resolves the project from
+    // the already-fetched `configured` list, not a separate lookup) — 'NOPE'
+    // is simply absent from it.
     expect((await GET(req('?org=o&project=NOPE'))).status).toBe(404);
   });
 
   it('builds the named project active tab', async () => {
-    mockGet.mockResolvedValue(RND);
     await GET(req('?org=o&project=RND&status=active'));
     expect(mockFetch).toHaveBeenCalledWith(
       'project = "RND" AND issuetype = Epic AND status = "In Progress"', 'o',
@@ -93,7 +101,6 @@ describe('GET /api/projects', () => {
   });
 
   it('builds the middle tab from the project middle status', async () => {
-    mockGet.mockResolvedValue(RND);
     await GET(req('?org=o&project=RND&status=middle'));
     expect(mockFetch).toHaveBeenCalledWith(
       'project = "RND" AND issuetype = Epic AND status = "Backlog"', 'o',
@@ -108,9 +115,8 @@ describe('GET /api/projects', () => {
   });
 
   it('returns an empty list rather than 500 when the middle tab is not configured', async () => {
-    // The project is resolved from the `configured` list (FIX 6), not a
-    // separate getJiraProject call — so the no-middle-tab shape has to come
-    // from mockList, not mockGet.
+    // The project is resolved from the `configured` list, which is where the
+    // no-middle-tab shape must come from — there is no separate lookup.
     mockList.mockResolvedValue([SPS, { ...RND, middleStatus: null }]);
     const res = await GET(req('?org=o&project=RND&status=middle'));
     expect(res.status).toBe(200);
@@ -119,7 +125,6 @@ describe('GET /api/projects', () => {
   });
 
   it('returns the project row alongside the epics', async () => {
-    mockGet.mockResolvedValue(RND);
     const body = await (await GET(req('?org=o&project=RND'))).json();
     expect(body.project.projectKey).toBe('RND');
     expect(body.project.hierarchy).toBe('owner');
@@ -135,5 +140,31 @@ describe('GET /api/projects', () => {
     const res = await GET(req('?org=o'));
     expect(res.status).toBe(500);
     expect((await res.json()).error).toBe('Jira exploded');
+  });
+
+  describe('isLegacy on the response project', () => {
+    it('is true for the project JIRA_PROJECTS_JQL names', async () => {
+      process.env.JIRA_PROJECTS_JQL = 'project = SPS AND issuetype = Epic AND status = "In Progress"';
+      const body = await (await GET(req('?org=o&project=SPS'))).json();
+      expect(body.project.isLegacy).toBe(true);
+    });
+
+    it('is false for a different project', async () => {
+      process.env.JIRA_PROJECTS_JQL = 'project = SPS AND issuetype = Epic AND status = "In Progress"';
+      const body = await (await GET(req('?org=o&project=RND'))).json();
+      expect(body.project.isLegacy).toBe(false);
+    });
+
+    it('is false when JIRA_PROJECTS_JQL is unset', async () => {
+      delete process.env.JIRA_PROJECTS_JQL;
+      const body = await (await GET(req('?org=o&project=SPS'))).json();
+      expect(body.project.isLegacy).toBe(false);
+    });
+
+    it('is false when JIRA_PROJECTS_JQL is unparseable', async () => {
+      process.env.JIRA_PROJECTS_JQL = 'statusCategory = "In Progress"';
+      const body = await (await GET(req('?org=o&project=SPS'))).json();
+      expect(body.project.isLegacy).toBe(false);
+    });
   });
 });

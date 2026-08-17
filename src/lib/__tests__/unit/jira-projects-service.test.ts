@@ -4,8 +4,8 @@ jest.mock('@/lib/db/index', () => ({
 }));
 
 import {
-  listJiraProjects, getJiraProject, createJiraProject, updateJiraProject, deleteJiraProject,
-  JiraProjectDuplicateError,
+  listJiraProjects, createJiraProject, updateJiraProject, deleteJiraProject,
+  JiraProjectDuplicateError, JiraProjectNotFoundError,
 } from '@/lib/jira-projects/service';
 import db from '@/lib/db/index';
 
@@ -43,23 +43,6 @@ describe('listJiraProjects', () => {
   it('normalises a null middle_status to null', async () => {
     mockExecute.mockResolvedValueOnce([[{ ...row, middle_status: null }], null]);
     expect((await listJiraProjects('o'))[0].middleStatus).toBeNull();
-  });
-});
-
-describe('getJiraProject', () => {
-  it('returns the matching project', async () => {
-    mockExecute.mockResolvedValueOnce([[row], null]);
-    expect((await getJiraProject('o', 'RND'))!.projectKey).toBe('RND');
-  });
-
-  it('is case-insensitive on the key', async () => {
-    mockExecute.mockResolvedValueOnce([[row], null]);
-    await getJiraProject('o', 'rnd');
-    expect(mockExecute.mock.calls[0][1]).toEqual(['o', 'RND']);
-  });
-
-  it('returns null when absent', async () => {
-    expect(await getJiraProject('o', 'NOPE')).toBeNull();
   });
 });
 
@@ -107,8 +90,14 @@ describe('updateJiraProject', () => {
 
 describe('deleteJiraProject', () => {
   it('deletes by id', async () => {
+    mockExecute.mockResolvedValueOnce([{ affectedRows: 1 }, null]);
     await deleteJiraProject('p1');
     expect(mockExecute.mock.calls[0][0]).toMatch(/DELETE FROM jira_projects/i);
     expect(mockExecute.mock.calls[0][1]).toEqual(['p1']);
+  });
+
+  it('throws JiraProjectNotFoundError when no row matched', async () => {
+    mockExecute.mockResolvedValueOnce([{ affectedRows: 0 }, null]);
+    await expect(deleteJiraProject('gone')).rejects.toThrow(JiraProjectNotFoundError);
   });
 });

@@ -29,6 +29,17 @@ export interface JiraProject extends JiraProjectInput {
   org: string;
 }
 
+/**
+ * JiraProject as returned by GET /api/projects: adds a per-request derived
+ * flag naming whether this is the project the legacy JIRA_PROJECTS_JQL var
+ * configures. Never stored — `position` is admin-editable (create uses
+ * `position: projects.length`, so delete-and-re-add reorders it), so it is
+ * not a stable enough signal for the client to infer this from list order.
+ */
+export interface JiraProjectWithLegacyFlag extends JiraProject {
+  isLegacy: boolean;
+}
+
 /** Project keys are letters, digits and underscores, leading letter. Anything
  *  else could break out of the quoted JQL literal we interpolate them into. */
 export const PROJECT_KEY_RE = /^[A-Z][A-Z0-9_]*$/;

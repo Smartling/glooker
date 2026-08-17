@@ -98,17 +98,6 @@ describe('fetchProjectEpics', () => {
     expect(byKey['EPIC-3'].goal).toEqual({ key: 'GOAL-1', summary: 'My Goal' });
   });
 
-  it('derives projectKey from the epic key prefix', async () => {
-    const mockSearchEpics = jest.fn()
-      .mockResolvedValueOnce([makeEpic({ key: 'RND-1181', parentKey: null, parentTypeName: null })]);
-    mockGetJiraClient.mockReturnValue({ searchEpics: mockSearchEpics });
-    noMappingsDb();
-
-    const result = await fetchProjectEpics('project = RND', 'my-org');
-
-    expect(result[0].projectKey).toBe('RND');
-  });
-
   it('resolves initiative and goal for epics with Initiative parent', async () => {
     const epics = [
       makeEpic({

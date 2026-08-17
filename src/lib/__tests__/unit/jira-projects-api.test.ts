@@ -17,6 +17,7 @@ jest.mock('@/lib/jira-projects/service', () => {
     deleteJiraProject: jest.fn(),
   };
 });
+jest.mock('@/lib/jira-projects/seed', () => ({ ensureSeedProject: jest.fn() }));
 
 import { NextRequest, NextResponse } from 'next/server';
 import { GET, POST } from '@/app/api/jira-projects/route';
@@ -25,12 +26,14 @@ import {
   listJiraProjects, createJiraProject, updateJiraProject, deleteJiraProject,
   JiraProjectDuplicateError, JiraProjectNotFoundError,
 } from '@/lib/jira-projects/service';
+import { ensureSeedProject } from '@/lib/jira-projects/seed';
 import { JiraProjectError } from '@/lib/jira-projects/types';
 
 const mockList = listJiraProjects as jest.Mock;
 const mockCreate = createJiraProject as jest.Mock;
 const mockUpdate = updateJiraProject as jest.Mock;
 const mockDelete = deleteJiraProject as jest.Mock;
+const mockSeed = ensureSeedProject as jest.Mock;
 
 const post = (body: unknown) => new NextRequest('http://localhost/api/jira-projects', {
   method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' },
@@ -51,6 +54,14 @@ describe('GET /api/jira-projects', () => {
     mockList.mockResolvedValue([{ projectKey: 'SPS' }]);
     const res = await GET(new NextRequest('http://localhost/api/jira-projects?org=o'));
     expect((await res.json())[0].projectKey).toBe('SPS');
+  });
+
+  it('is a pure read: does not call ensureSeedProject', async () => {
+    // Settings → Projects reloads this list right after a DELETE. Seeding
+    // here would resurrect the project an admin just deleted (PR #66 review).
+    mockList.mockResolvedValue([]);
+    await GET(new NextRequest('http://localhost/api/jira-projects?org=o'));
+    expect(mockSeed).not.toHaveBeenCalled();
   });
 });
 
@@ -117,6 +128,15 @@ describe('PUT /api/jira-projects/[id]', () => {
     expect((await PUT(put({ projectKey: 'RND', activeStatus: 'x' }), ctx)).status).toBe(404);
   });
 
+  it('400s on malformed JSON instead of an unhandled 500', async () => {
+    const req = new NextRequest('http://localhost/api/jira-projects/p1', {
+      method: 'PUT', body: '{not valid json', headers: { 'Content-Type': 'application/json' },
+    });
+    const res = await PUT(req, ctx);
+    expect(res.status).toBe(400);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
   it('refuses a non-admin and does not touch the service', async () => {
     const { requireAdmin } = jest.requireMock('@/lib/auth');
     requireAdmin.mockResolvedValueOnce(
@@ -133,6 +153,12 @@ describe('DELETE /api/jira-projects/[id]', () => {
     mockDelete.mockResolvedValue(undefined);
     const res = await DELETE(new NextRequest('http://localhost/api/jira-projects/p1', { method: 'DELETE' }), ctx);
     expect((await res.json())).toEqual({ deleted: true });
+  });
+
+  it('404s when the row is already gone instead of reporting deleted: true', async () => {
+    mockDelete.mockRejectedValue(new JiraProjectNotFoundError('p1'));
+    const res = await DELETE(new NextRequest('http://localhost/api/jira-projects/p1', { method: 'DELETE' }), ctx);
+    expect(res.status).toBe(404);
   });
 
   it('refuses a non-admin and does not touch the service', async () => {

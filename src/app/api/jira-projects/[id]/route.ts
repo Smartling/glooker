@@ -15,12 +15,19 @@ async function putHandler(
   if (denied) return denied;
 
   const { id } = await params;
-  const body = await req.json();
 
   try {
+    const body = await req.json();
     await updateJiraProject(id, body);
     return NextResponse.json({ updated: true });
   } catch (err) {
+    // `instanceof SyntaxError` (and even `instanceof Error`) is unreliable
+    // here: req.json()'s parse error comes from undici's internal realm, not
+    // this module's global Error/SyntaxError (observed under the Jest test
+    // environment) — check by `.name` instead.
+    if ((err as { name?: string })?.name === 'SyntaxError') {
+      return NextResponse.json({ error: 'Malformed JSON body' }, { status: 400 });
+    }
     if (err instanceof JiraProjectNotFoundError) {
       return NextResponse.json({ error: err.message }, { status: 404 });
     }
@@ -42,8 +49,15 @@ async function deleteHandler(
   if (denied) return denied;
 
   const { id } = await params;
-  await deleteJiraProject(id);
-  return NextResponse.json({ deleted: true });
+  try {
+    await deleteJiraProject(id);
+    return NextResponse.json({ deleted: true });
+  } catch (err) {
+    if (err instanceof JiraProjectNotFoundError) {
+      return NextResponse.json({ error: err.message }, { status: 404 });
+    }
+    throw err;
+  }
 }
 
 export const PUT = withRequestLog(putHandler);

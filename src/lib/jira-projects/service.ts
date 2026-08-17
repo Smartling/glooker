@@ -39,14 +39,6 @@ export async function listJiraProjects(org: string): Promise<JiraProject[]> {
   return rows.map(toProject);
 }
 
-export async function getJiraProject(org: string, projectKey: string): Promise<JiraProject | null> {
-  const [rows] = await db.execute(
-    `SELECT ${COLUMNS} FROM jira_projects WHERE org = ? AND project_key = ?`,
-    [org, projectKey.trim().toUpperCase()],
-  ) as [any[], any];
-  return rows.length > 0 ? toProject(rows[0]) : null;
-}
-
 export async function createJiraProject(org: string, input: unknown): Promise<JiraProject> {
   const v = validateJiraProject(input);
   const id = randomUUID();
@@ -86,5 +78,8 @@ export async function updateJiraProject(id: string, input: unknown): Promise<voi
 }
 
 export async function deleteJiraProject(id: string): Promise<void> {
-  await db.execute(`DELETE FROM jira_projects WHERE id = ?`, [id]);
+  const [result] = await db.execute(`DELETE FROM jira_projects WHERE id = ?`, [id]) as [any, any];
+  if (!result?.affectedRows) {
+    throw new JiraProjectNotFoundError(id);
+  }
 }

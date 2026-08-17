@@ -317,8 +317,9 @@ export function createSQLiteDB(): DB {
   try { db.exec('ALTER TABLE team_pulse_summaries ADD COLUMN projects TEXT'); } catch (_) {}
   // GLOOK-13: report integrity (run_metadata column + skip-allowlist table)
   try { db.exec('ALTER TABLE reports ADD COLUMN run_metadata TEXT'); } catch (_) {}
-  // GLOOK-38: board config moved from teams to the jira_projects table
-  try { db.exec('ALTER TABLE teams DROP COLUMN board_config'); } catch (_) {}
+  // GLOOK-38: per-team board config lives in the jira_projects table (see
+  // CREATE TABLE above). `teams.board_config` never existed outside this
+  // branch — no DROP is needed.
   try {
     db.exec(`CREATE TABLE IF NOT EXISTS report_skip_allowlist (
       github_login  TEXT NOT NULL PRIMARY KEY,

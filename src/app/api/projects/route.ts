@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchProjectEpics } from '@/lib/projects/service';
 import { listJiraProjects } from '@/lib/jira-projects/service';
-import { ensureSeedProject } from '@/lib/jira-projects/seed';
+import { ensureSeedProject, parseLegacyJql } from '@/lib/jira-projects/seed';
 import { buildProjectJql } from '@/lib/jira-projects/jql';
-import type { BoardTabKind } from '@/lib/jira-projects/types';
+import type { BoardTabKind, JiraProjectWithLegacyFlag } from '@/lib/jira-projects/types';
 import { withRequestLog } from '@/lib/logger';
 
 const TABS: BoardTabKind[] = ['active', 'middle', 'done'];
@@ -46,16 +46,26 @@ async function getHandler(req: NextRequest) {
       return NextResponse.json({ error: `Unknown Jira project: ${projectKey}` }, { status: 404 });
     }
 
+    // Which project (if any) the legacy JIRA_PROJECTS_JQL var names. Derived
+    // per request, never stored — see JiraProjectWithLegacyFlag.
+    const legacyRaw = process.env.JIRA_PROJECTS_JQL;
+    const legacyProjectKey = legacyRaw ? parseLegacyJql(legacyRaw)?.projectKey ?? null : null;
+    const projectWithLegacy: JiraProjectWithLegacyFlag = {
+      ...project,
+      isLegacy: legacyProjectKey !== null
+        && legacyProjectKey.toUpperCase() === project.projectKey.toUpperCase(),
+    };
+
     const jiraHost = process.env.JIRA_HOST || null;
 
     // A project with no middle status has a two-tab board; asking for its
     // middle tab is a legal URL that simply has nothing behind it.
     if (tab === 'middle' && !project.middleStatus) {
-      return NextResponse.json({ epics: [], jiraHost, project });
+      return NextResponse.json({ epics: [], jiraHost, project: projectWithLegacy });
     }
 
     const epics = await fetchProjectEpics(buildProjectJql(project, tab), org);
-    return NextResponse.json({ epics, jiraHost, project });
+    return NextResponse.json({ epics, jiraHost, project: projectWithLegacy });
   } catch (err) {
     console.error('[projects] Error fetching epics:', err);
     return NextResponse.json(

@@ -3,8 +3,6 @@ import db from '@/lib/db';
 
 export interface ProjectEpic {
   key: string;
-  /** The Jira project key, parsed from the epic key's prefix (e.g. "SPS" from "SPS-123"). */
-  projectKey: string;
   summary: string;
   status: string;
   dueDate: string | null;
@@ -63,7 +61,6 @@ export async function fetchProjectEpics(
 
     return {
       key: epic.key,
-      projectKey: epic.key.split('-')[0],
       summary: epic.summary,
       status: epic.status,
       dueDate: epic.dueDate,

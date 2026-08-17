@@ -4,7 +4,7 @@ jest.mock('@/lib/jira-projects/service', () => ({
 }));
 jest.mock('@/lib/db', () => ({ __esModule: true, default: { execute: jest.fn() } }));
 
-import { parseLegacyJql, ensureSeedProject } from '@/lib/jira-projects/seed';
+import { parseLegacyJql, ensureSeedProject, __resetSeedMemoForTest } from '@/lib/jira-projects/seed';
 import { listJiraProjects, createJiraProject } from '@/lib/jira-projects/service';
 import db from '@/lib/db';
 
@@ -21,6 +21,10 @@ afterAll(() => {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // ensureSeedProject now attempts at most once per org per process (PR #66
+  // review, closing the "delete the last project, it comes back" bug). Reset
+  // that memo before every test so each `it` gets a fresh attempt for org 'o'.
+  __resetSeedMemoForTest();
   mockList.mockResolvedValue([]);
   // Default: the org is a known one (has a team), so the org-gating check in
   // FIX 2 doesn't interfere with tests that aren't about it.
@@ -48,6 +52,23 @@ describe('parseLegacyJql', () => {
   it('returns null for a statusCategory-only form it cannot map', () => {
     expect(parseLegacyJql('project = SPS AND statusCategory = "In Progress"')).toBeNull();
   });
+
+  it('does not warn when every clause is carried over', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    parseLegacyJql('project = SPS AND issuetype = Epic AND status = "In Progress"');
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('warns naming clauses it does not carry over, but still migrates', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const result = parseLegacyJql(
+      'project = ABC AND issuetype = Epic AND status = "In Dev" AND component = Core',
+    );
+    expect(result).toEqual({ projectKey: 'ABC', activeStatus: 'In Dev' });
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('component'));
+    warnSpy.mockRestore();
+  });
 });
 
 describe('ensureSeedProject', () => {
@@ -58,7 +79,9 @@ describe('ensureSeedProject', () => {
       projectKey: 'SPS',
       displayName: 'SPS',
       activeStatus: 'In Progress',
-      middleStatus: 'Rollout',
+      // A two-tab board is the honest default for an unknown workflow — the
+      // legacy var never named a middle status either (PR #66 review).
+      middleStatus: null,
       hierarchy: 'goal-initiative',
       position: 0,
     });
@@ -83,10 +106,65 @@ describe('ensureSeedProject', () => {
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
+  it('warns naming the var and the value when the JQL cannot be parsed', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    process.env.JIRA_PROJECTS_JQL = 'issuetype = Epic';
+    await ensureSeedProject('o');
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('JIRA_PROJECTS_JQL'));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('issuetype = Epic'));
+    warnSpy.mockRestore();
+  });
+
   it('swallows a create failure rather than breaking the page', async () => {
     process.env.JIRA_PROJECTS_JQL = 'project = SPS AND status = "In Progress"';
     mockCreate.mockRejectedValue(new Error('db down'));
     await expect(ensureSeedProject('o')).resolves.toBeUndefined();
+  });
+
+  describe('memoization: at most one attempt per org per process', () => {
+    it('does not call listJiraProjects again for an org already attempted', async () => {
+      process.env.JIRA_PROJECTS_JQL = 'project = SPS AND issuetype = Epic AND status = "In Progress"';
+      await ensureSeedProject('o');
+      expect(mockList).toHaveBeenCalledTimes(1);
+
+      await ensureSeedProject('o');
+      expect(mockList).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not re-insert for the same org after its only row is deleted', async () => {
+      process.env.JIRA_PROJECTS_JQL = 'project = SPS AND issuetype = Epic AND status = "In Progress"';
+      mockList.mockResolvedValueOnce([]); // nothing configured yet
+      await ensureSeedProject('o');
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+
+      // Admin deletes the row via Settings; a later board load would again
+      // see an empty list for this org if it weren't memoized.
+      mockList.mockResolvedValueOnce([]);
+      await ensureSeedProject('o');
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+    });
+
+    it('still attempts a different org', async () => {
+      process.env.JIRA_PROJECTS_JQL = 'project = SPS AND issuetype = Epic AND status = "In Progress"';
+      await ensureSeedProject('o');
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+
+      await ensureSeedProject('another-org');
+      expect(mockCreate).toHaveBeenCalledTimes(2);
+    });
+
+    it('marks the org attempted even when nothing was configured to seed from', async () => {
+      delete process.env.JIRA_PROJECTS_JQL;
+      await ensureSeedProject('o');
+      expect(mockList).toHaveBeenCalledTimes(1);
+
+      // Setting the var afterward must not trigger a late seed — the org
+      // already had its one attempt for this process.
+      process.env.JIRA_PROJECTS_JQL = 'project = SPS AND issuetype = Epic AND status = "In Progress"';
+      await ensureSeedProject('o');
+      expect(mockList).toHaveBeenCalledTimes(1);
+      expect(mockCreate).not.toHaveBeenCalled();
+    });
   });
 
   describe('org gating', () => {
