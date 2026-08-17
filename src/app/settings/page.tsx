@@ -4,8 +4,9 @@ import { useState, useEffect, useRef } from 'react';
 import { useTheme } from '../theme-context';
 import { THEMES, type ThemeColors } from '../themes';
 import { useAuth } from '../auth-context';
+import ProjectsTab from './projects-tab';
 
-type Tab = 'schedules' | 'teams' | 'app' | 'appearance' | 'cc-spend' | 'skip-allowlist';
+type Tab = 'schedules' | 'teams' | 'projects' | 'app' | 'appearance' | 'cc-spend' | 'skip-allowlist';
 
 const CADENCE_PRESETS = [
   { label: 'Every hour',           cron: '0 * * * *' },
@@ -38,11 +39,11 @@ export default function SettingsPage() {
   const [selectedOrg, setSelectedOrg] = useState('');
 
   // Set default tab: hash overrides, otherwise 'app' for admins
-  const adminTabs = ['schedules', 'teams', 'app', 'cc-spend', 'skip-allowlist'];
+  const adminTabs = ['schedules', 'teams', 'projects', 'app', 'cc-spend', 'skip-allowlist'];
   useEffect(() => {
     if (!loading) {
       const hash = window.location.hash.replace('#', '') as Tab;
-      if (['schedules', 'teams', 'app', 'appearance', 'cc-spend', 'skip-allowlist'].includes(hash)) {
+      if (['schedules', 'teams', 'projects', 'app', 'appearance', 'cc-spend', 'skip-allowlist'].includes(hash)) {
         // Only allow admin tabs if user is admin
         if (adminTabs.includes(hash) && !canAct) {
           setActiveTab('appearance');
@@ -71,6 +72,7 @@ export default function SettingsPage() {
         {([
           { id: 'schedules' as Tab, label: 'Schedules', icon: '🕐', adminOnly: true },
           { id: 'teams' as Tab, label: 'Teams', icon: '👥', adminOnly: true },
+          { id: 'projects' as Tab, label: 'Projects', icon: '📋', adminOnly: true },
           { id: 'app' as Tab, label: 'App Settings', icon: '⚙️', adminOnly: true },
           { id: 'cc-spend' as Tab, label: 'CC Spend', icon: '💰', adminOnly: true },
           { id: 'skip-allowlist' as Tab, label: 'Skip Allowlist', icon: '🚫', adminOnly: true },
@@ -94,6 +96,7 @@ export default function SettingsPage() {
       {/* Tab Content */}
       {activeTab === 'schedules' && <SchedulesTab />}
       {activeTab === 'teams' && selectedOrg && <TeamsTab org={selectedOrg} />}
+      {activeTab === 'projects' && selectedOrg && <ProjectsTab org={selectedOrg} />}
       {activeTab === 'app' && <AppSettingsTab org={selectedOrg} />}
       {activeTab === 'cc-spend' && <CCSpendTab />}
       {activeTab === 'skip-allowlist' && <SkipAllowlistTab />}
@@ -434,12 +437,17 @@ function TeamsTab({ org }: { org: string }) {
   async function save() {
     const body = { org, name: formName, color: formColor, members: formMembers };
     try {
-      if (editingTeam) {
-        const res = await fetch(`/api/teams/${editingTeam.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-        if (!res.ok) { const d = await res.json(); alert(d.error || 'Failed'); return; }
-      } else {
-        const res = await fetch('/api/teams', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-        if (!res.ok) { const d = await res.json(); alert(d.error || 'Failed'); return; }
+      const url = editingTeam ? `/api/teams/${editingTeam.id}` : '/api/teams';
+      const method = editingTeam ? 'PUT' : 'POST';
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        alert(d.error || 'Failed');
+        return;
       }
       loadTeams();
       setShowForm(false);

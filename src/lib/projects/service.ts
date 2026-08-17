@@ -12,7 +12,10 @@ export interface ProjectEpic {
   goal: { key: string; summary: string } | null;
 }
 
-export async function fetchProjectEpics(jql: string, org: string): Promise<ProjectEpic[]> {
+export async function fetchProjectEpics(
+  jql: string,
+  org: string,
+): Promise<ProjectEpic[]> {
   const client = getJiraClient();
   if (!client) throw new Error('Jira is not configured');
 
@@ -44,27 +47,29 @@ export async function fetchProjectEpics(jql: string, org: string): Promise<Proje
   // 4. Build assignee email→team lookup
   const teamMap = await buildAssigneeTeamMap(org);
 
-  // 5. Assemble results
-  const epics: ProjectEpic[] = rawEpics
-    .filter(e => e.parentKey && e.parentTypeName === 'Initiative')
-    .map(epic => {
-      const initiative = epic.parentKey
-        ? { key: epic.parentKey, summary: epic.parentSummary || '' }
-        : null;
-      const goal = epic.parentKey ? initiativeToGoal.get(epic.parentKey) || null : null;
-      const team = epic.assigneeEmail ? teamMap.get(epic.assigneeEmail.toLowerCase()) || null : null;
+  // 5. Assemble results.
+  //    GLOOK-38: parentless epics are kept. They used to be dropped here, which
+  //    is why pointing the board at a flat project (RND: 0 of 25 epics have a
+  //    parent) rendered an empty table.
+  const epics: ProjectEpic[] = rawEpics.map(epic => {
+    const hasInitiative = Boolean(epic.parentKey) && epic.parentTypeName === 'Initiative';
+    const initiative = hasInitiative
+      ? { key: epic.parentKey as string, summary: epic.parentSummary || '' }
+      : null;
+    const goal = hasInitiative ? initiativeToGoal.get(epic.parentKey as string) || null : null;
+    const team = epic.assigneeEmail ? teamMap.get(epic.assigneeEmail.toLowerCase()) || null : null;
 
-      return {
-        key: epic.key,
-        summary: epic.summary,
-        status: epic.status,
-        dueDate: epic.dueDate,
-        assignee: epic.assigneeDisplayName,
-        team,
-        initiative,
-        goal,
-      };
-    });
+    return {
+      key: epic.key,
+      summary: epic.summary,
+      status: epic.status,
+      dueDate: epic.dueDate,
+      assignee: epic.assigneeDisplayName,
+      team,
+      initiative,
+      goal,
+    };
+  });
 
   // Sort: goal name → initiative name → epic summary
   epics.sort((a, b) => {

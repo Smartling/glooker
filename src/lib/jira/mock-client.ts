@@ -1,11 +1,55 @@
 import type { JiraClientInterface } from './types';
-import type { JiraUser, JiraIssueData } from './client';
+import type { JiraUser, JiraIssueData, JiraTransition } from './client';
 
 // Lazy-load mock identities to avoid bundling in production
 let _identities: typeof import('../../../scripts/mock-identities') | null = null;
 function getIdentities() {
   if (!_identities) _identities = require('../../../scripts/mock-identities');
   return _identities!;
+}
+
+/** Pull project keys out of `project in ("A", "B")` or `project = A`. */
+function extractProjectKeys(jql: string): string[] {
+  const inMatch = jql.match(/project\s+in\s*\(([^)]*)\)/i);
+  if (inMatch) {
+    return inMatch[1]
+      .split(',')
+      .map(s => s.trim().replace(/^["']|["']$/g, '').toUpperCase())
+      .filter(Boolean);
+  }
+  const eqMatch = jql.match(/project\s*=\s*["']?([A-Za-z0-9_]+)["']?/i);
+  return eqMatch ? [eqMatch[1].toUpperCase()] : [];
+}
+
+/**
+ * Jira's status -> statusCategory mapping for our fixture statuses. A real
+ * Jira instance derives this per-workflow; here it's just the fixed set of
+ * statuses MOCK_EPICS / MOCK_RESEARCH_EPICS actually use.
+ */
+const STATUS_CATEGORY: Record<string, string> = {
+  'In Progress': 'In Progress',
+  Backlog: 'To Do',
+  Done: 'Done',
+  // Rejected sits in the Done category despite carrying no resolution date —
+  // real Jira behaviour, and the reason buildProjectJql's Done clause filters
+  // on `updated` rather than a resolution date.
+  Rejected: 'Done',
+  Rollout: 'In Progress',
+};
+
+/**
+ * Pull a status filter out of `statusCategory = "X"` or `status = "X"`.
+ * Returns null when the JQL has neither clause (e.g. the `key in (...)`
+ * initiative batch lookup), meaning "no status filtering".
+ */
+function extractStatusFilter(jql: string): { field: 'statusCategory' | 'status'; value: string } | null {
+  const categoryMatch = jql.match(/statusCategory\s*=\s*["']([^"']+)["']/i);
+  if (categoryMatch) return { field: 'statusCategory', value: categoryMatch[1] };
+
+  const statusMatch = jql.match(/\bstatus\s*=\s*["']([^"']+)["']/i);
+  if (statusMatch) return { field: 'status', value: statusMatch[1] };
+
+  return null;
 }
 
 export class MockJiraClient implements JiraClientInterface {
@@ -30,26 +74,59 @@ export class MockJiraClient implements JiraClientInterface {
     };
   }
 
-  async searchEpics(_jql: string): Promise<Array<{
+  async searchEpics(jql: string): Promise<Array<{
     key: string; summary: string; status: string; dueDate: string | null;
     assigneeDisplayName: string | null; assigneeEmail: string | null;
     parentKey: string | null; parentSummary: string | null; parentTypeName: string | null;
   }>> {
-    const { MOCK_EPICS, MOCK_DEVELOPERS } = getIdentities();
-    return MOCK_EPICS.map(epic => {
+    const { MOCK_EPICS, MOCK_DEVELOPERS, MOCK_RESEARCH_EPICS } = getIdentities();
+
+    const mockEpics = MOCK_EPICS.map(epic => {
       const dev = MOCK_DEVELOPERS.find(d => d.jiraEmail === epic.assigneeEmail);
       return {
         key: epic.key,
         summary: epic.summary,
         status: 'In Progress',
-        dueDate: '2026-05-15',
+        dueDate: '2026-05-15' as string | null,
         assigneeDisplayName: dev?.githubName || null,
-        assigneeEmail: epic.assigneeEmail,
-        parentKey: epic.initiativeKey,
-        parentSummary: epic.initiativeSummary,
-        parentTypeName: 'Initiative',
+        assigneeEmail: epic.assigneeEmail as string | null,
+        parentKey: epic.initiativeKey as string | null,
+        parentSummary: epic.initiativeSummary as string | null,
+        parentTypeName: 'Initiative' as string | null,
       };
     });
+
+    // GLOOK-38: parentless research epics, so the flat-hierarchy path has data.
+    const researchEpics = MOCK_RESEARCH_EPICS.map(epic => ({
+      key: epic.key,
+      summary: epic.summary,
+      status: epic.status,
+      dueDate: epic.dueDate,
+      assigneeDisplayName: epic.assigneeName,
+      assigneeEmail: epic.assigneeEmail,
+      parentKey: null as string | null,
+      parentSummary: null as string | null,
+      parentTypeName: null as string | null,
+    }));
+
+    const all = [...mockEpics, ...researchEpics];
+
+    // Honour a project clause so each project's board only sees its own
+    // epics. A JQL with no project clause (the `key in (...)` initiative
+    // batch lookup) matches everything, preserving the previous behaviour.
+    const keys = extractProjectKeys(jql);
+    const byProject = keys.length === 0 ? all : all.filter(e => keys.includes(e.key.split('-')[0]));
+
+    // Honour a status clause so board tabs (In Progress / Backlog / Done)
+    // show distinct epics instead of the same set for every tab. A JQL with
+    // neither a statusCategory nor a status clause (e.g. the batch lookup
+    // above) matches everything, same as the project filter.
+    const statusFilter = extractStatusFilter(jql);
+    if (!statusFilter) return byProject;
+    if (statusFilter.field === 'statusCategory') {
+      return byProject.filter(e => STATUS_CATEGORY[e.status] === statusFilter.value);
+    }
+    return byProject.filter(e => e.status === statusFilter.value);
   }
 
   async searchChildIssues(epicKey: string): Promise<Array<{
@@ -95,10 +172,17 @@ export class MockJiraClient implements JiraClientInterface {
 
   async updateDueDate(_issueKey: string, _dueDate: string | null): Promise<void> {}
 
-  async getTransitions(_issueKey: string): Promise<Array<{ id: string; name: string; to: { name: string } }>> {
+  // Mirrors the shape of a real Jira workflow, which offers a transition to
+  // every status the workflow allows — not only the ones a board names for its
+  // tabs. `Blocked` is deliberately here and deliberately not Done-category:
+  // it is the case that used to pin an epic to the top of the Done tab, so
+  // mock mode has to be able to reproduce it.
+  async getTransitions(_issueKey: string): Promise<JiraTransition[]> {
     return [
-      { id: '21', name: 'Start Rollout', to: { name: 'Rollout' } },
-      { id: '31', name: 'Done', to: { name: 'Done' } },
+      { id: '11', name: 'Start Progress', to: { name: 'In Progress' }, toStatusCategory: 'indeterminate' },
+      { id: '21', name: 'Start Rollout', to: { name: 'Rollout' }, toStatusCategory: 'indeterminate' },
+      { id: '31', name: 'Done', to: { name: 'Done' }, toStatusCategory: 'done' },
+      { id: '41', name: 'Block', to: { name: 'Blocked' }, toStatusCategory: 'new' },
     ];
   }
 

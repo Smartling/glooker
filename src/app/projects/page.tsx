@@ -7,13 +7,10 @@ export default function ProjectsPage() {
   if (process.env.JIRA_ENABLED !== 'true') {
     notFound();
   }
-  if (!process.env.JIRA_PROJECTS_JQL) {
-    return (
-      <div className="max-w-6xl mx-auto px-4 py-16 text-gray-500">
-        <h1 className="text-xl font-semibold text-white mb-2">Projects</h1>
-        <p>JIRA_PROJECTS_JQL is not configured. Set this environment variable to enable the projects view.</p>
-      </div>
-    );
-  }
+  // No env-var gate beyond JIRA_ENABLED: boards are configured from
+  // Settings → Projects (the jira_projects table), not an env var. When
+  // nothing is configured yet, GET /api/projects owns that state and
+  // ProjectsContent renders its "No Jira projects configured. Add one in
+  // Settings → Projects." message.
   return <ProjectsContent />;
 }

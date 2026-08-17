@@ -150,6 +150,19 @@ CREATE TABLE IF NOT EXISTS team_members (
   UNIQUE (team_id, github_login)
 );
 
+CREATE TABLE IF NOT EXISTS jira_projects (
+  id            TEXT NOT NULL PRIMARY KEY,
+  org           TEXT NOT NULL,
+  project_key   TEXT NOT NULL,
+  display_name  TEXT NOT NULL,
+  active_status TEXT NOT NULL,
+  middle_status TEXT,
+  hierarchy     TEXT NOT NULL DEFAULT 'goal-initiative',
+  position      INTEGER NOT NULL DEFAULT 0,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  UNIQUE (org, project_key)
+);
+
 CREATE TABLE IF NOT EXISTS epic_summaries (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   epic_key        TEXT    NOT NULL,
@@ -304,6 +317,9 @@ export function createSQLiteDB(): DB {
   try { db.exec('ALTER TABLE team_pulse_summaries ADD COLUMN projects TEXT'); } catch (_) {}
   // GLOOK-13: report integrity (run_metadata column + skip-allowlist table)
   try { db.exec('ALTER TABLE reports ADD COLUMN run_metadata TEXT'); } catch (_) {}
+  // GLOOK-38: per-team board config lives in the jira_projects table (see
+  // CREATE TABLE above). `teams.board_config` never existed outside this
+  // branch — no DROP is needed.
   try {
     db.exec(`CREATE TABLE IF NOT EXISTS report_skip_allowlist (
       github_login  TEXT NOT NULL PRIMARY KEY,

@@ -20,6 +20,26 @@ export interface JiraIssueData {
   resolvedAt: string | null;
 }
 
+/**
+ * One entry from Jira's `GET /issue/{key}/transitions` payload.
+ *
+ * `toStatusCategory` is the destination's **status-category key** — Jira's own
+ * three-value taxonomy (`new` / `indeterminate` / `done`) — not a status name.
+ * The board needs it because Jira offers a transition to every status the
+ * workflow allows, not just the two a project names for its tabs: on SPS the
+ * nine transitions include Backlog, Discovery, Blocked, Specs & Design and
+ * Ready for Dev. Without the category the client cannot tell those apart from
+ * a genuine Done, and the Done tab's JQL is `statusCategory = "Done"`.
+ *
+ * Null when Jira omits the category (it is optional in the schema).
+ */
+export interface JiraTransition {
+  id: string;
+  name: string;
+  to: { name: string };
+  toStatusCategory: string | null;
+}
+
 /** Extract plain text from Atlassian Document Format (ADF) JSON. */
 function extractAdfText(node: any): string {
   if (!node) return '';
@@ -231,11 +251,24 @@ export class JiraClient implements JiraClientInterface {
     return allIssues;
   }
 
-  async getTransitions(issueKey: string): Promise<Array<{ id: string; name: string; to: { name: string } }>> {
-    const result = await this.jiraFetch<{ transitions: Array<{ id: string; name: string; to: { name: string } }> }>(
-      `/issue/${issueKey}/transitions`,
-    );
-    return result.transitions || [];
+  async getTransitions(issueKey: string): Promise<JiraTransition[]> {
+    const result = await this.jiraFetch<{
+      transitions: Array<{
+        id: string;
+        name: string;
+        to?: { name?: string; statusCategory?: { key?: string } };
+      }>;
+    }>(`/issue/${issueKey}/transitions`);
+    return (result.transitions || []).map(t => ({
+      id: t.id,
+      name: t.name,
+      to: { name: t.to?.name || '' },
+      // Flattened rather than passed through nested: the board only ever needs
+      // the category key, and a flat field keeps the API response shape (and
+      // the client's transitions cache) from carrying Jira's whole
+      // statusCategory object — self, id, colorName and all.
+      toStatusCategory: t.to?.statusCategory?.key ?? null,
+    }));
   }
 
   async transitionIssue(issueKey: string, transitionId: string): Promise<void> {

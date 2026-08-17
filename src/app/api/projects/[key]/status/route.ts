@@ -15,6 +15,10 @@ async function getHandler(
   }
 
   try {
+    // Deliberately unfiltered — an admin may move an epic to any status the
+    // workflow allows, including ones this board shows no tab for. Each entry
+    // carries `toStatusCategory` so the client can classify the destination
+    // instead of assuming anything it does not recognise is Done.
     const transitions = await client.getTransitions(key);
     return NextResponse.json({ transitions });
   } catch (err) {
@@ -49,6 +53,12 @@ async function patchHandler(
 
   try {
     await client.transitionIssue(key, transitionId);
+    // The response deliberately does not echo the destination status or its
+    // category. Jira's transition POST returns 204 with no body, and the id we
+    // were handed stops being offered once the transition has run, so naming
+    // the destination here would cost a second Jira round-trip for data the
+    // caller already holds: GET on this route returns every transition with
+    // its `toStatusCategory`, and that is what the board classifies against.
     return NextResponse.json({ success: true, key });
   } catch (err) {
     console.error(`[status] Error transitioning ${key}:`, err);

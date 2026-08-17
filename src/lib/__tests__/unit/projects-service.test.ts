@@ -67,15 +67,15 @@ describe('fetchProjectEpics', () => {
     expect(mockSearchEpics).toHaveBeenCalledWith('project = FOO');
   });
 
-  it('filters out epics whose parent is not an Initiative', async () => {
+  it('keeps epics with no Initiative parent, with null initiative and goal', async () => {
     const epics = [
       makeEpic({ key: 'EPIC-1', summary: 'Has no parent', parentKey: null, parentTypeName: null }),
       makeEpic({ key: 'EPIC-2', summary: 'Story parent', parentKey: 'STORY-1', parentTypeName: 'Story' }),
       makeEpic({ key: 'EPIC-3', summary: 'Initiative parent', parentKey: 'INIT-1', parentSummary: 'My Initiative', parentTypeName: 'Initiative' }),
     ];
     const mockSearchEpics = jest.fn()
-      .mockResolvedValueOnce(epics)           // first call: epics JQL
-      .mockResolvedValueOnce([               // second call: initiative batch fetch
+      .mockResolvedValueOnce(epics)
+      .mockResolvedValueOnce([
         makeEpic({ key: 'INIT-1', summary: 'My Initiative', parentKey: 'GOAL-1', parentSummary: 'My Goal', parentTypeName: 'Goal' }),
       ]);
     mockGetJiraClient.mockReturnValue({ searchEpics: mockSearchEpics });
@@ -83,8 +83,19 @@ describe('fetchProjectEpics', () => {
 
     const result = await fetchProjectEpics('project = FOO', 'my-org');
 
-    expect(result).toHaveLength(1);
-    expect(result[0].key).toBe('EPIC-3');
+    // GLOOK-38: parentless epics used to be silently dropped. RND has 25 of them.
+    expect(result).toHaveLength(3);
+    const byKey = Object.fromEntries(result.map(e => [e.key, e]));
+
+    expect(byKey['EPIC-1'].initiative).toBeNull();
+    expect(byKey['EPIC-1'].goal).toBeNull();
+
+    // A non-Initiative parent must not be shown as an initiative.
+    expect(byKey['EPIC-2'].initiative).toBeNull();
+    expect(byKey['EPIC-2'].goal).toBeNull();
+
+    expect(byKey['EPIC-3'].initiative).toEqual({ key: 'INIT-1', summary: 'My Initiative' });
+    expect(byKey['EPIC-3'].goal).toEqual({ key: 'GOAL-1', summary: 'My Goal' });
   });
 
   it('resolves initiative and goal for epics with Initiative parent', async () => {
@@ -336,5 +347,29 @@ describe('fetchProjectEpics', () => {
     expect(initiativeJql).toContain('"INIT-7"');
     // INIT-5 should not appear twice
     expect(initiativeJql.split('"INIT-5"').length - 1).toBe(1);
+  });
+
+  it('resolves team from the assignee map only', async () => {
+    const epics = [
+      makeEpic({ key: 'RND-1', assigneeEmail: 'daria@smartling.com', parentKey: null, parentTypeName: null }),
+      makeEpic({ key: 'RND-2', assigneeEmail: 'alex@smartling.com', parentKey: null, parentTypeName: null }),
+    ];
+    const mockSearchEpics = jest.fn().mockResolvedValueOnce(epics);
+    mockGetJiraClient.mockReturnValue({ searchEpics: mockSearchEpics });
+
+    mockDbExecute.mockResolvedValueOnce([
+      [{ github_login: 'daria-gh', jira_email: 'daria@smartling.com' }], null,
+    ]);
+    mockDbExecute.mockResolvedValueOnce([
+      [{ github_login: 'daria-gh', name: 'Research', color: '#0891B2' }], null,
+    ]);
+
+    const result = await fetchProjectEpics('project = "RND"', 'my-org');
+
+    const byKey = Object.fromEntries(result.map(e => [e.key, e]));
+    expect(byKey['RND-1'].team).toEqual({ name: 'Research', color: '#0891B2' });
+    // GLOOK-38: no provenance fallback. An assignee with no user_mappings row
+    // yields null, which the UI renders as an em-dash.
+    expect(byKey['RND-2'].team).toBeNull();
   });
 });

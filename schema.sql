@@ -142,6 +142,19 @@ CREATE TABLE IF NOT EXISTS team_members (
   UNIQUE KEY uq_team_member (team_id, github_login)
 );
 
+CREATE TABLE IF NOT EXISTS jira_projects (
+  id            VARCHAR(36)  NOT NULL PRIMARY KEY,
+  org           VARCHAR(255) NOT NULL,
+  project_key   VARCHAR(64)  NOT NULL,
+  display_name  VARCHAR(255) NOT NULL,
+  active_status VARCHAR(255) NOT NULL,
+  middle_status VARCHAR(255) NULL,
+  hierarchy     VARCHAR(32)  NOT NULL DEFAULT 'goal-initiative',
+  position      INT          NOT NULL DEFAULT 0,
+  created_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_org_project (org, project_key)
+);
+
 CREATE TABLE IF NOT EXISTS release_notes (
   id              INT AUTO_INCREMENT PRIMARY KEY,
   latest_commit_sha VARCHAR(40) NOT NULL,

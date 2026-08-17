@@ -88,6 +88,16 @@ const rules: EnvRule[] = [
     validate: (v) =>
       VALID_GITHUB_PROVIDERS.includes(v) ? null : `must be one of: ${VALID_GITHUB_PROVIDERS.join(', ')}`,
   },
+
+  // ---- Optional, legacy ----
+  {
+    name: 'JIRA_PROJECTS_JQL',
+    required: false,
+    description: 'Legacy JQL that seeds a first jira_projects row on upgrade and supplies the ' +
+      'untracked-work project keys (e.g. project = SPS AND issuetype = Epic AND status = "In Progress" ' +
+      '— note `status`, not `statusCategory`: the migration cannot map a category onto a status name). ' +
+      'Superseded by Settings → Projects; safe to leave unset on a new deployment.',
+  },
 ];
 
 /**
@@ -124,7 +134,12 @@ const conditionalRules: {
       { name: 'JIRA_HOST', description: 'Jira Cloud hostname (e.g. mycompany.atlassian.net)' },
       { name: 'JIRA_USERNAME', description: 'Jira username / email' },
       { name: 'JIRA_API_TOKEN', description: 'Jira API token' },
-      { name: 'JIRA_PROJECTS_JQL', description: 'JQL query for the Projects page (e.g. project = SPS AND issuetype = Epic AND statusCategory = "In Progress")' },
+      // JIRA_PROJECTS_JQL is deliberately NOT required here: the Projects
+      // board is configured from Settings → Projects (jira_projects table),
+      // not this env var. See its entry in `rules` above — it's optional
+      // and legacy. A deployment with no jira_projects rows and no
+      // JIRA_PROJECTS_JQL simply shows "No Jira projects configured." rather
+      // than warning at startup.
     ],
   },
   {

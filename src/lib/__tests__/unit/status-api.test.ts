@@ -35,9 +35,9 @@ describe('GET /api/projects/[key]/status', () => {
 
   it('returns transitions array from Jira client', async () => {
     const transitions = [
-      { id: '11', name: 'To Do', to: { name: 'To Do' } },
-      { id: '21', name: 'In Progress', to: { name: 'In Progress' } },
-      { id: '31', name: 'Done', to: { name: 'Done' } },
+      { id: '11', name: 'To Do', to: { name: 'To Do' }, toStatusCategory: 'new' },
+      { id: '21', name: 'In Progress', to: { name: 'In Progress' }, toStatusCategory: 'indeterminate' },
+      { id: '31', name: 'Done', to: { name: 'Done' }, toStatusCategory: 'done' },
     ];
     mockGetJiraClient.mockReturnValue({
       getTransitions: jest.fn().mockResolvedValue(transitions),
@@ -47,6 +47,23 @@ describe('GET /api/projects/[key]/status', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.transitions).toEqual(transitions);
+  });
+
+  it('carries each destination\'s status category through to the client', async () => {
+    // The response is deliberately unfiltered — it offers every transition the
+    // workflow allows — so the category is the only thing that lets the board
+    // tell a genuine Done from a Blocked. Dropping it is what put non-Done
+    // epics on the Done tab.
+    mockGetJiraClient.mockReturnValue({
+      getTransitions: jest.fn().mockResolvedValue([
+        { id: '61', name: 'Blocked', to: { name: 'Blocked' }, toStatusCategory: 'new' },
+        { id: '41', name: 'Done', to: { name: 'Done' }, toStatusCategory: 'done' },
+      ]),
+    });
+
+    const body = await (await GET(makeGetRequest(), makeParams('EPIC-1'))).json();
+    expect(body.transitions.map((t: { toStatusCategory: string }) => t.toStatusCategory))
+      .toEqual(['new', 'done']);
   });
 
   it('returns 404 when Jira is not configured', async () => {

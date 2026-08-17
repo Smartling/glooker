@@ -8,18 +8,21 @@ import { useUrlState, useUrlBatch } from '@/lib/url-state';
 // Type-only import keeps the server module out of the client bundle while
 // letting the client fail fast if the shared response shape changes.
 import type { EpicSummaryResult } from '@/lib/projects/epic-summary';
-import { applyPendingTransitions, type PendingTransition } from '@/lib/projects/transition-state';
-
-interface ProjectEpic {
-  key: string;
-  summary: string;
-  status: string;
-  dueDate: string | null;
-  assignee: string | null;
-  team: { name: string; color: string } | null;
-  initiative: { key: string; summary: string } | null;
-  goal: { key: string; summary: string } | null;
-}
+// The board renders exactly what the service returns — mirroring the interface
+// here let the two drift (the local copy still carried a `projectKey` the
+// service had dropped), so import it instead.
+import type { ProjectEpic } from '@/lib/projects/service';
+import type { JiraTransition } from '@/lib/jira/client';
+import {
+  applyPendingTransitions, resolveStatusTab, type PendingTransition,
+} from '@/lib/projects/transition-state';
+import { jsonFetcher } from '@/lib/swr-provider';
+import { ProgressRing, type EpicRingStats } from './progress-ring';
+import {
+  ALL_TABS, visibleTabs, tabLabel, columnLayout, computeSpans,
+  statusDotColor, boardRowDotColor, NO_TAB_DOT_COLOR,
+} from './board-layout';
+import type { JiraProject, JiraProjectWithLegacyFlag, BoardTabKind } from '@/lib/jira-projects/types';
 
 interface UntrackedCommit {
   sha: string;
@@ -36,19 +39,6 @@ interface WorkGroup {
   commits: UntrackedCommit[];
 }
 
-interface EpicRingStats {
-  epicKey: string;
-  totalJiras: number;
-  resolvedJiras: number;
-  remainingJiras: number;
-  commitCount: number;
-  devCount: number;
-  linesAdded: number;
-  linesRemoved: number;
-  repos: string[];
-  cached: boolean;
-}
-
 interface UntrackedTeam {
   name: string;
   color: string;
@@ -56,28 +46,47 @@ interface UntrackedTeam {
   totalCommits: number;
 }
 
-const STATUS_TABS = ['In Progress', 'Rollout', 'Done'] as const;
-type StatusTab = typeof STATUS_TABS[number];
+type StatusTab = BoardTabKind;
 
 export default function ProjectsContent() {
   const { canAct } = useAuth();
+  // Validated against every legally addressable tab, not just the ones this
+  // board shows — `?status=middle` must survive the first render, before the
+  // project has arrived and told us whether it declares a middle status.
   const [activeTab, setActiveTab] = useUrlState<StatusTab>({
     key: 'status',
     type: 'enum',
-    values: STATUS_TABS,
-    default: 'In Progress',
+    values: ALL_TABS,
+    default: 'active',
     history: 'push',
   });
   // `tabCache` stays as useState — it's a memoization cache, not URL state.
-  const [tabCache, setTabCache] = useState<Partial<Record<StatusTab, { epics: ProjectEpic[]; jiraHost: string | null }>>>({});
+  // Keyed by `${tab}|${project}`: the same tab holds different epics per
+  // project, because the project selection is applied server-side by the
+  // board's own JQL.
+  const [tabCache, setTabCache] = useState<Record<string, { epics: ProjectEpic[]; jiraHost: string | null }>>({});
   const [org, setOrg] = useUrlState<string>({
     key: 'org',
     type: 'string',
     default: '',
     history: 'replace',
   });
+  // Empty means "whatever the server picks", which is the first configured
+  // project. The selector writes a key here once the user chooses.
+  const [selectedProject, setSelectedProject] = useUrlState<string>({
+    key: 'project',
+    type: 'string',
+    default: '',
+    history: 'replace',
+  });
   // `jiraHost` stays as useState — comes from the API, not user input.
   const [jiraHost, setJiraHost] = useState<string | null>(null);
+  // The project row the board is currently showing. Drives the tab set, the
+  // tab labels, the column layout and the status vocabulary. Carries the
+  // server-derived `isLegacy` flag — see `isLegacyProject`.
+  const [project, setProject] = useState<JiraProjectWithLegacyFlag | null>(null);
+  // The configured list, for the selector.
+  const [projectList, setProjectList] = useState<JiraProject[]>([]);
 
   // Filters
   const [filterTeam, setFilterTeam] = useUrlState<string>({
@@ -124,14 +133,15 @@ export default function ProjectsContent() {
   const [editingStatus, setEditingStatus] = useState<string | null>(null);
   const [statusDropdownPos, setStatusDropdownPos] = useState<{ top: number; left: number } | null>(null);
   const statusTriggerRef = useRef<HTMLElement | null>(null);
-  const [transitionsCache, setTransitionsCache] = useState<Record<string, Array<{ id: string; name: string; to: { name: string } }>>>({});
+  const [transitionsCache, setTransitionsCache] = useState<Record<string, JiraTransition[]>>({});
   const [transitionsLoading, setTransitionsLoading] = useState(false);
   const [savingStatus, setSavingStatus] = useState<string | null>(null);
   const [transitionError, setTransitionError] = useState<string | null>(null);
   // Pending transitions registry: every fetch response (useSWR, preload, etc.)
   // is patched through this map before populating `tabCache`, so optimistic
-  // moves stay applied regardless of Jira's JQL index lag. Cleared only on
-  // page reload — by then Jira's state will have reconciled.
+  // moves stay applied regardless of Jira's JQL index lag. Scoped to the board
+  // in view — cleared on page reload and whenever the org or project changes,
+  // since its entries only make sense against the board they were made on.
   const pendingTransitionsRef = useRef<Map<string, PendingTransition<ProjectEpic>>>(new Map());
 
   const openStatusEditor = async (epicKey: string, triggerEl?: HTMLElement) => {
@@ -153,7 +163,12 @@ export default function ProjectsContent() {
     finally { setTransitionsLoading(false); }
   };
 
-  const executeTransition = async (epicKey: string, transitionId: string, toStatus: string) => {
+  const executeTransition = async (
+    epicKey: string,
+    transitionId: string,
+    toStatus: string,
+    toStatusCategory: string | null,
+  ) => {
     setSavingStatus(epicKey);
     setTransitionError(null);
     try {
@@ -170,10 +185,21 @@ export default function ProjectsContent() {
       // tabData (from useSWR / preload / refetch) is patched through the
       // registry in the populate-tabCache useEffect, so the move sticks
       // regardless of Jira's index lag.
-      const targetTab = toStatus as StatusTab;
+      // Tabs are no longer named after Jira statuses (GLOOK-38), so the
+      // destination has to be resolved against this project's own status
+      // vocabulary. The dropdown offers every transition the workflow allows,
+      // most of which have no tab on this board at all — hence the `null` case,
+      // which strips the epic from every tab and injects it nowhere. Assuming
+      // "not active, not middle, therefore Done" instead pinned e.g. a Blocked
+      // epic to the top of the Done tab on every fetch, forever.
+      const targetTab = resolveStatusTab(project, toStatus, toStatusCategory);
+      // tabCache is keyed by `${tab}|${project}`, so the destination entry is
+      // the target tab under the project currently in view. No target tab, no
+      // destination entry.
+      const targetCacheKey = targetTab ? `${targetTab}|${selectedProject}` : null;
       let movedEpic: ProjectEpic | null = null;
-      for (const tab of Object.keys(tabCache) as StatusTab[]) {
-        const entry = tabCache[tab];
+      for (const key of Object.keys(tabCache)) {
+        const entry = tabCache[key];
         if (!entry) continue;
         const found = entry.epics.find(e => e.key === epicKey);
         if (found && !movedEpic) movedEpic = { ...found, status: toStatus };
@@ -188,15 +214,17 @@ export default function ProjectsContent() {
         // Jira returns and seeds tabCache with the patched full list.
         setTabCache(prev => {
           const updated: typeof prev = { ...prev };
-          for (const tab of Object.keys(updated) as StatusTab[]) {
-            const entry = updated[tab];
+          for (const key of Object.keys(updated)) {
+            const entry = updated[key];
             if (entry) {
-              updated[tab] = { ...entry, epics: entry.epics.filter(e => e.key !== epicKey) };
+              updated[key] = { ...entry, epics: entry.epics.filter(e => e.key !== epicKey) };
             }
           }
-          const targetEntry = updated[targetTab];
-          if (targetEntry) {
-            updated[targetTab] = { ...targetEntry, epics: [movedEpic!, ...targetEntry.epics] };
+          if (targetCacheKey) {
+            const targetEntry = updated[targetCacheKey];
+            if (targetEntry) {
+              updated[targetCacheKey] = { ...targetEntry, epics: [movedEpic!, ...targetEntry.epics] };
+            }
           }
           return updated;
         });
@@ -256,10 +284,10 @@ export default function ProjectsContent() {
       // Optimistic update in tab cache
       setTabCache(prev => {
         const updated = { ...prev };
-        for (const tab of Object.keys(updated) as StatusTab[]) {
-          const entry = updated[tab];
+        for (const key of Object.keys(updated)) {
+          const entry = updated[key];
           if (entry) {
-            updated[tab] = {
+            updated[key] = {
               ...entry,
               epics: entry.epics.map(e => e.key === epicKey ? { ...e, dueDate: newDate } : e),
             };
@@ -340,8 +368,24 @@ export default function ProjectsContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- setOrg identity churns on URL change; safely omitted
   }, [orgsData, orgsError, reportsData, org]);
 
-  // SWR: fetch epics for the active tab
-  const tabUrl = org ? `/api/projects?org=${encodeURIComponent(org)}&status=${encodeURIComponent(activeTab)}` : null;
+  // The configured projects, for the selector. Independent of the epic fetch:
+  // the list is small, changes rarely and must be present before the first
+  // board response so the dropdown never renders empty.
+  useEffect(() => {
+    if (!org) return;
+    fetch(`/api/jira-projects?org=${encodeURIComponent(org)}`)
+      .then(r => r.json())
+      .then((list: JiraProject[]) => setProjectList(Array.isArray(list) ? list : []))
+      .catch(() => {});
+  }, [org]);
+
+  // SWR: fetch epics for the active tab. The selected project goes to the
+  // server so that project's own JQL drives the response.
+  const cacheKey = `${activeTab}|${selectedProject}`;
+  const tabUrl = org
+    ? `/api/projects?org=${encodeURIComponent(org)}&status=${encodeURIComponent(activeTab)}`
+      + (selectedProject ? `&project=${encodeURIComponent(selectedProject)}` : '')
+    : null;
   // `revalidateIfStale: false` is essential here. With the default (true), a
   // background revalidation fires every time `useSWR` rebinds (e.g. on tab
   // switch). That revalidation can race optimistic transitions: the response
@@ -350,40 +394,121 @@ export default function ProjectsContent() {
   // or an explicit `mutate(url)` call invalidates it.
   const { data: tabData, isLoading: tabLoading, error: tabError } = useSWR(tabUrl, { revalidateIfStale: false });
 
+  // The pending-transitions registry belongs to one board, not to the page.
+  // Its entries are keyed by epic key alone and `applyPendingTransitions`
+  // *prepends* any epic whose target tab is the active one — so an SPS epic
+  // moved to Done would be injected at the top of RSCH's Done tab, and
+  // re-injected on every subsequent fetch, because Jira will never return it
+  // there. `tabCache` is already keyed by project; this ref was the last
+  // channel through which one board's state could reach another's, so drop it
+  // whenever the board changes. Org is in the key too: `selectedProject` can
+  // stay `''` across an org switch, which would otherwise leak the same way.
+  //
+  // Declared above the populate effect so that on the render which switches
+  // board, the clear runs first and the incoming response is reconciled
+  // against an empty registry.
+  //
+  // `ringStats` goes with it, for the same reason and with a louder symptom.
+  // It is keyed by epic key alone, and both figures derived from it are
+  // *aggregates over the whole map*: `maxVolume` scales every ring against the
+  // busiest epic in it, and `avgCommitsPerJira` is the denominator of the "%
+  // of expected commits" arc. Left to accumulate, a small research board's
+  // rings get sized against a large platform board's maximum and measured
+  // against the two boards' blended commit rate — the rings would keep
+  // rendering, and quietly lie.
+  useEffect(() => {
+    pendingTransitionsRef.current.clear();
+    setRingStats({});
+  }, [org, selectedProject]);
+
+  // Filters are per-board, not per-page: a goal, initiative or team from one
+  // project does not exist on another, so carrying them across a project switch
+  // lands the user on "No epics match the selected filters" with the cause
+  // hidden behind a collapsed dropdown. Tab switches deliberately keep them —
+  // the tabs of one board share a vocabulary.
+  //
+  // Keyed off an actual change rather than the effect firing, so that the first
+  // run does not wipe the filters in a `?project=RND&goal=…` deep link. Same
+  // reason `setActiveTab` is not reset here: `?status=middle` has to survive.
+  const filteredProjectRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (filteredProjectRef.current === null) {
+      filteredProjectRef.current = selectedProject;
+      return;
+    }
+    if (filteredProjectRef.current === selectedProject) return;
+    filteredProjectRef.current = selectedProject;
+    // One URL write for all four, so the four setters do not fight over a
+    // stale searchParams snapshot.
+    urlBatch(() => {
+      setFilterTeam(''); setFilterGoal(''); setFilterInitiative(''); setSearchQuery('');
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- setter identities churn on every URL change; the ref guard is what makes this fire once per real switch
+  }, [selectedProject]);
+
   // When tabData arrives, populate the tabCache after applying any pending
   // transitions. This is the single point where Jira's view (possibly with
   // a lagging search index) is reconciled with the user's optimistic moves.
   useEffect(() => {
     if (tabData?.epics) {
       const epics = applyPendingTransitions(tabData.epics, activeTab, pendingTransitionsRef.current);
-      setTabCache(prev => ({ ...prev, [activeTab]: { epics, jiraHost: tabData.jiraHost } }));
+      setTabCache(prev => ({ ...prev, [cacheKey]: { epics, jiraHost: tabData.jiraHost } }));
       setJiraHost(tabData.jiraHost);
+      setProject(tabData.project ?? null);
     }
-  }, [tabData, activeTab]);
+  }, [tabData, activeTab, cacheKey]);
 
-  // Prefetch other tabs in background after the active tab loads.
-  // We only preload once per org because preload's fetch responses would
-  // otherwise race optimistic transitions: a re-fire after a `mutate` returns
-  // Jira's still-lagging list and overwrites the optimistic state.
-  const fetcher = (url: string) => fetch(url).then(r => {
-    if (!r.ok) throw new Error(`${r.status}`);
-    return r.json();
-  });
-  const preloadedOrgRef = useRef<string | null>(null);
+  // Prefetch the board's other tabs in background after the active tab loads.
+  // We only preload once per org+project because preload's fetch responses
+  // would otherwise race optimistic transitions: a re-fire after a `mutate`
+  // returns Jira's still-lagging list and overwrites the optimistic state.
+  //
+  // The shared `jsonFetcher` rather than a local one: a preload failure lands
+  // in SWR's cache and is what `tabError` reports when the user switches to
+  // that tab, so it has to carry the API's own message too.
+  const preloadedKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!org || !tabData) return;
-    if (preloadedOrgRef.current === org) return;
-    preloadedOrgRef.current = org;
-    const otherTabs = STATUS_TABS.filter(t => t !== activeTab);
-    for (const tab of otherTabs) {
-      preload(`/api/projects?org=${encodeURIComponent(org)}&status=${encodeURIComponent(tab)}`, fetcher);
+    const key = `${org}|${selectedProject}`;
+    if (preloadedKeyRef.current === key) return;
+    preloadedKeyRef.current = key;
+    const projectParam = selectedProject ? `&project=${encodeURIComponent(selectedProject)}` : '';
+    for (const tab of visibleTabs(tabData.project ?? null).filter(t => t !== activeTab)) {
+      preload(`/api/projects?org=${encodeURIComponent(org)}&status=${encodeURIComponent(tab)}${projectParam}`, jsonFetcher);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally one-shot per org; re-running on tabData/activeTab changes would race optimistic mutations
-  }, [org, tabData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot per org+project; re-running would race optimistic mutations
+  }, [org, selectedProject, tabData]);
 
   // Derive epics from tab cache
-  const epics = useMemo(() => tabCache[activeTab]?.epics || [], [tabCache, activeTab]);
+  const epics = useMemo(() => tabCache[cacheKey]?.epics || [], [tabCache, cacheKey]);
+
+  const tabs = useMemo(() => visibleTabs(project), [project]);
+
+  // Guard against sitting on a tab the newly-selected board does not offer —
+  // e.g. switching from a three-tab project to a two-tab one while on the
+  // middle tab would otherwise leave no tab active and an empty table.
+  //
+  // Judged against the *response's* project, not the `project` state, and only
+  // once a response exists. Before then `project` is either null (cold load) or
+  // the previously selected one, and `setProject` lands one render after
+  // `tabData` — resetting on either would bounce a `?status=middle&project=…`
+  // deep link straight back to the active tab, which is the very thing
+  // ALL_TABS exists to allow.
+  useEffect(() => {
+    // A failed fetch renders an error banner *instead of* the tab bar, so the
+    // user has nothing to click their way out with. `?status=middle` is a
+    // legal URL now, and the route 404s on an unknown `?project=` — e.g. a
+    // bookmarked `?project=RND&status=middle` after RND is removed in
+    // Settings. Recover to the default tab set: with no response we have no
+    // project to trust.
+    if (tabError) {
+      if (!visibleTabs(null).includes(activeTab)) setActiveTab('active');
+      return;
+    }
+    if (!tabData) return;
+    if (!visibleTabs(tabData.project ?? null).includes(activeTab)) setActiveTab('active');
+  }, [tabData, tabError, activeTab, setActiveTab]);
 
   useEffect(() => {
     if (!org || epics.length === 0) return;
@@ -485,47 +610,55 @@ export default function ProjectsContent() {
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
-  // Precompute rowSpans for merged goal and initiative cells
-  const spans = useMemo(() => {
-    const result: Array<{ goalSpan: number; initSpan: number; showGoal: boolean; showInit: boolean; goalGroupId: string; initGroupId: string }> = [];
-    for (let i = 0; i < filteredEpics.length; i++) {
-      const goalKey = filteredEpics[i].goal?.summary || '—';
-      const initKey = (filteredEpics[i].goal?.summary || '—') + '|' + (filteredEpics[i].initiative?.summary || '—');
+  const layout = useMemo(() => columnLayout(project), [project]);
 
-      // Count how many consecutive rows share the same goal
-      let goalSpan = 0;
-      for (let j = i; j < filteredEpics.length; j++) {
-        if ((filteredEpics[j].goal?.summary || '—') === goalKey) goalSpan++;
-        else break;
-      }
+  // In owner mode the merged column is the assignee, so rows must be ordered by
+  // assignee for run-length merging to produce one block per person. The service
+  // sorts by goal → initiative → summary, which is meaningless for a flat project.
+  const orderedEpics = useMemo(() => {
+    if (project?.hierarchy !== 'owner') return filteredEpics;
+    return [...filteredEpics].sort((a, b) => {
+      const an = a.assignee || '￿';
+      const bn = b.assignee || '￿';
+      if (an !== bn) return an.localeCompare(bn);
+      return a.summary.localeCompare(b.summary);
+    });
+  }, [filteredEpics, project]);
 
-      // Count how many consecutive rows share the same initiative (within same goal)
-      let initSpan = 0;
-      for (let j = i; j < filteredEpics.length; j++) {
-        const jKey = (filteredEpics[j].goal?.summary || '—') + '|' + (filteredEpics[j].initiative?.summary || '—');
-        if (jKey === initKey) initSpan++;
-        else break;
-      }
+  // Precompute rowSpans for the merged leading cells
+  const spans = useMemo(
+    () => computeSpans(orderedEpics, project?.hierarchy ?? 'goal-initiative'),
+    [orderedEpics, project],
+  );
 
-      // Is this the first row of a goal group?
-      const showGoal = i === 0 || (filteredEpics[i - 1].goal?.summary || '—') !== goalKey;
-      // Is this the first row of an initiative group?
-      const prevInitKey = i > 0 ? (filteredEpics[i - 1].goal?.summary || '—') + '|' + (filteredEpics[i - 1].initiative?.summary || '—') : '';
-      const showInit = i === 0 || prevInitKey !== initKey;
-
-      result.push({ goalSpan, initSpan, showGoal, showInit, goalGroupId: `g-${goalKey}`, initGroupId: `i-${initKey}` });
-    }
-    return result;
-  }, [filteredEpics]);
+  // Untracked work is computed against JIRA_PROJECTS_JQL, so it is only
+  // meaningful on the project that variable names. Everywhere else it would be
+  // showing one project's leftovers on another project's board.
+  //
+  // `isLegacy` comes from the server, which is the only side that can see the
+  // env var; list order is not a substitute, because `position` is
+  // admin-editable and a delete-and-re-add reorders it.
+  //
+  // The hierarchy clause is a cell-count guard, not a provenance one: the
+  // untracked rows below hard-code the seven-column goal/initiative shape, so
+  // a legacy project configured with the six-column owner layout could not host
+  // them without breaking the table.
+  const isLegacyProject = useMemo(
+    () => !!project?.isLegacy && project.hierarchy === 'goal-initiative',
+    [project],
+  );
 
   // Map epic key → group IDs so merged cells can highlight when any sibling row is hovered
   const epicGroupMap = useMemo(() => {
-    const map = new Map<string, { goalGroupId: string; initGroupId: string }>();
-    for (let i = 0; i < filteredEpics.length; i++) {
-      map.set(filteredEpics[i].key, { goalGroupId: spans[i].goalGroupId, initGroupId: spans[i].initGroupId });
+    const map = new Map<string, { primaryGroupId: string; secondaryGroupId: string }>();
+    for (let i = 0; i < orderedEpics.length; i++) {
+      map.set(orderedEpics[i].key, {
+        primaryGroupId: spans[i].primaryGroupId,
+        secondaryGroupId: spans[i].secondaryGroupId,
+      });
     }
     return map;
-  }, [filteredEpics, spans]);
+  }, [orderedEpics, spans]);
 
   const getNextMonday = () => {
     const d = new Date();
@@ -601,66 +734,6 @@ export default function ProjectsContent() {
     );
   };
 
-  const ProgressRing = ({ stats }: { stats: EpicRingStats }) => {
-    // Match the maxVolume metric (commits + jiras) so jira-only epics size
-    // correctly. Floor bumped to 22px so even a zero-volume epic shows a
-    // legible ring if it has any progress at all.
-    const volume = Math.log(stats.commitCount + stats.totalJiras + 1);
-    const sizePct = maxVolume > 0 ? volume / maxVolume : 0;
-    const px = Math.max(22, Math.round(sizePct * 48));
-
-    const jiraPct = stats.totalJiras > 0 ? stats.resolvedJiras / stats.totalJiras : 0;
-    const expectedCommits = stats.totalJiras * avgCommitsPerJira;
-    const commitPct = expectedCommits > 0 ? Math.min(1, stats.commitCount / expectedCommits) : 0;
-
-    // SVG ring math
-    const outerR = 20;
-    const innerR = 13;
-    const outerCirc = 2 * Math.PI * outerR;
-    const innerCirc = 2 * Math.PI * innerR;
-    const outerOffset = outerCirc * (1 - jiraPct);
-    const innerOffset = innerCirc * (1 - commitPct);
-
-    // Stroke width scales inversely with size for readability
-    const outerStroke = Math.max(3, 8 - sizePct * 5);
-    const innerStroke = Math.max(3, 8 - sizePct * 5);
-
-    const jiraPctDisplay = Math.round(jiraPct * 100);
-    const commitPctDisplay = Math.round(commitPct * 100);
-
-    const totalLines = stats.linesAdded + stats.linesRemoved;
-    const linesPerDev = stats.devCount > 0 ? totalLines / stats.devCount : 0;
-    const isAiSpeed = linesPerDev >= 20000;
-
-    return (
-      <div className="relative group" style={{ width: px, height: px }}>
-        <svg width={px} height={px} viewBox="0 0 48 48" style={{ transform: 'rotate(-90deg)' }}>
-          <circle cx="24" cy="24" r={outerR} fill="none" stroke="#1f2937" strokeWidth={outerStroke} />
-          <circle cx="24" cy="24" r={outerR} fill="none" stroke="#D97706" strokeWidth={outerStroke}
-            strokeDasharray={outerCirc} strokeDashoffset={outerOffset} strokeLinecap="round" />
-          <circle cx="24" cy="24" r={innerR} fill="none" stroke="#1f2937" strokeWidth={innerStroke} />
-          <circle cx="24" cy="24" r={innerR} fill="none" stroke="#10B981" strokeWidth={innerStroke}
-            strokeDasharray={innerCirc} strokeDashoffset={innerOffset} strokeLinecap="round" />
-        </svg>
-        <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 font-bold text-gray-200"
-          style={{ fontSize: Math.max(7, Math.round(px * 0.28)) }}>
-          {stats.devCount}
-        </span>
-        {isAiSpeed && (
-          <span className="absolute -top-1 -left-1 text-[10px] leading-none" title="AI speed">⚡</span>
-        )}
-        {/* Tooltip */}
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-20
-          bg-gray-800 border border-gray-700 rounded-md px-3 py-2 text-xs text-gray-300 whitespace-nowrap shadow-lg">
-          Jira: <span className="text-amber-400 font-semibold">{stats.resolvedJiras}/{stats.totalJiras}</span> closed ({jiraPctDisplay}%)
-          {' · '}Commits: <span className="text-emerald-400 font-semibold">{stats.commitCount}</span> ({commitPctDisplay}% of expected)
-          {' · '}<span className="text-gray-200 font-semibold">{stats.devCount}</span> dev{stats.devCount !== 1 ? 's' : ''}
-          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-700" />
-        </div>
-      </div>
-    );
-  };
-
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
       {/* Header */}
@@ -687,6 +760,15 @@ export default function ProjectsContent() {
               placeholder="Search..."
               className="bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-gray-300 placeholder-gray-600 focus:outline-none focus:border-accent w-48"
             />
+            <select
+              value={selectedProject}
+              onChange={e => setSelectedProject(e.target.value)}
+              className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-accent cursor-pointer"
+            >
+              {projectList.map(p => (
+                <option key={p.projectKey} value={p.projectKey}>{p.displayName}</option>
+              ))}
+            </select>
             <select
               value={filterGoal}
               onChange={e => setFilterGoal(e.target.value)}
@@ -744,17 +826,15 @@ export default function ProjectsContent() {
 
           {/* Status tabs — below filters */}
           <div className="flex border-b border-gray-800 mb-4">
-            {STATUS_TABS.map(tab => (
+            {tabs.map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
                 className={`px-4 py-2 text-xs font-medium transition-colors relative ${
-                  activeTab === tab
-                    ? 'text-accent-lighter'
-                    : 'text-gray-500 hover:text-gray-300'
+                  activeTab === tab ? 'text-accent-lighter' : 'text-gray-500 hover:text-gray-300'
                 }`}
               >
-                {tab}{tab === 'Done' ? ' (30d)' : ''}
+                {tabLabel(project, tab)}
                 {activeTab === tab && (
                   <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-accent-light rounded-t" />
                 )}
@@ -763,38 +843,28 @@ export default function ProjectsContent() {
           </div>
 
           {epics.length === 0 ? (
-            <div className="text-gray-500 py-8">No epics with status &ldquo;{activeTab}&rdquo;{activeTab === 'Done' ? ' in the last 30 days' : ''}.</div>
-          ) : filteredEpics.length === 0 ? (
+            <div className="text-gray-500 py-8">No epics on the {tabLabel(project, activeTab)} tab.</div>
+          ) : orderedEpics.length === 0 ? (
             <div className="text-gray-500 py-8">No epics match the selected filters.</div>
           ) : (
             <div className="rounded-lg border border-gray-800">
               <table className="w-full text-sm table-fixed">
                 <colgroup>
-                  <col style={{ width: '14%' }} />
-                  <col style={{ width: '14%' }} />
-                  <col style={{ width: '4%' }} />
-                  <col style={{ width: '34%' }} />
-                  <col style={{ width: '10%' }} />
-                  <col style={{ width: '13%' }} />
-                  <col style={{ width: '11%' }} />
+                  {layout.widths.map((w, i) => <col key={i} style={{ width: `${w}%` }} />)}
                 </colgroup>
                 <thead>
                   <tr className="bg-gray-900/50 text-gray-400 text-left text-xs uppercase tracking-wider">
-                    <th className="px-4 py-3 font-medium">Business Goal</th>
-                    <th className="px-4 py-3 font-medium">Initiative</th>
-                    <th className="px-2 py-3 font-medium"></th>
-                    <th className="px-4 py-3 font-medium">Epic</th>
-                    <th className="px-4 py-3 font-medium">Due</th>
-                    <th className="px-4 py-3 font-medium">Lead</th>
-                    <th className="px-4 py-3 font-medium">Team</th>
+                    {layout.headers.map((h, i) => (
+                      <th key={i} className={h === '' ? 'px-2 py-3 font-medium' : 'px-4 py-3 font-medium'}>{h}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredEpics.map((epic, i) => {
-                    const { goalSpan, initSpan, showGoal, showInit, goalGroupId, initGroupId } = spans[i];
+                  {orderedEpics.map((epic, i) => {
+                    const { primarySpan, secondarySpan, showPrimary, showSecondary, primaryGroupId, secondaryGroupId } = spans[i];
                     const hoveredGroups = hoveredEpic ? epicGroupMap.get(hoveredEpic) : null;
-                    const isGoalHovered = hoveredGroups?.goalGroupId === goalGroupId;
-                    const isInitHovered = hoveredGroups?.initGroupId === initGroupId;
+                    const isPrimaryHovered = hoveredGroups?.primaryGroupId === primaryGroupId;
+                    const isSecondaryHovered = hoveredGroups?.secondaryGroupId === secondaryGroupId;
 
                     return (
                       <tr
@@ -803,10 +873,20 @@ export default function ProjectsContent() {
                         onMouseEnter={() => setHoveredEpic(epic.key)}
                         onMouseLeave={() => setHoveredEpic(null)}
                       >
-                        {showGoal && (
+                        {layout.showOwnerColumn && showPrimary && (
                           <td
-                            className={`px-4 py-3 align-top border-r border-gray-800/30 transition-colors ${isGoalHovered && hoveredEpic !== epic.key ? 'bg-gray-800/30' : ''}`}
-                            rowSpan={goalSpan}
+                            className={`px-4 py-3 align-top border-r border-gray-800/30 transition-colors ${isPrimaryHovered && hoveredEpic !== epic.key ? 'bg-gray-800/30' : ''}`}
+                            rowSpan={primarySpan}
+                          >
+                            {epic.assignee
+                              ? <span className="text-gray-300 text-[13px]">{epic.assignee}</span>
+                              : <span className="text-gray-600">Unassigned</span>}
+                          </td>
+                        )}
+                        {layout.showHierarchy && showPrimary && (
+                          <td
+                            className={`px-4 py-3 align-top border-r border-gray-800/30 transition-colors ${isPrimaryHovered && hoveredEpic !== epic.key ? 'bg-gray-800/30' : ''}`}
+                            rowSpan={primarySpan}
                           >
                             {epic.goal ? (
                               <a href={jiraHost ? `https://${jiraHost}/browse/${epic.goal.key}` : '#'} target="_blank" rel="noopener noreferrer" className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-accent-bg/30 text-accent-lighter hover:text-white transition-colors">
@@ -817,10 +897,10 @@ export default function ProjectsContent() {
                             )}
                           </td>
                         )}
-                        {showInit && (
+                        {layout.showHierarchy && showSecondary && (
                           <td
-                            className={`px-4 py-3 align-top border-r border-gray-800/30 transition-colors ${isInitHovered && hoveredEpic !== epic.key ? 'bg-gray-800/30' : ''}`}
-                            rowSpan={initSpan}
+                            className={`px-4 py-3 align-top border-r border-gray-800/30 transition-colors ${isSecondaryHovered && hoveredEpic !== epic.key ? 'bg-gray-800/30' : ''}`}
+                            rowSpan={secondarySpan}
                           >
                             {epic.initiative ? (
                               <a href={jiraHost ? `https://${jiraHost}/browse/${epic.initiative.key}` : '#'} target="_blank" rel="noopener noreferrer" className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-gray-800 text-gray-300 hover:text-white transition-colors">
@@ -833,7 +913,11 @@ export default function ProjectsContent() {
                         )}
                         <td className="px-2 py-3 text-center">
                           {ringStats[epic.key] ? (
-                            <ProgressRing stats={ringStats[epic.key]} />
+                            <ProgressRing
+                              stats={ringStats[epic.key]}
+                              maxVolume={maxVolume}
+                              avgCommitsPerJira={avgCommitsPerJira}
+                            />
                           ) : (
                             <div className="w-4 h-4 rounded-full bg-gray-800 animate-pulse mx-auto" />
                           )}
@@ -951,7 +1035,7 @@ export default function ProjectsContent() {
                             </div>
                           </div>
                         </td>
-                        <td className={`px-4 py-3 relative ${activeTab === 'In Progress' && isOverdue(epic.dueDate) ? 'text-red-400' : 'text-gray-400'}`}>
+                        <td className={`px-4 py-3 relative ${activeTab === 'active' && isOverdue(epic.dueDate) ? 'text-red-400' : 'text-gray-400'}`}>
                           <div
                             className={`group/due inline-flex items-center gap-1.5 cursor-pointer px-1.5 py-0.5 rounded-md transition-colors ${
                               editingDue === epic.key ? 'bg-accent/10 border border-accent/30' : 'hover:bg-white/5'
@@ -989,8 +1073,8 @@ export default function ProjectsContent() {
                           )}
                         </td>
                         <td className="px-4 py-3 text-gray-300">
-                          <div>{epic.assignee || '—'}</div>
-                          <div className="mt-0.5">
+                          {!layout.showOwnerColumn && <div>{epic.assignee || '—'}</div>}
+                          <div className={layout.showOwnerColumn ? '' : 'mt-0.5'}>
                             {canAct ? (
                               <div
                                 onClick={(e) => { e.stopPropagation(); openStatusEditor(epic.key, e.currentTarget as HTMLElement); }}
@@ -999,9 +1083,9 @@ export default function ProjectsContent() {
                                 }`}
                               >
                                 <span className="w-[6px] h-[6px] rounded-full shrink-0" style={{
-                                  background: savingStatus === epic.key ? '#6B7280' :
-                                    epic.status === 'Done' ? '#10B981' : epic.status === 'Rollout' ? '#3B82F6' :
-                                    epic.status === 'In Progress' ? '#D97706' : '#6B7280'
+                                  background: savingStatus === epic.key
+                                    ? NO_TAB_DOT_COLOR
+                                    : boardRowDotColor(project, epic.status)
                                 }} />
                                 {savingStatus === epic.key ? 'Saving...' : epic.status}
                                 <svg className="w-2 h-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" /></svg>
@@ -1009,8 +1093,7 @@ export default function ProjectsContent() {
                             ) : (
                               <div className="flex items-center gap-1 text-[10px] text-gray-600">
                                 <span className="w-[6px] h-[6px] rounded-full shrink-0" style={{
-                                  background: epic.status === 'Done' ? '#10B981' : epic.status === 'Rollout' ? '#3B82F6' :
-                                    epic.status === 'In Progress' ? '#D97706' : '#6B7280'
+                                  background: boardRowDotColor(project, epic.status)
                                 }} />
                                 {epic.status}
                               </div>
@@ -1035,13 +1118,16 @@ export default function ProjectsContent() {
                                     (transitionsCache[epic.key] || []).map(t => (
                                       <button
                                         key={t.id}
-                                        onClick={(e) => { e.stopPropagation(); if (t.to.name === epic.status) { setEditingStatus(null); setStatusDropdownPos(null); statusTriggerRef.current = null; setTransitionError(null); } else { executeTransition(epic.key, t.id, t.to.name); } }}
+                                        onClick={(e) => { e.stopPropagation(); if (t.to.name === epic.status) { setEditingStatus(null); setStatusDropdownPos(null); statusTriggerRef.current = null; setTransitionError(null); } else { executeTransition(epic.key, t.id, t.to.name, t.toStatusCategory); } }}
                                         className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center gap-2 ${
                                           t.to.name === epic.status ? 'text-accent-lighter font-medium' : 'text-gray-300 hover:bg-gray-700'
                                         }`}
                                       >
+                                        {/* Destinations with no tab on this board stay grey — the
+                                            dropdown offers every status the workflow allows, so the
+                                            category is what separates a real Done from a Blocked. */}
                                         <span className="w-[6px] h-[6px] rounded-full shrink-0" style={{
-                                          background: t.to.name === 'Done' ? '#10B981' : t.to.name === 'Rollout' ? '#3B82F6' : t.to.name === 'In Progress' ? '#D97706' : '#6B7280'
+                                          background: statusDotColor(project, t.to.name, t.toStatusCategory)
                                         }} />
                                         {t.to.name}
                                       </button>
@@ -1064,8 +1150,12 @@ export default function ProjectsContent() {
                       </tr>
                     );
                   })}
-                  {/* Not in Project rows — only on In Progress tab */}
-                  {activeTab === 'In Progress' && (() => {
+                  {/* Not in Project rows — only on the active tab, and only on the
+                      project untracked work is actually computed against: these rows
+                      hard-code the seven-column layout, and untracked work is
+                      commit-derived, which is exactly what a research board should
+                      not be judged on. */}
+                  {isLegacyProject && activeTab === 'active' && (() => {
                     const filtered = untrackedTeams.filter(t => {
                       if (filterGoal && filterGoal !== 'Not in Project') return false;
                       if (filterTeam && filterTeam !== '__none__' && filterTeam !== t.name) return false;
@@ -1212,9 +1302,12 @@ export default function ProjectsContent() {
               <div className="px-4 py-2 text-xs text-gray-500 bg-gray-900/30 border-t border-gray-800 flex items-center justify-between">
                 <span>
                   {filteredEpics.length}{filteredEpics.length !== epics.length ? ` of ${epics.length}` : ''} epic{filteredEpics.length !== 1 ? 's' : ''}
-                  {untrackedTeams.length > 0 && ` · ${untrackedTeams.length} team${untrackedTeams.length !== 1 ? 's' : ''} with untracked work`}
+                  {/* Gated like the rows and the trigger button: `untrackedTeams`
+                      persists across project switches, so an ungated count advertises
+                      untracked work that another project's board never renders. */}
+                  {isLegacyProject && untrackedTeams.length > 0 && ` · ${untrackedTeams.length} team${untrackedTeams.length !== 1 ? 's' : ''} with untracked work`}
                 </span>
-                {activeTab === 'In Progress' && untrackedTeams.length === 0 && !untrackedLoading && (
+                {isLegacyProject && activeTab === 'active' && untrackedTeams.length === 0 && !untrackedLoading && (
                   <button
                     onClick={() => loadUntracked()}
                     className="text-xs text-gray-500 hover:text-gray-300 bg-gray-800 hover:bg-gray-700 px-2.5 py-1 rounded border border-gray-700 transition-colors"

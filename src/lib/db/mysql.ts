@@ -316,6 +316,23 @@ export function createMySQLDB(): DB {
   await pool.execute('ALTER TABLE reports ADD COLUMN run_metadata JSON NULL').catch((err) => {
     if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add run_metadata:', err);
   });
+  // GLOOK-38: per-team board config lives in the jira_projects table.
+  // `teams.board_config` never existed outside this branch (added and
+  // dropped within it, before any release) — no DROP is needed.
+  await pool.execute(`CREATE TABLE IF NOT EXISTS jira_projects (
+    id            VARCHAR(36)  NOT NULL PRIMARY KEY,
+    org           VARCHAR(255) NOT NULL,
+    project_key   VARCHAR(64)  NOT NULL,
+    display_name  VARCHAR(255) NOT NULL,
+    active_status VARCHAR(255) NOT NULL,
+    middle_status VARCHAR(255) NULL,
+    hierarchy     VARCHAR(32)  NOT NULL DEFAULT 'goal-initiative',
+    position      INT          NOT NULL DEFAULT 0,
+    created_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_org_project (org, project_key)
+  )`).catch((err) => {
+    console.error('[db/mysql] Failed to create jira_projects:', err);
+  });
   await pool.execute(`CREATE TABLE IF NOT EXISTS report_skip_allowlist (
     github_login  VARCHAR(255) NOT NULL PRIMARY KEY,
     reason        TEXT         NOT NULL,
