@@ -4,29 +4,42 @@ This document describes the `/projects` page architecture for AI coding assistan
 
 ## Overview
 
-The Projects page (`/projects`) displays in-progress Jira epics from a configured project (e.g., SPS), grouped by Business Goal and Initiative hierarchy. Each epic can be expanded to show an AI-generated summary of recent work. A separate "Not in Project" section shows team-by-team work that isn't attributable to any tracked epic.
+The Projects page (`/projects`) displays Jira epics for one project at a time, chosen from any number of projects registered in the `jira_projects` table and configured via Settings → Projects. Each project has three tabs (active, middle, done) and one of two layouts: `goal-initiative` hierarchy groups epics by Business Goal → Initiative, `owner` hierarchy is flat and groups by the epic's assignee instead. Each epic can be expanded to show an AI-generated summary of recent work. A separate "Not in Project" section shows team-by-team work that isn't attributable to any tracked epic.
 
 ## Feature gating
 
 - Page returns 404 if `JIRA_ENABLED !== 'true'`
-- Page shows "not configured" if `JIRA_PROJECTS_JQL` env var is unset
-- Nav link on home page only visible when both are set (checked via `/api/llm-config`)
+- Page shows a "not configured" empty state ("No Jira projects configured. Add one in Settings → Projects.") when the org has no rows in `jira_projects`
+- Nav link on home page only visible when Jira is enabled and configured (checked via `/api/llm-config`)
 - "Show work outside projects" button restricted to admins (`canAct` from `useAuth()`)
+
+## Board configuration
+
+Each project on the board is a row in the org-scoped `jira_projects` table, managed from **Settings → Projects** (admin only): project key, display name, active status, middle status (optional — a project with none gets a two-tab board), hierarchy, and position (sort order / default project). See `src/lib/jira-projects/` for validation and JQL construction.
+
+Both the project key and the two status fields are re-validated at the point of use in `buildProjectJql`, not just on save — this also catches rows written directly to the DB rather than through the Settings form.
 
 ## Data flow
 
-### 1. Epic list (`GET /api/projects?org=<org>`)
+### 1. Epic list (`GET /api/projects?org=<org>&project=<key>&status=active|middle|done`)
 
-**Source:** `src/app/api/projects/route.ts` → `src/lib/projects/service.ts`
+**Source:** `src/app/api/projects/route.ts` → `src/lib/jira-projects/jql.ts` (JQL) + `src/lib/projects/service.ts` (epics)
 
-1. Runs `JIRA_PROJECTS_JQL` against Jira via `client.searchEpics(jql)` — returns epics with parent links
+1. Resolves which configured project to query (`?project=<key>`, default the one with the lowest `position`) and which of its three tabs (`?status=`, default `active`). Builds that project/tab's JQL via `buildProjectJql()` and runs it against Jira via `client.searchEpics(jql)` — returns epics with parent links
 2. Collects unique Initiative keys from epic parents
 3. Batch-fetches Initiatives to resolve their parents (Business Goals) — `key in (SPS-1, SPS-11, ...)`
 4. Maps epic assignee → team: `user_mappings` table (jira_email → github_login) → `team_members` + `teams` (github_login → team name/color)
-5. Returns sorted list: Goal → Initiative → Epic name
-6. Also returns `jiraHost` for building browse URLs
+5. Returns sorted list: Goal → Initiative → Epic name. Parentless epics are kept rather than dropped — this is what lets a flat `owner` project (no Initiative/Goal parents at all) render instead of coming back empty
+6. Also returns `jiraHost` and the resolved `project` row (including its `hierarchy`) so the frontend can pick a layout
 
-**Jira hierarchy:** Business Goal (level 3) → Initiative (level 2) → Epic (level 1)
+**Jira hierarchy:** `goal-initiative` projects group Business Goal (level 3) → Initiative (level 2) → Epic (level 1) and render 7 table columns. `owner` projects are flat — 6 columns, headed "Owner" — grouped by the epic's assignee instead.
+
+**Per-project, per-tab JQL (`buildProjectJql`):**
+- active: `project = "<key>" AND issuetype = Epic AND status = "<activeStatus>"`
+- middle (only if `middleStatus` is set): `project = "<key>" AND issuetype = Epic AND status = "<middleStatus>"`
+- done: `project = "<key>" AND issuetype = Epic AND statusCategory = "Done" AND updated >= -30d`
+
+**Critical invariant:** the active and middle tabs must use the exact named status (`status = "..."`), never a status category. Measured on production Jira, `status = "In Progress"` returns 46 SPS epics while `statusCategory = "In Progress"` returns 71 — the extra 25 sit in Discovery, Rollout, Specs & Design and Ready for Dev. Using the category would silently inflate the board and double-list Rollout epics onto the wrong tab.
 
 ### 2. Epic summary (`GET /api/projects/[key]/summary?org=<org>&summary=<text>&refresh=true`)
 
@@ -159,11 +172,18 @@ epic_stats (lightweight, fast)          epic_summaries (LLM-generated)
 | `src/lib/projects/epic-summary.ts` | Epic summary service (uses stats + LLM) |
 | `src/lib/projects/untracked.ts` | Untracked work service (commits + LLM clustering) |
 | `src/lib/jira/client.ts` | `searchEpics()`, `searchChildIssues()` methods |
+| `src/lib/jira-projects/service.ts` | CRUD over the `jira_projects` table |
+| `src/lib/jira-projects/jql.ts` | `buildProjectJql()` — per-project, per-tab JQL |
+| `src/lib/jira-projects/types.ts` | `validateJiraProject()`, project key/status validation |
+| `src/lib/jira-projects/seed.ts` | One-time legacy `JIRA_PROJECTS_JQL` → first row migration |
+| `src/app/settings/projects-tab.tsx` | Settings → Projects admin UI |
 
 ## Configuration
 
 | Env var | Required | Example |
 |---------|----------|---------|
 | `JIRA_ENABLED` | Yes | `true` |
-| `JIRA_PROJECTS_JQL` | Yes | `project = SPS AND issuetype = Epic AND status = "In Progress"` |
+| `JIRA_PROJECTS_JQL` | No (legacy) | `project = SPS AND issuetype = Epic AND status = "In Progress"` |
 | `JIRA_HOST` | Yes | `smartling.atlassian.net` |
+
+**`JIRA_PROJECTS_JQL` is legacy.** Board configuration now lives in the `jira_projects` table (Settings → Projects), and this env var no longer drives the board query. It still does two things: on upgrade, if an org has no `jira_projects` rows yet, it's parsed once to seed the first row so an existing deployment keeps its board with no operator action; and it continues to supply the project-key prefixes excluded from "Not in Project" untracked-work matching.
