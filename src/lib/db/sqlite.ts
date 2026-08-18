@@ -386,39 +386,89 @@ export function createSQLiteDB(): DB {
   return dbApi;
 }
 
-function translateSQL(sql: string): string {
-  let s = sql;
+/**
+ * Apply `fn` only to the parts of `sql` that sit OUTSIDE single-quoted string
+ * literals, leaving literal contents byte-for-byte intact.
+ *
+ * Every rule in translateSQL is a regex over raw SQL text, and several of them
+ * inject quote characters. Without this, a literal whose contents happen to look
+ * like MySQL syntax gets rewritten, and the injected quotes terminate the literal
+ * and restructure the statement. Anchoring the patterns narrows that but does not
+ * close it — `'DATE_ADD(a , INTERVAL 9 DAY)'` still matches an identifier capture.
+ *
+ * SQLite escapes a quote inside a literal by doubling it ('').
+ */
+function outsideStringLiterals(sql: string, fn: (chunk: string) => string): string {
+  const parts: string[] = [];
+  let i = 0;
+  let chunkStart = 0;
 
-  // INSERT IGNORE → INSERT OR IGNORE
-  s = s.replace(/INSERT\s+IGNORE\s+INTO/gi, 'INSERT OR IGNORE INTO');
+  while (i < sql.length) {
+    if (sql[i] !== "'") { i++; continue; }
 
-  // NOW() → datetime('now','localtime')
-  s = s.replace(/NOW\(\)/gi, "datetime('now','localtime')");
+    parts.push(fn(sql.slice(chunkStart, i)));
 
-  // LEFT(col, N) → SUBSTR(col, 1, N)
-  s = s.replace(/LEFT\s*\(([^,]+),\s*(\d+)\)/gi, 'SUBSTR($1, 1, $2)');
+    let j = i + 1;
+    while (j < sql.length) {
+      if (sql[j] === "'") {
+        if (sql[j + 1] === "'") { j += 2; continue; } // escaped quote, keep scanning
+        break;
+      }
+      j++;
+    }
+    const end = Math.min(j + 1, sql.length);
+    parts.push(sql.slice(i, end)); // literal, verbatim
+    i = chunkStart = end;
+  }
 
-  // DATE_SUB(NOW(), INTERVAL N DAY) → datetime('now', '-N days')
-  s = s.replace(/DATE_SUB\s*\(\s*datetime\('now','localtime'\)\s*,\s*INTERVAL\s+(\d+)\s+DAY\s*\)/gi,
-    (_match, days) => `datetime('now', '-${days} days')`);
-  // Also handle case where NOW() hasn't been translated yet
-  s = s.replace(/DATE_SUB\s*\(\s*NOW\(\)\s*,\s*INTERVAL\s+(\d+)\s+DAY\s*\)/gi,
-    (_match, days) => `datetime('now', '-${days} days')`);
+  parts.push(fn(sql.slice(chunkStart)));
+  return parts.join('');
+}
 
-  // DATE_ADD(expr, INTERVAL N DAY) → datetime(expr, '+N days')
-  // Order matters: NOW() is rewritten above into datetime('now','localtime'),
-  // which itself contains a comma — so the NOW() forms get dedicated rules
-  // before the general one, exactly as DATE_SUB does.
-  s = s.replace(/DATE_ADD\s*\(\s*datetime\('now','localtime'\)\s*,\s*INTERVAL\s+(\d+)\s+DAY\s*\)/gi,
-    (_match, days) => `datetime('now', '+${days} days')`);
-  s = s.replace(/DATE_ADD\s*\(\s*NOW\(\)\s*,\s*INTERVAL\s+(\d+)\s+DAY\s*\)/gi,
-    (_match, days) => `datetime('now', '+${days} days')`);
-  // General form, e.g. the org spend-window query's DATE_ADD(?, INTERVAL 1 DAY).
-  // The captured expression is spliced through verbatim so a bound `?` stays a
-  // bound parameter — never interpolate the caller's value into the SQL.
-  s = s.replace(/DATE_ADD\s*\(\s*([^,()]+?)\s*,\s*INTERVAL\s+(\d+)\s+DAY\s*\)/gi,
-    (_match, expr, days) => `datetime(${expr}, '+${days} days')`);
+export function translateSQL(sql: string): string {
+  // Token-level rewrites, applied only outside string literals.
+  let s = outsideStringLiterals(sql, (chunk) => {
+    let c = chunk;
 
+    // INSERT IGNORE → INSERT OR IGNORE
+    c = c.replace(/INSERT\s+IGNORE\s+INTO/gi, 'INSERT OR IGNORE INTO');
+
+    // NOW() → datetime('now','localtime')
+    c = c.replace(/NOW\(\)/gi, "datetime('now','localtime')");
+
+    // LEFT(col, N) → SUBSTR(col, 1, N)
+    c = c.replace(/LEFT\s*\(([^,]+),\s*(\d+)\)/gi, 'SUBSTR($1, 1, $2)');
+
+    // DATE_SUB(NOW(), INTERVAL N DAY) → datetime('now', 'localtime', '-N days')
+    // `localtime` is required: NOW() became datetime('now','localtime') just above,
+    // so omitting it makes NOW() and DATE_SUB(NOW(), …) disagree by the host's UTC
+    // offset — a silent window shift on any non-UTC host. Six callers rely on this
+    // (projects/untracked.ts, projects/epic-stats.ts, projects/epic-summary.ts).
+    c = c.replace(/DATE_SUB\s*\(\s*datetime\('now','localtime'\)\s*,\s*INTERVAL\s+(\d+)\s+DAY\s*\)/gi,
+      (_m, days) => `datetime('now', 'localtime', '-${days} days')`);
+
+    // DATE_SUB / DATE_ADD (<bound param or column>, INTERVAL N DAY)
+    // Anchored to `?` or a bare identifier: the expression is spliced through
+    // verbatim, so a bound `?` stays a bound parameter and the rewrite introduces
+    // no new placeholders (no positional-parameter shift).
+    c = c.replace(/DATE_SUB\s*\(\s*(\?|[A-Za-z_][A-Za-z0-9_.]*)\s*,\s*INTERVAL\s+(\d+)\s+DAY\s*\)/gi,
+      (_m, expr, days) => `datetime(${expr}, '-${days} days')`);
+    c = c.replace(/DATE_ADD\s*\(\s*(\?|[A-Za-z_][A-Za-z0-9_.]*)\s*,\s*INTERVAL\s+(\d+)\s+DAY\s*\)/gi,
+      (_m, expr, days) => `datetime(${expr}, '+${days} days')`);
+
+    // No DATE_ADD(NOW(), …) rule on purpose: nothing in the codebase writes that
+    // shape, and an unexercised rule is exactly where the localtime skew hid. The
+    // guard below makes the omission loud rather than silently wrong.
+    return c;
+  });
+
+  // Guard against the passthrough default. translateSQL is a whitelist rewriter:
+  // anything unmatched previously reached better-sqlite3 verbatim and failed at
+  // request time (GLOOK-41 surfaced as `near "1": syntax error`). Mocked suites
+  // never call this function, so such gaps stayed green in CI and were found by
+  // users. Fail loudly instead — and mysql-date-expressions.test.ts turns any new
+  // offender into a CI failure. Only non-literal text is inspected, so SQL stored
+  // as data cannot trip it.
   // ON DUPLICATE KEY UPDATE ... VALUES(col) → ON CONFLICT(...) DO UPDATE SET col = excluded.col
   const odkuMatch = s.match(/ON\s+DUPLICATE\s+KEY\s+UPDATE\s+([\s\S]+)$/i);
   if (odkuMatch) {
@@ -452,6 +502,25 @@ function translateSQL(sql: string): string {
 
     s = s.replace(/ON\s+DUPLICATE\s+KEY\s+UPDATE\s+[\s\S]+$/i,
       `ON CONFLICT(${conflict}) DO UPDATE SET ${updateClause}`);
+  }
+
+  // translateSQL is a whitelist rewriter with a passthrough default: anything it does
+  // not match reaches better-sqlite3 verbatim and fails at request time with a
+  // token-level parse error (GLOOK-41 was exactly this — `near "1": syntax error`).
+  // Mocked test suites never call this function, so such gaps stay green in CI and are
+  // found by users. Fail loudly here instead: a thrown error names the statement and is
+  // greppable, and `mysql-date-expressions.test.ts` turns any new offender into a CI
+  // failure rather than a production 500.
+  // Only non-literal text is inspected — SQL-looking text stored as data (a commit
+  // message, a Jira summary) must not be able to trip this. Reuses the same
+  // tokenizer as the rewrites, so "what counts as a literal" has one definition.
+  let nonLiteral = '';
+  outsideStringLiterals(s, (chunk) => { nonLiteral += ` ${chunk} `; return chunk; });
+  if (/\bDATE_ADD\b|\bDATE_SUB\b|\bINTERVAL\b/i.test(nonLiteral)) {
+    throw new Error(
+      `translateSQL: untranslated MySQL date expression reached the SQLite driver. ` +
+      `Add a rule to translateSQL() in src/lib/db/sqlite.ts. SQL: ${sql}`,
+    );
   }
 
   return s;
