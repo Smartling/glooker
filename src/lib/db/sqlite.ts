@@ -405,6 +405,20 @@ function translateSQL(sql: string): string {
   s = s.replace(/DATE_SUB\s*\(\s*NOW\(\)\s*,\s*INTERVAL\s+(\d+)\s+DAY\s*\)/gi,
     (_match, days) => `datetime('now', '-${days} days')`);
 
+  // DATE_ADD(expr, INTERVAL N DAY) → datetime(expr, '+N days')
+  // Order matters: NOW() is rewritten above into datetime('now','localtime'),
+  // which itself contains a comma — so the NOW() forms get dedicated rules
+  // before the general one, exactly as DATE_SUB does.
+  s = s.replace(/DATE_ADD\s*\(\s*datetime\('now','localtime'\)\s*,\s*INTERVAL\s+(\d+)\s+DAY\s*\)/gi,
+    (_match, days) => `datetime('now', '+${days} days')`);
+  s = s.replace(/DATE_ADD\s*\(\s*NOW\(\)\s*,\s*INTERVAL\s+(\d+)\s+DAY\s*\)/gi,
+    (_match, days) => `datetime('now', '+${days} days')`);
+  // General form, e.g. the org spend-window query's DATE_ADD(?, INTERVAL 1 DAY).
+  // The captured expression is spliced through verbatim so a bound `?` stays a
+  // bound parameter — never interpolate the caller's value into the SQL.
+  s = s.replace(/DATE_ADD\s*\(\s*([^,()]+?)\s*,\s*INTERVAL\s+(\d+)\s+DAY\s*\)/gi,
+    (_match, expr, days) => `datetime(${expr}, '+${days} days')`);
+
   // ON DUPLICATE KEY UPDATE ... VALUES(col) → ON CONFLICT(...) DO UPDATE SET col = excluded.col
   const odkuMatch = s.match(/ON\s+DUPLICATE\s+KEY\s+UPDATE\s+([\s\S]+)$/i);
   if (odkuMatch) {
