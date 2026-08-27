@@ -15,6 +15,7 @@ jest.mock('@/lib/llm-provider', () => ({
   LLM_MODEL: 'test-model',
   extraBodyProps: () => ({}),
   tokenLimit: (n: number) => ({ max_tokens: n }),
+  samplingParams: (t: number) => ({ temperature: t }),
 }));
 
 import { getProjectInsights } from '@/lib/projects/insights';

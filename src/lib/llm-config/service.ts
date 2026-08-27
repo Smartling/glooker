@@ -1,4 +1,4 @@
-import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, promptTag } from '@/lib/llm-provider';
+import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, promptTag, samplingParams } from '@/lib/llm-provider';
 
 export interface LLMConfig {
   provider: string;
@@ -65,7 +65,7 @@ export async function testLLMConnection(): Promise<LLMConnectionResult> {
     const client = await getLLMClient();
     const response = await client.chat.completions.create({
       model: LLM_MODEL,
-      temperature: 0,
+      ...samplingParams(0),
       ...tokenLimit(32),
       messages: [
         { role: 'system', content: 'Reply with exactly: OK' },

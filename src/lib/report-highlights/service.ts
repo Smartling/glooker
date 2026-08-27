@@ -1,5 +1,5 @@
 import db from '../db/index';
-import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, promptTag } from '../llm-provider';
+import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, promptTag, samplingParams } from '../llm-provider';
 import { loadPrompt } from '../prompt-loader';
 import { getAppConfig } from '../app-config/service';
 
@@ -144,7 +144,7 @@ export async function getReportHighlights() {
   const client = await getLLMClient();
   const response = await client.chat.completions.create({
     model: LLM_MODEL,
-    temperature: getAppConfig().highlights.temperature,
+    ...samplingParams(getAppConfig().highlights.temperature),
     ...tokenLimit(getAppConfig().highlights.maxTokens),
     response_format: { type: 'json_object' },
     messages: [

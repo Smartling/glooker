@@ -1,5 +1,5 @@
 import db from '@/lib/db';
-import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, promptTag } from '@/lib/llm-provider';
+import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, promptTag, samplingParams } from '@/lib/llm-provider';
 import { loadPrompt } from '@/lib/prompt-loader';
 import { extractTeamPulseData, extractTeamProjectsData } from './data';
 import { buildTeamPulsePrompt } from './prompt';
@@ -105,7 +105,7 @@ export async function getTeamPulse(
   const client = await getLLMClient();
   const response = await client.chat.completions.create({
     model: LLM_MODEL,
-    temperature: 0.5,
+    ...samplingParams(0.5),
     ...tokenLimit(1024),
     messages: [
       { role: 'system', content: systemPrompt },

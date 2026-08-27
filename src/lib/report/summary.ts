@@ -1,5 +1,5 @@
 import db from '@/lib/db';
-import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, promptTag } from '@/lib/llm-provider';
+import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, promptTag, samplingParams } from '@/lib/llm-provider';
 import { loadPrompt } from '@/lib/prompt-loader';
 import { getAppConfig } from '@/lib/app-config/service';
 import { ReportNotFoundError } from './service';
@@ -226,7 +226,7 @@ export async function getDevSummary(reportId: string, login: string) {
   const client = await getLLMClient();
   const response = await client.chat.completions.create({
     model: LLM_MODEL,
-    temperature: getAppConfig().summary.temperature,
+    ...samplingParams(getAppConfig().summary.temperature),
     ...tokenLimit(getAppConfig().summary.maxTokens),
     response_format: { type: 'json_object' },
     messages: [

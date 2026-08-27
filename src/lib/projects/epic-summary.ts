@@ -1,5 +1,5 @@
 import { getJiraClient } from '@/lib/jira/client';
-import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, promptTag } from '@/lib/llm-provider';
+import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, promptTag, samplingParams } from '@/lib/llm-provider';
 import { loadPrompt } from '@/lib/prompt-loader';
 import { getAppConfig } from '@/lib/app-config/service';
 import db from '@/lib/db';
@@ -284,7 +284,7 @@ async function generateSummary(
 
   const response = await client.chat.completions.create({
     model: LLM_MODEL,
-    temperature: config.summary.temperature,
+    ...samplingParams(config.summary.temperature),
     ...tokenLimit(config.summary.maxTokens),
     messages: [
       { role: 'user', content: prompt },

@@ -21,8 +21,8 @@ const provider = (process.env.LLM_PROVIDER || 'openai') as Provider;
 let cachedClient: OpenAI | null = null;
 
 const MODEL_DEFAULTS: Record<string, string> = {
-  anthropic: 'claude-sonnet-4-20250514',
-  bedrock:   'us.anthropic.claude-sonnet-4-6',
+  anthropic: 'claude-sonnet-5',
+  bedrock:   'us.anthropic.claude-sonnet-5',
 };
 
 export const LLM_MODEL =
@@ -56,6 +56,46 @@ export function tokenLimit(maxTokens: number): { max_tokens?: number; max_comple
   }
   // Other providers (Anthropic, Smartling, Bedrock, etc.) use max_tokens
   return { max_tokens: maxTokens };
+}
+
+/**
+ * Models whose API removed the sampling parameters (`temperature`, `top_p`,
+ * `stop`). Sending any of them returns a 400 — including `temperature: 0`.
+ *
+ * This is the Sonnet 5 / Opus 5 / Opus 4.7-4.8 / Fable 5 generation. Sonnet 4.6,
+ * Opus 4.6, Haiku 4.5 and everything older still accept sampling.
+ *
+ * Matched on the model string rather than a provider, because the same model
+ * arrives under three shapes: bare (`claude-sonnet-5`, direct Anthropic), an
+ * `anthropic/` prefix (Smartling AI Proxy), and a `us.anthropic.` cross-region
+ * inference profile (Bedrock). The trailing boundary matters: without it,
+ * `claude-opus-4-60` would match the `4-6`-adjacent alternatives.
+ */
+const MODELS_WITHOUT_SAMPLING =
+  /claude-(?:sonnet|opus|fable|mythos)-5(?![\d-])|claude-opus-4-[78](?![\d-])/i;
+
+/**
+ * Whether `model` rejects sampling parameters. Exported for tests; call sites
+ * should use `samplingParams()`.
+ */
+export function modelRejectsSampling(model: string): boolean {
+  return MODELS_WITHOUT_SAMPLING.test(model);
+}
+
+/**
+ * Sampling parameters for a chat completion, or `{}` when the configured model
+ * rejects them. Spread into chat.completions.create(), the same way
+ * `tokenLimit()` is:
+ *
+ *   ...samplingParams(getAppConfig().analyzer.temperature),
+ *
+ * Note for callers that relied on `temperature: 0` for determinism: on a model
+ * that rejects sampling there is no way to express it, so output falls back to
+ * the model default. Reports become less reproducible run-to-run — that is a
+ * property of the model, not something this helper can work around.
+ */
+export function samplingParams(temperature: number): { temperature?: number } {
+  return modelRejectsSampling(LLM_MODEL) ? {} : { temperature };
 }
 
 /**

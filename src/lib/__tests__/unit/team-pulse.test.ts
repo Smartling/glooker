@@ -21,6 +21,7 @@ jest.mock('@/lib/llm-provider', () => ({
   LLM_MODEL: 'mock-model',
   extraBodyProps: () => ({}),
   tokenLimit: () => ({ max_tokens: 1024 }),
+  samplingParams: (t: number) => ({ temperature: t }),
   promptTag: (n: string) => ({ __prompt_id: n }),
 }));
 
