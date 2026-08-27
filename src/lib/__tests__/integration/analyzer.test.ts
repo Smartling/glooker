@@ -6,6 +6,7 @@ jest.mock('@/lib/llm-provider', () => ({
   extraBodyProps: () => ({}),
   getLLMClient: jest.fn(),
   tokenLimit: (n: number) => ({ max_completion_tokens: n }),
+  samplingParams: (t: number) => ({ temperature: t }),
   promptTag: (name: string) => name ? { __prompt_id: name } : {},
 }));
 

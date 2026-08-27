@@ -1,5 +1,5 @@
 import db from '@/lib/db';
-import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit } from '@/lib/llm-provider';
+import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, samplingParams } from '@/lib/llm-provider';
 import { renderInflightBlock } from '@/lib/team-pulse/render';
 import type { TeamProjectInflightPr, TeamProjectInflightBranch } from '@/lib/team-pulse/data';
 
@@ -241,7 +241,7 @@ ${noJiraData}${inflightBlock}`;
     const client = await getLLMClient();
     const response = await client.chat.completions.create({
       model: LLM_MODEL,
-      temperature: 0.3,
+      ...samplingParams(0.3),
       // The response echoes back every Jira key, PR number and commit SHA it
       // attributes, so the output is almost entirely identifiers — token-dense.
       // At 12000 this truncated (finish_reason=length) on larger reports, and a

@@ -1,4 +1,4 @@
-import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, promptTag } from '@/lib/llm-provider';
+import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, promptTag, samplingParams } from '@/lib/llm-provider';
 import { loadPrompt } from '@/lib/prompt-loader';
 
 export interface AppConfig {
@@ -146,7 +146,7 @@ export async function testLLMConnection(): Promise<LLMConnectionResult> {
     const client = await getLLMClient();
     const response = await client.chat.completions.create({
       model: LLM_MODEL,
-      temperature: getAppConfig().llmTest.temperature,
+      ...samplingParams(getAppConfig().llmTest.temperature),
       ...tokenLimit(getAppConfig().llmTest.maxTokens),
       messages: [
         { role: 'system', content: loadPrompt('llm-config-test-system.txt') },

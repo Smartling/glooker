@@ -1,4 +1,4 @@
-import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, promptTag } from './llm-provider';
+import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, promptTag, samplingParams } from './llm-provider';
 import { loadPrompt } from './prompt-loader';
 import { getAppConfig } from './app-config/service';
 import { stripInvisible, sanitizeAuthorName } from './sanitize';
@@ -27,7 +27,7 @@ export async function analyzeCommit(commit: CommitData): Promise<CommitAnalysis>
 
   const response = await client.chat.completions.create({
     model:       LLM_MODEL,
-    temperature: getAppConfig().analyzer.temperature,
+    ...samplingParams(getAppConfig().analyzer.temperature),
     ...tokenLimit(getAppConfig().analyzer.maxTokens),
     response_format: { type: 'json_object' },
     messages: [

@@ -4,7 +4,7 @@
 // Validates the output: filters developers to team_members, drops empty
 // projects, and overrides last_activity from actual commit data.
 
-import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, promptTag } from '@/lib/llm-provider';
+import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, promptTag, samplingParams } from '@/lib/llm-provider';
 import { loadPrompt } from '@/lib/prompt-loader';
 import type { TeamProject } from './types';
 import type { TeamProjectsInput } from './data';
@@ -52,7 +52,7 @@ export async function generateTeamProjects(
   const client = await getLLMClient();
   const response = await client.chat.completions.create({
     model: LLM_MODEL,
-    temperature: 0.3,
+    ...samplingParams(0.3),
     ...tokenLimit(1500),
     messages: [
       { role: 'system', content: systemPrompt },

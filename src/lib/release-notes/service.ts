@@ -1,5 +1,5 @@
 import db from '@/lib/db';
-import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit } from '@/lib/llm-provider';
+import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, samplingParams } from '@/lib/llm-provider';
 
 const REPO_OWNER = 'Smartling';
 const REPO_NAME = 'glooker';
@@ -43,7 +43,7 @@ export async function getReleaseNotes() {
     const client = await getLLMClient();
     const response = await client.chat.completions.create({
       model: LLM_MODEL,
-      temperature: 0.3,
+      ...samplingParams(0.3),
       ...tokenLimit(512),
       messages: [
         { role: 'system', content: `You are a technical writer producing concise release notes for Glooker, a developer impact analytics tool. Write 3-6 bullet points summarizing the most notable changes. Each bullet should be one short sentence. Group related commits. Skip merge commits, version bumps, and trivial changes. Use past tense ("Added", "Fixed", "Improved"). Return plain text with bullet points using "•" character, no markdown.` },

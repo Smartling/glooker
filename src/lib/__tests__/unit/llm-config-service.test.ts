@@ -4,6 +4,7 @@ jest.mock('@/lib/llm-provider', () => ({
   LLM_MODEL: 'gpt-4o',
   extraBodyProps: jest.fn().mockReturnValue({}),
   tokenLimit: (n: number) => ({ max_completion_tokens: n }),
+  samplingParams: (t: number) => ({ temperature: t }),
   promptTag: (name: string) => name ? { __prompt_id: name } : {},
 }));
 

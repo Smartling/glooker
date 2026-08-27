@@ -1,5 +1,5 @@
 import { getJiraClient } from '@/lib/jira/client';
-import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, promptTag } from '@/lib/llm-provider';
+import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, promptTag, samplingParams } from '@/lib/llm-provider';
 import { loadPrompt } from '@/lib/prompt-loader';
 import db from '@/lib/db';
 
@@ -283,7 +283,7 @@ async function clusterCommits(teamName: string, commits: RawCommit[]): Promise<W
 
   const response = await client.chat.completions.create({
     model: LLM_MODEL,
-    temperature: 0.3,
+    ...samplingParams(0.3),
     ...tokenLimit(4096),
     response_format: { type: 'json_object' },
     messages: [
