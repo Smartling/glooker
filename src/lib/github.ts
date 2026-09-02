@@ -101,6 +101,55 @@ const TRANSIENT_BACKOFF_MS = [1000, 2000, 4000]; // attempt 1, 2, 3
 
 const TOTAL_MAX_ATTEMPTS = 12; // hard cap across all error types (5xx/429/network mix)
 
+/** Base wait for a secondary (abuse-detection) rate limit, before exponential growth. */
+const SECONDARY_BASE_SEC = 60;
+/** Cap on a single secondary wait, so one unrecoverable member cannot stall a run for an hour. */
+const SECONDARY_MAX_SEC = 300;
+/** Floor for a primary-limit wait derived from x-ratelimit-reset. */
+const PRIMARY_FLOOR_SEC = 10;
+
+/**
+ * GitHub has two distinct rate limits and they need different backoffs.
+ *
+ * The primary limit is quota-based: /rate_limit reports it and responses carry
+ * x-ratelimit-reset, so waiting until that reset is exactly right.
+ *
+ * The secondary (abuse-detection) limit is not in /rate_limit at all. During
+ * the 2026-09-02 incident the search quota read 30/30 while search calls were
+ * being rejected with "You have exceeded a secondary rate limit". Treating that
+ * as a primary limit meant computing the wait from x-ratelimit-reset — which
+ * describes the healthy primary window — so the wait collapsed to the 10s floor
+ * and the retry immediately re-tripped the same limit.
+ */
+export function isSecondaryRateLimit(err: any): boolean {
+  const status = err?.status ?? err?.response?.status;
+  if (status !== 403 && status !== 429) return false;
+  const msg = String(err?.message ?? err?.response?.data?.message ?? '');
+  return /secondary rate limit/i.test(msg);
+}
+
+/** How long to wait before retrying a rate-limited GitHub call. */
+export function rateLimitWaitSeconds(
+  err: any,
+  attempt: number,
+  nowSec: number = Math.floor(Date.now() / 1000),
+): number {
+  const headers = err?.response?.headers ?? {};
+
+  // GitHub tells us explicitly on both limit types — always prefer it.
+  const retryAfter = headers['retry-after'];
+  if (retryAfter) return Number(retryAfter) || SECONDARY_BASE_SEC;
+
+  if (isSecondaryRateLimit(err)) {
+    // Deliberately ignore x-ratelimit-reset: it is the primary window.
+    return Math.min(SECONDARY_BASE_SEC * Math.pow(2, attempt), SECONDARY_MAX_SEC);
+  }
+
+  const resetEpoch = headers['x-ratelimit-reset'];
+  if (resetEpoch) return Math.max(Number(resetEpoch) - nowSec, PRIMARY_FLOOR_SEC);
+  return 30 * Math.pow(2, attempt);
+}
+
 export async function withRetry<T>(
   fn: () => Promise<T>,
   log?: (msg: string) => void,
@@ -125,17 +174,10 @@ export async function withRetry<T>(
       // 1. Rate limit — existing behavior preserved (longer backoffs, header-aware)
       if (isRateLimit) {
         if (attempt === maxRetries) throw err;
-        const retryAfter = err?.response?.headers?.['retry-after'];
-        const resetEpoch = err?.response?.headers?.['x-ratelimit-reset'];
-        let waitSec: number;
-        if (retryAfter) {
-          waitSec = Number(retryAfter) || 60;
-        } else if (resetEpoch) {
-          waitSec = Math.max(Number(resetEpoch) - Math.floor(Date.now() / 1000), 10);
-        } else {
-          waitSec = 30 * Math.pow(2, attempt);
-        }
-        log?.(`Rate limited (attempt ${attempt + 1}/${maxRetries}). Waiting ${waitSec}s…`);
+        const secondary = isSecondaryRateLimit(err);
+        const waitSec = rateLimitWaitSeconds(err, attempt);
+        const kind = secondary ? 'Secondary rate limit' : 'Rate limited';
+        log?.(`${kind} (attempt ${attempt + 1}/${maxRetries}). Waiting ${waitSec}s…`);
         await sleep(waitSec * 1000);
         continue;
       }
