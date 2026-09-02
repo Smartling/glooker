@@ -74,18 +74,35 @@ export async function loadSkipClassifier(): Promise<(login: string) => SkipClass
 
 /**
  * Pure evaluator — given a tracker snapshot, returns the integrity state.
- * Only unknown SKIPs count toward thresholds; expected + auto-flagged are
- * surfaced in run_metadata but ignored here.
+ *
+ * Only 'expected' SKIPs are excluded: those are members a human put on the
+ * allowlist, i.e. someone looked and accepted the gap.
+ *
+ * 'auto-flagged' DOES count. It previously did not, which is how GLOOK-13
+ * regressed on 2026-09-02: a member failing persistently is auto-flagged after
+ * >=4 of the last 5 runs (see loadSkipClassifier), so it dropped out of this
+ * calculation and the report went back to 'ok'. Reports fell from 65 to 51
+ * developers over four runs with integrity green the whole way, because every
+ * newly-failing member walked the same path out of the numerator.
+ *
+ * Auto-flagging is a *suggestion* — /api/settings/skip-allowlist surfaces
+ * `autoFlaggedCandidates` for a human to promote to the allowlist. Suggesting
+ * that someone might be a known-inactive member is not the same as confirming
+ * it, and only the confirmation may silence the alarm.
+ *
+ * The AND gate on abort is deliberate and unchanged: a run must be degraded in
+ * both absolute and relative terms before it aborts, so a small org isn't
+ * killed by a handful of skips and a large one isn't killed by a rounding error.
  */
 export function evaluateIntegrity(
   snapshot: Pick<RunMetadata, 'skipped' | 'expectedCount' | 'thresholds'>,
 ): IntegrityState {
   const T = snapshot.thresholds;
-  const unknownCount = snapshot.skipped.filter(s => s.classification === 'unknown').length;
+  const countable = snapshot.skipped.filter(s => s.classification !== 'expected').length;
   const expected = snapshot.expectedCount;
-  const unknownPct = expected > 0 ? unknownCount / expected : 0;
+  const countablePct = expected > 0 ? countable / expected : 0;
 
-  if (unknownCount >= T.abortUnknownCount && unknownPct >= T.abortUnknownPct) return 'failed';
-  if (unknownCount >= T.degradedUnknownCount || unknownPct >= T.degradedUnknownPct) return 'degraded';
+  if (countable >= T.abortUnknownCount && countablePct >= T.abortUnknownPct) return 'failed';
+  if (countable >= T.degradedUnknownCount || countablePct >= T.degradedUnknownPct) return 'degraded';
   return 'ok';
 }

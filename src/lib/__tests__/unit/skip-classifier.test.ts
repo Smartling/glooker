@@ -130,8 +130,13 @@ describe('evaluateIntegrity', () => {
     }))).toBe('degraded');
   });
 
-  it("does NOT count 'auto-flagged' against the threshold", () => {
+  // Changed by the 2026-09-02 GLOOK-13 regression fix. This previously asserted
+  // 'ok', which meant the exact incident GLOOK-13 was filed about (41 of 102
+  // members dropped) passed the guard as soon as those members had been failing
+  // long enough to be auto-flagged. Only a human allowlist entry ('expected')
+  // may suppress the guard now. See integrity-guard-regression.test.ts.
+  it("DOES count 'auto-flagged' against the threshold", () => {
     const skips: Array<[string, 'auto-flagged']> = Array.from({ length: 41 }, (_, i) => [`u${i}`, 'auto-flagged']);
-    expect(evaluateIntegrity(trackerWith({ expectedCount: 102, skips }))).toBe('ok');
+    expect(evaluateIntegrity(trackerWith({ expectedCount: 102, skips }))).toBe('failed');
   });
 });
