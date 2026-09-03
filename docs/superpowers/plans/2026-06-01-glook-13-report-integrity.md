@@ -605,6 +605,12 @@ export async function loadSkipClassifier(): Promise<(login: string) => SkipClass
 
 /**
  * Pure evaluator — given a tracker snapshot, returns the integrity state.
+ * SUPERSEDED 2026-09-02 (GLOOK-48): counting only 'unknown' here is the
+ * regression that let reports slide 65 -> 51 with integrity green, because
+ * loadSkipClassifier() auto-flags chronic failures out of the numerator.
+ * 'auto-flagged' now counts too — see countableSkips()/integrityCounts() in
+ * report-runner/types.ts. The text below records the original design.
+ *
  * Only unknown SKIPs count toward thresholds; expected + auto-flagged are
  * surfaced in run_metadata but ignored here.
  */
@@ -645,6 +651,8 @@ git commit -m "feat(report-runner): skip classifier + threshold evaluator (GLOOK
 loadSkipClassifier() runs 2 SELECTs at the top of each report and
 returns a hot closure (allowlist ⊃ auto-flagged ⊃ unknown). 
 evaluateIntegrity() is pure: counts only unknown SKIPs against the
+[SUPERSEDED by GLOOK-48 — auto-flagged counts as well, and allowlisted
+members are removed from the denominator; see report-runner/types.ts]
 abort (AND) and degraded (OR) thresholds defined in DEFAULT_THRESHOLDS."
 ```
 
