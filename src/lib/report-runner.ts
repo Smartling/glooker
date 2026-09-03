@@ -13,7 +13,7 @@ import { refreshCcSpendForReport } from './cc-spend/service';
 import { AnthropicAnalyticsKeyMissingError } from './cc-spend/anthropic-provider';
 import { IntegrityTracker } from './report-runner/integrity-tracker';
 import { loadSkipClassifier, evaluateIntegrity } from './report-runner/skip-classifier';
-import { DEFAULT_THRESHOLDS, type RunMetadata } from './report-runner/types';
+import { DEFAULT_THRESHOLDS, formatIntegrityAbortReason, type RunMetadata } from './report-runner/types';
 
 const CONCURRENCY = Number(process.env.LLM_CONCURRENCY || 5);
 
@@ -452,10 +452,10 @@ export async function runReport(
     const integrityState = evaluateIntegrity(integritySnapshot);
 
     if (integrityState === 'failed') {
-      const unknownCount = integritySnapshot.skipped.filter(s => s.classification === 'unknown').length;
-      const expectedCount = integritySnapshot.expectedCount;
-      const pct = expectedCount > 0 ? Math.round((unknownCount / expectedCount) * 100) : 0;
-      const abortReason = `GitHub API degraded: ${unknownCount} of ${expectedCount} engineers couldn't be fetched (${pct}%). Likely upstream auth/permission regression.`;
+      // Built from the same integrityCounts() the verdict came from. This used
+      // to re-filter for 'unknown' only, so an abort driven by auto-flagged
+      // members reported "0 of 102 (0%)" and read like a false alarm.
+      const abortReason = formatIntegrityAbortReason(integritySnapshot);
       log(`ABORT (GLOOK-13): ${abortReason}`);
 
       const runMetadata: RunMetadata = {

@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import type { RunMetadata, SkippedMember, IntegrityError } from '@/lib/report-runner/types';
+import { countableSkips } from '@/lib/report-runner/types';
 
 export interface IntegrityBadgeProps {
   metadata: RunMetadata | null;
@@ -46,7 +47,10 @@ export default function IntegrityBadge({ metadata }: IntegrityBadgeProps) {
   }
 
   // degraded
-  const unknownCount = metadata.skipped.filter(s => s.classification === 'unknown').length;
+  // countableSkips, not a local 'unknown' filter: an auto-flagged member counts
+  // toward the thresholds, so suppressing it here made the pill under-report
+  // the very skips that triggered the warning.
+  const countedCount = countableSkips(metadata.skipped).length;
   const totalCount = metadata.skipped.length;
   return (
     <>
@@ -56,7 +60,7 @@ export default function IntegrityBadge({ metadata }: IntegrityBadgeProps) {
         className={`${PILL_BASE} bg-amber-500/15 text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 transition-colors`}
         title="Click for details"
       >
-        ⚠ {totalCount} partial{unknownCount > 0 ? ` (${unknownCount} unknown)` : ''}
+        ⚠ {totalCount} partial{countedCount > 0 ? ` (${countedCount} unexplained)` : ''}
       </button>
       {open && (
         <div className="mt-3 bg-amber-500/5 border border-amber-500/20 rounded-lg p-3">

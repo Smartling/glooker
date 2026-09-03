@@ -101,6 +101,148 @@ const TRANSIENT_BACKOFF_MS = [1000, 2000, 4000]; // attempt 1, 2, 3
 
 const TOTAL_MAX_ATTEMPTS = 12; // hard cap across all error types (5xx/429/network mix)
 
+/** Base wait for a secondary (abuse-detection) rate limit, before exponential growth. */
+const SECONDARY_BASE_SEC = 60;
+/** Cap on a single secondary wait, so one unrecoverable call cannot stall a run for an hour. */
+const SECONDARY_MAX_SEC = 300;
+/** Floor for a primary-limit wait derived from x-ratelimit-reset. */
+const PRIMARY_FLOOR_SEC = 10;
+/** Base for the primary schedule when a 429 carries no usable headers at all. */
+const PRIMARY_FALLBACK_BASE_SEC = 30;
+
+/**
+ * GitHub renamed "abuse detection mechanism" to "secondary rate limit" but
+ * still emits the old wording on some endpoints, so both must match.
+ */
+const SECONDARY_PHRASES = /secondary rate limit|abuse detection mechanism/i;
+/** Any 403 that names a rate limit is one, even when the headers are missing. */
+const RATE_LIMIT_PHRASES = /rate limit|abuse detection mechanism/i;
+
+interface GitHubErrorLike {
+  status?: number;
+  message?: string;
+  response?: {
+    status?: number;
+    headers?: Record<string, unknown>;
+    data?: { message?: string };
+  };
+}
+
+function statusOf(err: unknown): number | undefined {
+  const e = err as GitHubErrorLike | null | undefined;
+  return e?.status ?? e?.response?.status;
+}
+
+function headersOf(err: unknown): Record<string, unknown> {
+  const e = err as GitHubErrorLike | null | undefined;
+  return e?.response?.headers ?? {};
+}
+
+/**
+ * Both message carriers, concatenated rather than `??`-chained. Octokit's
+ * RequestError always sets `.message`, so a `??` chain makes
+ * `response.data.message` unreachable — and that is the carrier a non-Octokit
+ * caller or a raw fetch surfaces.
+ */
+function messageOf(err: unknown): string {
+  const e = err as GitHubErrorLike | null | undefined;
+  return `${e?.message ?? ''} ${e?.response?.data?.message ?? ''}`;
+}
+
+/**
+ * Is this 403/429 a rate limit at all?
+ *
+ * 429 always is. A 403 is only a rate limit when GitHub says so — via
+ * `retry-after`, the wording, or an exhausted primary quota. Everything else
+ * with a 403 is a permission condition (SSO/SAML enforcement, missing scope,
+ * `Resource not accessible by integration`) that no amount of waiting fixes;
+ * those propagate immediately the way 404 already does, instead of burning the
+ * whole retry budget on a deterministic failure.
+ */
+export function isRateLimitError(err: unknown): boolean {
+  const status = statusOf(err);
+  if (status === 429) return true;
+  if (status !== 403) return false;
+
+  const h = headersOf(err);
+  if (h['retry-after'] !== undefined) return true;
+  if (RATE_LIMIT_PHRASES.test(messageOf(err))) return true;
+  return String(h['x-ratelimit-remaining']) === '0';
+}
+
+/**
+ * GitHub has two rate limits and they need different backoffs.
+ *
+ * The primary limit is quota-based: `/rate_limit` reports it and responses
+ * carry `x-ratelimit-reset`, so waiting until that reset is exactly right.
+ *
+ * The secondary (abuse-detection) limit is in neither. During the 2026-09-02
+ * incident the search quota read 30/30 while search calls were being rejected.
+ * Treating that as a primary limit meant deriving the wait from
+ * `x-ratelimit-reset` — the *healthy* primary window — so the wait collapsed to
+ * the 10s floor and the retry immediately re-tripped the same limit.
+ *
+ * Detection is structural first and textual second. GitHub's own documented
+ * algorithm discriminates on remaining quota, not on prose: a rate-limited
+ * response with primary quota left cannot be a primary limit, whatever the
+ * message says. Relying on the wording alone left the original bug one
+ * rewording away from returning.
+ */
+export function isSecondaryRateLimit(err: unknown): boolean {
+  if (!isRateLimitError(err)) return false;
+  if (SECONDARY_PHRASES.test(messageOf(err))) return true;
+
+  const remaining = headersOf(err)['x-ratelimit-remaining'];
+  return remaining !== undefined && String(remaining) !== '0';
+}
+
+/**
+ * RFC 7231 allows `Retry-After` to be delta-seconds or an HTTP-date; GitHub
+ * sends delta-seconds. Returns null when absent or unparseable so the caller
+ * falls through to a real schedule instead of inventing a number — the previous
+ * `Number(raw) || 60` turned `retry-after: 0` into a 60s wait and an HTTP-date
+ * into `NaN || 60`.
+ */
+function parseRetryAfter(raw: unknown): number | null {
+  if (raw === undefined || raw === null || raw === '') return null;
+  const sec = Number(raw);
+  if (Number.isFinite(sec)) return Math.max(sec, 0);
+  const at = Date.parse(String(raw));
+  if (Number.isFinite(at)) return Math.max(Math.ceil((at - Date.now()) / 1000), 0);
+  return null;
+}
+
+/** How long to wait before retrying a rate-limited GitHub call. */
+export function rateLimitWaitSeconds(
+  err: unknown,
+  attempt: number,
+  nowSec: number = Math.floor(Date.now() / 1000),
+): number {
+  const h = headersOf(err);
+  const secondary = isSecondaryRateLimit(err);
+  const secondarySchedule = Math.min(SECONDARY_BASE_SEC * Math.pow(2, attempt), SECONDARY_MAX_SEC);
+
+  const asked = parseRetryAfter(h['retry-after']);
+  if (asked !== null) {
+    // Never retry earlier than GitHub asked. On a secondary limit keep the
+    // escalation as well: GitHub routinely sends retry-after on abuse-detection
+    // 403s, and returning it flat meant every one of the 5 attempts waited the
+    // same 60s, re-tripping the limit at the boundary — the same no-growth shape
+    // as the bug this fixes.
+    return secondary ? Math.max(asked, secondarySchedule) : asked;
+  }
+
+  // Deliberately ignore x-ratelimit-reset here: it describes the primary window.
+  if (secondary) return secondarySchedule;
+
+  const resetEpoch = h['x-ratelimit-reset'];
+  if (resetEpoch !== undefined) {
+    const reset = Number(resetEpoch);
+    if (Number.isFinite(reset)) return Math.max(reset - nowSec, PRIMARY_FLOOR_SEC);
+  }
+  return PRIMARY_FALLBACK_BASE_SEC * Math.pow(2, attempt);
+}
+
 export async function withRetry<T>(
   fn: () => Promise<T>,
   log?: (msg: string) => void,
@@ -118,24 +260,18 @@ export async function withRetry<T>(
 
       const status = err?.status || err?.response?.status;
       const networkCode = err?.code as string | undefined;
-      const isRateLimit = status === 403 || status === 429;
+      const isRateLimit = isRateLimitError(err);
       const is5xx = typeof status === 'number' && status >= 500 && status < 600;
       const isNetwork = !!networkCode && NETWORK_ERROR_CODES.has(networkCode);
 
-      // 1. Rate limit — existing behavior preserved (longer backoffs, header-aware)
+      // 1. Rate limit — primary waits until x-ratelimit-reset, secondary escalates
+      //    60s→300s. A 403 that is NOT a rate limit falls through to case 3.
       if (isRateLimit) {
         if (attempt === maxRetries) throw err;
-        const retryAfter = err?.response?.headers?.['retry-after'];
-        const resetEpoch = err?.response?.headers?.['x-ratelimit-reset'];
-        let waitSec: number;
-        if (retryAfter) {
-          waitSec = Number(retryAfter) || 60;
-        } else if (resetEpoch) {
-          waitSec = Math.max(Number(resetEpoch) - Math.floor(Date.now() / 1000), 10);
-        } else {
-          waitSec = 30 * Math.pow(2, attempt);
-        }
-        log?.(`Rate limited (attempt ${attempt + 1}/${maxRetries}). Waiting ${waitSec}s…`);
+        const secondary = isSecondaryRateLimit(err);
+        const waitSec = rateLimitWaitSeconds(err, attempt);
+        const kind = secondary ? 'Secondary rate limit' : 'Rate limited';
+        log?.(`${kind} (attempt ${attempt + 1}/${maxRetries}). Waiting ${waitSec}s…`);
         await sleep(waitSec * 1000);
         continue;
       }

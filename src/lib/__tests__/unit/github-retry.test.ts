@@ -79,4 +79,51 @@ describe('withRetry — transient-error coverage (GLOOK-13)', () => {
     expect(fn).toHaveBeenCalledTimes(2);
     expect(result).toBe('ok');
   });
+
+  // ---- GLOOK-48: the wiring, not just the pure function -------------------
+  // rateLimitWaitSeconds is unit-tested in github-secondary-rate-limit.test.ts.
+  // These two pin that withRetry actually acts on it, which is the behaviour
+  // the incident was about.
+
+  async function settle() {
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+  }
+
+  it('waits at least 60s before retrying a secondary rate limit', async () => {
+    // x-ratelimit-reset only 5s out: this is the exact shape that used to
+    // collapse to the 10s floor and immediately re-trip the same limit.
+    const err = Object.assign(new Error('You have exceeded a secondary rate limit'), {
+      status: 403,
+      response: {
+        status: 403,
+        headers: { 'x-ratelimit-reset': String(Math.floor(Date.now() / 1000) + 5) },
+      },
+    });
+    const fn = jest.fn().mockRejectedValueOnce(err).mockResolvedValue('ok');
+
+    const p = withRetry(fn);
+    await settle();
+    expect(fn).toHaveBeenCalledTimes(1);
+
+    jest.advanceTimersByTime(59_999);
+    await settle();
+    expect(fn).toHaveBeenCalledTimes(1); // would have retried at 10s before the fix
+
+    jest.advanceTimersByTime(1);
+    await settle();
+    expect(fn).toHaveBeenCalledTimes(2);
+    await expect(p).resolves.toBe('ok');
+  });
+
+  it('does NOT retry a permission 403 (SSO / missing scope) — propagates immediately', async () => {
+    // Gating the primary path on x-ratelimit-remaining would otherwise make
+    // these sleep 60s five times over instead of failing fast.
+    const err = Object.assign(new Error('Resource not accessible by integration'), {
+      status: 403,
+      response: { status: 403, headers: { 'x-ratelimit-remaining': '4999' } },
+    });
+    const fn = jest.fn().mockRejectedValue(err);
+    await expect(withRetry(fn)).rejects.toBe(err);
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
 });
