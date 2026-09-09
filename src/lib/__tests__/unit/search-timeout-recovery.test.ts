@@ -15,7 +15,10 @@ import { searchUserCommits, splitDateWindow, __setOctokitForTest } from '@/lib/g
  * runner turns it into a counted SKIP.
  */
 
-jest.useFakeTimers({ doNotFake: ['nextTick'] });
+// Pinned: collectCommits calls splitDateWindow with the ambient clock, so the
+// midpoint these tests assert on would drift with the calendar and turn red in
+// CI months from now, looking like a splitDateWindow regression.
+jest.useFakeTimers({ doNotFake: ['nextTick'], now: new Date('2026-09-09T00:00:00Z') });
 afterEach(() => { jest.clearAllTimers(); __setOctokitForTest(null); });
 
 /** Drain the 2.5s inter-page and 5s retry sleeps. */
@@ -77,7 +80,8 @@ describe('splitDateWindow', () => {
 describe('a genuine empty result is still trusted', () => {
   it('returns [] without retrying', async () => {
     const calls = scripted([GENUINE_EMPTY]);
-    await expect(drain(searchUserCommits('Smartling', 'devx', SINCE))).resolves.toEqual([]);
+    await expect(drain(searchUserCommits('Smartling', 'devx', SINCE)))
+      .resolves.toEqual({ hits: [] });
     expect(calls).toHaveLength(1); // no retry, no split
   });
 });
@@ -88,7 +92,7 @@ describe('a timed-out empty result is not trusted', () => {
       TIMED_OUT_EMPTY,
       { total_count: 2, items: [commit('aaa'), commit('bbb')], incomplete_results: false },
     ]);
-    const hits = await drain(searchUserCommits('Smartling', 'devx', SINCE));
+    const { hits } = await drain(searchUserCommits('Smartling', 'devx', SINCE));
     expect(hits.map((h) => h.sha)).toEqual(['aaa', 'bbb']);
     expect(calls).toHaveLength(2);
   });
@@ -111,7 +115,7 @@ describe('a timed-out empty result is not trusted', () => {
         },
       },
     });
-    const hits = await drain(searchUserCommits('Smartling', 'devx', SINCE));
+    const { hits } = await drain(searchUserCommits('Smartling', 'devx', SINCE));
     // Both halves contributed, and the narrowed queries were actually issued:
     // a closed range for the first half, an open bound at the midpoint for the second.
     expect(hits).toHaveLength(2);
@@ -127,22 +131,80 @@ describe('a timed-out empty result is not trusted', () => {
   });
 });
 
-describe('a self-contradicting page is not trusted', () => {
-  it('raises when total_count claims matches but items is empty', async () => {
-    // The exact shape the old pagination break accepted as a zero:
-    //   hits(0) >= total_count(21) -> false;  items(0) < 100 -> true -> break
+describe('under-delivery is reconciled against total_count', () => {
+  it('KEEPS partial data and reports a shortfall rather than discarding it', async () => {
+    // 2 of 5 arrived. Throwing would lose two real commits and add abort
+    // pressure — worse than main on both axes. The data is kept; the shortfall
+    // becomes an IntegrityError in the runner.
+    scripted([{ total_count: 5, items: [commit('a'), commit('b')], incomplete_results: false }]);
+    const res = await drain(searchUserCommits('Smartling', 'devx', SINCE));
+    expect(res.hits.map((h) => h.sha)).toEqual(['a', 'b']);
+    expect(res.shortfall).toMatchObject({ expected: 5, collected: 2 });
+    expect(res.shortfall!.detail).toMatch(/got 2 of 5/);
+  });
+
+  it('raises when under-delivery leaves nothing at all', async () => {
+    // total_count claims 21 and no page ever delivers: retried, narrowed, then
+    // raised, because there is no partial data worth keeping.
     scripted([{ total_count: 21, items: [], incomplete_results: false }]);
     await expect(drain(searchUserCommits('Smartling', 'devx', SINCE)))
       .rejects.toThrow(/@devx/);
   });
+
+  it('reconciles ABOVE the 1000 cap instead of switching the check off', async () => {
+    // The bug this replaces: `counted <= CAP && hits < counted` disabled the
+    // guard entirely once total_count exceeded 1000, so a short page returned
+    // silently — for exactly the high-volume authors the cap was added for.
+    const full = (page: number) => Array.from({ length: 100 }, (_, i) => commit(`s${page}-${i}`));
+    let page = 0;
+    __setOctokitForTest({
+      search: {
+        commits: async () => {
+          page++;
+          return {
+            data: {
+              total_count: 1500,
+              incomplete_results: false,
+              items: page === 1 ? full(1) : full(2).slice(0, 40), // 140 of a capped 1000
+            },
+          };
+        },
+      },
+    });
+    const res = await drain(searchUserCommits('Smartling', 'devx', SINCE));
+    expect(res.hits).toHaveLength(140);
+    expect(res.shortfall).toMatchObject({ expected: 1000, collected: 140 });
+    expect(res.shortfall!.detail).toMatch(/capped from 1500/);
+  });
 });
 
-describe('under-delivery is reconciled against total_count', () => {
-  it('raises when a short page ends the loop below total_count', async () => {
-    // Timeout flag absent, so the page looks fine — but 2 of 5 arrived.
-    scripted([{ total_count: 5, items: [commit('a'), commit('b')], incomplete_results: false }]);
+describe('a response missing items entirely', () => {
+  it('does not TypeError on a shape the trust predicate tolerates', async () => {
+    // isSuspectSearchResult({}) is deliberately false, so this reaches the
+    // collection loop and must not die iterating an absent array.
+    scripted([{ total_count: 0, incomplete_results: false } as any]);
     await expect(drain(searchUserCommits('Smartling', 'devx', SINCE)))
-      .rejects.toThrow(/under-delivered for @devx.*got 2 of 5/);
+      .resolves.toEqual({ hits: [] });
+  });
+});
+
+describe('union of split halves', () => {
+  it('dedupes a commit that appears in both halves', async () => {
+    // The dedup line was previously never exercised: the old stub minted a
+    // unique sha per call, so the filter never filtered anything despite the
+    // test being named "unions the halves".
+    __setOctokitForTest({
+      search: {
+        commits: async ({ q }: any) => {
+          if (q.includes('committer-date:>=2026-08-26')) return { data: TIMED_OUT_EMPTY };
+          // Both halves report the SAME commit — a boundary commit visible to
+          // both ranged queries.
+          return { data: { total_count: 1, items: [commit('shared')], incomplete_results: false } };
+        },
+      },
+    });
+    const { hits } = await drain(searchUserCommits('Smartling', 'devx', SINCE));
+    expect(hits.map((h) => h.sha)).toEqual(['shared']);
   });
 });
 
@@ -166,7 +228,7 @@ describe("GitHub's 1000-result ceiling", () => {
         },
       },
     });
-    const hits = await drain(searchUserCommits('Smartling', 'devx', SINCE));
+    const { hits } = await drain(searchUserCommits('Smartling', 'devx', SINCE));
     expect(hits).toHaveLength(1000);
     expect(pages).toBe(10); // not 50
   });

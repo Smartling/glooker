@@ -59,9 +59,27 @@ export interface OrgMember {
   avatarUrl: string;
 }
 
+/**
+ * A shortfall between what GitHub's search counted and what it delivered.
+ *
+ * Distinct from a SKIP on purpose. A SKIP means we have nothing trustworthy for
+ * this member; a shortfall means we have real data that is known to be short.
+ * Throwing the good data away would be worse than `main` on both axes — less
+ * data AND more pressure on the GLOOK-13 abort gate — so it is kept and
+ * reported through IntegrityError, the "member-kept partial-data" channel the
+ * runner already uses for openPRs.
+ */
+export interface SearchShortfall {
+  expected:  number;
+  collected: number;
+  detail:    string;
+}
+
 export interface UserActivity {
   commits: CommitData[];
   prs:     PRInfo[];
+  /** Set when the commit search delivered fewer commits than it counted. */
+  commitsShortfall?: SearchShortfall;
 }
 
 export interface GitHubProvider {
@@ -361,11 +379,6 @@ interface RawCommitHit {
   date:        string;
 }
 
-/**
- * Search all commits by a user in an org within a date range.
- * Uses the commit search API — gives the complete picture including
- * direct pushes that never went through a PR.
- */
 // ---------- Search-response accounting (GLOOK-50) ----------
 
 interface SearchAccounting {
@@ -434,11 +447,17 @@ function logSearchAccounting(
   const items = data.items?.length ?? 0;
   const total = data.total_count ?? -1;
   const suspect = isSuspectSearchResult(data);
-  log?.(
+  const line =
     `[search] ${label} @${user} page=${page} items=${items} total_count=${total} ` +
     `incomplete_results=${data.incomplete_results === true}` +
-    (suspect ? ' SUSPECT' : ''),
-  );
+    (suspect ? ' SUSPECT' : '');
+
+  // The progress store keeps only the last 200 lines, and four unconditional
+  // lines per member (264 for a 66-member org) would evict an early SUSPECT
+  // from the surface an operator opens first. So the interesting lines go to
+  // the run log, and the routine ones only to stdout.
+  if (suspect || (total >= 0 && items !== total)) log?.(line);
+  else console.log(line);
 }
 
 /** GitHub serves at most 1000 results for a search, however large total_count is. */
@@ -515,18 +534,22 @@ async function collectCommits(
   to:    Date | null,
   log:   ((msg: string) => void) | undefined,
   depth: number,
-): Promise<RawCommitHit[]> {
+): Promise<{ hits: RawCommitHit[]; shortfall?: SearchShortfall }> {
   const clause = commitDateClause(from, to);
   const query  = `org:${org} author:${user} ${clause}`;
   const hits: RawCommitHit[] = [];
 
   let page = 1;
-  let total = 0;
+  // The reconciliation baseline comes from page 1 and is only ever revised
+  // upward. Re-reading it each page let a later `{total_count: 0, items: []}`
+  // page — a shape the trust predicate correctly blesses — reset the promise
+  // page 1 made and wave 100-of-250 through silently.
+  let expectedTotal: number | null = null;
 
   while (true) {
     await sleep(2500);
 
-    let data: any = null;
+    let data: SearchAccounting | null = null;
     for (let attempt = 0; attempt <= SEARCH_TIMEOUT_RETRIES; attempt++) {
       const res = await withRetry(
         () => getOctokit().search.commits({
@@ -554,8 +577,17 @@ async function collectCommits(
         const [a, b] = halves;
         const left  = await collectCommits(org, user, a.from, a.to, log, depth + 1);
         const right = await collectCommits(org, user, b.from, b.to, log, depth + 1);
-        const seen = new Set(left.map((h) => h.sha));
-        return [...left, ...right.filter((h) => !seen.has(h.sha))];
+        const seen = new Set(left.hits.map((h) => h.sha));
+        const merged = [...left.hits, ...right.hits.filter((h) => !seen.has(h.sha))];
+        const shortfalls = [left.shortfall, right.shortfall].filter(Boolean) as SearchShortfall[];
+        return {
+          hits: merged,
+          shortfall: shortfalls.length === 0 ? undefined : {
+            expected:  shortfalls.reduce((n, sf) => n + sf.expected, 0),
+            collected: shortfalls.reduce((n, sf) => n + sf.collected, 0),
+            detail:    shortfalls.map((sf) => sf.detail).join('; '),
+          },
+        };
       }
       throw new Error(
         `GitHub commit search gave no trustworthy result for @${user} (${clause}) ` +
@@ -564,35 +596,72 @@ async function collectCommits(
       );
     }
 
-    total = data.total_count ?? 0;
-    for (const item of data.items) hits.push(toRawHit(item, user));
+    // `items` is optional on the type, and the trust predicate deliberately
+    // tolerates its absence — so it must not be iterated raw here, or a shape
+    // the tests bless becomes a TypeError and a hard SKIP.
+    const items = data.items ?? [];
+    const pageTotal = data.total_count ?? 0;
+    expectedTotal = expectedTotal === null ? pageTotal : Math.max(expectedTotal, pageTotal);
+
+    for (const item of items) hits.push(toRawHit(item as any, user));
 
     // Stop at GitHub's 1000-result ceiling. Paging past it returns
     // "Only the first 1000 search results are available", which previously
     // surfaced as an unexplained SKIP for high-volume authors.
-    if (hits.length >= Math.min(total, SEARCH_RESULT_CAP)) break;
-    if (data.items.length < SEARCH_PER_PAGE) break;
+    if (hits.length >= Math.min(expectedTotal, SEARCH_RESULT_CAP)) break;
+    if (items.length < SEARCH_PER_PAGE) break;
     page++;
   }
 
-  // Reconcile against GitHub's own count: a short page ended the loop before we
-  // had everything total_count promised, which is under-delivery, not a zero.
-  if (total <= SEARCH_RESULT_CAP && hits.length < total) {
-    throw new Error(
-      `GitHub commit search under-delivered for @${user} (${clause}): ` +
-      `got ${hits.length} of ${total}`,
+  const counted = expectedTotal ?? 0;
+  // Clamped to the cap, NOT gated on it. `counted <= CAP && hits < counted`
+  // disabled the check entirely above 1000, leaving the silent-loss hole open
+  // for exactly the high-volume authors the cap was added for.
+  const expected = Math.min(counted, SEARCH_RESULT_CAP);
+
+  if (counted > SEARCH_RESULT_CAP) {
+    log?.(
+      `[search] commits @${user} ${clause}: total_count=${counted} exceeds the ` +
+      `${SEARCH_RESULT_CAP}-result cap — this developer's commits are truncated`,
     );
   }
 
-  return hits;
+  if (hits.length < expected) {
+    const detail =
+      `${clause}: got ${hits.length} of ${expected}` +
+      (counted > SEARCH_RESULT_CAP ? ` (capped from ${counted})` : '');
+
+    // Nothing usable — raise, so it becomes a counted SKIP.
+    if (hits.length === 0) {
+      throw new Error(`GitHub commit search under-delivered for @${user} (${detail})`);
+    }
+
+    // Partial but real. Keep it and report the shortfall instead of discarding
+    // known-good commits, which would be a regression against main.
+    log?.(`[search] commits @${user} SHORTFALL ${detail}`);
+    return {
+      hits,
+      shortfall: { expected, collected: hits.length, detail },
+    };
+  }
+
+  return { hits };
 }
 
+/**
+ * Search all commits by a user in an org within a date range.
+ * Uses the commit search API — gives the complete picture including
+ * direct pushes that never went through a PR.
+ *
+ * Returns the hits plus an optional shortfall: real-but-incomplete data is
+ * kept and reported, only a total absence of trustworthy data raises.
+ */
 export async function searchUserCommits(
   org:   string,
   user:  string,
   since: Date,
   log?:  (msg: string) => void,
-): Promise<RawCommitHit[]> {
+): Promise<{ hits: RawCommitHit[]; shortfall?: SearchShortfall }> {
   return collectCommits(org, user, since, null, log, 0);
 }
 
@@ -618,6 +687,15 @@ async function searchUserMergedPRs(
       log,
     );
     logSearchAccounting('merged-prs', user, page, res.data, log);
+    // The incident developer had 43 commits AND 42 merged PRs. These are two
+    // independent searches, so the merged-PR half can time out while commits
+    // succeed — landing the developer in the report with totalPRs = 0 and a
+    // wrong prPercentage (an impact-score input), silently. Raise instead.
+    if (isSuspectSearchResult(res.data)) {
+      throw new Error(
+        `GitHub merged-PR search gave no trustworthy result for @${user} (page ${page})`,
+      );
+    }
     if (page === 1 && res.data.total_count === 0) return [];
 
     for (const item of res.data.items) {
@@ -630,7 +708,10 @@ async function searchUserMergedPRs(
         mergedAt: item.pull_request?.merged_at || '',
       });
     }
-    if (prs.length >= res.data.total_count || res.data.items.length < 100) break;
+    // Same 1000-result ceiling as the commit search: paging past it returns
+    // "Only the first 1000 search results are available".
+    if (prs.length >= Math.min(res.data.total_count, SEARCH_RESULT_CAP)) break;
+    if (res.data.items.length < SEARCH_PER_PAGE) break;
     page++;
   }
   return prs;
@@ -669,7 +750,8 @@ export async function fetchUserActivity(
   log?:  (msg: string) => void,
 ): Promise<UserActivity> {
   // 1. Get all commits and merged PRs in parallel-ish (with rate limit gaps)
-  const rawCommits = await searchUserCommits(org, user, since, log);
+  const commitResult = await searchUserCommits(org, user, since, log);
+  const rawCommits = commitResult.hits;
   const prs        = await searchUserMergedPRs(org, user, since, log);
 
   // 2. Build PR lookup: repo#number → PRInfo
@@ -813,7 +895,7 @@ export async function fetchUserActivity(
     }
   }
 
-  return { commits, prs };
+  return { commits, prs, commitsShortfall: commitResult.shortfall };
 }
 
 // ---------- Org listing ----------
@@ -844,8 +926,16 @@ async function countReviewedPRs(
   );
   // per_page:1 means items is capped at 1 while total_count is the real answer,
   // so the "counts matches but delivered nothing" arm cannot fire here. The
-  // timeout arm still can, and a timed-out review count silently reads 0.
+  // timeout arm still can, and a timed-out review count reads 0 — which halves
+  // a scoring factor (weight 0.5, min(reviews/15, 1)) and moves the developer
+  // down the ranking.
   logSearchAccounting('reviewed-prs', user, 1, res.data, log);
+  if (isSuspectSearchResult(res.data)) {
+    // Safe to raise: report-runner catches this into a non-fatal
+    // integrity.recordError, so it lands in run_metadata.errors and cannot
+    // trip the abort gate.
+    throw new Error(`GitHub review-count search returned an untrustworthy result for @${user}`);
+  }
   return res.data.total_count;
 }
 

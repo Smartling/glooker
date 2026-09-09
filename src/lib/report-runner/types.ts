@@ -110,8 +110,20 @@ export function formatIntegrityAbortReason(
 ): string {
   const { countable, effectiveExpected, countablePct } = integrityCounts(snapshot);
   const pct = Math.round(countablePct * 100);
+
+  // Name the actual failure mode rather than always blaming auth. A GitHub
+  // search brownout (GLOOK-50) trips this gate through many correlated
+  // per-member timeouts, and "likely auth/permission regression" sends the
+  // on-call to check the PAT — the wrong lead, at the worst moment.
+  const searchTimeouts = countableSkips(snapshot.skipped)
+    .filter((s) => /no trustworthy result|under-delivered/i.test(s.reason)).length;
+  const cause = searchTimeouts >= Math.max(1, Math.ceil(countable / 2))
+    ? `Most failures are GitHub search timeouts (${searchTimeouts} of ${countable}) — ` +
+      'likely a GitHub search brownout rather than a credential problem.'
+    : 'Likely upstream auth/permission regression.';
+
   return (
     `GitHub API degraded: ${countable} of ${effectiveExpected} engineers couldn't be fetched ` +
-    `(${pct}%). Likely upstream auth/permission regression.`
+    `(${pct}%). ${cause}`
   );
 }

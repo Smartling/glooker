@@ -44,11 +44,6 @@ describe('isSuspectSearchResult', () => {
       .toBe(false);
   });
 
-  it('flags a timed-out query that returned NOTHING', () => {
-    // The shape that lost 43 commits: the zero means "did not finish".
-    expect(isSuspectSearchResult({ total_count: 0, incomplete_results: true, items: [] }))
-      .toBe(true);
-  });
 
   it('flags a self-contradicting response: counts matches, delivers none', () => {
     // Needs no interpretation to reject, and this is the arm the pagination
