@@ -24,7 +24,8 @@
  */
 import { evaluateIntegrity } from '@/lib/report-runner/skip-classifier';
 import { IntegrityTracker } from '@/lib/report-runner/integrity-tracker';
-import { DEFAULT_THRESHOLDS, countableSkips, integrityCounts, formatIntegrityAbortReason } from '@/lib/report-runner/types';
+import { DEFAULT_THRESHOLDS, countableSkips, integrityCounts, formatIntegrityAbortReason, unverifiedCounts } from '@/lib/report-runner/types';
+import type { UnverifiedMember } from '@/lib/report-runner/types';
 import type { SkipClassification } from '@/lib/report-runner/types';
 
 function snapshotWith(expectedCount: number, skips: Array<[string, SkipClassification]>) {
@@ -158,5 +159,75 @@ describe('allowlisted members leave the denominator, not just the numerator', ()
     expect(integrityCounts(snap).effectiveExpected).toBe(0);
     expect(integrityCounts(snap).countablePct).toBe(0);
     expect(evaluateIntegrity(snap)).toBe('ok');
+  });
+});
+
+/**
+ * GLOOK-50: an unverified member is kept in the report, so it must never abort
+ * a run — but it must also not be invisible. Before this, an org-wide
+ * issue-search brownout produced ZERO skips, so the state stayed 'ok', the
+ * badge returned null, and every developer showed 0 merged PRs with their
+ * impact score silently reshuffled. The doubt was written to run_metadata and
+ * read by nothing.
+ */
+function withUnverified(expectedCount: number, n: number, field: UnverifiedMember['field'] = 'merged-prs') {
+  return {
+    expectedCount,
+    thresholds: DEFAULT_THRESHOLDS,
+    skipped: [] as never[],
+    unverified: Array.from({ length: n }, (_, i) => ({
+      login: `u${i}`, field, kept: 0, reason: 'search timed out',
+    })),
+  };
+}
+
+describe('unverified members downgrade a run without aborting it', () => {
+  it('an org-wide brownout no longer reports a clean bill of health', () => {
+    // 100 of 100 members unverified: the exact shape that shipped green.
+    expect(evaluateIntegrity(withUnverified(100, 100))).toBe('degraded');
+  });
+
+  it('crosses to degraded at the 15% gate', () => {
+    expect(evaluateIntegrity(withUnverified(100, 14))).toBe('ok');
+    expect(evaluateIntegrity(withUnverified(100, 15))).toBe('degraded');
+  });
+
+  it('NEVER aborts, however many members are unverified', () => {
+    // They are present in the report — losing the whole report over an
+    // unverified PR count would be worse than the doubt it signals.
+    expect(evaluateIntegrity(withUnverified(100, 100))).not.toBe('failed');
+    expect(evaluateIntegrity(withUnverified(10, 10))).not.toBe('failed');
+  });
+
+  it('a handful of unverified members stays ok', () => {
+    expect(evaluateIntegrity(withUnverified(100, 3))).toBe('ok');
+  });
+
+  it('counts each login once even when several figures are unverified', () => {
+    // merged-prs AND reviews for the same person is one affected member.
+    const snap = {
+      expectedCount: 10,
+      thresholds: DEFAULT_THRESHOLDS,
+      skipped: [] as never[],
+      unverified: [
+        { login: 'a', field: 'merged-prs' as const, kept: 0, reason: 'x' },
+        { login: 'a', field: 'reviews' as const, kept: 0, reason: 'x' },
+      ],
+    };
+    expect(unverifiedCounts(snap).count).toBe(1);
+  });
+
+  it('excludes allowlisted members from the denominator, like the skip gate', () => {
+    const snap = {
+      expectedCount: 100,
+      skipped: many(40, 'expected').map(([login, classification]) => ({
+        login, reason: 'ok', classification,
+      })),
+      unverified: Array.from({ length: 9 }, (_, i) => ({
+        login: `u${i}`, field: 'merged-prs' as const, kept: 0, reason: 'x',
+      })),
+    };
+    // 9 of 60 real members = 15%, not 9 of 100 = 9%.
+    expect(unverifiedCounts(snap).pct).toBeCloseTo(0.15, 5);
   });
 });

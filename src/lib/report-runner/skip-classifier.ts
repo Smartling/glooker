@@ -5,7 +5,7 @@
 
 import db from '@/lib/db';
 import type { IntegrityState, RunMetadata, SkipClassification } from './types';
-import { integrityCounts } from './types';
+import { integrityCounts, unverifiedCounts } from './types';
 
 export const AUTO_FLAG_RECENT_RUNS = 5;
 export const AUTO_FLAG_THRESHOLD = 4;
@@ -108,12 +108,22 @@ export async function loadSkipClassifier(): Promise<(login: string) => SkipClass
  * killed by a handful of skips and a large one isn't killed by a rounding error.
  */
 export function evaluateIntegrity(
-  snapshot: Pick<RunMetadata, 'skipped' | 'expectedCount' | 'thresholds'>,
+  snapshot: Pick<RunMetadata, 'skipped' | 'expectedCount' | 'thresholds' | 'unverified'>,
 ): IntegrityState {
   const T = snapshot.thresholds;
   const { countable, countablePct } = integrityCounts(snapshot);
 
   if (countable >= T.abortUnknownCount && countablePct >= T.abortUnknownPct) return 'failed';
   if (countable >= T.degradedUnknownCount || countablePct >= T.degradedUnknownPct) return 'degraded';
+
+  // GLOOK-50: members kept with an unverified figure never abort a run — they
+  // are present in the report — but a correlated brownout that leaves a large
+  // share of the org unverified must not read as a clean bill of health. Before
+  // this, an org-wide issue-search brownout produced zero skips, state 'ok',
+  // no badge, and every developer showing 0 merged PRs with their impact score
+  // silently reshuffled.
+  const { pct: unverifiedPct } = unverifiedCounts(snapshot);
+  if (unverifiedPct >= T.degradedUnverifiedPct) return 'degraded';
+
   return 'ok';
 }

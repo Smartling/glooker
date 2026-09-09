@@ -22,13 +22,24 @@ jest.useFakeTimers({ doNotFake: ['nextTick'], now: new Date('2026-09-09T00:00:00
 afterEach(() => { jest.clearAllTimers(); __setOctokitForTest(null); });
 
 /** Drain the 2.5s inter-page and 5s retry sleeps. */
+/**
+ * Drain the 2.5s inter-page and 5s retry sleeps. Does NOT stop at the first
+ * moment `getTimerCount()` hits zero — between two awaited sleeps there is a
+ * tick with no timer pending, and breaking there strands the promise on a
+ * clock that has stopped advancing.
+ */
 async function drain<T>(p: Promise<T>): Promise<T> {
-  for (let i = 0; i < 40; i++) {
-    for (let j = 0; j < 5; j++) await Promise.resolve();
-    if (jest.getTimerCount() === 0) break;
+  let settled = false;
+  const tracked = p.then(
+    (v) => { settled = true; return v; },
+    (e) => { settled = true; throw e; },
+  );
+  tracked.catch(() => {});
+  for (let i = 0; i < 200 && !settled; i++) {
     jest.advanceTimersByTime(10_000);
+    for (let j = 0; j < 10; j++) await Promise.resolve();
   }
-  return p;
+  return tracked;
 }
 
 const TIMED_OUT_EMPTY = { total_count: 0, items: [], incomplete_results: true };

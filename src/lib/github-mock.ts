@@ -69,7 +69,7 @@ export function createMockGitHubProvider(): GitHubProvider {
     },
 
     async countReviewedPRs() {
-      return Math.floor(Math.random() * 15);
+      return { reviews: Math.floor(Math.random() * 15) };
     },
 
     async fetchOpenPRs(_org, user, _since, log) {

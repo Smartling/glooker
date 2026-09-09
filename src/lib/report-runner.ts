@@ -198,6 +198,20 @@ export async function runReport(
         // nothing at all — and record it as a member-kept partial-data
         // condition so it appears in run_metadata.errors without counting
         // toward the abort gate the way a SKIP would.
+        // GLOOK-50: the merged-PR count could not be verified because the
+        // search timed out on an empty result. Kept, not skipped — verified
+        // against GitHub that an empty issue search routinely reports
+        // incomplete_results while being correct.
+        if (activity.prsUnverified) {
+          log(`@${member.login}: UNVERIFIED PR count — ${activity.prsUnverified}`);
+          integrity.recordUnverified({
+            login: member.login,
+            field: 'merged-prs',
+            kept: activity.prs.length,
+            reason: activity.prsUnverified,
+          });
+        }
+
         if (activity.commitsShortfall) {
           const sf = activity.commitsShortfall;
           log(`@${member.login}: PARTIAL commit data — ${sf.detail}`);
@@ -212,9 +226,19 @@ export async function runReport(
 
         // Fetch PR review count (overlaps with LLM work from previous members)
         try {
-          const reviews = await github.countReviewedPRs(org, member.login, since, log);
+          const reviewResult = await github.countReviewedPRs(org, member.login, since, log);
+          const reviews = reviewResult.reviews;
           reviewCounts.set(member.login, reviews);
           if (reviews > 0) log(`@${member.login}: ${reviews} PRs reviewed`);
+          if (reviewResult.unverified) {
+            log(`@${member.login}: UNVERIFIED review count — ${reviewResult.unverified}`);
+            integrity.recordUnverified({
+              login: member.login,
+              field: 'reviews',
+              kept: reviews,
+              reason: reviewResult.unverified,
+            });
+          }
         } catch (err) {
           reviewCounts.set(member.login, 0);
           const message = err instanceof Error ? err.message : String(err);
@@ -477,6 +501,7 @@ export async function runReport(
         state: 'failed',
         skipped: integritySnapshot.skipped,
         errors: integritySnapshot.errors,
+        unverified: integritySnapshot.unverified,
         expectedCount: integritySnapshot.expectedCount,
         thresholds: integritySnapshot.thresholds,
         abortReason,
@@ -688,6 +713,7 @@ export async function runReport(
       state: integrityState,
       skipped: integritySnapshot.skipped,
       errors: integritySnapshot.errors,
+      unverified: integritySnapshot.unverified,
       expectedCount: integritySnapshot.expectedCount,
       thresholds: integritySnapshot.thresholds,
     };

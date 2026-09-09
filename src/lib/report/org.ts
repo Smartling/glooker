@@ -20,8 +20,11 @@ export interface OrgModelUsage {
 export async function getOrgReport(reportId: string) {
   // 1. Report metadata
   const [reportRows] = await db.execute(
+    // run_metadata is selected so IntegrityBadge can render on the org page.
+    // Without it the badge receives null here, which closed the last surface
+    // an unverified/degraded signal could reach (GLOOK-50).
     `SELECT id, org, period_days, status, created_at, completed_at,
-            cc_period_start, cc_period_end
+            cc_period_start, cc_period_end, run_metadata
      FROM reports WHERE id = ?`,
     [reportId],
   ) as [any[], any];
