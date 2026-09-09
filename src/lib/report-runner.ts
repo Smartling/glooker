@@ -193,11 +193,26 @@ export async function runReport(
           activeMemberCount++;
         }
 
+        // GLOOK-50: the commit search delivered real data but less than it
+        // counted. Keep the data — discarding it would be worse than shipping
+        // nothing at all — and record it as a member-kept partial-data
+        // condition so it appears in run_metadata.errors without counting
+        // toward the abort gate the way a SKIP would.
+        if (activity.commitsShortfall) {
+          const sf = activity.commitsShortfall;
+          log(`@${member.login}: PARTIAL commit data — ${sf.detail}`);
+          integrity.recordError({
+            context: 'other',
+            login: member.login,
+            message: `commit search under-delivered: ${sf.detail}`,
+          });
+        }
+
         prCounts.set(member.login, activity.prs.length);
 
         // Fetch PR review count (overlaps with LLM work from previous members)
         try {
-          const reviews = await github.countReviewedPRs(org, member.login, since);
+          const reviews = await github.countReviewedPRs(org, member.login, since, log);
           reviewCounts.set(member.login, reviews);
           if (reviews > 0) log(`@${member.login}: ${reviews} PRs reviewed`);
         } catch (err) {

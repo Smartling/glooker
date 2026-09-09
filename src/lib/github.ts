@@ -59,16 +59,34 @@ export interface OrgMember {
   avatarUrl: string;
 }
 
+/**
+ * A shortfall between what GitHub's search counted and what it delivered.
+ *
+ * Distinct from a SKIP on purpose. A SKIP means we have nothing trustworthy for
+ * this member; a shortfall means we have real data that is known to be short.
+ * Throwing the good data away would be worse than `main` on both axes — less
+ * data AND more pressure on the GLOOK-13 abort gate — so it is kept and
+ * reported through IntegrityError, the "member-kept partial-data" channel the
+ * runner already uses for openPRs.
+ */
+export interface SearchShortfall {
+  expected:  number;
+  collected: number;
+  detail:    string;
+}
+
 export interface UserActivity {
   commits: CommitData[];
   prs:     PRInfo[];
+  /** Set when the commit search delivered fewer commits than it counted. */
+  commitsShortfall?: SearchShortfall;
 }
 
 export interface GitHubProvider {
   listOrgMembers(org: string, log?: (msg: string) => void): Promise<OrgMember[]>;
   fetchUserActivity(org: string, user: string, since: Date, log?: (msg: string) => void): Promise<UserActivity>;
   listOrgs(): Promise<Array<{ login: string; avatar_url: string }>>;
-  countReviewedPRs(org: string, user: string, since: Date): Promise<number>;
+  countReviewedPRs(org: string, user: string, since: Date, log?: (msg: string) => void): Promise<number>;
   fetchOpenPRs(org: string, user: string, since: Date, log?: (msg: string) => void): Promise<OpenPrInfo[]>;
   isCommitInDefaultBranch(owner: string, repo: string, sha: string): Promise<boolean>;
   fetchRepoEvents(owner: string, repo: string, log?: (msg: string) => void): Promise<RepoEvent[]>;
@@ -361,49 +379,290 @@ interface RawCommitHit {
   date:        string;
 }
 
+// ---------- Search-response accounting (GLOOK-50) ----------
+
+interface SearchAccounting {
+  total_count?: number;
+  incomplete_results?: boolean;
+  items?: unknown[];
+}
+
+/**
+ * Is this search response one whose emptiness we must NOT trust?
+ *
+ * Two shapes qualify:
+ *
+ *  1. `incomplete_results: true` — the query timed out server-side and GitHub
+ *     returned only the matches it had found by then, which may be none. So an
+ *     empty page with this flag set is an unreliable zero, not a real one.
+ *     GitHub publishes no remedy for the flag, and explicitly warns that
+ *     "reaching a timeout does not necessarily mean that search results are
+ *     incomplete" — so `true` is a reason to distrust a zero, not proof of loss.
+ *
+ *  2. `total_count > 0` with an empty `items` array — the response contradicts
+ *     itself. It needs no interpretation to reject.
+ *
+ * On 2026-09-08 six developers were recorded with 0 commits while GitHub held
+ * 21, 15, 9, 8, 5 and 2 for them (60 commits). No request failed, so nothing
+ * was skipped and the integrity guard never saw it. Neither of these fields was
+ * read or logged, which is why the cause could not be established afterwards.
+ */
+export function isSuspectSearchResult(data: SearchAccounting): boolean {
+  return isUntrustworthyEmpty(data) || isContradictoryPage(data);
+}
+
+/**
+ * GitHub timed out before finding anything, so this zero means "did not
+ * finish", not "nothing exists". The 2026-09-08 losses were all this shape.
+ *
+ * Note it requires items to be empty. A timed-out page that still delivered
+ * items is NOT flagged here: GitHub warns a timeout "does not necessarily mean
+ * that search results are incomplete", and on the run that produced this code
+ * 5 of 6 flagged pages were fine. Under-delivery of a *non-empty* page is
+ * caught by the total_count reconciliation at the end of collectCommits
+ * instead, which is exact rather than advisory.
+ */
+function isUntrustworthyEmpty(data: SearchAccounting): boolean {
+  return data.incomplete_results === true && (data.items?.length ?? 0) === 0;
+}
+
+/** The response counts matches but delivered none of them. Incoherent. */
+function isContradictoryPage(data: SearchAccounting): boolean {
+  return (data.total_count ?? 0) > 0 && (data.items?.length ?? 0) === 0;
+}
+
+/**
+ * Record the accounting fields of a search response.
+ *
+ * SUSPECT marks only the shapes collectCommits actually acts on, so the log
+ * line and the retry decision cannot drift apart.
+ */
+function logSearchAccounting(
+  label: string,
+  user: string,
+  page: number,
+  data: SearchAccounting,
+  log?: (msg: string) => void,
+): void {
+  const items = data.items?.length ?? 0;
+  const total = data.total_count ?? -1;
+  const suspect = isSuspectSearchResult(data);
+  const line =
+    `[search] ${label} @${user} page=${page} items=${items} total_count=${total} ` +
+    `incomplete_results=${data.incomplete_results === true}` +
+    (suspect ? ' SUSPECT' : '');
+
+  // The progress store keeps only the last 200 lines, and four unconditional
+  // lines per member (264 for a 66-member org) would evict an early SUSPECT
+  // from the surface an operator opens first. So the interesting lines go to
+  // the run log, and the routine ones only to stdout.
+  if (suspect || (total >= 0 && items !== total)) log?.(line);
+  else console.log(line);
+}
+
+/** GitHub serves at most 1000 results for a search, however large total_count is. */
+const SEARCH_RESULT_CAP = 1000;
+const SEARCH_PER_PAGE = 100;
+/** Extra attempts at the same page before we stop believing an untrustworthy answer. */
+const SEARCH_TIMEOUT_RETRIES = 2;
+const SEARCH_TIMEOUT_RETRY_MS = 5000;
+/** How many times a window may be halved before we give up and raise. */
+const MAX_WINDOW_SPLIT_DEPTH = 2;
+
+/**
+ * The date clause for a commit search.
+ *
+ * A null `to` keeps the original open-ended `>=` form, so the un-split query is
+ * byte-identical to what shipped before and a clock-skewed future committer
+ * date is still matched.
+ */
+function commitDateClause(from: Date, to: Date | null): string {
+  const f = from.toISOString().split('T')[0];
+  if (!to) return `committer-date:>=${f}`;
+  return `committer-date:${f}..${to.toISOString().split('T')[0]}`;
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Halve a date window, keeping the second half's upper bound open if it was.
+ * Returns null when the window is too small for splitting to buy anything.
+ */
+export function splitDateWindow(
+  from: Date,
+  to: Date | null,
+  now: Date = new Date(),
+): [{ from: Date; to: Date | null }, { from: Date; to: Date | null }] | null {
+  const end = to ?? now;
+  const spanDays = Math.floor((end.getTime() - from.getTime()) / DAY_MS);
+  if (spanDays < 2) return null;
+  const mid = new Date(from.getTime() + Math.floor(spanDays / 2) * DAY_MS);
+  return [
+    { from, to: mid },
+    { from: new Date(mid.getTime() + DAY_MS), to },
+  ];
+}
+
+function toRawHit(item: any, user: string): RawCommitHit {
+  return {
+    sha:         item.sha,
+    repo:        item.repository.name,
+    message:     item.commit.message.split('\n')[0],
+    fullMessage: item.commit.message,
+    authorLogin: item.author?.login       || user,
+    authorName:  item.commit.author?.name  || user,
+    authorEmail: item.commit.author?.email || '',
+    avatarUrl:   item.author?.avatar_url   || '',
+    date:        item.commit.committer?.date || '',
+  };
+}
+
+/**
+ * Collect a user's commits for one date window.
+ *
+ * GitHub documents no remedy for `incomplete_results` beyond "narrow your
+ * query", so the policy here is ours: retry the same page a couple of times,
+ * then narrow by halving the window, and only then raise. Raising matters —
+ * it turns the failure into a SKIP the GLOOK-13/48 integrity guard counts,
+ * instead of a silent zero that drops the developer from the report with no
+ * signal anywhere (GLOOK-50).
+ */
+async function collectCommits(
+  org:   string,
+  user:  string,
+  from:  Date,
+  to:    Date | null,
+  log:   ((msg: string) => void) | undefined,
+  depth: number,
+): Promise<{ hits: RawCommitHit[]; shortfall?: SearchShortfall }> {
+  const clause = commitDateClause(from, to);
+  const query  = `org:${org} author:${user} ${clause}`;
+  const hits: RawCommitHit[] = [];
+
+  let page = 1;
+  // The reconciliation baseline comes from page 1 and is only ever revised
+  // upward. Re-reading it each page let a later `{total_count: 0, items: []}`
+  // page — a shape the trust predicate correctly blesses — reset the promise
+  // page 1 made and wave 100-of-250 through silently.
+  let expectedTotal: number | null = null;
+
+  while (true) {
+    await sleep(2500);
+
+    let data: SearchAccounting | null = null;
+    for (let attempt = 0; attempt <= SEARCH_TIMEOUT_RETRIES; attempt++) {
+      const res = await withRetry(
+        () => getOctokit().search.commits({
+          q: query, sort: 'committer-date', order: 'desc', per_page: SEARCH_PER_PAGE, page,
+        }),
+        log,
+      );
+      logSearchAccounting('commits', user, page, res.data, log);
+
+      if (!isSuspectSearchResult(res.data)) { data = res.data; break; }
+
+      if (attempt < SEARCH_TIMEOUT_RETRIES) {
+        log?.(
+          `[search] commits @${user} page=${page} untrustworthy ` +
+          `(attempt ${attempt + 1}/${SEARCH_TIMEOUT_RETRIES + 1}); retrying`,
+        );
+        await sleep(SEARCH_TIMEOUT_RETRY_MS);
+      }
+    }
+
+    if (!data) {
+      const halves = splitDateWindow(from, to);
+      if (halves && depth < MAX_WINDOW_SPLIT_DEPTH) {
+        log?.(`[search] commits @${user} ${clause}: narrowing window after repeated timeouts`);
+        const [a, b] = halves;
+        const left  = await collectCommits(org, user, a.from, a.to, log, depth + 1);
+        const right = await collectCommits(org, user, b.from, b.to, log, depth + 1);
+        const seen = new Set(left.hits.map((h) => h.sha));
+        const merged = [...left.hits, ...right.hits.filter((h) => !seen.has(h.sha))];
+        const shortfalls = [left.shortfall, right.shortfall].filter(Boolean) as SearchShortfall[];
+        return {
+          hits: merged,
+          shortfall: shortfalls.length === 0 ? undefined : {
+            expected:  shortfalls.reduce((n, sf) => n + sf.expected, 0),
+            collected: shortfalls.reduce((n, sf) => n + sf.collected, 0),
+            detail:    shortfalls.map((sf) => sf.detail).join('; '),
+          },
+        };
+      }
+      throw new Error(
+        `GitHub commit search gave no trustworthy result for @${user} (${clause}) ` +
+        `after ${SEARCH_TIMEOUT_RETRIES + 1} attempts` +
+        (halves ? '' : ' and the window is too small to narrow further'),
+      );
+    }
+
+    // `items` is optional on the type, and the trust predicate deliberately
+    // tolerates its absence — so it must not be iterated raw here, or a shape
+    // the tests bless becomes a TypeError and a hard SKIP.
+    const items = data.items ?? [];
+    const pageTotal = data.total_count ?? 0;
+    expectedTotal = expectedTotal === null ? pageTotal : Math.max(expectedTotal, pageTotal);
+
+    for (const item of items) hits.push(toRawHit(item as any, user));
+
+    // Stop at GitHub's 1000-result ceiling. Paging past it returns
+    // "Only the first 1000 search results are available", which previously
+    // surfaced as an unexplained SKIP for high-volume authors.
+    if (hits.length >= Math.min(expectedTotal, SEARCH_RESULT_CAP)) break;
+    if (items.length < SEARCH_PER_PAGE) break;
+    page++;
+  }
+
+  const counted = expectedTotal ?? 0;
+  // Clamped to the cap, NOT gated on it. `counted <= CAP && hits < counted`
+  // disabled the check entirely above 1000, leaving the silent-loss hole open
+  // for exactly the high-volume authors the cap was added for.
+  const expected = Math.min(counted, SEARCH_RESULT_CAP);
+
+  if (counted > SEARCH_RESULT_CAP) {
+    log?.(
+      `[search] commits @${user} ${clause}: total_count=${counted} exceeds the ` +
+      `${SEARCH_RESULT_CAP}-result cap — this developer's commits are truncated`,
+    );
+  }
+
+  if (hits.length < expected) {
+    const detail =
+      `${clause}: got ${hits.length} of ${expected}` +
+      (counted > SEARCH_RESULT_CAP ? ` (capped from ${counted})` : '');
+
+    // Nothing usable — raise, so it becomes a counted SKIP.
+    if (hits.length === 0) {
+      throw new Error(`GitHub commit search under-delivered for @${user} (${detail})`);
+    }
+
+    // Partial but real. Keep it and report the shortfall instead of discarding
+    // known-good commits, which would be a regression against main.
+    log?.(`[search] commits @${user} SHORTFALL ${detail}`);
+    return {
+      hits,
+      shortfall: { expected, collected: hits.length, detail },
+    };
+  }
+
+  return { hits };
+}
+
 /**
  * Search all commits by a user in an org within a date range.
  * Uses the commit search API — gives the complete picture including
  * direct pushes that never went through a PR.
+ *
+ * Returns the hits plus an optional shortfall: real-but-incomplete data is
+ * kept and reported, only a total absence of trustworthy data raises.
  */
-async function searchUserCommits(
+export async function searchUserCommits(
   org:   string,
   user:  string,
   since: Date,
   log?:  (msg: string) => void,
-): Promise<RawCommitHit[]> {
-  const sinceStr = since.toISOString().split('T')[0];
-  const query    = `org:${org} author:${user} committer-date:>=${sinceStr}`;
-  const hits: RawCommitHit[] = [];
-
-  let page = 1;
-  while (true) {
-    await sleep(2500);
-    const res = await withRetry(
-      () => getOctokit().search.commits({
-        q: query, sort: 'committer-date', order: 'desc', per_page: 100, page,
-      }),
-      log,
-    );
-
-    for (const item of res.data.items) {
-      hits.push({
-        sha:         item.sha,
-        repo:        item.repository.name,
-        message:     item.commit.message.split('\n')[0],
-        fullMessage: item.commit.message,
-        authorLogin: item.author?.login       || user,
-        authorName:  item.commit.author?.name  || user,
-        authorEmail: item.commit.author?.email || '',
-        avatarUrl:   item.author?.avatar_url   || '',
-        date:        item.commit.committer?.date || '',
-      });
-    }
-
-    if (hits.length >= res.data.total_count || res.data.items.length < 100) break;
-    page++;
-  }
-  return hits;
+): Promise<{ hits: RawCommitHit[]; shortfall?: SearchShortfall }> {
+  return collectCommits(org, user, since, null, log, 0);
 }
 
 // ---------- Per-user PR search ----------
@@ -427,6 +686,16 @@ async function searchUserMergedPRs(
       }),
       log,
     );
+    logSearchAccounting('merged-prs', user, page, res.data, log);
+    // The incident developer had 43 commits AND 42 merged PRs. These are two
+    // independent searches, so the merged-PR half can time out while commits
+    // succeed — landing the developer in the report with totalPRs = 0 and a
+    // wrong prPercentage (an impact-score input), silently. Raise instead.
+    if (isSuspectSearchResult(res.data)) {
+      throw new Error(
+        `GitHub merged-PR search gave no trustworthy result for @${user} (page ${page})`,
+      );
+    }
     if (page === 1 && res.data.total_count === 0) return [];
 
     for (const item of res.data.items) {
@@ -439,7 +708,10 @@ async function searchUserMergedPRs(
         mergedAt: item.pull_request?.merged_at || '',
       });
     }
-    if (prs.length >= res.data.total_count || res.data.items.length < 100) break;
+    // Same 1000-result ceiling as the commit search: paging past it returns
+    // "Only the first 1000 search results are available".
+    if (prs.length >= Math.min(res.data.total_count, SEARCH_RESULT_CAP)) break;
+    if (res.data.items.length < SEARCH_PER_PAGE) break;
     page++;
   }
   return prs;
@@ -478,7 +750,8 @@ export async function fetchUserActivity(
   log?:  (msg: string) => void,
 ): Promise<UserActivity> {
   // 1. Get all commits and merged PRs in parallel-ish (with rate limit gaps)
-  const rawCommits = await searchUserCommits(org, user, since, log);
+  const commitResult = await searchUserCommits(org, user, since, log);
+  const rawCommits = commitResult.hits;
   const prs        = await searchUserMergedPRs(org, user, since, log);
 
   // 2. Build PR lookup: repo#number → PRInfo
@@ -622,7 +895,7 @@ export async function fetchUserActivity(
     }
   }
 
-  return { commits, prs };
+  return { commits, prs, commitsShortfall: commitResult.shortfall };
 }
 
 // ---------- Org listing ----------
@@ -638,13 +911,31 @@ export async function listOrgs(): Promise<Array<{ login: string; avatar_url: str
 
 // ---------- PR review count ----------
 
-async function countReviewedPRs(org: string, user: string, since: Date): Promise<number> {
+async function countReviewedPRs(
+  org: string,
+  user: string,
+  since: Date,
+  log?: (msg: string) => void,
+): Promise<number> {
   const sinceStr = since.toISOString().split('T')[0];
   const q = `org:${org} is:pr is:merged reviewed-by:${user} merged:>${sinceStr}`;
   await sleep(2500);
   const res = await withRetry(
     () => getOctokit().search.issuesAndPullRequests({ q, per_page: 1 }),
+    log,
   );
+  // per_page:1 means items is capped at 1 while total_count is the real answer,
+  // so the "counts matches but delivered nothing" arm cannot fire here. The
+  // timeout arm still can, and a timed-out review count reads 0 — which halves
+  // a scoring factor (weight 0.5, min(reviews/15, 1)) and moves the developer
+  // down the ranking.
+  logSearchAccounting('reviewed-prs', user, 1, res.data, log);
+  if (isSuspectSearchResult(res.data)) {
+    // Safe to raise: report-runner catches this into a non-fatal
+    // integrity.recordError, so it lands in run_metadata.errors and cannot
+    // trip the abort gate.
+    throw new Error(`GitHub review-count search returned an untrustworthy result for @${user}`);
+  }
   return res.data.total_count;
 }
 
@@ -667,6 +958,7 @@ export async function fetchOpenPRs(
       () => getOctokit().search.issuesAndPullRequests({ q, per_page: 100, page }),
       log,
     );
+    logSearchAccounting('open-prs', user, page, res.data, log);
     for (const item of res.data.items) {
       // repository_url is `https://api.github.com/repos/{owner}/{repo}`. Use the
       // explicit `/repos/` split rather than `pop()` so a missing/malformed URL
