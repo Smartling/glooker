@@ -197,7 +197,7 @@ export async function runReport(
 
         // Fetch PR review count (overlaps with LLM work from previous members)
         try {
-          const reviews = await github.countReviewedPRs(org, member.login, since);
+          const reviews = await github.countReviewedPRs(org, member.login, since, log);
           reviewCounts.set(member.login, reviews);
           if (reviews > 0) log(`@${member.login}: ${reviews} PRs reviewed`);
         } catch (err) {
