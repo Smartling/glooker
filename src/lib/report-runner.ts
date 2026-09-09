@@ -198,6 +198,19 @@ export async function runReport(
         // nothing at all — and record it as a member-kept partial-data
         // condition so it appears in run_metadata.errors without counting
         // toward the abort gate the way a SKIP would.
+        // GLOOK-50: the merged-PR count could not be verified because the
+        // search timed out on an empty result. Kept, not skipped — verified
+        // against GitHub that an empty issue search routinely reports
+        // incomplete_results while being correct.
+        if (activity.prsUnverified) {
+          log(`@${member.login}: UNVERIFIED PR count — ${activity.prsUnverified}`);
+          integrity.recordError({
+            context: 'other',
+            login: member.login,
+            message: activity.prsUnverified,
+          });
+        }
+
         if (activity.commitsShortfall) {
           const sf = activity.commitsShortfall;
           log(`@${member.login}: PARTIAL commit data — ${sf.detail}`);
