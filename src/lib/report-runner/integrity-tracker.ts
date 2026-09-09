@@ -11,6 +11,7 @@ import type {
   RunMetadata,
   SkipClassification,
   SkippedMember,
+  UnverifiedMember,
 } from './types';
 
 const MAX_MESSAGE_LENGTH = 500;
@@ -29,6 +30,8 @@ export class IntegrityTracker {
   private readonly skipsByLogin = new Map<string, SkippedMember>();
   /** Errors appended in order; not deduped (could be many per member/sha). */
   private readonly errors: IntegrityError[] = [];
+  /** Members kept with an unverified figure, keyed login+field so retries collapse. */
+  private readonly unverifiedByKey = new Map<string, UnverifiedMember>();
   readonly expectedCount: number;
   readonly thresholds: IntegrityThresholds;
 
@@ -52,11 +55,21 @@ export class IntegrityTracker {
     });
   }
 
+  /**
+   * A member kept in the report whose figure could not be verified (GLOOK-50).
+   * Not a skip and not an error: countable on its own so a correlated brownout
+   * can downgrade the run without aborting it.
+   */
+  recordUnverified(u: UnverifiedMember): void {
+    this.unverifiedByKey.set(`${u.login}:${u.field}`, { ...u, reason: truncate(u.reason) });
+  }
+
   /** Frozen snapshot for evaluator + persistence. Independent of tracker state. */
-  snapshot(): Pick<RunMetadata, 'skipped' | 'errors' | 'expectedCount' | 'thresholds'> {
+  snapshot(): Pick<RunMetadata, 'skipped' | 'errors' | 'unverified' | 'expectedCount' | 'thresholds'> {
     return Object.freeze({
       skipped: Object.freeze([...this.skipsByLogin.values()]) as SkippedMember[],
       errors: Object.freeze([...this.errors]) as IntegrityError[],
+      unverified: Object.freeze([...this.unverifiedByKey.values()]) as UnverifiedMember[],
       expectedCount: this.expectedCount,
       thresholds: this.thresholds,
     });

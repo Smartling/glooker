@@ -92,7 +92,7 @@ export interface GitHubProvider {
   listOrgMembers(org: string, log?: (msg: string) => void): Promise<OrgMember[]>;
   fetchUserActivity(org: string, user: string, since: Date, log?: (msg: string) => void): Promise<UserActivity>;
   listOrgs(): Promise<Array<{ login: string; avatar_url: string }>>;
-  countReviewedPRs(org: string, user: string, since: Date, log?: (msg: string) => void): Promise<number>;
+  countReviewedPRs(org: string, user: string, since: Date, log?: (msg: string) => void): Promise<{ reviews: number; unverified?: string }>;
   fetchOpenPRs(org: string, user: string, since: Date, log?: (msg: string) => void): Promise<OpenPrInfo[]>;
   isCommitInDefaultBranch(owner: string, repo: string, sha: string): Promise<boolean>;
   fetchRepoEvents(owner: string, repo: string, log?: (msg: string) => void): Promise<RepoEvent[]>;
@@ -524,16 +524,6 @@ function toRawHit(item: any, user: string): RawCommitHit {
 }
 
 /**
- * Collect a user's commits for one date window.
- *
- * GitHub documents no remedy for `incomplete_results` beyond "narrow your
- * query", so the policy here is ours: retry the same page a couple of times,
- * then narrow by halving the window, and only then raise. Raising matters —
- * it turns the failure into a SKIP the GLOOK-13/48 integrity guard counts,
- * instead of a silent zero that drops the developer from the report with no
- * signal anywhere (GLOOK-50).
- */
-/**
  * Retry a search page while its result cannot be trusted, and report whether it
  * ever became trustworthy. The caller decides what an untrustworthy result
  * means, because that differs sharply by endpoint:
@@ -554,7 +544,10 @@ async function searchPageWithRetry<T extends SearchAccounting>(
   call:  () => Promise<{ data: T }>,
   log?:  (msg: string) => void,
 ): Promise<{ data: T; trustworthy: boolean }> {
-  let last: T | null = null;
+  // Seeded on the first pass rather than cast from null at the end: the loop
+  // bound makes the null impossible today, and would make it an undefined the
+  // moment SEARCH_TIMEOUT_RETRIES changed.
+  let last: T | undefined;
   for (let attempt = 0; attempt <= SEARCH_TIMEOUT_RETRIES; attempt++) {
     const res = await call();
     logSearchAccounting(label, user, page, res.data, log);
@@ -568,9 +561,21 @@ async function searchPageWithRetry<T extends SearchAccounting>(
       await sleep(SEARCH_TIMEOUT_RETRY_MS);
     }
   }
-  return { data: last as T, trustworthy: false };
+  /* istanbul ignore next -- unreachable while SEARCH_TIMEOUT_RETRIES >= 0 */
+  if (last === undefined) throw new Error(`[search] ${label} @${user}: no response captured`);
+  return { data: last, trustworthy: false };
 }
 
+/**
+ * Collect a user's commits for one date window.
+ *
+ * GitHub documents no remedy for `incomplete_results` beyond "narrow your
+ * query", so the policy here is ours: retry the same page a couple of times,
+ * then narrow by halving the window, and only then raise. Raising matters —
+ * it turns the failure into a SKIP the GLOOK-13/48 integrity guard counts,
+ * instead of a silent zero that drops the developer from the report with no
+ * signal anywhere (GLOOK-50).
+ */
 async function collectCommits(
   org:   string,
   user:  string,
@@ -593,28 +598,18 @@ async function collectCommits(
   while (true) {
     await sleep(2500);
 
-    let data: SearchAccounting | null = null;
-    for (let attempt = 0; attempt <= SEARCH_TIMEOUT_RETRIES; attempt++) {
-      const res = await withRetry(
+    const { data, trustworthy } = await searchPageWithRetry(
+      'commits', user, page,
+      () => withRetry(
         () => getOctokit().search.commits({
           q: query, sort: 'committer-date', order: 'desc', per_page: SEARCH_PER_PAGE, page,
         }),
         log,
-      );
-      logSearchAccounting('commits', user, page, res.data, log);
+      ),
+      log,
+    );
 
-      if (!isSuspectSearchResult(res.data)) { data = res.data; break; }
-
-      if (attempt < SEARCH_TIMEOUT_RETRIES) {
-        log?.(
-          `[search] commits @${user} page=${page} untrustworthy ` +
-          `(attempt ${attempt + 1}/${SEARCH_TIMEOUT_RETRIES + 1}); retrying`,
-        );
-        await sleep(SEARCH_TIMEOUT_RETRY_MS);
-      }
-    }
-
-    if (!data) {
+    if (!trustworthy) {
       const halves = splitDateWindow(from, to);
       if (halves && depth < MAX_WINDOW_SPLIT_DEPTH) {
         log?.(`[search] commits @${user} ${clause}: narrowing window after repeated timeouts`);
@@ -643,7 +638,7 @@ async function collectCommits(
     // `items` is optional on the type, and the trust predicate deliberately
     // tolerates its absence — so it must not be iterated raw here, or a shape
     // the tests bless becomes a TypeError and a hard SKIP.
-    const items = data.items ?? [];
+    const items = (data.items ?? []) as any[];
     const pageTotal = data.total_count ?? 0;
     expectedTotal = expectedTotal === null ? pageTotal : Math.max(expectedTotal, pageTotal);
 
@@ -722,6 +717,7 @@ async function searchUserMergedPRs(
   const prs: PRInfo[] = [];
 
   let page = 1;
+  let expectedTotal: number | null = null;
   while (true) {
     await sleep(2500);
     const { data, trustworthy } = await searchPageWithRetry(
@@ -735,32 +731,44 @@ async function searchUserMergedPRs(
       log,
     );
 
+    // Monotonic, like collectCommits: page 1's promise must survive a later
+    // page reporting a lower (or zero) total, or a page-2 timeout silently
+    // rewrites how many PRs we were owed.
+    expectedTotal = expectedTotal === null
+      ? (data.total_count ?? 0)
+      : Math.max(expectedTotal, data.total_count ?? 0);
+
     if (!trustworthy) {
-      // A self-contradicting page is wrong no matter how it is read: GitHub
-      // counted PRs and delivered none. This is the shape that would land a
-      // developer with 42 merged PRs in the report as 0, so it must raise.
+      // A self-contradicting page is wrong no matter how it is read.
       if (isContradictoryPage(data)) {
         throw new Error(
-          `GitHub merged-PR search counted ${data.total_count} PRs for @${user} ` +
-          `but delivered none (page ${page})`,
+          `GitHub merged-PR search gave no trustworthy result for @${user}: ` +
+          `counted ${data.total_count} PRs but delivered none (page ${page})`,
         );
       }
-      // total_count === 0 with the timeout flag. Verified against GitHub: an
-      // EMPTY issue search routinely sets incomplete_results while being
-      // correct — true for bots and non-engineers with genuinely zero merged
-      // PRs. Treating it as a failure produced 19 false skips in one run and
-      // aborted the report at 21%. So keep the zero and record the doubt.
+      // Mid-pagination timeout. The leniency below is a PAGE-1 observation —
+      // by now page 1 has already told us how many PRs exist, so returning
+      // what we have would be the GLOOK-50 undercount moved to page N.
+      if (prs.length > 0 || expectedTotal > 0) {
+        throw new Error(
+          `GitHub merged-PR search gave no trustworthy result for @${user}: ` +
+          `under-delivered ${prs.length} of ${expectedTotal} (page ${page})`,
+        );
+      }
+      // Nothing collected and nothing promised: an EMPTY issue search routinely
+      // sets incomplete_results while being correct — verified against GitHub
+      // for bots and non-engineers with genuinely zero merged PRs. Treating it
+      // as a failure produced 19 false skips in one run and aborted the report
+      // at 21%. Keep the zero, record the doubt.
       const unverified =
-        `merged-PR search timed out on an empty result (page ${page}) — ` +
-        'count kept as ' + prs.length + ' but unverified';
+        `merged-PR search timed out on an empty result (page ${page}); kept 0 as unverified`;
       log?.(`[search] merged-prs @${user} UNVERIFIED ${unverified}`);
       return { prs, unverified };
     }
 
-    const res = { data };
-    if (page === 1 && res.data.total_count === 0) return { prs: [] };
+    if (page === 1 && data.total_count === 0) return { prs: [] };
 
-    for (const item of res.data.items) {
+    for (const item of (data.items ?? []) as any[]) {
       const repoFullName = item.repository_url.split('/repos/')[1] || '';
       const repo = repoFullName.split('/')[1] || '';
       prs.push({
@@ -772,9 +780,18 @@ async function searchUserMergedPRs(
     }
     // Same 1000-result ceiling as the commit search: paging past it returns
     // "Only the first 1000 search results are available".
-    if (prs.length >= Math.min(res.data.total_count, SEARCH_RESULT_CAP)) break;
-    if (res.data.items.length < SEARCH_PER_PAGE) break;
+    if (prs.length >= Math.min(expectedTotal ?? 0, SEARCH_RESULT_CAP)) break;
+    if ((data.items ?? []).length < SEARCH_PER_PAGE) break;
     page++;
+  }
+
+  // Reconcile, as the commit path does: a short page must not quietly end the
+  // walk below what page 1 promised.
+  const owed = Math.min(expectedTotal ?? 0, SEARCH_RESULT_CAP);
+  if (prs.length < owed) {
+    throw new Error(
+      `GitHub merged-PR search under-delivered for @${user}: got ${prs.length} of ${owed}`,
+    );
   }
   return { prs };
 }
@@ -984,7 +1001,7 @@ async function countReviewedPRs(
   user: string,
   since: Date,
   log?: (msg: string) => void,
-): Promise<number> {
+): Promise<{ reviews: number; unverified?: string }> {
   const sinceStr = since.toISOString().split('T')[0];
   const q = `org:${org} is:pr is:merged reviewed-by:${user} merged:>${sinceStr}`;
   await sleep(2500);
@@ -996,25 +1013,23 @@ async function countReviewedPRs(
     ),
     log,
   );
-  const res = { data };
   // per_page:1 means items is capped at 1 while total_count is the real answer,
   // so the "counts matches but delivered nothing" arm cannot fire here. The
   // timeout arm still can, and a timed-out review count reads 0 — which halves
   // a scoring factor (weight 0.5, min(reviews/15, 1)) and moves the developer
   // down the ranking.
-  if (!trustworthy && isContradictoryPage(res.data)) {
-    // Counted reviews and delivered none. Safe to raise: report-runner catches
-    // this into a non-fatal integrity.recordError, so it lands in
-    // run_metadata.errors and cannot trip the abort gate.
-    throw new Error(
-      `GitHub review-count search counted ${res.data.total_count} reviews for @${user} ` +
-      'but delivered none',
-    );
+  if (!trustworthy) {
+    // per_page:1 caps items at 1, so isContradictoryPage can effectively never
+    // fire here — which means without a doubt channel this endpoint would trust
+    // everything. A timed-out review count reads 0 and halves a scoring factor
+    // (weight 0.5, min(reviews/15, 1)), moving the developer down the ranking.
+    // Keep the number, hand the caller the doubt.
+    const unverified =
+      `review-count search timed out (total_count=${data.total_count ?? 0}); kept as unverified`;
+    log?.(`[search] reviewed-prs @${user} UNVERIFIED ${unverified}`);
+    return { reviews: data.total_count ?? 0, unverified };
   }
-  // A timed-out EMPTY review search is routine and usually correct — same
-  // finding as the merged-PR path. Keep the zero rather than manufacturing a
-  // failure for every member who reviewed nothing.
-  return res.data.total_count;
+  return { reviews: data.total_count ?? 0 };
 }
 
 // ---------- Open PR search ----------

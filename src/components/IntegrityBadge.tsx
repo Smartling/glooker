@@ -16,7 +16,25 @@ function classificationLabel(c: SkippedMember['classification']): string {
 export default function IntegrityBadge({ metadata }: IntegrityBadgeProps) {
   const [open, setOpen] = useState(false);
 
-  if (!metadata || metadata.state === 'ok') return null;
+  const unverified = metadata?.unverified ?? [];
+
+  // GLOOK-50: a run can be 'ok' and still be hiding unverified figures — an
+  // org-wide issue-search brownout produces zero skips, so without this the
+  // report renders completely clean while every developer shows 0 merged PRs.
+  if (!metadata || (metadata.state === 'ok' && unverified.length === 0)) return null;
+
+  if (metadata.state === 'ok') {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className={`${PILL_BASE} bg-sky-500/15 text-sky-300 border border-sky-500/30 hover:bg-sky-500/25 transition-colors`}
+        title={unverified.map(u => `@${u.login} ${u.field}: ${u.reason}`).join('\n')}
+      >
+        ⓘ {unverified.length} unverified
+      </button>
+    );
+  }
 
   const expectedCount = metadata.expectedCount ?? 0;
 

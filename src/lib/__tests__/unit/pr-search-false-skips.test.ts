@@ -2,6 +2,7 @@
 jest.mock('@octokit/rest', () => ({ Octokit: jest.fn().mockImplementation(() => ({})) }));
 
 import { fetchUserActivity, __setOctokitForTest } from '@/lib/github';
+import { formatIntegrityAbortReason, DEFAULT_THRESHOLDS } from '@/lib/report-runner/types';
 
 /**
  * GLOOK-50 follow-up. The first fix made the merged-PR search raise on any
@@ -22,13 +23,26 @@ import { fetchUserActivity, __setOctokitForTest } from '@/lib/github';
 jest.useFakeTimers({ doNotFake: ['nextTick'], now: new Date('2026-09-09T12:00:00Z') });
 afterEach(() => { jest.clearAllTimers(); __setOctokitForTest(null); });
 
+/**
+ * Drain the 2.5s inter-page and 5s retry sleeps.
+ *
+ * Deliberately does NOT stop at the first moment `getTimerCount()` hits zero:
+ * between two awaited sleeps there is a tick with no timer pending, and
+ * breaking there leaves the promise waiting forever on a clock that has
+ * stopped advancing.
+ */
 async function drain<T>(p: Promise<T>): Promise<T> {
-  for (let i = 0; i < 60; i++) {
-    for (let j = 0; j < 5; j++) await Promise.resolve();
-    if (jest.getTimerCount() === 0) break;
+  let settled = false;
+  const tracked = p.then(
+    (v) => { settled = true; return v; },
+    (e) => { settled = true; throw e; },
+  );
+  tracked.catch(() => {}); // don't trip unhandled-rejection while we pump
+  for (let i = 0; i < 200 && !settled; i++) {
     jest.advanceTimersByTime(10_000);
+    for (let j = 0; j < 10; j++) await Promise.resolve();
   }
-  return p;
+  return tracked;
 }
 
 const SINCE = new Date('2026-08-26T00:00:00Z');
@@ -96,7 +110,7 @@ describe('a self-contradicting merged-PR page still raises', () => {
     // run for ksoloviov-smartling (total_count=3) and kbroadrick (2).
     stub({ total_count: 3, items: [], incomplete_results: true });
     await expect(drain(fetchUserActivity('Smartling', 'ksoloviov-smartling', SINCE)))
-      .rejects.toThrow(/counted 3 PRs for @ksoloviov-smartling but delivered none/);
+      .rejects.toThrow(/no trustworthy result for @ksoloviov-smartling: counted 3 PRs but delivered none/);
   });
 });
 
@@ -109,5 +123,51 @@ describe('a healthy empty merged-PR search', () => {
     // One call only: fetchUserActivity does commits + merged PRs;
     // countReviewedPRs is invoked separately by report-runner.
     expect(calls.issues).toBe(1);
+  });
+});
+
+/**
+ * The abort banner classifies a skip as a search brownout by pattern-matching
+ * the skip reason. Nothing coupled the thrown messages to that matcher, so a
+ * reworded raise silently sent the on-call to rotate the PAT during a GitHub
+ * outage — which is the exact lead #70 added the attribution to prevent.
+ */
+describe('thrown search messages stay matched to the brownout attribution', () => {
+  const attributable = (reason: string) => {
+    const snap = {
+      expectedCount: 100,
+      thresholds: DEFAULT_THRESHOLDS,
+      skipped: Array.from({ length: 6 }, (_, i) => ({
+        login: `u${i}`, reason, classification: 'unknown' as const,
+      })),
+    };
+    return formatIntegrityAbortReason(snap);
+  };
+
+  it('attributes the contradictory merged-PR raise to a search brownout', () => {
+    const msg = attributable(
+      'GitHub merged-PR search gave no trustworthy result for @u: counted 3 PRs but delivered none (page 1)',
+    );
+    expect(msg).toMatch(/GitHub search timeouts/);
+    expect(msg).not.toMatch(/auth\/permission/);
+  });
+
+  it('attributes the mid-pagination merged-PR raise too', () => {
+    const msg = attributable(
+      'GitHub merged-PR search gave no trustworthy result for @u: under-delivered 100 of 250 (page 2)',
+    );
+    expect(msg).toMatch(/GitHub search timeouts/);
+  });
+
+  it('attributes the commit-search raises', () => {
+    expect(attributable('GitHub commit search gave no trustworthy result for @u (…) after 3 attempts'))
+      .toMatch(/GitHub search timeouts/);
+    expect(attributable('GitHub commit search under-delivered for @u (…): got 0 of 21'))
+      .toMatch(/GitHub search timeouts/);
+  });
+
+  it('still blames auth for a genuine permission failure', () => {
+    expect(attributable('Validation Failed: the listed users cannot be searched'))
+      .toMatch(/auth\/permission/);
   });
 });

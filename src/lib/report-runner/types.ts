@@ -31,14 +31,41 @@ export interface IntegrityThresholds {
   abortUnknownPct: 0.10;
   degradedUnknownCount: 3;
   degradedUnknownPct: 0.05;
+  /**
+   * Members whose data was KEPT but could not be verified (GLOOK-50). Its own
+   * gate, deliberately separate from the skip thresholds: an unverified member
+   * still has a row in the report, so this must never abort a run — but a
+   * correlated brownout that leaves a third of the org unverified has to stop
+   * reading as a clean bill of health.
+   */
+  degradedUnverifiedPct: 0.15;
 }
 
 export type IntegrityState = 'ok' | 'degraded' | 'failed';
+
+/**
+ * A member kept in the report whose data could not be verified.
+ *
+ * Deliberately NOT an IntegrityError: `errors` already mixes per-commit
+ * `sha-merge-check` and `unmerged-commit-detail` entries that run to hundreds
+ * on a healthy run, so anything thresholded on `errors.length` would cry wolf
+ * and get switched off. This is member-scoped, deduped, and countable.
+ */
+export interface UnverifiedMember {
+  login: string;
+  /** Which figure is unverified — lets the badge and an operator filter. */
+  field: 'merged-prs' | 'reviews' | 'commits';
+  /** What was kept in its place (usually 0). */
+  kept: number;
+  reason: string;
+}
 
 export interface RunMetadata {
   state: IntegrityState;
   skipped: SkippedMember[];
   errors: IntegrityError[];
+  /** Members kept in the report with an unverified figure (GLOOK-50). */
+  unverified?: UnverifiedMember[];
   /** Org member count at run start — denominator for percentage calculations */
   expectedCount: number;
   thresholds: IntegrityThresholds;
@@ -52,6 +79,7 @@ export const DEFAULT_THRESHOLDS: IntegrityThresholds = {
   abortUnknownPct: 0.10,
   degradedUnknownCount: 3,
   degradedUnknownPct: 0.05,
+  degradedUnverifiedPct: 0.15,
 };
 
 /**
@@ -96,6 +124,23 @@ export function integrityCounts(
   const countablePct = effectiveExpected > 0 ? countable / effectiveExpected : 0;
 
   return { countable, allowlisted, effectiveExpected, countablePct };
+}
+
+/**
+ * How many members were kept but unverified, as a share of those expected.
+ *
+ * Separate from `integrityCounts` because an unverified member is NOT a skip:
+ * they are present in the report with a figure we could not confirm. The only
+ * thing this may do is downgrade a run to `degraded` — never abort it.
+ */
+export function unverifiedCounts(
+  snapshot: Pick<RunMetadata, 'unverified' | 'skipped' | 'expectedCount'>,
+): { count: number; pct: number } {
+  const logins = new Set((snapshot.unverified ?? []).map((u) => u.login));
+  const count = logins.size;
+  const allowlisted = snapshot.skipped.filter((s) => s.classification === 'expected').length;
+  const expected = Math.max((snapshot.expectedCount ?? 0) - allowlisted, 0);
+  return { count, pct: expected > 0 ? count / expected : 0 };
 }
 
 /**

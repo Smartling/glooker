@@ -204,10 +204,11 @@ export async function runReport(
         // incomplete_results while being correct.
         if (activity.prsUnverified) {
           log(`@${member.login}: UNVERIFIED PR count — ${activity.prsUnverified}`);
-          integrity.recordError({
-            context: 'other',
+          integrity.recordUnverified({
             login: member.login,
-            message: activity.prsUnverified,
+            field: 'merged-prs',
+            kept: activity.prs.length,
+            reason: activity.prsUnverified,
           });
         }
 
@@ -225,9 +226,19 @@ export async function runReport(
 
         // Fetch PR review count (overlaps with LLM work from previous members)
         try {
-          const reviews = await github.countReviewedPRs(org, member.login, since, log);
+          const reviewResult = await github.countReviewedPRs(org, member.login, since, log);
+          const reviews = reviewResult.reviews;
           reviewCounts.set(member.login, reviews);
           if (reviews > 0) log(`@${member.login}: ${reviews} PRs reviewed`);
+          if (reviewResult.unverified) {
+            log(`@${member.login}: UNVERIFIED review count — ${reviewResult.unverified}`);
+            integrity.recordUnverified({
+              login: member.login,
+              field: 'reviews',
+              kept: reviews,
+              reason: reviewResult.unverified,
+            });
+          }
         } catch (err) {
           reviewCounts.set(member.login, 0);
           const message = err instanceof Error ? err.message : String(err);
@@ -490,6 +501,7 @@ export async function runReport(
         state: 'failed',
         skipped: integritySnapshot.skipped,
         errors: integritySnapshot.errors,
+        unverified: integritySnapshot.unverified,
         expectedCount: integritySnapshot.expectedCount,
         thresholds: integritySnapshot.thresholds,
         abortReason,
@@ -701,6 +713,7 @@ export async function runReport(
       state: integrityState,
       skipped: integritySnapshot.skipped,
       errors: integritySnapshot.errors,
+      unverified: integritySnapshot.unverified,
       expectedCount: integritySnapshot.expectedCount,
       thresholds: integritySnapshot.thresholds,
     };
