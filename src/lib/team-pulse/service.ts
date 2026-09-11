@@ -6,7 +6,10 @@ import { buildTeamPulsePrompt } from './prompt';
 import { generateTeamProjects } from './projects';
 import type { TeamProject } from './types';
 
-const PROMPT_VERSION = 'v4-inflight';
+// Bumped for GLOOK-51: part of the cache key (report_id + team_name +
+// prompt_version), so raising it invalidates every row that cached a truncated
+// generation as an empty success. No DB surgery needed to recover reports.
+const PROMPT_VERSION = 'v5-budget';
 
 export interface TeamPulseResult {
   summary: string;
@@ -71,6 +74,9 @@ export async function getTeamPulse(
           [JSON.stringify(projects), reportId, teamName, PROMPT_VERSION],
         );
       } catch (err) {
+        // Deliberately no write: the column stays NULL so the next load tries
+        // again. A truncated or unparseable generation is a transient failure,
+        // and persisting it as [] is what made GLOOK-51 permanent.
         console.warn(`[team-pulse] projects lazy-gen failed for team=${teamName}:`, err);
         projects = [];
       }
@@ -136,9 +142,14 @@ export async function getTeamPulse(
       projects = await generateTeamProjects(projectsInput, teamName);
       projectsForDb = JSON.stringify(projects);
     } catch (err) {
+      // NULL, not '[]'. Caching [] here made a single truncated response blank
+      // the section permanently: the lazy top-up below only re-runs when the
+      // column is NULL, so the failure was indistinguishable from a team that
+      // genuinely has no projects (GLOOK-51). A real empty result is still
+      // cached — only failures are left open for retry.
       console.warn(`[team-pulse] projects generation failed for team=${teamName}:`, err);
       projects = [];
-      projectsForDb = JSON.stringify([]);
+      projectsForDb = null;
     }
   }
 

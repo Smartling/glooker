@@ -13,6 +13,36 @@ import { renderInflightBlock } from './render';
 export const PROJECTS_PROMPT_TAG = 'team-pulse-projects';
 
 /**
+ * Raised when the model's output could not be used — truncated by the token
+ * budget, or unparseable.
+ *
+ * Exists so the caller can tell a FAILURE from a legitimate "this team has no
+ * projects". Returning [] for both is what made GLOOK-51 permanent: the empty
+ * array was cached as a success and the section stayed blank forever.
+ */
+export class TeamProjectsUnusableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TeamProjectsUnusableError';
+  }
+}
+
+/**
+ * Token budget for the clustering response, scaled by team size.
+ *
+ * A flat 1500 truncated Integrations (14 developers) mid-object. Each project
+ * costs roughly 120 tokens of JSON and a large team legitimately produces
+ * many, so the budget grows with the roster. For comparison
+ * projects/insights.ts runs at 12000+ for similar clustering work.
+ */
+export function projectsTokenBudget(teamSize: number): number {
+  const BASE = 2000;
+  const PER_MEMBER = 400;
+  const CEILING = 8000;
+  return Math.min(BASE + Math.max(teamSize, 0) * PER_MEMBER, CEILING);
+}
+
+/**
  * Strip ```json ... ``` fences some providers wrap responses in despite
  * response_format: json_object. Mirrors the analyzer fence-strip behavior.
  */
@@ -53,7 +83,7 @@ export async function generateTeamProjects(
   const response = await client.chat.completions.create({
     model: LLM_MODEL,
     ...samplingParams(0.3),
-    ...tokenLimit(1500),
+    ...tokenLimit(projectsTokenBudget(data.team_members.length)),
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user',   content: 'Cluster the commits and Jira issues into projects and return the JSON object described in the system prompt.' },
@@ -63,15 +93,32 @@ export async function generateTeamProjects(
     ...promptTag(PROJECTS_PROMPT_TAG),
   } as any);
 
-  const raw = response.choices?.[0]?.message?.content ?? '';
+  const choice = response.choices?.[0];
+  const finishReason: string = choice?.finish_reason ?? 'unknown';
+  const raw = choice?.message?.content ?? '';
   const cleaned = stripJsonFences(Array.isArray(raw) ? raw.join('') : String(raw));
+
+  // Truncation is a budget problem, not a model problem, and it must not be
+  // reported as malformed JSON — that reading sent this bug looking in the
+  // wrong place. Same check projects/insights.ts and projects/untracked.ts
+  // already do.
+  if (finishReason === 'length') {
+    throw new TeamProjectsUnusableError(
+      `[team-pulse-projects] response truncated for team=${teamName} ` +
+      `(finish_reason=length, budget=${projectsTokenBudget(data.team_members.length)}, ` +
+      `team_members=${data.team_members.length}, content_chars=${cleaned.length})`,
+    );
+  }
 
   let parsed: { projects?: any[] };
   try {
     parsed = JSON.parse(cleaned);
-  } catch (e) {
-    console.warn(`[team-pulse-projects] parse error for team=${teamName}; raw=${cleaned.slice(0, 500)}`);
-    return [];
+  } catch {
+    throw new TeamProjectsUnusableError(
+      `[team-pulse-projects] unparseable response for team=${teamName} ` +
+      `(finish_reason=${finishReason}, content_chars=${cleaned.length}); ` +
+      `raw=${cleaned.slice(0, 500)}`,
+    );
   }
 
   const teamSet = new Set(data.team_members);
