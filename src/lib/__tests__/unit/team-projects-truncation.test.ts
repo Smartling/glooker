@@ -68,7 +68,7 @@ describe('an unusable response RAISES rather than returning []', () => {
     await expect(generateTeamProjects(input(14), 'Integrations'))
       .rejects.toThrow(TeamProjectsUnusableError);
     await expect(generateTeamProjects(input(14), 'Integrations'))
-      .rejects.toThrow(/truncated.*finish_reason=length/s);
+      .rejects.toThrow(/truncated[\s\S]*finish_reason=length/);
   });
 
   it('raises on unparseable output that was NOT truncated', async () => {
