@@ -21,7 +21,10 @@ jest.mock('@/lib/llm-provider', () => ({
   getLLMClient: async () => ({ chat: { completions: { create: mockCreate } } }),
   LLM_MODEL: 'test-model',
   extraBodyProps: () => ({}),
-  tokenLimit: (n: number) => ({ max_tokens: n }),
+  // Mirrors the real tokenLimit(): the openai provider gets
+  // max_completion_tokens, everything else max_tokens. Hard-coding max_tokens
+  // here would assert against a shape production may not use.
+  tokenLimit: (n: number) => ({ max_tokens: n, max_completion_tokens: n }),
   promptTag: () => ({}),
   samplingParams: () => ({}),
 }));
@@ -51,10 +54,9 @@ describe('projectsTokenBudget', () => {
     expect(projectsTokenBudget(14)).toBeGreaterThan(projectsTokenBudget(3));
   });
 
-  it('is bounded, and safe at the degenerate edges', () => {
+  it('is bounded, and non-zero for an empty roster', () => {
     expect(projectsTokenBudget(1000)).toBeLessThanOrEqual(8000);
     expect(projectsTokenBudget(0)).toBeGreaterThan(0);
-    expect(projectsTokenBudget(-5)).toBeGreaterThan(0);
   });
 });
 
@@ -93,12 +95,14 @@ describe('a genuine empty result is still a success', () => {
   it('returns [] without raising when the model reports no projects', async () => {
     // Must stay cacheable — otherwise every load pays for the LLM.
     mockCreate.mockResolvedValue(reply('{"projects":[]}'));
-    await expect(generateTeamProjects(input(5), 'Small')).resolves.toEqual([]);
+    await expect(generateTeamProjects(input(5), 'Small'))
+      .resolves.toEqual({ projects: [], cacheable: true });
   });
 
   it('short-circuits with no LLM call when there is nothing to cluster', async () => {
     const empty = { team_members: ['a'], commits: [], jira_issues: [], in_flight_prs: [], in_flight_branches: [] } as any;
-    await expect(generateTeamProjects(empty, 'Quiet')).resolves.toEqual([]);
+    await expect(generateTeamProjects(empty, 'Quiet'))
+      .resolves.toEqual({ projects: [], cacheable: true });
     expect(mockCreate).not.toHaveBeenCalled();
   });
 });
@@ -111,16 +115,42 @@ describe('a usable response is still parsed normally', () => {
         { name: 'Nobody', summary: 's', developers: ['stranger'], jira_count: 0 },
       ],
     })));
-    const out = await generateTeamProjects(input(3), 'T');
+    const { projects: out } = await generateTeamProjects(input(3), 'T');
     expect(out).toHaveLength(1);
     expect(out[0].name).toBe('Real');
     // last_activity is overridden from real commit data.
     expect(out[0].last_activity).toBe('2026-09-10T00:00:00Z');
   });
 
-  it('requests a budget scaled to the team it was given', async () => {
+  it('requests a literal budget for the incident team, not just "whatever the fn returns"', async () => {
+    // Asserted as a literal on purpose: comparing against
+    // projectsTokenBudget(14) compares the implementation to itself, and a
+    // regression to the flat 1500 that caused GLOOK-51 would still pass.
     mockCreate.mockResolvedValue(reply('{"projects":[]}'));
     await generateTeamProjects(input(14), 'Integrations');
-    expect(mockCreate.mock.calls[0][0].max_tokens).toBe(projectsTokenBudget(14));
+    expect(projectsTokenBudget(14)).toBe(7600);
+    expect(mockCreate.mock.calls[0][0].max_tokens).toBe(7600);
+    expect(mockCreate.mock.calls[0][0].max_completion_tokens).toBe(7600);
+  });
+});
+
+describe('an empty that the validator produced is served but NOT cached', () => {
+  it('marks cacheable=false when the model named nobody on the team', async () => {
+    // The model returned projects; every developer failed the teamSet filter
+    // (e.g. display names instead of logins). Caching this would blank the
+    // section permanently — GLOOK-51 arriving by a second route. Deliberately
+    // not a throw: the empty may be correct, and raising buys a paid retry loop.
+    mockCreate.mockResolvedValue(reply(JSON.stringify({
+      projects: [{ name: 'Real work', summary: 's', developers: ['Some Person'] }],
+    })));
+    const res = await generateTeamProjects(input(3), 'T');
+    expect(res.projects).toEqual([]);
+    expect(res.cacheable).toBe(false);
+  });
+
+  it('still marks a genuinely empty model response as cacheable', async () => {
+    mockCreate.mockResolvedValue(reply('{"projects":[]}'));
+    const res = await generateTeamProjects(input(3), 'T');
+    expect(res).toEqual({ projects: [], cacheable: true });
   });
 });

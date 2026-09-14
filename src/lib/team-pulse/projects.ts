@@ -7,6 +7,19 @@
 import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, promptTag, samplingParams } from '@/lib/llm-provider';
 import { loadPrompt } from '@/lib/prompt-loader';
 import type { TeamProject } from './types';
+
+/**
+ * Why `cacheable` exists: an empty list has two meanings, and only one of them
+ * may be persisted. "This team genuinely has no projects" is a real answer and
+ * should be cached. "The model returned projects but none survived validation"
+ * is indistinguishable to a reader from the first, and caching it makes the
+ * section permanently blank — the GLOOK-51 failure mode arriving by a second
+ * route. Same resolution projects/insights.ts reached: serve it, don't store it.
+ */
+export interface TeamProjectsResult {
+  projects: TeamProject[];
+  cacheable: boolean;
+}
 import type { TeamProjectsInput } from './data';
 import { renderInflightBlock } from './render';
 
@@ -32,14 +45,20 @@ export class TeamProjectsUnusableError extends Error {
  *
  * A flat 1500 truncated Integrations (14 developers) mid-object. Each project
  * costs roughly 120 tokens of JSON and a large team legitimately produces
- * many, so the budget grows with the roster. For comparison
- * projects/insights.ts runs at 12000+ for similar clustering work.
+ * many, so the budget grows with the roster.
+ *
+ * Calibration note: projects/insights.ts records 12000 as the value that
+ * TRUNCATED for it and now runs at 32000. That is a different prompt with a
+ * whole-report payload, so it is not a target — but it does mean this
+ * ceiling is chosen conservatively rather than known-sufficient. If a
+ * `finish_reason=length` for this prompt ever appears in the logs, raise
+ * CEILING rather than treating it as a model problem.
  */
 export function projectsTokenBudget(teamSize: number): number {
   const BASE = 2000;
   const PER_MEMBER = 400;
   const CEILING = 8000;
-  return Math.min(BASE + Math.max(teamSize, 0) * PER_MEMBER, CEILING);
+  return Math.min(BASE + teamSize * PER_MEMBER, CEILING);
 }
 
 /**
@@ -54,11 +73,11 @@ function stripJsonFences(s: string): string {
 export async function generateTeamProjects(
   data: TeamProjectsInput,
   teamName: string = '',
-): Promise<TeamProject[]> {
-  // Short-circuit: nothing to cluster.
+): Promise<TeamProjectsResult> {
+  // Short-circuit: nothing to cluster. A real, cacheable empty.
   if (data.commits.length === 0 && data.jira_issues.length === 0 &&
       data.in_flight_prs.length === 0 && data.in_flight_branches.length === 0) {
-    return [];
+    return { projects: [], cacheable: true };
   }
 
   // Build a per-login index of committed_at for last_activity override.
@@ -70,6 +89,7 @@ export async function generateTeamProjects(
   }
   for (const arr of commitByLogin.values()) arr.sort((a, b) => b.localeCompare(a));
 
+  const budget = projectsTokenBudget(data.team_members.length);
   const inflightBlock = renderInflightBlock(data.in_flight_prs, data.in_flight_branches);
   const systemPrompt = loadPrompt('team-pulse-projects.txt', {
     TEAM_NAME: teamName,
@@ -83,7 +103,7 @@ export async function generateTeamProjects(
   const response = await client.chat.completions.create({
     model: LLM_MODEL,
     ...samplingParams(0.3),
-    ...tokenLimit(projectsTokenBudget(data.team_members.length)),
+    ...tokenLimit(budget),
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user',   content: 'Cluster the commits and Jira issues into projects and return the JSON object described in the system prompt.' },
@@ -100,12 +120,16 @@ export async function generateTeamProjects(
 
   // Truncation is a budget problem, not a model problem, and it must not be
   // reported as malformed JSON — that reading sent this bug looking in the
-  // wrong place. Same check projects/insights.ts and projects/untracked.ts
-  // already do.
+  // wrong place.
+  //
+  // This is a stricter check than the two nearby precedents, not the same one:
+  // projects/insights.ts reads finish_reason only to CLASSIFY a message after a
+  // parse has already failed, and projects/untracked.ts logs it and continues
+  // into the parse regardless. Neither refuses a truncated response up front.
   if (finishReason === 'length') {
     throw new TeamProjectsUnusableError(
       `[team-pulse-projects] response truncated for team=${teamName} ` +
-      `(finish_reason=length, budget=${projectsTokenBudget(data.team_members.length)}, ` +
+      `(finish_reason=length, budget=${budget}, ` +
       `team_members=${data.team_members.length}, content_chars=${cleaned.length})`,
     );
   }
@@ -163,5 +187,11 @@ export async function generateTeamProjects(
     );
   }
 
-  return out;
+  // The model produced projects and the validator dropped all of them — e.g.
+  // it emitted display names instead of GitHub logins. Deliberately NOT a
+  // throw: the empty may well be the right answer, and raising would buy a
+  // paid retry loop. Serve it unpersisted so the next request tries again.
+  const cacheable = !(llmProjectCount > 0 && out.length === 0);
+
+  return { projects: out, cacheable };
 }

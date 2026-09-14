@@ -37,7 +37,7 @@ describe('generateTeamProjects', () => {
   beforeEach(() => mockGetLLMClient.mockReset());
 
   it('short-circuits to [] when both commits and jira are empty (no LLM call)', async () => {
-    const out = await generateTeamProjects({ team_members: ['alice'], commits: [], jira_issues: [], in_flight_prs: [], in_flight_branches: [] });
+    const { projects: out } = await generateTeamProjects({ team_members: ['alice'], commits: [], jira_issues: [], in_flight_prs: [], in_flight_branches: [] });
     expect(out).toEqual([]);
     expect(mockGetLLMClient).not.toHaveBeenCalled();
   });
@@ -50,7 +50,7 @@ describe('generateTeamProjects', () => {
     }));
     mockGetLLMClient.mockResolvedValueOnce(client);
 
-    const out = await generateTeamProjects({
+    const { projects: out } = await generateTeamProjects({
       team_members: ['alice'],
       commits: [],
       jira_issues: [],
@@ -70,7 +70,7 @@ describe('generateTeamProjects', () => {
           last_activity: '2026-05-21T11:00:00Z' },
       ],
     })));
-    const out = await generateTeamProjects(baseInput());
+    const { projects: out } = await generateTeamProjects(baseInput());
     expect(out).toHaveLength(1);
     expect(out[0].name).toBe('P1');
     expect(out[0].developers).toEqual(['alice', 'bob']);
@@ -85,7 +85,7 @@ describe('generateTeamProjects', () => {
           last_activity: '2026-05-21T11:00:00Z' },
       ],
     })));
-    const out = await generateTeamProjects(baseInput());
+    const { projects: out } = await generateTeamProjects(baseInput());
     expect(out[0].developers).toEqual(['alice', 'bob']);
   });
 
@@ -100,7 +100,7 @@ describe('generateTeamProjects', () => {
           last_activity: '2026-05-20T10:00:00Z' },
       ],
     })));
-    const out = await generateTeamProjects(baseInput());
+    const { projects: out } = await generateTeamProjects(baseInput());
     expect(out).toHaveLength(1);
     expect(out[0].name).toBe('OK');
   });
@@ -114,7 +114,7 @@ describe('generateTeamProjects', () => {
           last_activity: '2020-01-01T00:00:00Z' },
       ],
     })));
-    const out = await generateTeamProjects(baseInput());
+    const { projects: out } = await generateTeamProjects(baseInput());
     // Max committed_at across the 2 baseInput commits is bob's '2026-05-21T11:00:00Z'
     expect(out[0].last_activity).toBe('2026-05-21T11:00:00Z');
   });
@@ -127,7 +127,7 @@ describe('generateTeamProjects', () => {
           last_activity: '2026-05-20T10:00:00Z' },
       ],
     }) + '\n```'));
-    const out = await generateTeamProjects(baseInput());
+    const { projects: out } = await generateTeamProjects(baseInput());
     expect(out).toHaveLength(1);
   });
 
