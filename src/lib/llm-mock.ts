@@ -87,6 +87,9 @@ export function createMockLLMClient() {
           return {
             choices: [
               {
+                // Mock the field too, so a caller that checks finish_reason
+                // behaves the same in mock mode as against a real provider.
+                finish_reason: 'stop',
                 message: {
                   role: 'assistant',
                   content,

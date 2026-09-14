@@ -70,6 +70,16 @@ export function createBedrockClient() {
           return {
             choices: [
               {
+                // Bedrock reports truncation as stop_reason: 'max_tokens'.
+                // Without this mapping every caller sees finish_reason
+                // undefined, so truncation checks are dead on this provider and
+                // a cut-off response gets misreported as malformed output
+                // (GLOOK-51). Also repairs the existing reads in
+                // projects/insights.ts and projects/untracked.ts.
+                finish_reason:
+                  decoded.stop_reason === 'max_tokens' ? 'length'
+                  : decoded.stop_reason === 'end_turn' ? 'stop'
+                  : (decoded.stop_reason ?? 'stop'),
                 message: {
                   role: 'assistant',
                   content: decoded.content?.[0]?.text ?? '',
