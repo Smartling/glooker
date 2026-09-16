@@ -272,8 +272,38 @@ ${noJiraData}${inflightBlock}`;
       try {
         parsed = JSON.parse(cleaned);
       } catch (e) {
-        failure = `json parse: ${e instanceof Error ? e.message : String(e)}`;
+        const msg = e instanceof Error ? e.message : String(e);
+        failure = `json parse: ${msg}`;
         parsed = { projects: [], untracked_work: [] };
+
+        // Diagnostics only — this failure has recurred on five reports since
+        // 2026-08-25 without ever being fixed, because content_chars was
+        // logged and the content never was. Nobody could say WHY the JSON was
+        // invalid. V8 reports a character offset; print a window around it,
+        // plus the head and tail, which is where provider artifacts (prose
+        // preamble, trailing comma, unterminated string) actually live.
+        //
+        // Deliberately console.warn and NOT err.message: route.ts serialises
+        // err.message into the 500 body, so raw model output there would reach
+        // the client. This stays in the app log.
+        const at = Number(/position (\d+)/.exec(msg)?.[1] ?? -1);
+        const WINDOW = 300;
+        if (at >= 0) {
+          const from = Math.max(0, at - WINDOW);
+          console.warn(
+            `[project-insights] parse-window report=${report.id} position=${at} ` +
+            `(chars ${from}..${Math.min(cleaned.length, at + WINDOW)} of ${cleaned.length}): ` +
+            JSON.stringify(cleaned.slice(from, at + WINDOW)),
+          );
+        }
+        console.warn(
+          `[project-insights] parse-head report=${report.id}: ` +
+          JSON.stringify(cleaned.slice(0, 200)),
+        );
+        console.warn(
+          `[project-insights] parse-tail report=${report.id}: ` +
+          JSON.stringify(cleaned.slice(-200)),
+        );
       }
     }
     console.log(
