@@ -1,9 +1,34 @@
 import db from '@/lib/db';
 import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, samplingParams } from '@/lib/llm-provider';
+import { parseModelJson, ModelJsonError } from '@/lib/llm-json';
 import { renderInflightBlock } from '@/lib/team-pulse/render';
 import type { TeamProjectInflightPr, TeamProjectInflightBranch } from '@/lib/team-pulse/data';
 
 const INSIGHTS_CACHE_VERSION = 3;
+
+/**
+ * GLOOK-54: how long to wait before spending another salted regeneration on a
+ * report that just failed.
+ *
+ * Successes are cached in report_comparisons, so the model is normally called
+ * about once per report. FAILURES are deliberately not cached (incident
+ * 2026-08-03), so while a report is broken every page load re-enters this path
+ * — today cheaply, because the AI Proxy re-serves the cached completion in
+ * ~200ms. A salted retry is a deliberate cache MISS and costs a full
+ * generation of a ~200k-char prompt, so without this marker one broken report
+ * would buy a fresh generation per page load (da2fa78f logged 15 in a day).
+ *
+ * globalThis so it survives Next.js HMR module reloads, matching the progress
+ * and stop-signal stores.
+ */
+const RETRY_COOLDOWN_MS = 10 * 60 * 1000;
+const retryStore: Map<string, number> =
+  ((globalThis as any).__glookInsightsRetryAt ??= new Map<string, number>());
+
+function mayRetry(reportId: string): boolean {
+  const last = retryStore.get(reportId) ?? 0;
+  return Date.now() - last >= RETRY_COOLDOWN_MS;
+}
 
 /**
  * The LLM returned nothing usable (empty or unparseable/truncated body).
@@ -237,7 +262,15 @@ ${prData}
 UNTRACKED WORK (commits with no PR):
 ${noJiraData}${inflightBlock}`;
 
-  try {
+  /**
+   * One generation. `salt`, when present, is appended to the USER MESSAGE —
+   * measured on 2026-09-16 as the only thing that busts the AI Proxy's
+   * completion cache: an identical request returns the identical completion in
+   * ~200ms, and a nonce in `smartling_additional_properties` is ignored
+   * (38ms, same bytes). Putting the salt in the metadata would have produced a
+   * retry that silently re-served the same broken JSON.
+   */
+  const generate = async (salt?: string) => {
     const client = await getLLMClient();
     const response = await client.chat.completions.create({
       model: LLM_MODEL,
@@ -250,65 +283,88 @@ ${noJiraData}${inflightBlock}`;
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: userMessage },
+        {
+          role: 'user',
+          content: salt ? `${userMessage}\n\n<!-- retry ${salt} -->` : userMessage,
+        },
       ],
       ...extraBodyProps(),
     } as any);
-
     const choice: any = response.choices[0];
-    const content: string = choice?.message?.content ?? '';
-    const finishReason: string = choice?.finish_reason ?? 'unknown';
-    const cleaned = content.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
+    return {
+      content: (choice?.message?.content ?? '') as string,
+      finishReason: (choice?.finish_reason ?? 'unknown') as string,
+    };
+  };
+
+  try {
+    let { content, finishReason } = await generate();
 
     // A failed generation used to be indistinguishable from "no projects found":
     // an empty completion parsed as {} and a truncated one hit a silent catch,
     // both yielding zero projects with no trace. Record what actually happened.
-    let parsed: any;
-    let failure: string | null = null;
-    if (!cleaned) {
-      failure = 'empty completion';
-      parsed = { projects: [], untracked_work: [] };
-    } else {
-      try {
-        parsed = JSON.parse(cleaned);
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        failure = `json parse: ${msg}`;
-        parsed = { projects: [], untracked_work: [] };
-
-        // Diagnostics only — this failure has recurred on five reports since
-        // 2026-08-25 without ever being fixed, because content_chars was
-        // logged and the content never was. Nobody could say WHY the JSON was
-        // invalid. V8 reports a character offset; print a window around it,
-        // plus the head and tail, which is where provider artifacts (prose
-        // preamble, trailing comma, unterminated string) actually live.
-        //
-        // Deliberately console.warn and NOT err.message: route.ts serialises
-        // err.message into the 500 body, so raw model output there would reach
-        // the client. This stays in the app log.
-        const at = Number(/position (\d+)/.exec(msg)?.[1] ?? -1);
-        const WINDOW = 300;
-        if (at >= 0) {
-          const from = Math.max(0, at - WINDOW);
-          console.warn(
-            `[project-insights] parse-window report=${report.id} position=${at} ` +
-            `(chars ${from}..${Math.min(cleaned.length, at + WINDOW)} of ${cleaned.length}): ` +
-            JSON.stringify(cleaned.slice(from, at + WINDOW)),
-          );
-        }
+    const logParseFailure = (err: ModelJsonError, text: string, label: string) => {
+      // console.warn, never err.message: route.ts serialises err.message into
+      // the 500 body and this payload carries commit messages and Jira summaries.
+      if (err.position >= 0) {
         console.warn(
-          `[project-insights] parse-head report=${report.id}: ` +
-          JSON.stringify(cleaned.slice(0, 200)),
-        );
-        console.warn(
-          `[project-insights] parse-tail report=${report.id}: ` +
-          JSON.stringify(cleaned.slice(-200)),
+          `[project-insights] ${label} report=${report.id} position=${err.position} ` +
+          `of ${text.length}: ${JSON.stringify(err.window)}`,
         );
       }
+      console.warn(`[project-insights] ${label}-head report=${report.id}: ${JSON.stringify(err.head)}`);
+      console.warn(`[project-insights] ${label}-tail report=${report.id}: ${JSON.stringify(err.tail)}`);
+    };
+
+    let parsed: any = { projects: [], untracked_work: [] };
+    let failure: string | null = null;
+    let repaired = false;
+    let retried = false;
+
+    if (!content.trim()) {
+      failure = 'empty completion';
+    } else {
+      try {
+        const r = parseModelJson<any>(content);
+        parsed = r.value;
+        repaired = r.repaired;
+      } catch (e) {
+        const first = e as ModelJsonError;
+        logParseFailure(first, content, 'parse-window');
+
+        // Repair did not help. The completion is cached by the proxy, so
+        // re-asking identically returns the identical bytes — only a salted
+        // request produces a fresh generation. Bounded, because a failing
+        // report is not cached on our side and would otherwise buy one full
+        // generation per page load.
+        if (mayRetry(report.id)) {
+          retryStore.set(report.id, Date.now());
+          retried = true;
+          console.warn(
+            `[project-insights] report=${report.id} unrepairable — retrying once with a cache-busting salt`,
+          );
+          try {
+            const again = await generate(`${Date.now()}-${Math.random().toString(36).slice(2)}`);
+            content = again.content;
+            finishReason = again.finishReason;
+            const r2 = parseModelJson<any>(content);
+            parsed = r2.value;
+            repaired = r2.repaired;
+          } catch (e2) {
+            if (e2 instanceof ModelJsonError) logParseFailure(e2, content, 'retry-window');
+            failure = `json parse after salted retry: ${e2 instanceof Error ? e2.message : String(e2)}`;
+          }
+        } else {
+          failure = `json parse (retry on cooldown): ${first.message}`;
+        }
+      }
     }
+
     console.log(
       `[project-insights] report=${report.id} finish_reason=${finishReason} prompt_chars=${userMessage.length} ` +
       `content_chars=${content.length} llm_projects=${(parsed.projects ?? []).length}` +
+      (repaired ? ' REPAIRED=trailing-comma' : '') +
+      (retried ? ' RETRIED=salted' : '') +
       (failure ? ` FAILURE="${failure}"` : ''),
     );
 
