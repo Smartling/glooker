@@ -52,6 +52,9 @@ beforeEach(() => {
   mockExecute.mockReset();
   mockCreate.mockReset();
   routeQueries();
+  // The salted-retry cooldown lives on globalThis so it survives HMR; clear it
+  // so each test starts eligible to retry.
+  (globalThis as any).__glookInsightsRetryAt?.clear();
 });
 
 it('does NOT cache when the completion is truncated (finish_reason=length)', async () => {
@@ -62,6 +65,11 @@ it('does NOT cache when the completion is truncated (finish_reason=length)', asy
 
   await expect(getProjectInsights()).rejects.toThrow(/truncat|json parse|generation/i);
   expect(cacheWrites()).toHaveLength(0);
+  // Exactly one call: a truncated body must never buy a salted regeneration.
+  // The salt is appended, so the retry prompt is strictly LONGER at the same
+  // token limit and re-truncates — spending the report's one regeneration on
+  // the single case it cannot help.
+  expect(mockCreate).toHaveBeenCalledTimes(1);
 });
 
 it('does NOT cache when the completion is empty', async () => {
@@ -88,4 +96,156 @@ it('caches a complete, parseable generation', async () => {
   expect(res.available).toBe(true);
   expect(res.projects).toHaveLength(1);
   expect(cacheWrites()).toHaveLength(1);
+});
+
+/**
+ * GLOOK-54: the Top Projects card was broken for weeks by ONE trailing comma
+ * in an otherwise perfect 14,268-char response, and reloading never helped
+ * because the AI Proxy re-serves the identical cached completion (measured:
+ * 2431ms first call, 224ms and byte-identical on the second).
+ */
+describe('GLOOK-54 — malformed model JSON', () => {
+  const TRAILING_COMMA =
+    '{"projects":[{"name":"Media Studio","jira_keys":["AAA-1"],},{"name":"Other","jira_keys":["AAA-1"]}]}';
+
+  const userMessageOf = (call: any) =>
+    call[0].messages.find((m: any) => m.role === 'user').content;
+
+  it('repairs a trailing comma instead of failing the card', async () => {
+    mockCreate.mockResolvedValue({
+      choices: [{ finish_reason: 'stop', message: { content: TRAILING_COMMA } }],
+    });
+    const out = await getProjectInsights();
+    expect(out.available).toBe(true);
+    // Repaired output is a real success, so it SHOULD be cached.
+    expect(cacheWrites()).toHaveLength(1);
+    // One call only: repair must not spend a regeneration.
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries ONCE with a salt when repair cannot help', async () => {
+    mockCreate
+      .mockResolvedValueOnce({ choices: [{ finish_reason: 'stop', message: { content: 'reasoning: here goes {"projects":[]}' } }] })
+      .mockResolvedValueOnce({
+        choices: [{ finish_reason: 'stop', message: { content: '{"projects":[{"name":"Fresh","jira_keys":["AAA-1"]}]}' } }],
+      });
+
+    const out = await getProjectInsights();
+    expect(out.available).toBe(true);
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+
+    // The salt must be in the USER MESSAGE. Measured on 2026-09-16: a nonce in
+    // smartling_additional_properties does NOT bust the proxy cache (38ms,
+    // identical bytes), so putting it there would re-serve the same bad JSON.
+    const first = userMessageOf(mockCreate.mock.calls[0]);
+    const second = userMessageOf(mockCreate.mock.calls[1]);
+    expect(second).not.toBe(first);
+    expect(second).toMatch(/<!-- retry .+ -->/);
+    expect(second.startsWith(first)).toBe(true); // payload unchanged, salt appended
+  });
+
+  it('does not cache when even the salted retry fails', async () => {
+    mockCreate.mockResolvedValue({
+      choices: [{ finish_reason: 'stop', message: { content: 'not json at all' } }],
+    });
+    await expect(getProjectInsights()).rejects.toThrow(/json parse/i);
+    expect(cacheWrites()).toHaveLength(0);
+    expect(mockCreate).toHaveBeenCalledTimes(2); // original + one salted retry
+  });
+
+  it('will not spend a second regeneration while the cooldown holds', async () => {
+    // Failures are NOT cached on our side, so every page load re-enters this
+    // path. Without the cooldown one broken report buys a full ~200k-char
+    // generation per load — da2fa78f logged 15 in a day.
+    mockCreate.mockResolvedValue({
+      choices: [{ finish_reason: 'stop', message: { content: 'not json at all' } }],
+    });
+
+    await expect(getProjectInsights()).rejects.toThrow();
+    expect(mockCreate).toHaveBeenCalledTimes(2); // first load: original + retry
+
+    mockCreate.mockClear();
+    await expect(getProjectInsights()).rejects.toThrow(/cooldown/i);
+    expect(mockCreate).toHaveBeenCalledTimes(1); // second load: no retry
+  });
+
+  it('still refuses to cache a truncated completion', async () => {
+    // GLOOK-54 must not weaken the 2026-08-03 invariant: repair is for
+    // malformed output, never for a severed one.
+    mockCreate.mockResolvedValue({
+      choices: [{ finish_reason: 'length', message: { content: '{"projects":[{"name":"x","jira_keys":["AAA' } }],
+    });
+    await expect(getProjectInsights()).rejects.toThrow();
+    expect(cacheWrites()).toHaveLength(0);
+  });
+});
+
+describe('GLOOK-54 review follow-ups', () => {
+  it('does not retry a truncated completion, and says so', async () => {
+    mockCreate.mockResolvedValue({
+      choices: [{ finish_reason: 'length', message: { content: '{"projects":[{"name":"x","jira_keys":["AAA-1"],' } }],
+    });
+    await expect(getProjectInsights()).rejects.toThrow(/truncated completion/i);
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+    expect(cacheWrites()).toHaveLength(0);
+  });
+
+  it('treats a fence-only completion as empty rather than buying a regeneration', async () => {
+    // Emptiness is tested on the STRIPPED content. Against raw content this
+    // slipped past `empty completion`, failed as a parse error, and spent a
+    // salted retry on a response with nothing in it.
+    mockCreate.mockResolvedValue({
+      choices: [{ finish_reason: 'stop', message: { content: '```json\n```' } }],
+    });
+    await expect(getProjectInsights()).rejects.toThrow(/empty completion/i);
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it('labels a transport failure on the retry as transport, not as a parse error', async () => {
+    // One try/catch around both the request and the parse turned a 429 or a
+    // timeout into `json parse after salted retry: <provider message>` — wrong
+    // in errors.log, and a second route for provider text into the 500 body.
+    mockCreate
+      .mockResolvedValueOnce({ choices: [{ finish_reason: 'stop', message: { content: 'prose, not json' } }] })
+      .mockRejectedValueOnce(Object.assign(new Error('429 rate limited by PROVIDER-INTERNAL-DETAIL'), { name: 'RateLimitError' }));
+
+    const err = await getProjectInsights().catch((e) => e as Error);
+    expect(err.message).toMatch(/salted retry request failed/i);
+    expect(err.message).not.toMatch(/json parse/i);
+    // Provider text must not ride out to the client via err.message.
+    expect(err.message).not.toContain('PROVIDER-INTERNAL-DETAIL');
+  });
+
+  it('clears the cooldown after a usable generation, so a later failure can still retry', async () => {
+    // A retry that succeeded but attributed 0 projects is served UNCACHED, so
+    // the next load re-enters. With the marker left set, that load found
+    // mayRetry() false and turned the card into a 500 for the rest of the
+    // window — having already discarded a good generation.
+    mockCreate
+      .mockResolvedValueOnce({ choices: [{ finish_reason: 'stop', message: { content: 'prose, not json' } }] })
+      .mockResolvedValueOnce({
+        choices: [{ finish_reason: 'stop', message: { content: '{"projects":[{"name":"Fresh","jira_keys":["AAA-1"]}]}' } }],
+      });
+    await expect(getProjectInsights()).resolves.toMatchObject({ available: true });
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+
+    // Same report fails again immediately: the retry budget must be available.
+    mockCreate.mockClear();
+    mockCreate.mockResolvedValue({
+      choices: [{ finish_reason: 'stop', message: { content: 'prose, not json' } }],
+    });
+    await expect(getProjectInsights()).rejects.toThrow(/json parse after salted retry/i);
+    expect(mockCreate).toHaveBeenCalledTimes(2); // not suppressed by a stale marker
+  });
+
+  it('keeps V8 error text out of the thrown message on the cooldown path', async () => {
+    mockCreate.mockResolvedValue({
+      choices: [{ finish_reason: 'stop', message: { content: 'INTERNAL-COMMIT-TEXT not json' } }],
+    });
+    await expect(getProjectInsights()).rejects.toThrow();
+    mockCreate.mockClear();
+    const err = await getProjectInsights().catch((e) => e as Error);
+    expect(err.message).toMatch(/cooldown/i);
+    expect(err.message).not.toContain('INTERNAL-COMMIT-TEXT');
+  });
 });
