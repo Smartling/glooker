@@ -102,14 +102,40 @@ describe('unrepairable output', () => {
     expect(err!.tail).toContain('projects');
   });
 
-  it('keeps model output OUT of err.message', () => {
+  /**
+   * V8 has two SyntaxError shapes and only one is content-free:
+   *
+   *   Expected double-quoted property name in JSON at position 35
+   *   Unexpected token 'I', "INTERNAL-COMMIT-TEXT" is not valid JSON
+   *
+   * The first version of this guard used a fixture that failed at position 35,
+   * so it only ever saw the safe shape and could not fail. These use the
+   * leaking shape deliberately.
+   */
+  it.each([
+    ['position 0 — V8 embeds the whole input', 'INTERNAL-COMMIT-TEXT'],
+    ['prose preamble — V8 embeds the first chars', 'INTERNAL-COMMIT-TEXT then {"projects":[]}'],
+    ['positional shape', '{"summary":"INTERNAL-COMMIT-TEXT", oops}'],
+  ])('keeps model output OUT of err.message (%s)', (_label, raw) => {
     // route.ts serialises err.message into the 5xx body, and this payload
     // carries commit messages and Jira summaries.
-    const secretish = '{"summary":"INTERNAL-COMMIT-TEXT", oops}';
     let err: ModelJsonError | null = null;
-    try { parseModelJson(secretish); } catch (e) { err = e as ModelJsonError; }
+    try { parseModelJson(raw); } catch (e) { err = e as ModelJsonError; }
+    expect(err!.message).toBe('model JSON unparseable after repair');
     expect(err!.message).not.toContain('INTERNAL-COMMIT-TEXT');
-    expect(err!.window).toContain('INTERNAL-COMMIT-TEXT'); // available for logs
+    // Still available for the log, via detail/window rather than message.
+    expect(`${err!.detail} ${err!.window}`).toContain('INTERNAL-COMMIT-TEXT');
+  });
+
+  it('never leaves the window empty, even for the shape with no position', () => {
+    // `/position (\d+)/` does not match "Unexpected token …", so position is
+    // -1. That IS the prose-preamble case the window logging was added for, so
+    // an empty window would omit the diagnostic exactly where it is needed.
+    let err: ModelJsonError | null = null;
+    try { parseModelJson('Here is the JSON: {"projects":[]}'); } catch (e) { err = e as ModelJsonError; }
+    expect(err!.position).toBe(-1);
+    expect(err!.window).not.toBe('');
+    expect(err!.window).toContain('Here is the JSON');
   });
 
   it('reports a usable position for the log window', () => {

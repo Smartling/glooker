@@ -14,7 +14,20 @@
 
 /** Raised when the text cannot be parsed even after repair. */
 export class ModelJsonError extends Error {
-  /** The parse position V8 reported, or -1 when it gave none. */
+  /**
+   * V8's own message. Logs only — NEVER interpolate into `message`.
+   *
+   * V8 has two SyntaxError shapes and only one is content-free:
+   *
+   *   Expected double-quoted property name in JSON at position 35
+   *   Unexpected token 'I', "INTERNAL-COMMIT-TEXT" is not valid JSON
+   *
+   * The second embeds the input. Interpolating it into `message` sent model
+   * bytes to the browser, because route handlers serialise `err.message` into
+   * 5xx bodies and this payload carries commit messages and Jira summaries.
+   */
+  readonly detail: string;
+  /** The parse position V8 reported, or -1 for the shape that gives none. */
   readonly position: number;
   /** Context around the failure, for logging. NEVER put this in `message`. */
   readonly window: string;
@@ -22,19 +35,21 @@ export class ModelJsonError extends Error {
   readonly tail: string;
 
   constructor(cause: unknown, text: string) {
-    const detail = cause instanceof Error ? cause.message : String(cause);
-    // `message` is deliberately free of model output: route handlers serialise
-    // err.message into 5xx response bodies, and this payload carries commit
-    // messages and Jira summaries.
-    super(`model JSON unparseable after repair: ${detail}`);
+    // Fixed, content-free, and safe to serialise to a client.
+    super('model JSON unparseable after repair');
     this.name = 'ModelJsonError';
+    this.detail = cause instanceof Error ? cause.message : String(cause);
 
-    const at = Number(/position (\d+)/.exec(detail)?.[1] ?? -1);
+    const at = Number(/position (\d+)/.exec(this.detail)?.[1] ?? -1);
     this.position = Number.isFinite(at) ? at : -1;
+
     const W = 300;
+    // The `Unexpected token` shape carries no position, and that is exactly
+    // the prose-preamble case the window logging exists for — so fall back to
+    // the start of the document rather than leaving the window empty.
     this.window = this.position >= 0
       ? text.slice(Math.max(0, this.position - W), this.position + W)
-      : '';
+      : text.slice(0, 2 * W);
     this.head = text.slice(0, 200);
     this.tail = text.slice(-200);
   }

@@ -1,6 +1,6 @@
 import db from '@/lib/db';
 import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, samplingParams } from '@/lib/llm-provider';
-import { parseModelJson, ModelJsonError } from '@/lib/llm-json';
+import { parseModelJson, ModelJsonError, stripJsonFences } from '@/lib/llm-json';
 import { renderInflightBlock } from '@/lib/team-pulse/render';
 import type { TeamProjectInflightPr, TeamProjectInflightBranch } from '@/lib/team-pulse/data';
 
@@ -20,12 +20,25 @@ const INSIGHTS_CACHE_VERSION = 3;
  *
  * globalThis so it survives Next.js HMR module reloads, matching the progress
  * and stop-signal stores.
+ *
+ * The bound is PER PROCESS, not global. This ships as a container image with
+ * GHCR publishing and a compose file, so more than one replica is expected:
+ * the real ceiling is N regenerations per window across N replicas, and it
+ * resets on deploy. Making it a true global bound means persisting the marker
+ * alongside report_comparisons — noted on GLOOK-54, deliberately not done here.
  */
 const RETRY_COOLDOWN_MS = 10 * 60 * 1000;
 const retryStore: Map<string, number> =
   ((globalThis as any).__glookInsightsRetryAt ??= new Map<string, number>());
 
+/** Drop markers that can no longer suppress anything, so the map cannot grow forever. */
+function pruneRetryStore(): void {
+  const cutoff = Date.now() - RETRY_COOLDOWN_MS;
+  for (const [id, at] of retryStore) if (at < cutoff) retryStore.delete(id);
+}
+
 function mayRetry(reportId: string): boolean {
+  pruneRetryStore();
   const last = retryStore.get(reportId) ?? 0;
   return Date.now() - last >= RETRY_COOLDOWN_MS;
 }
@@ -306,12 +319,13 @@ ${noJiraData}${inflightBlock}`;
     const logParseFailure = (err: ModelJsonError, text: string, label: string) => {
       // console.warn, never err.message: route.ts serialises err.message into
       // the 500 body and this payload carries commit messages and Jira summaries.
-      if (err.position >= 0) {
-        console.warn(
-          `[project-insights] ${label} report=${report.id} position=${err.position} ` +
-          `of ${text.length}: ${JSON.stringify(err.window)}`,
-        );
-      }
+      // No `position >= 0` guard: the `Unexpected token` shape carries no
+      // position, and that IS the prose-preamble case this logging exists for.
+      // ModelJsonError falls back to the head of the document in that case.
+      console.warn(
+        `[project-insights] ${label} report=${report.id} position=${err.position} ` +
+        `of ${text.length} detail=${JSON.stringify(err.detail)}: ${JSON.stringify(err.window)}`,
+      );
       console.warn(`[project-insights] ${label}-head report=${report.id}: ${JSON.stringify(err.head)}`);
       console.warn(`[project-insights] ${label}-tail report=${report.id}: ${JSON.stringify(err.tail)}`);
     };
@@ -321,7 +335,24 @@ ${noJiraData}${inflightBlock}`;
     let repaired = false;
     let retried = false;
 
-    if (!content.trim()) {
+    if (finishReason === 'length') {
+      // Truncated: never repaired, never retried, never cached.
+      //
+      // Retrying would spend the report's single regeneration on the one case
+      // it cannot help — the salt is APPENDED, so the prompt is strictly
+      // longer at the same tokenLimit and re-truncates with near-certainty. A
+      // permanently oversized report would then buy a doomed ~200k-char
+      // generation every cooldown window, indefinitely.
+      //
+      // stripTrailingCommas only deletes characters, so it cannot close a
+      // severed bracket and a truncated body is unrepairable today anyway —
+      // but that is a property of the current repair, not a rule. Stating the
+      // rule here keeps the next repair (closing unterminated strings) from
+      // silently making truncated bodies parseable, and therefore cacheable.
+      failure = 'truncated completion';
+    } else if (!stripJsonFences(content)) {
+      // Tested on the STRIPPED content: a fence-only completion is empty in
+      // substance, and treating it as a parse error would buy a regeneration.
       failure = 'empty completion';
     } else {
       try {
@@ -343,19 +374,37 @@ ${noJiraData}${inflightBlock}`;
           console.warn(
             `[project-insights] report=${report.id} unrepairable — retrying once with a cache-busting salt`,
           );
+
+          // The request is awaited OUTSIDE the parse try/catch on purpose. A
+          // 429, timeout, auth expiry or upstream 5xx is not a JSON problem,
+          // and folding it in here mislabelled it as one in errors.log, gave
+          // provider text a second route into the 500 body, and logged the
+          // FIRST attempt's bytes because these assignments never ran.
+          let again: { content: string; finishReason: string };
           try {
-            const again = await generate(`${Date.now()}-${Math.random().toString(36).slice(2)}`);
-            content = again.content;
-            finishReason = again.finishReason;
-            const r2 = parseModelJson<any>(content);
-            parsed = r2.value;
-            repaired = r2.repaired;
-          } catch (e2) {
-            if (e2 instanceof ModelJsonError) logParseFailure(e2, content, 'retry-window');
-            failure = `json parse after salted retry: ${e2 instanceof Error ? e2.message : String(e2)}`;
+            again = await generate(`${Date.now()}-${Math.random().toString(36).slice(2)}`);
+          } catch (transport) {
+            throw new ProjectInsightsGenerationError(
+              `salted retry request failed: ${transport instanceof Error ? transport.name : 'unknown'}`,
+            );
+          }
+          content = again.content;
+          finishReason = again.finishReason;
+
+          if (finishReason === 'length') {
+            failure = 'truncated completion on salted retry';
+          } else {
+            try {
+              const r2 = parseModelJson<any>(content);
+              parsed = r2.value;
+              repaired = r2.repaired;
+            } catch (e2) {
+              if (e2 instanceof ModelJsonError) logParseFailure(e2, content, 'retry-window');
+              failure = 'json parse after salted retry';
+            }
           }
         } else {
-          failure = `json parse (retry on cooldown): ${first.message}`;
+          failure = 'json parse (retry on cooldown)';
         }
       }
     }
@@ -496,6 +545,14 @@ ${noJiraData}${inflightBlock}`;
         [report.id, report.id, JSON.stringify(toCache)],
       );
     }
+
+    // We have a usable generation, so the report is no longer in a failing
+    // state and must not stay suppressed. Without this, a retry that succeeded
+    // but attributed 0 projects is served UNCACHED (the degraded branch above),
+    // and the next page load — which re-fetches the proxy's cached broken
+    // completion — finds mayRetry() false and turns the card into a 500 for the
+    // rest of the window, with a good generation already discarded.
+    retryStore.delete(report.id);
 
     return {
       available: true,
