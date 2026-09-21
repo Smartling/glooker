@@ -43,7 +43,8 @@ export function createSmartlingAnthropic(opts: SmartlingAnthropicOpts = {}) {
         Authorization: `Bearer ${await getAccessToken()}`,
       },
       body: JSON.stringify({
-        requestParameters: { timeout: timeoutMs, operationName },
+        requestParameters: { timeout: timeoutMs, operationName,
+          useCache: process.env.EXPERIMENT_NO_CACHE !== '1' },
         request: { model, modelVersion, payload },
       }),
     });

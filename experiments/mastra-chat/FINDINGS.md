@@ -101,7 +101,52 @@ none of them appear at install time as an error you'd notice.
   though it runs correctly. Needs an `as any` at that boundary until Mastra bumps —
   and CI runs `tsc --noEmit`, so this would fail CI, not just the editor.
 
-## Status
+## Phase 1 result: parity
 
-Phase 0 complete — viability proven. Phase 1 (port the 7 tools; build the
-no-new-deps control arm for comparison) not started.
+Both arms built from the same `TOOL_DEFINITIONS`, same `executeTool()`, same model
+(`claude-sonnet-5`), same route (`/anthropicai/chat`). Run against real data
+(org=Smartling, 450 developer rows, 9,344 commits) with `useCache: false`, so the
+latencies are genuine generations rather than proxy cache hits.
+
+| Question | CONTROL | MASTRA |
+|---|---|---|
+| Q1 top 5 by impact | 2 steps, 1 tool, 6.1s, 4440 in | 2 steps, 1 tool, 6.2s, 4776 in |
+| Q2 most commits + % of org | 2 steps, 2 tools, 7.0s, 4359 in | 2 steps, 2 tools, 5.8s, 4720 in |
+| Q3 same person? | 2 steps, 2 tools, 6.2s, 4324 in | 2 steps, 2 tools, 6.0s, 4660 in |
+| Q4 complex commit (bad question) | 6 steps, **no answer**, 20.2s, 14052 in | 6 steps, **no answer**, 28.0s, 32495 in |
+| Q5 org size vs top dev | 2 steps, 2 tools, 6.9s, 4374 in | 2 steps, 2 tools, 6.1s, 4725 in |
+
+**On Q1/Q2/Q3/Q5 the two arms picked identical tools with near-identical arguments
+and produced equivalent answers.** Latency differences are within noise. Mastra
+costs a consistent **~330-370 extra input tokens per call** in scaffolding.
+
+Q4 was a bad question, not a framework difference: the latest report's commits span
+2026-02-11..2026-03-13, so "last 90 days" (cutoff 2026-06-23) matches zero rows.
+Both arms then failed the same way — retrying with progressively looser filters
+until the step cap, rather than reporting "no data in that window". Worth fixing in
+the prompt; unrelated to Mastra.
+
+### Findings that apply regardless of Mastra
+
+- **Tool results are uncapped.** `queryCommits limit=100` returns ~8.9k tokens in a
+  single result; `queryLeaderboard limit=100` ~3.4k. On Q4 the control arm
+  accumulated 70,598 input tokens across steps in an earlier run. The tools should
+  cap result size.
+- **Neither agent handles an empty filter result well.** Both flail. A prompt rule
+  ("if a filtered query returns nothing, say so — do not widen the filter repeatedly")
+  would fix both.
+- Truncation returns `finishReason: 'length'` with `text: ''` and no error — the same
+  "failure indistinguishable from empty" shape as GLOOK-51/54. Any integration must
+  check `finishReason` explicitly.
+
+## Verdict so far
+
+At tool-calling parity, Mastra bought **nothing measurable** over ~150 lines of
+control-arm code, while costing 124 new top-level packages, ~102 MB, a `zod@4`
+conflict needing `--legacy-peer-deps`, a pruned `@testing-library/dom` that broke
+9 suites, and a `tsc --noEmit` failure from AI SDK provider skew.
+
+The case for Mastra now rests entirely on Phase 2 differentiators that the control
+arm does not have for free: persistent threads/semantic recall, typed durable
+workflows, evals, tracing, and its MCP client (which could expose Glooker's
+existing 16-tool MCP server to chat instead of the current 7).

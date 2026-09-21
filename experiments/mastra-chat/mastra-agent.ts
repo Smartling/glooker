@@ -53,12 +53,19 @@ export async function runMastraAgent(
   const agent = buildMastraAgent(org, systemPrompt, toolCalls);
 
   const res: any = await agent.generate(question, {
-    modelSettings: { maxOutputTokens: 2000 },
+    modelSettings: { maxOutputTokens: 4000 },
     maxSteps,
   } as any);
 
+  // Mastra returns finishReason:'length' with text:'' on truncation — the exact
+  // "failure indistinguishable from empty" shape GLOOK-51/54 were about. Surface it.
+  const text = (res.text ?? '').trim();
+  const answer = text || (res.finishReason === 'length'
+    ? '[truncated: finishReason=length, no text emitted]'
+    : `[no text, finishReason=${res.finishReason}]`);
+
   return {
-    answer: (res.text ?? '').trim(),
+    answer,
     toolCalls,
     steps: res.steps?.length ?? (toolCalls.length + 1),
     inputTokens: res.usage?.inputTokens ?? res.usage?.promptTokens ?? 0,

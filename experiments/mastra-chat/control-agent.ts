@@ -29,7 +29,9 @@ async function callProxy(payload: any) {
       Authorization: `Bearer ${await getAccessToken()}`,
     },
     body: JSON.stringify({
-      requestParameters: { timeout: 110_000, operationName: 'glooker_chat_control' },
+      requestParameters: { timeout: 110_000, operationName: 'glooker_chat_control',
+        // documented in the AI Proxy reference; needed for honest latency numbers
+        useCache: process.env.EXPERIMENT_NO_CACHE !== '1' },
       request: { model: 'claude-sonnet-5', modelVersion: 'latest', payload },
     }),
   });
@@ -53,7 +55,7 @@ export async function runControlAgent(
 
   for (let step = 1; step <= maxSteps; step++) {
     const reply = await callProxy({
-      max_tokens: 2000,
+      max_tokens: 4000,
       system: systemPrompt,
       tools: anthropicTools(),
       messages,
