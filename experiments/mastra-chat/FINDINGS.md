@@ -284,3 +284,59 @@ Both new engines reported **62-63** reports when the real count is **70**.
 by default, so both agents called it twice (50 rows, then 70 with `limit:500`) and
 then miscounted the list by hand. Adding a `total` to that tool's response removes
 the need to count at all. Same family as the uncapped-result finding above.
+
+---
+
+# Approval-gated writes (the one thing Mastra clearly wins)
+
+Mastra ships human-in-the-loop as a first-class primitive:
+`createTool({ requireApproval: true })` plus `approveToolCallGenerate()` /
+`declineToolCallGenerate()` on the agent. The run reaches `finishReason:
+'suspended'` and **the tool body never executes** until a human approves the
+exact arguments.
+
+Implemented one write tool, `startReportRun` (`src/lib/chat/engines/write-tools.ts`),
+on the mastra engine only. Verified against the live local deploy:
+
+```
+reports before                      70
+ask "start a 14 day report run"  -> finishReason suspended
+                                    pendingApproval {runId, toolCallId,
+                                    toolName: startReportRun, args:{periodDays:14}}
+reports after suspend               70   <- tool did not run
+decline                          -> "wasn't approved, so I didn't start it"
+reports after decline               70
+```
+
+Two gates, deliberately independent: `requireApproval` (Mastra suspends), and
+admin — checked in the tool against the caller's resolved identity **and** again
+by `requireAdmin` inside `POST /api/report`, which the tool calls with the
+caller's auth header forwarded.
+
+Write tools are **not** on the MCP server: that server is read-only by design
+(GLOOK-26) and is exposed to Claude Desktop via the mcp-okta-proxy sidecar, so a
+write tool there would be reachable by every MCP consumer.
+
+## Non-obvious gotchas found
+
+- **Storage must be on the `Mastra` instance, not the `Agent`.** An Agent built
+  with `storage` cannot resume — `approveToolCallGenerate` reports "could not find
+  a suspended run". Register the agent via `new Mastra({ agents, storage })` and
+  retrieve it with `mastra.getAgent()`.
+- **`libsql` native binding breaks the standalone build twice over.** Next's
+  tracer cannot follow libsql's runtime platform `require`, so
+  `node_modules/libsql/**` and `node_modules/@libsql/**` need explicit
+  `outputFileTracingIncludes` entries. And building `linux/amd64` under QEMU on an
+  arm64 host, npm's libc detection installs `linux-x64-gnu` into an Alpine (musl)
+  image, so the musl binding must be forced:
+  `RUN npm i --no-save --force @libsql/linux-x64-musl`. Without both, the
+  container starts and then 500s with
+  `Cannot find module '@libsql/linux-x64-musl'`.
+
+## Revised verdict
+
+Read-only Q&A: parity held, dependency not justified (211 packages).
+**Approval-gated writes: Mastra has a real primitive the control arm would have to
+build from scratch** — durable suspended state across HTTP requests and processes.
+If Glooker wants chat to write, that changes the calculation. If it stays
+read-only, it does not.

@@ -24,6 +24,9 @@ export default function ChatPanel({ org }: { org: string }) {
   const [loading, setLoading] = useState(false);
   const [engine, setEngine] = useState<'legacy' | 'control' | 'mastra'>('control');
   const [lastMeta, setLastMeta] = useState<string>('');
+  const [pending, setPending] = useState<
+    { runId: string; toolCallId: string; toolName: string; args: Record<string, unknown> } | null
+  >(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -35,6 +38,33 @@ export default function ChatPanel({ org }: { org: string }) {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages, loading]);
 
+  async function resolveApproval(approve: boolean) {
+    if (!pending || loading) return;
+    setLoading(true);
+    const decided = pending;
+    setPending(null);
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          org, engine, action: approve ? 'approve' : 'decline',
+          runId: decided.runId, toolCallId: decided.toolCallId,
+        }),
+      });
+      const data = await res.json();
+      setMessages(m => [...m, {
+        role: 'assistant',
+        content: data.error ? `Error: ${data.error}` : data.response,
+      }]);
+      setPending(data.pendingApproval ?? null);
+    } catch (e) {
+      setMessages(m => [...m, { role: 'assistant', content: 'Error: approval request failed.' }]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function send(text?: string) {
     const msg = (text || input).trim();
     if (!msg || loading) return;
@@ -43,6 +73,7 @@ export default function ChatPanel({ org }: { org: string }) {
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     setInput('');
+    setPending(null);
     setLoading(true);
 
     try {
@@ -67,6 +98,7 @@ export default function ChatPanel({ org }: { org: string }) {
           (data.ms ? ` · ${(data.ms / 1000).toFixed(1)}s` : '') +
           (tools.length ? `\n${tools.join('\n')}` : ''),
         );
+        setPending(data.pendingApproval ?? null);
         setMessages([...newMessages, { role: 'assistant', content: data.response }]);
       }
     } catch {
@@ -184,6 +216,38 @@ export default function ChatPanel({ org }: { org: string }) {
               </div>
             )}
           </div>
+
+          {/* Approval gate — the write tool has NOT run at this point */}
+          {pending && (
+            <div className="mx-3 mb-2 rounded-lg border border-amber-600/60 bg-amber-950/30 p-2.5">
+              <div className="flex items-center gap-1.5 text-[11px] font-medium text-amber-300">
+                <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M12 9v2m0 4h.01M5 19h14a2 2 0 001.84-2.75L13.74 4a2 2 0 00-3.5 0L3.2 16.25A2 2 0 005 19z" />
+                </svg>
+                Approval required — nothing has run yet
+              </div>
+              <pre className="mt-1 whitespace-pre-wrap break-all text-[10px] leading-snug text-amber-200/80">
+                {pending.toolName}({JSON.stringify(pending.args)})
+              </pre>
+              <div className="mt-2 flex gap-2">
+                <button
+                  onClick={() => resolveApproval(true)}
+                  disabled={loading}
+                  className="rounded bg-amber-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-amber-500 disabled:opacity-50"
+                >
+                  Approve &amp; run
+                </button>
+                <button
+                  onClick={() => resolveApproval(false)}
+                  disabled={loading}
+                  className="rounded border border-gray-700 px-2.5 py-1 text-[11px] text-gray-300 hover:bg-gray-800 disabled:opacity-50"
+                >
+                  Decline
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Engine selector + last-run diagnostics (experiment branch) */}
           <div className="px-3 pt-2 border-t border-gray-800">

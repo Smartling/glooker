@@ -11,6 +11,11 @@ COPY package.json package-lock.json ./
 # --legacy-peer-deps required: @mastra/* force zod@4 while openai@4.104.0
 # declares peerOptional zod@^3.23.8. Removing this needs an openai SDK major bump.
 RUN npm ci --legacy-peer-deps
+# libsql ships per-platform native bindings. Building linux/amd64 under QEMU on an
+# arm64 host, npm's libc detection picks linux-x64-gnu even though this is Alpine
+# (musl), so the runtime dies with "Cannot find module '@libsql/linux-x64-musl'".
+# Force the musl binding explicitly.
+RUN npm i --no-save --force @libsql/linux-x64-musl
 
 # Copy source
 COPY . .

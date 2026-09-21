@@ -1,9 +1,18 @@
+export interface PendingApproval {
+  runId: string;
+  toolCallId: string;
+  toolName: string;
+  args: Record<string, unknown>;
+}
+
 export interface EngineResult {
   response: string;
   toolCalls: string[];
   engine: string;
   toolCount: number;
   ms: number;
+  /** Set when a write tool is waiting on human approval; nothing has run yet. */
+  pendingApproval?: PendingApproval;
 }
 
 export const CHAT_SYSTEM = `You are Glooker Assistant — a data analyst for GitHub org developer analytics.
