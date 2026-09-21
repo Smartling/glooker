@@ -1,4 +1,5 @@
-FROM node:20-alpine AS base
+# Node 22 required: @mastra/* declare engines.node >= 22.13.0 (was node:20-alpine).
+FROM node:22-alpine AS base
 
 # Install dependencies for better-sqlite3
 RUN apk add --no-cache python3 make g++
@@ -7,7 +8,9 @@ WORKDIR /app
 
 # Install dependencies
 COPY package.json package-lock.json ./
-RUN npm ci
+# --legacy-peer-deps required: @mastra/* force zod@4 while openai@4.104.0
+# declares peerOptional zod@^3.23.8. Removing this needs an openai SDK major bump.
+RUN npm ci --legacy-peer-deps
 
 # Copy source
 COPY . .
@@ -23,7 +26,7 @@ ENV COMMIT_SHA=$COMMIT_SHA
 RUN npm run build
 
 # Production
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 # Only the C++ runtime is needed for better-sqlite3 (not the compiler toolchain)
 RUN apk add --no-cache libstdc++
 WORKDIR /app

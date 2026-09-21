@@ -232,3 +232,55 @@ the framework question:
 
 Revisit Mastra if Glooker needs semantic recall over long histories, durable
 workflows, or third-party MCP servers with real transports.
+
+---
+
+# Wiring it into the app (local deploy)
+
+The experiment scripts were standalone, so nothing in the app changed. To make it
+playable, `/api/chat` now dispatches on an `engine` field:
+
+- `legacy`  — the existing `TOOL_CALL:` text protocol, 7 direct-DB tools
+- `control` — native Anthropic tool calling via `/anthropicai/chat`, **16 MCP tools**, no framework
+- `mastra`  — Mastra agent, same model/route/tools
+
+`CHAT_ENGINE` sets the default (`control`); `chat-panel.tsx` has a selector plus a
+per-answer diagnostics line (engine, tools available, calls made, elapsed) so the
+three can be compared live.
+
+## Deployment costs found only at build time
+
+- **Node 22 is required.** `@mastra/*` all declare `engines.node >= 22.13.0`; the
+  Dockerfile was `node:20-alpine`. Bumped both stages to `node:22-alpine`. This
+  would apply to the AWS image too.
+- **`npm ci` fails in the image** with the same `zod@4` vs `openai@4` ERESOLVE, even
+  though `npm ci --dry-run` passes locally against an already-installed tree.
+  Needs `npm ci --legacy-peer-deps` in the Dockerfile.
+- **`serverExternalPackages`** needed `@mastra/core`, `@mastra/mcp`, `@mastra/memory`,
+  `@mastra/libsql`, `@libsql/client` added, or the standalone build inlines
+  server-only deps.
+
+With those three changes: `npm run build` succeeds, 129 suites / 1284 tests pass,
+`tsc --noEmit` is clean, and the image runs.
+
+## Live results (local, 70-report DB)
+
+Same question to all three engines — "how many reports exist, and how did total
+commits change between the two most recent?":
+
+| engine | tool calls | time | outcome |
+|---|---|---|---|
+| control | 4 | 12.0s | correct: 860 vs 1131, -271 (-24.0%) |
+| mastra | 4 | 27.7s | correct: same figures |
+| legacy | 0 | — | correctly says it cannot do this at all |
+
+`legacy` is not being unfair to itself: its 7 tools hardwire `latestReportId(org)`,
+so cross-report questions are genuinely impossible.
+
+## New finding: `list_reports` has no total, and the model miscounts
+
+Both new engines reported **62-63** reports when the real count is **70**.
+`list_reports` returns only `{ reports: [...] }` — no `total` field — and caps at 50
+by default, so both agents called it twice (50 rows, then 70 with `limit:500`) and
+then miscounted the list by hand. Adding a `total` to that tool's response removes
+the need to count at all. Same family as the uncapped-result finding above.

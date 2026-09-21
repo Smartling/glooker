@@ -14,7 +14,9 @@ if (!commitSha) {
 
 const nextConfig: NextConfig = {
   output: 'standalone',
-  serverExternalPackages: ['mysql2', 'better-sqlite3', 'croner'],
+  serverExternalPackages: ['mysql2', 'better-sqlite3', 'croner',
+    // Mastra pulls server-only native/dynamic deps that the bundler must not inline
+    '@mastra/core', '@mastra/mcp', '@mastra/memory', '@mastra/libsql', '@libsql/client'],
   outputFileTracingIncludes: {
     '/**': ['./prompts/**'],
   },

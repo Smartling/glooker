@@ -22,6 +22,8 @@ export default function ChatPanel({ org }: { org: string }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [engine, setEngine] = useState<'legacy' | 'control' | 'mastra'>('control');
+  const [lastMeta, setLastMeta] = useState<string>('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -49,6 +51,7 @@ export default function ChatPanel({ org }: { org: string }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           org,
+          engine,
           messages: newMessages.map(m => ({ role: m.role, content: m.content })),
         }),
       });
@@ -57,6 +60,13 @@ export default function ChatPanel({ org }: { org: string }) {
       if (data.error) {
         setMessages([...newMessages, { role: 'assistant', content: `Error: ${data.error}` }]);
       } else {
+        const tools = (data.toolCalls ?? []) as string[];
+        setLastMeta(
+          `${data.engine} · ${data.toolCount ?? '?'} tools available · ` +
+          `${tools.length} call${tools.length === 1 ? '' : 's'}` +
+          (data.ms ? ` · ${(data.ms / 1000).toFixed(1)}s` : '') +
+          (tools.length ? `\n${tools.join('\n')}` : ''),
+        );
         setMessages([...newMessages, { role: 'assistant', content: data.response }]);
       }
     } catch {
@@ -175,8 +185,30 @@ export default function ChatPanel({ org }: { org: string }) {
             )}
           </div>
 
+          {/* Engine selector + last-run diagnostics (experiment branch) */}
+          <div className="px-3 pt-2 border-t border-gray-800">
+            <div className="flex items-center gap-2 text-[11px] text-gray-500">
+              <span className="shrink-0">engine</span>
+              <select
+                value={engine}
+                onChange={e => setEngine(e.target.value as 'legacy' | 'control' | 'mastra')}
+                disabled={loading}
+                className="bg-gray-800 border border-gray-700 rounded px-1.5 py-0.5 text-[11px] text-gray-300 focus:outline-none focus:border-accent disabled:opacity-50"
+              >
+                <option value="control">control — native tools, no framework</option>
+                <option value="mastra">mastra — framework</option>
+                <option value="legacy">legacy — TOOL_CALL text protocol</option>
+              </select>
+            </div>
+            {lastMeta && (
+              <pre className="mt-1 max-h-24 overflow-y-auto whitespace-pre-wrap break-all text-[10px] leading-snug text-gray-600">
+                {lastMeta}
+              </pre>
+            )}
+          </div>
+
           {/* Input */}
-          <div className="px-3 py-3 border-t border-gray-800">
+          <div className="px-3 py-3">
             <div className="flex gap-2">
               <input
                 ref={inputRef}

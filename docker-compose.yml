@@ -24,6 +24,9 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_CONCURRENCY: ${LLM_CONCURRENCY:-5}
 
+      # Chat engine: legacy | control | mastra (experiment branch; UI can override)
+      CHAT_ENGINE: ${CHAT_ENGINE:-control}
+
       # Smartling (only needed if LLM_PROVIDER=smartling)
       SMARTLING_BASE_URL: ${SMARTLING_BASE_URL:-}
       SMARTLING_ACCOUNT_UID: ${SMARTLING_ACCOUNT_UID:-}
@@ -72,7 +75,7 @@ services:
       MYSQL_PASSWORD: glooker
       MYSQL_ROOT_PASSWORD: rootpassword
     ports:
-      - "3307:3306"
+      - "3308:3306"
     volumes:
       - mysql_data:/var/lib/mysql
       - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql
