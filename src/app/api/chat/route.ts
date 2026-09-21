@@ -21,6 +21,12 @@ async function postHandler(req: NextRequest) {
   // The MCP server is this same app; derive its URL from the incoming request so
   // this works identically in dev, podman and ECS.
   const mcpUrl = new URL('/api/mcp', req.url).toString();
+  // /api/mcp is fail-closed on identity and scopes cost visibility per requester,
+  // so the caller's auth header must travel with the server-side call.
+  const authHeader = process.env.AUTH_HEADER || 'x-amzn-oidc-data';
+  const forward: Record<string, string> = {};
+  const identity = req.headers.get(authHeader);
+  if (identity) forward[authHeader] = identity;
 
   try {
     if (picked === 'legacy') {
@@ -28,8 +34,8 @@ async function postHandler(req: NextRequest) {
       return NextResponse.json({ ...result, engine: 'legacy', toolCount: 7 });
     }
     const result = picked === 'mastra'
-      ? await runMastraEngine(messages, mcpUrl)
-      : await runControlEngine(messages, mcpUrl);
+      ? await runMastraEngine(messages, mcpUrl, forward)
+      : await runControlEngine(messages, mcpUrl, forward);
     return NextResponse.json(result);
   } catch (err) {
     return NextResponse.json(

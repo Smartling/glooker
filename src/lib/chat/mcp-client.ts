@@ -5,10 +5,10 @@
  */
 let nextId = 1;
 
-async function rpc(endpoint: string, method: string, params?: any) {
+async function rpc(endpoint: string, method: string, params?: any, forward?: Record<string, string>) {
   const res = await fetch(endpoint, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(forward ?? {}) },
     body: JSON.stringify({ jsonrpc: '2.0', id: nextId++, method, params }),
   });
   const body: any = await res.json();
@@ -18,13 +18,13 @@ async function rpc(endpoint: string, method: string, params?: any) {
 
 export interface McpTool { name: string; description: string; input_schema: any }
 
-export async function mcpListTools(endpoint: string): Promise<McpTool[]> {
+export async function mcpListTools(endpoint: string, forward?: Record<string, string>): Promise<McpTool[]> {
   await rpc(endpoint, 'initialize', {
     protocolVersion: '2025-06-18',
     capabilities: {},
     clientInfo: { name: 'glooker-chat', version: '1' },
-  });
-  const { tools } = await rpc(endpoint, 'tools/list');
+  }, forward);
+  const { tools } = await rpc(endpoint, 'tools/list', undefined, forward);
   return tools.map((t: any) => ({
     name: t.name,
     description: t.description,
@@ -32,7 +32,9 @@ export async function mcpListTools(endpoint: string): Promise<McpTool[]> {
   }));
 }
 
-export async function mcpCallTool(endpoint: string, name: string, args: Record<string, any>): Promise<string> {
-  const result = await rpc(endpoint, 'tools/call', { name, arguments: args });
+export async function mcpCallTool(
+  endpoint: string, name: string, args: Record<string, any>, forward?: Record<string, string>,
+): Promise<string> {
+  const result = await rpc(endpoint, 'tools/call', { name, arguments: args }, forward);
   return (result?.content ?? []).map((c: any) => c.text ?? '').join('\n');
 }

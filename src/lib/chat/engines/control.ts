@@ -33,11 +33,12 @@ async function callProxy(payload: any) {
 export async function runControlEngine(
   messages: { role: string; content: string }[],
   mcpUrl: string,
+  forward: Record<string, string>,
   maxSteps = 8,
 ): Promise<EngineResult> {
   const started = Date.now();
   const toolCalls: string[] = [];
-  const tools = await mcpListTools(mcpUrl);
+  const tools = await mcpListTools(mcpUrl, forward);
 
   const convo: any[] = messages.map(m => ({
     role: m.role === 'assistant' ? 'assistant' : 'user',
@@ -58,7 +59,7 @@ export async function runControlEngine(
       for (const b of reply.content.filter((x: any) => x.type === 'tool_use')) {
         toolCalls.push(`${b.name}(${JSON.stringify(b.input ?? {})})`);
         let out: string;
-        try { out = await mcpCallTool(mcpUrl, b.name, b.input ?? {}); }
+        try { out = await mcpCallTool(mcpUrl, b.name, b.input ?? {}, forward); }
         catch (e: any) { out = JSON.stringify({ error: e?.message ?? String(e) }); }
         results.push({ type: 'tool_result', tool_use_id: b.id, content: out });
       }

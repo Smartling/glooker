@@ -11,6 +11,7 @@ import { CHAT_SYSTEM, type EngineResult } from './types';
 export async function runMastraEngine(
   messages: { role: string; content: string }[],
   mcpUrl: string,
+  forward: Record<string, string>,
   maxSteps = 8,
 ): Promise<EngineResult> {
   const started = Date.now();
@@ -18,7 +19,10 @@ export async function runMastraEngine(
 
   const mcp = new MCPClient({
     id: `glooker-chat-${Date.now()}`,
-    servers: { glooker: { url: new URL(mcpUrl) } },
+    // Forward the caller's identity so /api/mcp's fail-closed auth gate passes and
+    // cost-visibility scoping applies to the right user. Without this the
+    // server-side call is headerless and 401s wherever AUTH_ENABLED is real.
+    servers: { glooker: { url: new URL(mcpUrl), requestInit: { headers: forward } } } as any,
   });
 
   try {
