@@ -37,7 +37,11 @@ async function main() {
     id: 'glooker-chat',
     name: 'glooker-chat',
     instructions: 'You are a data analyst for GitHub org analytics. Always use tools for numbers; never guess.',
-    model: smartling('claude-sonnet-5'),
+    // Type-only cast. @ai-sdk/anthropic@4.0.58 resolves @ai-sdk/provider@4.0.17
+    // while @mastra/core@1.67.0 pins 4.0.4, and LanguageModelV4.doGenerate's
+    // return type differs between those patches. Runtime is verified working
+    // (spike-04); this is purely the version skew. Remove when Mastra bumps.
+    model: smartling('claude-sonnet-5') as any,
     tools: { queryLeaderboard, queryOrgSummary },
   });
 

@@ -78,12 +78,28 @@ can be handed straight to `new Agent({ model })`. (The docs page claiming
 
 ## Dependency cost (measured)
 
+Three of these only surfaced by running the repo's own checks after installing —
+none of them appear at install time as an error you'd notice.
+
+
 - `@mastra/core` = **135 packages** added; Glooker had 12 direct deps.
 - Pulls `posthog-node` (telemetry — needs disabling), `execa`, `ws`,
   `@modelcontextprotocol/server`, three parallel AI SDK provider versions.
 - **Forces `zod@4`, which collides with `openai@4.104.0`'s `peerOptional zod@^3.23.8`.**
   Installing `@ai-sdk/anthropic` fails with `ERESOLVE` and needs `--legacy-peer-deps`.
   Resolving it properly means upgrading the `openai` SDK across the whole app.
+- **`--legacy-peer-deps` silently pruned `@testing-library/dom`** (a peer of
+  `@testing-library/react`, dev-only, v10.4.1 on main). The install reported
+  "removed 9 packages" and **9 test suites then failed** with
+  `Cannot find module '@testing-library/dom'`. Fixed by adding it as an explicit
+  devDependency; full suite back to 129 suites / 1284 tests green. Anyone adopting
+  Mastra here hits this and the error points at the wrong thing.
+- **AI SDK provider version skew breaks `tsc --noEmit`.**
+  `@ai-sdk/anthropic@4.0.58` resolves `@ai-sdk/provider@4.0.17`; `@mastra/core@1.67.0`
+  pins `4.0.4`. `LanguageModelV4.doGenerate`'s return type differs between those
+  patches, so handing the provider to `new Agent({ model })` does not typecheck even
+  though it runs correctly. Needs an `as any` at that boundary until Mastra bumps —
+  and CI runs `tsc --noEmit`, so this would fail CI, not just the editor.
 
 ## Status
 
