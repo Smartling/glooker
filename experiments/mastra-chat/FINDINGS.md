@@ -150,3 +150,85 @@ The case for Mastra now rests entirely on Phase 2 differentiators that the contr
 arm does not have for free: persistent threads/semantic recall, typed durable
 workflows, evals, tracing, and its MCP client (which could expose Glooker's
 existing 16-tool MCP server to chat instead of the current 7).
+
+---
+
+# Phase 2 — the differentiators
+
+Tested the two that matter for Glooker. Workflows, evals and tracing were **not**
+tested; any claim about them is unevidenced.
+
+## A. MCP client — works, worth 26 lines
+
+Mastra's `MCPClient` discovered all **16 tools** from Glooker's own MCP server
+(GLOOK-26) against the live dev server, despite that server being POST-only
+JSON-RPC with no SSE channel (`GET /api/mcp` returns 405). Tools arrive namespaced
+`glooker_*`. Note the method is `listTools()`, not the documented `getTools()`.
+
+Driving those tools, a Mastra agent answered a question **today's chat cannot ask**
+— the current 7 tools hardwire `latestReportId(org)`, so no historical or
+cross-report question is possible:
+
+> "List the available reports, then compare the org summary between the two most
+> recent ones."
+
+It found 50 reports, compared `bfdd0073` (2026-09-09) against `e1dfb529`
+(2026-08-10), and reported commits 860 vs 1131, PRs 384 vs 516, AI% 70.1 vs 61.0.
+**Verified against the MCP server directly — every figure exact.** (It said "47
+reports" where the server returns 50; the headline numbers were all correct.)
+
+**But `control-mcp.ts` replicates the client in 26 code lines** — `initialize`,
+`tools/list`, `tools/call` — and returns the identical 16 tools and identical data.
+For a single local POST-only server, Mastra's MCP client is a convenience, not a
+capability. It would be worth much more against third-party servers needing OAuth,
+stdio, SSE or reconnection; Glooker has none of those.
+
+## B. Persistent memory — real, and genuinely not free
+
+`Memory` + `LibSQLStore` survives a process restart: pass 1 stated a fact, a
+**fresh process** in pass 2 recalled `@sduiev-smartling` / 128 correctly. The
+current chat cannot do this at all — `chat-panel.tsx` holds messages in React
+state and resends them; nothing is persisted server-side.
+
+Costs:
+- `LibSQLStore` requires an explicit `id` (fails with "id must be provided").
+- It provisioned **44 tables in a 577 KB SQLite file to store 4 messages** —
+  Mastra lays down its whole platform schema (workflows, scorers, datasets,
+  skills, knowledge, channels, notifications, workspaces) whether used or not.
+- **No MySQL adapter**, so this is a second datastore beside Glooker's MySQL.
+- **Semantic recall is not included**: the docs state it "requires a vector store
+  and embedder to be configured". Untested, and it would need more infrastructure
+  (the proxy does expose `/compatible/openai/embeddings`, so it is feasible).
+
+The control-arm equivalent of *plain thread persistence* is one table plus
+load/save in the DB Glooker already has — call it 80 lines and a migration in
+both `db/mysql.ts` and `db/sqlite.ts`. Semantic recall is where Mastra would
+genuinely pull ahead, and that is exactly the part still unproven.
+
+## Final dependency bill
+
+**211 new top-level packages**, 19 direct deps (main had 12), ~135 MB
+(`@mastra` 105M, `@ai-sdk` 14M, `zod` 8M, `@libsql` 8.4M). Plus: `--legacy-peer-deps`
+required, the `@testing-library/dom` pruning that broke 9 suites, and the
+`tsc --noEmit` provider-skew cast. Suite and typecheck are green on this branch.
+
+## Recommendation
+
+**Don't adopt Mastra for this.** On the thing chat actually does — pick a tool,
+call it, reason over the result — the control arm matched it exactly on 4 of 5
+questions while costing 211 fewer packages. The two Phase 2 wins are a 26-line
+MCP client and thread persistence that needs a second datastore.
+
+**Do take the three findings the experiment produced**, which are worth more than
+the framework question:
+
+1. `/anthropicai/chat` supports native Claude tool calling through the AI Proxy.
+   The `TOOL_CALL:` text protocol can be retired, and the one-tool-round ceiling
+   in `agent.ts` with it. `control-agent.ts` is a working implementation.
+2. Chat should consume the existing 16-tool MCP server instead of its own 7.
+   `control-mcp.ts` is 26 lines and already works.
+3. Tool results are uncapped (`query_commits limit=100` ≈ 8.9k tokens), and
+   neither agent handles an empty filtered result — both flail until the step cap.
+
+Revisit Mastra if Glooker needs semantic recall over long histories, durable
+workflows, or third-party MCP servers with real transports.
