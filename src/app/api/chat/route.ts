@@ -26,7 +26,6 @@ async function postHandler(req: NextRequest) {
   if (!org) return NextResponse.json({ error: 'org is required' }, { status: 400 });
 
   const picked: ChatEngine = engine ?? DEFAULT_ENGINE;
-  const systemSuffix = buildPreamble(pageContext);
 
   // /api/mcp is fail-closed on identity and scopes cost visibility per requester,
   // so the caller's auth header must travel with the server-side call.
@@ -36,18 +35,24 @@ async function postHandler(req: NextRequest) {
   if (identity) forward[authHeader] = identity;
 
   const origin = new URL(req.url).origin;
-  const requester = await resolveRequester(req.headers, org);
-  const engineOpts = {
-    mcpUrl: new URL('/api/mcp', req.url).toString(),
-    forward,
-    org,
-    baseUrl: origin,
-    // authDisabled means local/dev with no auth at all; treat as admin there only.
-    isAdmin: requester.isAdmin || requester.authDisabled === true,
-    systemSuffix,
-  };
 
   try {
+    // pageContext is raw, unvalidated request-body JSON — buildPreamble treats
+    // anything malformed as absent/dropped rather than throwing, but this call
+    // stays inside the try/catch as defense in depth so any residual throw
+    // still returns a handled error instead of an unhandled 500.
+    const systemSuffix = buildPreamble(pageContext);
+    const requester = await resolveRequester(req.headers, org);
+    const engineOpts = {
+      mcpUrl: new URL('/api/mcp', req.url).toString(),
+      forward,
+      org,
+      baseUrl: origin,
+      // authDisabled means local/dev with no auth at all; treat as admin there only.
+      isAdmin: requester.isAdmin || requester.authDisabled === true,
+      systemSuffix,
+    };
+
     // Resolving a pending approval — no new user message involved.
     if (action) {
       if (!runId || !toolCallId) {

@@ -259,7 +259,9 @@ export default function ChatPanel({ org }: { org: string }) {
           {activeContext && (
             <div className="px-3 pt-2">
               <span className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-2 py-1 pl-2.5 text-[11px] ${
-                activeContext.source === 'inferred'
+                engine === 'legacy'
+                  ? 'border-dashed border-gray-700 bg-gray-800/60 text-gray-500'
+                  : activeContext.source === 'inferred'
                   ? 'border-dashed border-blue-400/55 bg-blue-400/10 text-blue-300'
                   : 'border-accent bg-accent/10 text-accent-light'
               }`}>
@@ -272,14 +274,21 @@ export default function ChatPanel({ org }: { org: string }) {
                   className="rounded px-1 opacity-75 hover:opacity-100"
                 >×</button>
               </span>
-              {activeContext.keyFigures && activeContext.keyFigures.length > 0 && (
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {activeContext.keyFigures.map(f => (
-                    <span key={f.label} className="rounded border border-gray-800 bg-gray-800 px-1.5 py-0.5 text-[10px] text-gray-500">
-                      {f.label} {f.value}
-                    </span>
-                  ))}
-                </div>
+              {/* The legacy engine is the unmodified A/B baseline — it is never
+                  given page context (route.ts calls runChatAgent with no
+                  suffix). The chip must not imply it's in effect here. */}
+              {engine === 'legacy' ? (
+                <p className="mt-1 text-[10px] text-gray-600">Legacy engine ignores page context.</p>
+              ) : (
+                activeContext.keyFigures && activeContext.keyFigures.length > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {activeContext.keyFigures.map(f => (
+                      <span key={f.label} className="rounded border border-gray-800 bg-gray-800 px-1.5 py-0.5 text-[10px] text-gray-500">
+                        {f.label} {f.value}
+                      </span>
+                    ))}
+                  </div>
+                )
               )}
             </div>
           )}

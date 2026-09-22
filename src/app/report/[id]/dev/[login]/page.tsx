@@ -6,6 +6,7 @@ import useSWR from 'swr';
 import Breadcrumb from '@/components/Breadcrumb';
 import { findFirstJiraKey } from '@/lib/jira-key-utils';
 import { ClaudeCodeUsageCard, type SkillRow, type ModelRow } from './usage-card';
+import { buildDevKeyFigures } from './key-figures';
 import ChatPanel from '@/app/chat-panel';
 import { useEnrichPageContext } from '@/lib/chat/context/enrich';
 
@@ -129,13 +130,7 @@ export default function DevDetailPage() {
   const skills: SkillRow[] = devData?.skills ?? [];
   const models: ModelRow[] = devData?.models ?? [];
 
-  useEnrichPageContext(dev ? {
-    keyFigures: [
-      { label: 'Claude Code spend', value: `$${(Number(dev.cc_total_cost ?? 0) / 100).toFixed(2)}` },
-      { label: 'Commits', value: Number(dev.total_commits ?? 0) },
-      { label: 'PRs', value: Number(dev.total_prs ?? 0) },
-    ],
-  } : null);
+  useEnrichPageContext(dev ? { keyFigures: buildDevKeyFigures(dev) } : null);
 
   // 3. Summary (dependent on devData)
   const { data: summaryData, isLoading: summaryLoading, error: summaryError } = useSWR(

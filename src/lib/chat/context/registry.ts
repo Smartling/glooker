@@ -126,7 +126,13 @@ export function findEntry(
   return null;
 }
 
-/** Tier 1. Returns null on a registry miss so the caller can fall through to tier 3. */
+/**
+ * Tier 1. Returns null on a registry miss, meaning no chip is shown at all —
+ * there is no tier 3 to fall through to (it was built, evaluated against a
+ * pre-committed accuracy gate, and removed; see FINDINGS.md). `source:
+ * 'inferred'` remains a deliberate extension point in the types for a future
+ * reintroduction, but nothing currently produces it.
+ */
 export function buildFromRoute(
   pathname: string,
   params: Record<string, string | string[]>,

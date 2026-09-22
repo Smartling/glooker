@@ -402,11 +402,21 @@ scope narrows.
 ## Preamble cost vs. the 300-token budget
 
 Measured (Task 2 review) on a realistic 8-key-figure enriched preamble —
-`MAX_FIGURES = 8` is a hard cap in `buildPreamble()`, so this is the worst case a
-single page can currently produce: **455 characters, ~114 tokens**, well inside
-the 300-token budget. Key figures are gated behind an allowlist
-(`ctx.source === 'enriched'` only, closed by default) — a route- or
-inferred-sourced context is cheaper still: label and identifiers, no figures.
+`MAX_FIGURES = 8` is a hard cap in `buildPreamble()` — this is a realistic
+measured case from the current registry, **not a bound**: **455 characters,
+~114 tokens**, well inside the 300-token budget. At the time of this
+measurement `label` and each figure's text had no length cap, so a crafted
+`pageContext` (a long URL segment, or a direct `/api/chat` call bypassing the
+UI) could inflate this arbitrarily — see the code-review fix that added
+length caps in `buildPreamble()`. With those caps in place (label/kind ≤120
+chars each; ≤10 params and ≤10 filters at ≤64 chars per key/value; ≤8 key
+figures at ≤40 chars each), the preamble now has an actual worst case of
+~3.8KB (~950 tokens) — still finite, but well above the 300-token budget in
+that maximally adversarial case; ordinary registry-driven pages stay far
+below it, near the measured 455-character figure. Key figures are gated
+behind an allowlist (`ctx.source === 'enriched'` only, closed by default) — a
+route- or inferred-sourced context is cheaper still: label and identifiers,
+no figures.
 
 ## The tier-3 kill gate — reported in full
 

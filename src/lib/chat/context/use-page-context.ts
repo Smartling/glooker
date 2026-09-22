@@ -6,8 +6,11 @@ import { mergeEnrichment, useEnrichmentStore } from './enrich';
 import type { PageContext } from './types';
 
 /**
- * Tiers 1 + 2. Returns null on a registry miss so the caller may fall through
- * to tier 3, which is the only tier that costs anything.
+ * Tiers 1 + 2. Returns null on a registry miss — there is no tier 3 to fall
+ * through to (a model-inferred tier was built and then removed for missing
+ * its accuracy gate; see FINDINGS.md), so a miss means no chip at all.
+ * `source: 'inferred'` remains in the types as a deliberate extension point
+ * for a future reintroduction.
  */
 export function usePageContext(): PageContext | null {
   const pathname = usePathname() ?? '/';

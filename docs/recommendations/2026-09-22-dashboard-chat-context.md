@@ -243,7 +243,8 @@ change, paid for once.
 
 | Measurement | Result | Budget/reference |
 |---|---|---|
-| Preamble, 8-key-figure enriched page (worst case; `MAX_FIGURES = 8` is a hard cap) | 455 characters, ~114 tokens | 300-token budget |
+| Preamble, 8-key-figure enriched page (realistic measured case, not a bound; `MAX_FIGURES = 8` caps the figure *count* but not string length) | 455 characters, ~114 tokens | 300-token budget |
+| Preamble, actual worst case once `label`/param/figure length caps are added to `buildPreamble()` (label/kind ≤120 chars; ≤10 params/filters at ≤64 chars each; ≤8 figures at ≤40 chars each) | ~3.8KB, ~950 tokens | 300-token budget (exceeded only in this maximally adversarial case) |
 | Preamble, route-only descriptor (no key figures) | shorter still — label and identifiers only | — |
 | Tier-3 inference call (page-text extract → classification) | ~559 tokens (544 in / 15 out), ≈$0.0006/call | Haiku 4.5 list price, $1/$5 per Mtok |
 
