@@ -6,7 +6,7 @@ import useSWR from 'swr';
 import Breadcrumb from '@/components/Breadcrumb';
 import { findFirstJiraKey } from '@/lib/jira-key-utils';
 import { ClaudeCodeUsageCard, type SkillRow, type ModelRow } from './usage-card';
-import ChatPanelAuto from '@/app/chat-panel-auto';
+import ChatPanel from '@/app/chat-panel';
 import { useEnrichPageContext } from '@/lib/chat/context/enrich';
 
 const TYPE_COLORS: Record<string, string> = {
@@ -672,7 +672,7 @@ export default function DevDetailPage() {
         </div>
       )}
 
-      <ChatPanelAuto />
+      {report?.org && <ChatPanel org={report.org} />}
     </div>
   );
 }
