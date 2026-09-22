@@ -380,8 +380,10 @@ gated, and deleted — see below.
 
 ## Where context helped, and where it didn't
 
-Reported plainly, per Task 5's own assessment of its 6 newly-mounted pages —
-this is experiment data, not a shortfall to soften:
+Reported plainly, per Task 5's own assessment of its 6 newly-mounted pages plus
+the 2 tier-2 enrichment sites — this is experiment data, not a shortfall to
+soften. (Home and the team report page pre-dated the experiment's chat mounts
+and were not separately assessed here.)
 
 | Page | Verdict |
 |---|---|
@@ -413,15 +415,30 @@ Haiku classification → `{kind, label}`) was built, scored against a
 pre-committed gate, and deleted for missing the bar. Both numbers below are
 real; neither should stand alone.
 
+**The scored calls did not actually run on Haiku.** `claude-haiku-4-5` — the
+model the design specifies — is rejected outright by this AI Proxy account
+(see the standalone finding below: every Haiku identifier tried returns
+"invalid model identifier"). To get a real accuracy signal for the
+extract→infer→parse mechanism itself, the scored calls substituted
+`claude-sonnet-4-6` — a materially *more* capable model than the one
+specified — then the source was reverted to the specified `claude-haiku-4-5`
+before this task finished. So the score below answers "does inferring a
+descriptor from the page extract help at all", not "is Haiku 4.5 specifically
+bad at this" — and it answers harder against tier 3 than a same-capability
+comparison would: a stronger-than-specified model still only reached 1/5, so
+the result cannot be explained away as the substitute model being too weak.
+
 - **Pass condition, fixed before running:** ≥4/5 correct with tier 3 vs. the
   generic (no-context) fallback, on 5 questions answerable only with page
   context — scored on the real `/settings` page with `/settings` temporarily
   removed from the tier-1 registry to force the tier-3 path.
-- **Result: tier 3 scored 1/5; the generic fallback scored 0/5.** Against the
-  ≥4/5 bar, the gate failed and tier 3 was deleted per the plan's
-  pre-commitment.
-- **Cost per inference call: ~559 tokens (544 input + 15 output), ~$0.0006** at
-  Haiku 4.5 list pricing ($1/$5 per Mtok). Cost was never the blocker.
+- **Result: tier 3 (via the `claude-sonnet-4-6` stand-in) scored 1/5; the
+  generic fallback scored 0/5.** Against the ≥4/5 bar, the gate failed and
+  tier 3 was deleted per the plan's pre-commitment.
+- **Cost per inference call: ~559 tokens (544 input + 15 output), ~$0.0006** —
+  measured against the same proxy request shape at Haiku 4.5 list pricing
+  ($1/$5 per Mtok), i.e. the cost tier 3 would have carried had Haiku been
+  invocable here. Cost was never the blocker.
 
 **But the gate itself was badly designed, and that has to be said as plainly as
 the failing score.** Four of the five questions — "what can I configure here?",
@@ -459,5 +476,8 @@ identifier tried — `claude-haiku-4-5`, `claude-haiku-4-5-20251001`,
 identical request shape succeeds for `claude-sonnet-5` and `claude-sonnet-4-6`.
 This reads as an account/region provisioning gap, not a proxy bug — the catalog
 says a model is available; the account's Bedrock backend does not actually
-serve it. Worth raising with the Data team before anyone else on this account
-plans around Haiku through this route.
+serve it. **This is the same rejection that forced the kill gate above to score
+`claude-sonnet-4-6` standing in for the specified Haiku model** — not a
+methodology choice, a workaround for this gap. Worth raising with the Data
+team before anyone else on this account plans around Haiku through this
+route.

@@ -85,7 +85,18 @@ What happened next: Glooker's own tier 3 was killed. The pre-committed bar was
 generic. Against that bar, the gate failed and the code was deleted, exactly
 as the plan required. That result should not be softened.
 
-But it also should not be taken at face value without its own caveat: four of
+That score was not measured with the specified model. `claude-haiku-4-5` is
+rejected outright by the AI Proxy account this experiment ran on — Section 6
+has the full finding. To still get a real accuracy signal for the mechanism,
+the scored calls substituted `claude-sonnet-4-6`, a materially *more*
+capable model, then the source was reverted to the specified Haiku model
+before the task closed. So 1/5 answers "does inferring a descriptor from a
+page-text extract help at all," not "is Haiku 4.5 bad at this specifically" —
+and it is, if anything, a harder result for tier 3 to explain away: a
+stronger-than-specified model still only reached 1/5, so the outcome is not
+an artefact of an underpowered classifier.
+
+It also should not be taken at face value without its own caveat: four of
 the five test questions ("what can I configure here?", "is anything
 misconfigured?", "what is the LLM provider set to?", "how many teams are
 configured?") depend on app-config data that lives behind Glooker's `/api/
@@ -127,7 +138,7 @@ export interface KeyFigure {
  *
  * This is a DESCRIPTOR, not a data snapshot. It names the view so the agent can
  * fetch the real numbers through its tools under the caller's identity. It must
- * never carry a value the viewer's own visibility rules would strip.
+ * never carry a value the viewer's own cost-visibility rules would strip.
  */
 export interface PageContext {
   /** Stable machine key for the view, e.g. 'developer-report'. */
@@ -240,11 +251,24 @@ Cost was never the reason tier 3 was cut in this experiment — the numbers
 above are cheap in absolute terms. It was cut on accuracy against its own
 gate, with the caveat in Section 2.
 
+**Standalone finding: catalog availability is not account invocability.** The
+AI Proxy's models catalog lists `claude-haiku-4-5` with providers
+`['anthropic', 'bedrock']`, but `/anthropicai/chat` rejects every Haiku
+identifier tried — `claude-haiku-4-5`, `claude-haiku-4-5-20251001`,
+`claude-3-5-haiku`, and Bedrock-prefixed variants — on this account with "The
+provided model identifier is invalid (Service: BedrockRuntime)". The
+identical request shape succeeds for `claude-sonnet-5` and `claude-sonnet-4-6`.
+This is the specific gap that forced Section 2's kill-gate score to be
+measured with `claude-sonnet-4-6` standing in for the specified Haiku model —
+not a methodology choice, a workaround for it. It reads as an account/region
+provisioning issue, not a proxy bug, and is worth raising with Smartling's
+Data team before any team plans around Haiku through this route.
+
 **In-browser inference was considered and rejected for dashboard metrics,
 independent of the tier-3 result above.** Chrome's Summarizer API and
 on-device runtimes like WebLLM are real, shipping technology, not a research
-curiosity — Trip.com has described running on-device summarisation in
-production. That maturity does not change the calculus for a metrics
+curiosity — on-device summarisation has begun appearing in production
+consumer apps. That maturity does not change the calculus for a metrics
 dashboard, for three independent reasons. First, lossy compression of numbers
 is the worst possible failure mode for an analytics product: a rounded or
 hallucinated figure looks exactly like a correct one to the person reading it,
