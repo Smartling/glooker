@@ -5,6 +5,7 @@ import useSWR, { useSWRConfig } from 'swr';
 import Link from 'next/link';
 import { useAuth } from '../auth-context';
 import { useIdleAwarePolling } from '@/hooks/use-idle-aware-polling';
+import ChatPanelAuto from '@/app/chat-panel-auto';
 
 interface Progress {
   status:              string;
@@ -605,6 +606,8 @@ export default function ReportsPage() {
           );
         })}
       </div>
+
+      <ChatPanelAuto />
     </div>
   );
 }

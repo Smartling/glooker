@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import ProjectsContent from './projects-content';
+import ChatPanelAuto from '@/app/chat-panel-auto';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,5 +13,10 @@ export default function ProjectsPage() {
   // nothing is configured yet, GET /api/projects owns that state and
   // ProjectsContent renders its "No Jira projects configured. Add one in
   // Settings → Projects." message.
-  return <ProjectsContent />;
+  return (
+    <>
+      <ProjectsContent />
+      <ChatPanelAuto />
+    </>
+  );
 }

@@ -6,6 +6,8 @@ import useSWR from 'swr';
 import Breadcrumb from '@/components/Breadcrumb';
 import { findFirstJiraKey } from '@/lib/jira-key-utils';
 import { ClaudeCodeUsageCard, type SkillRow, type ModelRow } from './usage-card';
+import ChatPanelAuto from '@/app/chat-panel-auto';
+import { useEnrichPageContext } from '@/lib/chat/context/enrich';
 
 const TYPE_COLORS: Record<string, string> = {
   feature: 'bg-blue-500', bug: 'bg-red-500', refactor: 'bg-purple-500',
@@ -126,6 +128,14 @@ export default function DevDetailPage() {
     devData?.unmergedWork ?? { openPrs: [], branchCommits: [] };
   const skills: SkillRow[] = devData?.skills ?? [];
   const models: ModelRow[] = devData?.models ?? [];
+
+  useEnrichPageContext(dev ? {
+    keyFigures: [
+      { label: 'Claude Code spend', value: `$${(Number(dev.cc_total_cost ?? 0) / 100).toFixed(2)}` },
+      { label: 'Commits', value: Number(dev.total_commits ?? 0) },
+      { label: 'PRs', value: Number(dev.total_prs ?? 0) },
+    ],
+  } : null);
 
   // 3. Summary (dependent on devData)
   const { data: summaryData, isLoading: summaryLoading, error: summaryError } = useSWR(
@@ -661,6 +671,8 @@ export default function DevDetailPage() {
           </div>
         </div>
       )}
+
+      <ChatPanelAuto />
     </div>
   );
 }

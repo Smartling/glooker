@@ -6,6 +6,7 @@ import useSWR from 'swr';
 import ChatPanel from '@/app/chat-panel';
 import IntegrityBadge from '@/components/IntegrityBadge';
 import { useUrlState } from '@/lib/url-state';
+import { useEnrichPageContext } from '@/lib/chat/context/enrich';
 import { SpendTab, type Developer, type ReportMeta, type SpendWindow, type ModelUsageRow, type SkillsUsageRow } from './spend-tab';
 
 const TYPE_COLORS: Record<string, string> = {
@@ -67,6 +68,13 @@ export default function OrgDetailPage() {
 
   const { data: config } = useSWR('/api/llm-config', { revalidateIfStale: false });
   const latestReportId = config?.latestReport?.id ?? null;
+
+  useEnrichPageContext(data ? {
+    keyFigures: [
+      { label: 'Developers', value: Number(developers.length ?? 0) },
+      { label: 'Total commits', value: Number(developers.reduce((s, d) => s + Number(d.total_commits ?? 0), 0)) },
+    ],
+  } : null);
 
   if (loading) return <div className="max-w-7xl mx-auto px-4 py-16 text-gray-500">Loading...</div>;
   if (fetchError || !report) return <div className="max-w-7xl mx-auto px-4 py-16 text-red-400">Error: {fetchError?.message || 'Not found'}</div>;

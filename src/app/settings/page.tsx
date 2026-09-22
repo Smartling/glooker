@@ -5,6 +5,7 @@ import { useTheme } from '../theme-context';
 import { THEMES, type ThemeColors } from '../themes';
 import { useAuth } from '../auth-context';
 import ProjectsTab from './projects-tab';
+import ChatPanelAuto from '@/app/chat-panel-auto';
 
 type Tab = 'schedules' | 'teams' | 'projects' | 'app' | 'appearance' | 'cc-spend' | 'skip-allowlist';
 
@@ -101,6 +102,8 @@ export default function SettingsPage() {
       {activeTab === 'cc-spend' && <CCSpendTab />}
       {activeTab === 'skip-allowlist' && <SkipAllowlistTab />}
       {activeTab === 'appearance' && <AppearanceTab />}
+
+      <ChatPanelAuto />
     </div>
   );
 }

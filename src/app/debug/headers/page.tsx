@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import ChatPanelAuto from '@/app/chat-panel-auto';
 
 export default function DebugHeadersPage() {
   const [data, setData] = useState<{ headers: Record<string, string>; decoded?: Record<string, unknown>; timestamp: string } | null>(null);
@@ -59,6 +60,8 @@ export default function DebugHeadersPage() {
       )}
 
       {!data && !error && <p className="text-gray-500">Loading...</p>}
+
+      <ChatPanelAuto />
     </div>
   );
 }
