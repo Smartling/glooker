@@ -55,6 +55,7 @@ export default function ChatPanel({ org }: { org: string }) {
         body: JSON.stringify({
           org, engine, action: approve ? 'approve' : 'decline',
           runId: decided.runId, toolCallId: decided.toolCallId,
+          pageContext: activeContext,
         }),
       });
       const data = await res.json();
