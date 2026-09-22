@@ -340,3 +340,124 @@ Read-only Q&A: parity held, dependency not justified (211 packages).
 build from scratch** — durable suspended state across HTTP requests and processes.
 If Glooker wants chat to write, that changes the calculation. If it stays
 read-only, it does not.
+
+---
+
+# Page-context-aware chat: tiers 1-3, and the kill gate (2026-09-22)
+
+Branch `experiment/mastra-chat`, on top of the control-arm chat above. Design:
+`docs/superpowers/specs/2026-09-22-page-context-aware-chat-design.md`. Full
+build ledger: `.superpowers/sdd/2026-09-22-page-context-aware-chat/progress.md`.
+
+## What shipped
+
+Tiers 1 and 2 of the three-tier design, across all 9 routes. Tier 3 was built,
+gated, and deleted — see below.
+
+- **Tier 1** (`src/lib/chat/context/registry.ts`) — 9 registry entries, one per
+  route (`/`, `/report/[id]/org`, `/report/[id]/team`, `/report/[id]/dev/[login]`,
+  `/reports`, `/projects`, `/profile`, `/settings`, `/debug/headers`). Matching is
+  structural and positional against path segments (`findEntry`), not
+  value-substitution — a report id whose value happens to equal a literal segment
+  elsewhere in the URL (e.g. `id=org`) cannot produce a false miss. Caught in
+  review before it shipped (commit `1c32af6`).
+- **Tier 2** (`src/lib/chat/context/enrich.tsx`, `useEnrichPageContext`) — applied
+  to 2 of the 9 pages: the developer page (Claude Code spend, commits, PRs) and
+  the org report page (developer count, total commits). Ownership-tracked
+  (commit `efbe971`) so a stale unmount can't null out a still-mounted page's
+  enrichment.
+- **Chip UI** — `chat-panel.tsx` renders the active `PageContext` as a removable
+  chip; `source: 'inferred'` (had tier 3 shipped) renders with a muted provenance
+  marker so a guess never reads as a fact.
+- **Per-kind suggestions** — the `SUGGESTIONS` list is seeded per registry entry
+  (e.g. the dev page offers "Why did spend change?", "What did they ship?").
+- All 9 routes now mount `ChatPanel` (3 already did; 6 added). One mid-task
+  correction: `report/[id]/dev/[login]` was first wired to an org auto-resolver
+  that reads the *latest* report's org via `/api/llm-config`; review caught that
+  this page can show a historical report whose org differs from the latest, which
+  would have silently scoped the chat to the wrong org. Fixed to use the page's
+  own `report.org`, matching the org and team pages' pattern.
+
+## Where context helped, and where it didn't
+
+Reported plainly, per Task 5's own assessment of its 6 newly-mounted pages —
+this is experiment data, not a shortfall to soften:
+
+| Page | Verdict |
+|---|---|
+| `/report/[id]/dev/[login]` | Helped. Tier 2 gives exact spend/commits/PR figures the chat anchors "why did spend change" against. |
+| `/report/[id]/org` | Helped. Tier 2 gives developer count and total commits for comparison questions. |
+| `/projects`, `/profile` | Helped. Both show concrete developer/project figures; tier 1's free label is enough to scope questions usefully even with no tier-2 enrichment. |
+| `/reports` | Ambiguous. This page's job is launching and monitoring report runs, not Q&A — a chat panel next to a live progress bar competes for the same screen real estate for an unrelated task. Unresolved without real usage data. |
+| **`/settings`** | **Added nothing.** Entirely configuration management (schedules, teams, Jira mappings, connection tests). No tab surfaces developer-impact numbers, so the chat has nothing page-specific to anchor on and falls back to generic org-wide suggestions unrelated to whatever the user is actually configuring — indistinguishable from having no page context at all. |
+| **`/debug/headers`** | **Added nothing.** Internal, unlinked debug page dumping raw request headers and decoded OIDC JWTs. No plausible flow pairs debugging auth headers with asking about developer performance. The chat bubble is inert decoration. |
+
+Net: 2 of 9 pages got a measurable benefit from tier 2; 2 more ride usefully on
+tier 1's free label alone; 1 is genuinely contested; 2 (`settings`,
+`debug/headers`) added nothing and would be the first cut if this experiment's
+scope narrows.
+
+## Preamble cost vs. the 300-token budget
+
+Measured (Task 2 review) on a realistic 8-key-figure enriched preamble —
+`MAX_FIGURES = 8` is a hard cap in `buildPreamble()`, so this is the worst case a
+single page can currently produce: **455 characters, ~114 tokens**, well inside
+the 300-token budget. Key figures are gated behind an allowlist
+(`ctx.source === 'enriched'` only, closed by default) — a route- or
+inferred-sourced context is cheaper still: label and identifiers, no figures.
+
+## The tier-3 kill gate — reported in full
+
+Tier 3 (`inferPageContext`: a bounded, instrumentation-free page-text extract →
+Haiku classification → `{kind, label}`) was built, scored against a
+pre-committed gate, and deleted for missing the bar. Both numbers below are
+real; neither should stand alone.
+
+- **Pass condition, fixed before running:** ≥4/5 correct with tier 3 vs. the
+  generic (no-context) fallback, on 5 questions answerable only with page
+  context — scored on the real `/settings` page with `/settings` temporarily
+  removed from the tier-1 registry to force the tier-3 path.
+- **Result: tier 3 scored 1/5; the generic fallback scored 0/5.** Against the
+  ≥4/5 bar, the gate failed and tier 3 was deleted per the plan's
+  pre-commitment.
+- **Cost per inference call: ~559 tokens (544 input + 15 output), ~$0.0006** at
+  Haiku 4.5 list pricing ($1/$5 per Mtok). Cost was never the blocker.
+
+**But the gate itself was badly designed, and that has to be said as plainly as
+the failing score.** Four of the five questions — "what can I configure here?",
+"is anything misconfigured?", "what is the LLM provider set to?", "how many
+teams are configured?" — require app-config data (`/api/llm-config`,
+`/api/teams`) that no MCP tool exposes. Glooker's 16 MCP tools are all
+report/analytics tools; neither arm had any path to a correct answer on those
+four, regardless of inference quality. Those four questions have **zero
+discriminating power** between the two conditions — both scored 0/4 on them,
+for a reason structural to the tool surface, not to tier 3.
+
+The fifth question — "what page am I on?" — is the one question that actually
+tests what tier 3 is built to do: name the view. On that question, **tier 3
+answered correctly ("App Settings") and the generic fallback answered
+incorrectly** ("I don't have access to any UI/session context... I can't see
+what page you're currently viewing").
+
+So there are two honest numbers, and the reader should hold both: **1/5 against
+the pre-committed bar** — the number that killed it, correctly, since the bar
+was fixed before the run precisely so it couldn't move afterward — and **1/1 in
+tier 3's favour** on the only question that measured what tier 3 actually
+claims to do. The deletion stands: a gate result is a gate result, and a
+separate, independent problem (below) means tier 3 as specified couldn't ship
+here even with a passing score. But a future attempt at tier 3 should design a
+gate where all five questions are answerable from a bounded page extract, not
+from app config the extract never contains.
+
+## Standalone finding: catalog availability is not account invocability
+
+The Smartling AI Proxy's models catalog lists `claude-haiku-4-5` with providers
+`['anthropic', 'bedrock']`. In practice, `/anthropicai/chat` rejects every Haiku
+identifier tried — `claude-haiku-4-5`, `claude-haiku-4-5-20251001`,
+`claude-3-5-haiku`, and Bedrock-prefixed variants — on account `597794c16` with
+`"The provided model identifier is invalid (Service: BedrockRuntime)"`. The
+identical request shape succeeds for `claude-sonnet-5` and `claude-sonnet-4-6`.
+This reads as an account/region provisioning gap, not a proxy bug — the catalog
+says a model is available; the account's Bedrock backend does not actually
+serve it. Worth raising with the Data team before anyone else on this account
+plans around Haiku through this route.
