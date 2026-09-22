@@ -1,4 +1,4 @@
-import { routePattern, buildFromRoute } from '@/lib/chat/context/registry';
+import { routePattern, buildFromRoute, findEntry } from '@/lib/chat/context/registry';
 
 describe('routePattern', () => {
   it('returns / for the root path', () => {
@@ -11,13 +11,26 @@ describe('routePattern', () => {
       .toBe('/report/[id]/dev/[login]');
   });
 
-  it('only substitutes exact whole segments', () => {
-    // 'org' is a param value here; the literal '/org' segment must survive.
+  it('demonstrates the value-substitution collision: a literal segment that equals a param value gets clobbered too', () => {
+    // 'org' is both the id's value and a literal segment elsewhere in the
+    // path. routePattern substitutes by value with no positional
+    // awareness, so BOTH occurrences of 'org' become '[id]' — the literal
+    // segment does NOT survive. This is exactly why registry lookups use
+    // `findEntry`'s structural, positional match instead of this function.
     expect(routePattern('/report/org/org', { id: 'org' })).toBe('/report/[id]/[id]');
   });
 
   it('leaves static paths untouched', () => {
     expect(routePattern('/settings', {})).toBe('/settings');
+  });
+});
+
+describe('findEntry', () => {
+  it('is immune to the value-substitution collision: a param value equal to a literal segment elsewhere still resolves', () => {
+    // Unlike routePattern (see above), findEntry matches structurally and
+    // positionally, so an id of 'org' colliding with the literal '/org'
+    // segment does not cause a false miss.
+    expect(findEntry('/report/org/org', { id: 'org' })?.kind).toBe('org-report');
   });
 });
 
@@ -53,6 +66,12 @@ describe('buildFromRoute', () => {
 
   it('returns null for an unregistered route', () => {
     expect(buildFromRoute('/experiments/new', {}, new URLSearchParams())).toBeNull();
+  });
+
+  it('resolves the org report even when the id value collides with a literal segment', () => {
+    const ctx = buildFromRoute('/report/org/org', { id: 'org' }, new URLSearchParams());
+    expect(ctx?.kind).toBe('org-report');
+    expect(ctx?.params).toEqual({ reportId: 'org' });
   });
 
   it.each([

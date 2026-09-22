@@ -2,8 +2,16 @@ import type { PageContext, RegistryEntry } from './types';
 
 /**
  * Turn a concrete pathname back into its Next.js route pattern by swapping
- * param VALUES for their [name]. Matches whole segments only, so a literal
- * segment that happens to equal a param value is not clobbered.
+ * param VALUES for their [name]. This substitutes by VALUE with no
+ * positional awareness: it replaces every segment — literal or dynamic —
+ * whose text equals a param's value, wherever that text occurs in the path.
+ * A literal segment CAN be wrongly clobbered when it happens to equal a
+ * param's value (e.g. a report id of "org" turns the literal "/org"
+ * segment into "[id]" too, producing a pattern string no route actually
+ * has). It's fine for display/debugging a known, already-resolved
+ * pathname, but it must NOT be used for registry lookups — see
+ * `findEntry`, which matches structurally and positionally instead and is
+ * immune to this collision.
  */
 export function routePattern(
   pathname: string,
@@ -79,10 +87,43 @@ export const REGISTRY: RegistryEntry[] = [
   },
 ];
 
-const BY_PATTERN = new Map(REGISTRY.map(e => [e.pattern, e]));
+function isPlaceholder(segment: string): boolean {
+  return segment.startsWith('[') && segment.endsWith(']');
+}
 
-export function findEntry(pathname: string, params: Record<string, string | string[]>) {
-  return BY_PATTERN.get(routePattern(pathname, params)) ?? null;
+/**
+ * Matches a pathname's segments against a registered pattern's segments
+ * positionally: equal segment counts, and each pattern segment is either
+ * identical to the path segment at that position or a `[param]`
+ * placeholder (which matches any value at that position). This never
+ * consults param values, so a param value that collides with a literal
+ * segment elsewhere in the path cannot cause a false miss the way
+ * value-based substitution (`routePattern`) can.
+ */
+function matchesPattern(pathSegments: string[], patternSegments: string[]): boolean {
+  if (pathSegments.length !== patternSegments.length) return false;
+  return patternSegments.every((p, i) => isPlaceholder(p) || p === pathSegments[i]);
+}
+
+/**
+ * Look up the registry entry for a pathname by structural, positional
+ * match against each entry's `pattern` (see `matchesPattern`). `params` is
+ * accepted for interface symmetry with `buildFromRoute` and potential
+ * future use, but the match itself is independent of param values —
+ * deliberately, since that's what makes it immune to the collision
+ * `routePattern` is subject to.
+ */
+export function findEntry(
+  pathname: string,
+  params: Record<string, string | string[]>,
+): RegistryEntry | null {
+  void params;
+  const pathSegments = pathname.split('/').filter(Boolean);
+  for (const entry of REGISTRY) {
+    const patternSegments = entry.pattern.split('/').filter(Boolean);
+    if (matchesPattern(pathSegments, patternSegments)) return entry;
+  }
+  return null;
 }
 
 /** Tier 1. Returns null on a registry miss so the caller can fall through to tier 3. */
