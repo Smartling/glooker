@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { usePageContext, usePageSuggestions } from '@/lib/chat/context/use-page-context';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -29,6 +30,10 @@ export default function ChatPanel({ org }: { org: string }) {
   >(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const pageContext = usePageContext();
+  const pageSuggestions = usePageSuggestions();
+  const [contextAttached, setContextAttached] = useState(true);
+  const activeContext = contextAttached ? pageContext : null;
 
   useEffect(() => {
     if (open && inputRef.current) inputRef.current.focus();
@@ -83,6 +88,7 @@ export default function ChatPanel({ org }: { org: string }) {
         body: JSON.stringify({
           org,
           engine,
+          pageContext: activeContext,
           messages: newMessages.map(m => ({ role: m.role, content: m.content })),
         }),
       });
@@ -175,7 +181,7 @@ export default function ChatPanel({ org }: { org: string }) {
               <div>
                 <p className="text-xs text-gray-500 mb-3">Ask anything about your engineering team:</p>
                 <div className="flex flex-wrap gap-1.5">
-                  {SUGGESTIONS.map((s, i) => (
+                  {(pageSuggestions.length ? pageSuggestions : SUGGESTIONS).map((s, i) => (
                     <button
                       key={i}
                       onClick={() => send(s)}
@@ -249,6 +255,42 @@ export default function ChatPanel({ org }: { org: string }) {
             </div>
           )}
 
+          {activeContext && (
+            <div className="px-3 pt-2">
+              <span className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-2 py-1 pl-2.5 text-[11px] ${
+                activeContext.source === 'inferred'
+                  ? 'border-dashed border-blue-400/55 bg-blue-400/10 text-blue-300'
+                  : 'border-accent bg-accent/10 text-accent-light'
+              }`}>
+                <span className="truncate">
+                  {activeContext.source === 'inferred' ? '~ ' : ''}{activeContext.label}
+                </span>
+                <button
+                  onClick={() => setContextAttached(false)}
+                  aria-label="Detach page context"
+                  className="rounded px-1 opacity-75 hover:opacity-100"
+                >×</button>
+              </span>
+              {activeContext.keyFigures && activeContext.keyFigures.length > 0 && (
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {activeContext.keyFigures.map(f => (
+                    <span key={f.label} className="rounded border border-gray-800 bg-gray-800 px-1.5 py-0.5 text-[10px] text-gray-500">
+                      {f.label} {f.value}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          {!contextAttached && pageContext && (
+            <div className="flex items-center gap-2 px-3 pt-2 text-[11px] text-gray-600">
+              <span>no page context</span>
+              <button
+                onClick={() => setContextAttached(true)}
+                className="rounded border border-gray-700 bg-gray-800 px-2 py-0.5 text-gray-400"
+              >Re-attach</button>
+            </div>
+          )}
           {/* Engine selector + last-run diagnostics (experiment branch) */}
           <div className="px-3 pt-2 border-t border-gray-800">
             <div className="flex items-center gap-2 text-[11px] text-gray-500">

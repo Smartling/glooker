@@ -4,6 +4,8 @@ import { runControlEngine } from '@/lib/chat/engines/control';
 import { runMastraEngine, resolveMastraApproval } from '@/lib/chat/engines/mastra';
 import { resolveRequester } from '@/lib/cost-visibility';
 import { withRequestLog } from '@/lib/logger';
+import { buildPreamble } from '@/lib/chat/context/preamble';
+import type { PageContext } from '@/lib/chat/context/types';
 
 export type ChatEngine = 'legacy' | 'control' | 'mastra';
 
@@ -11,18 +13,20 @@ const DEFAULT_ENGINE = (process.env.CHAT_ENGINE as ChatEngine) || 'control';
 
 async function postHandler(req: NextRequest) {
   const body = await req.json();
-  const { messages, org, engine, action, runId, toolCallId } = body as {
+  const { messages, org, engine, action, runId, toolCallId, pageContext } = body as {
     messages?: ChatMessage[];
     org: string;
     engine?: ChatEngine;
     action?: 'approve' | 'decline';
     runId?: string;
     toolCallId?: string;
+    pageContext?: PageContext;
   };
 
   if (!org) return NextResponse.json({ error: 'org is required' }, { status: 400 });
 
   const picked: ChatEngine = engine ?? DEFAULT_ENGINE;
+  const systemSuffix = buildPreamble(pageContext);
 
   // /api/mcp is fail-closed on identity and scopes cost visibility per requester,
   // so the caller's auth header must travel with the server-side call.
@@ -40,6 +44,7 @@ async function postHandler(req: NextRequest) {
     baseUrl: origin,
     // authDisabled means local/dev with no auth at all; treat as admin there only.
     isAdmin: requester.isAdmin || requester.authDisabled === true,
+    systemSuffix,
   };
 
   try {
@@ -63,7 +68,7 @@ async function postHandler(req: NextRequest) {
     if (picked === 'mastra') {
       return NextResponse.json(await runMastraEngine({ ...engineOpts, messages }));
     }
-    return NextResponse.json(await runControlEngine(messages, engineOpts.mcpUrl, forward));
+    return NextResponse.json(await runControlEngine(messages, engineOpts.mcpUrl, forward, systemSuffix));
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : String(err), engine: picked },

@@ -34,6 +34,7 @@ export async function runControlEngine(
   messages: { role: string; content: string }[],
   mcpUrl: string,
   forward: Record<string, string>,
+  systemSuffix = '',
   maxSteps = 8,
 ): Promise<EngineResult> {
   const started = Date.now();
@@ -48,7 +49,7 @@ export async function runControlEngine(
   for (let step = 1; step <= maxSteps; step++) {
     const reply = await callProxy({
       max_tokens: 4000,
-      system: CHAT_SYSTEM,
+      system: CHAT_SYSTEM + systemSuffix,
       tools: tools.map(t => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
       messages: convo,
     });

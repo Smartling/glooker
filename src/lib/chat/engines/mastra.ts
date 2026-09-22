@@ -22,6 +22,7 @@ export interface MastraEngineOpts {
   baseUrl: string;
   isAdmin: boolean;
   maxSteps?: number;
+  systemSuffix?: string;
 }
 
 /**
@@ -52,7 +53,7 @@ async function withMastra(opts: MastraEngineOpts) {
   const agent = new Agent({
     id: AGENT_ID,
     name: AGENT_ID,
-    instructions: CHAT_SYSTEM,
+    instructions: CHAT_SYSTEM + (opts.systemSuffix ?? ''),
     model: createSmartlingAnthropic({ operationName: 'glooker_chat_mastra' })('claude-sonnet-5') as any,
     tools: {
       ...readTools,

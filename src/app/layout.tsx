@@ -6,6 +6,7 @@ import { AuthProvider } from './auth-context';
 import SWRProvider from '@/lib/swr-provider';
 import NavBar from '@/components/NavBar';
 import Footer from '@/components/Footer';
+import { PageContextProvider } from '@/lib/chat/context/enrich';
 
 export const metadata: Metadata = {
   title: 'Glooker — GitHub Analytics',
@@ -19,11 +20,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ThemeProvider>
           <SWRProvider>
             <AuthProvider>
-              <Suspense>
-                <NavBar />
-              </Suspense>
-              {children}
-              <Footer />
+              <PageContextProvider>
+                <Suspense>
+                  <NavBar />
+                </Suspense>
+                {children}
+                <Footer />
+              </PageContextProvider>
             </AuthProvider>
           </SWRProvider>
         </ThemeProvider>
