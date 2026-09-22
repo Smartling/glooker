@@ -42,9 +42,16 @@ async function postHandler(req: NextRequest) {
     // stays inside the try/catch as defense in depth so any residual throw
     // still returns a handled error instead of an unhandled 500.
     const systemSuffix = buildPreamble(pageContext);
+    // The MCP server is THIS process. Deriving its URL from req.url breaks behind
+    // a load balancer: the ALB sets Host to the public name, so the container
+    // fetches its own external URL — from a private subnet that either fails to
+    // resolve or hits the ALB's authenticate-oidc rule. Always call the local
+    // listener. The caller's identity travels in `forward`, not via the ALB.
+    const mcpUrl = process.env.GLOOKER_MCP_URL
+      ?? `http://127.0.0.1:${process.env.PORT || 3000}/api/mcp`;
     const requester = await resolveRequester(req.headers, org);
     const engineOpts = {
-      mcpUrl: new URL('/api/mcp', req.url).toString(),
+      mcpUrl,
       forward,
       org,
       baseUrl: origin,

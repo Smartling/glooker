@@ -36,7 +36,16 @@ async function withMastra(opts: MastraEngineOpts) {
     servers: { glooker: { url: new URL(opts.mcpUrl), requestInit: { headers: opts.forward } } } as any,
   });
   const toolCalls: string[] = [];
-  const rawTools = await mcp.listTools();
+  // listTools() is `(await listToolsWithErrors()).tools` — it DISCARDS errors, so an
+  // unreachable MCP server yields zero tools and the agent answers from nothing.
+  // That is a failure that looks like a success; surface it instead.
+  const { tools: rawTools, errors } = await (mcp as any).listToolsWithErrors();
+  if (errors?.length) {
+    throw new Error(`Could not reach the Glooker data tools: ${errors.map((e: any) => e?.message ?? String(e)).join('; ')}`);
+  }
+  if (!rawTools || Object.keys(rawTools).length === 0) {
+    throw new Error('The Glooker data tools returned an empty tool list; refusing to answer without data access.');
+  }
   const readTools = Object.fromEntries(
     Object.entries(rawTools).map(([name, tool]: [string, any]) => [
       name,

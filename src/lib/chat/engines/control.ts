@@ -39,7 +39,12 @@ export async function runControlEngine(
 ): Promise<EngineResult> {
   const started = Date.now();
   const toolCalls: string[] = [];
-  const tools = await mcpListTools(mcpUrl, forward);
+  let tools;
+  try {
+    tools = await mcpListTools(mcpUrl, forward);
+  } catch (err: any) {
+    throw new Error(`Could not reach the Glooker data tools at ${mcpUrl}: ${err?.message ?? String(err)}`);
+  }
 
   const convo: any[] = messages.map(m => ({
     role: m.role === 'assistant' ? 'assistant' : 'user',
