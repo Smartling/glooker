@@ -45,6 +45,10 @@ COPY --from=base /app/schema.sql ./
 COPY --from=base /app/prompts ./prompts
 
 ENV NODE_ENV=production
+# Next's standalone server binds process.env.HOSTNAME, which Docker/ECS set to the
+# container ID — so it listens ONLY on the container IP and NOT on loopback. The app
+# calls its own /api/mcp server-side, so it must be reachable at 127.0.0.1.
+ENV HOSTNAME=0.0.0.0
 EXPOSE 3000
 
 CMD ["node", "server.js"]
