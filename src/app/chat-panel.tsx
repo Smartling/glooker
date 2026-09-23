@@ -163,9 +163,9 @@ export default function ChatPanel({ org }: { org: string }) {
           (data.ms ? ` · ${(data.ms / 1000).toFixed(1)}s` : '') +
           (tools.length ? `\n${tools.join('\n')}` : ''),
         );
+        setMessages(m => [...m, { role: 'assistant', content: data.response }]);
         setPending(data.pendingApproval ?? null);
         if (data.pendingPageRead) await providePage(data.pendingPageRead);
-        setMessages([...newMessages, { role: 'assistant', content: data.response }]);
       }
     } catch {
       setMessages([...newMessages, { role: 'assistant', content: 'Network error — could not reach the server.' }]);
