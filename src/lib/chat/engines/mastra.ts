@@ -62,16 +62,18 @@ async function withMastra(opts: MastraEngineOpts) {
     ]),
   );
 
+  const tools = {
+    ...readTools,
+    ...buildWriteTools({ org: opts.org, baseUrl: opts.baseUrl, forward: opts.forward, isAdmin: opts.isAdmin }),
+    ...buildPageReadTool(),
+  };
+
   const agent = new Agent({
     id: AGENT_ID,
     name: AGENT_ID,
     instructions: CHAT_SYSTEM + (opts.systemSuffix ?? ''),
     model: createSmartlingAnthropic({ operationName: 'glooker_chat_mastra' })('claude-sonnet-5') as any,
-    tools: {
-      ...readTools,
-      ...buildWriteTools({ org: opts.org, baseUrl: opts.baseUrl, forward: opts.forward, isAdmin: opts.isAdmin }),
-      ...buildPageReadTool(),
-    },
+    tools,
   });
 
   const mastra = new Mastra({
@@ -79,10 +81,10 @@ async function withMastra(opts: MastraEngineOpts) {
     storage: new LibSQLStore({ id: 'glooker-chat-runs', url: runStoreUrl() }),
   } as any);
 
-  return { mcp, toolCalls, toolCount: Object.keys(rawTools).length + 1, agent: mastra.getAgent(AGENT_ID) as any };
+  return { mcp, toolCalls, toolCount: Object.keys(tools).length, agent: mastra.getAgent(AGENT_ID) as any };
 }
 
-function pendingFrom(res: any, toolCount: number, toolCalls: string[], started: number): EngineResult {
+export function pendingFrom(res: any, toolCount: number, toolCalls: string[], started: number): EngineResult {
   const sp = res.suspendPayload ?? {};
   const base = { toolCalls, engine: 'mastra' as const, toolCount, ms: Date.now() - started };
 
