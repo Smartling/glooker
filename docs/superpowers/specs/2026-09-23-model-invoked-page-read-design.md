@@ -47,23 +47,47 @@ fixed as part of this work:
   round trip the model triggers.
 - **Control arm does not get this tool.** See "The asymmetry" below.
 
-## Architecture
+## Architecture — transport verified by probe, not assumed
+
+**`createTool`'s `suspendSchema`/`resumeSchema` do NOT work for agent-invoked
+tools.** Probed 2026-09-23: the execute context for an agent tool exposes
+`mastra, memory, runId, requestContext, actor, workspace, browser, observe,
+writer, tracing, metrics, abortSignal, agent, workflow` — and **no `suspend`**.
+Those schemas are for workflow steps. `approveToolCallGenerate` also does not
+forward a `resumeData` payload to the tool body (verified: arrives `undefined`).
+
+What does work, proven end to end:
 
 ```
-agent → readCurrentPage({ question })
-      → tool suspends
-      → response: { pendingPageRead: { runId, toolCallId, question } }
-client → collects extract → POST { action: 'providePage', runId, toolCallId, extract }
-      → run resumes with resumeData = { extract }
-      → tool body calls Haiku(extract, question)
-      → returns a short answer to the agent
-      → agent continues its loop
+agent  → readCurrentPage({ question })
+       → requireApproval suspends the run   (finishReason 'suspended', body NOT run)
+       → { pendingPageRead: { runId, toolCallId, question } }
+client → collects extract → POST { action:'providePage', runId, toolCallId, extract }
+route  → pageStore.set(runId, extract)
+       → agent.approveToolCallGenerate({ runId, toolCallId })
+tool   → body runs, reads pageStore.get(ctx.runId)
+       → Haiku(extract, question) → short answer → agent continues
 ```
 
-The mechanism is the one already proven on this branch for write approvals
-(`createTool({ requireApproval })` + `approveToolCallGenerate`), minus the human.
-Here the tool suspends explicitly via its `suspendSchema` / `resumeSchema` rather
-than via `requireApproval`.
+`requireApproval: true` is used purely as a **suspend primitive**, not as a
+consent gate — the client answers it automatically and the user never sees a
+prompt. The extract travels through a per-run store keyed by `ctx.runId`, which
+is the same `globalThis` idiom the repo already uses for the progress and
+stop-signal stores.
+
+**Known limitation, to be recorded rather than solved here:** that store is
+per-process, so the `providePage` request must reach the same replica that
+suspended the run. Dev runs a single ECS task, so this holds today. The durable
+fix is persisting the handoff alongside the run snapshot — the same open
+follow-up already recorded for GLOOK-54's retry marker.
+
+## Prompt wording is load-bearing — measured
+
+The probe's first instruction ("If asked about the screen, call
+readCurrentPage") produced **no tool call at all**; the model answered from
+nothing. Rewording to state plainly that the agent *cannot* see the screen and
+that the tool *is* how it looks produced the call immediately. Under-invocation
+is the most likely failure mode, and the prompt is the control for it.
 
 ## The asymmetry, and why it matters
 
