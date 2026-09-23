@@ -426,9 +426,16 @@ pre-committed gate, and deleted for missing the bar. Both numbers below are
 real; neither should stand alone.
 
 **The scored calls did not actually run on Haiku.** `claude-haiku-4-5` — the
-model the design specifies — is rejected outright by this AI Proxy account
-(see the standalone finding below: every Haiku identifier tried returns
-"invalid model identifier"). To get a real accuracy signal for the
+model the design specifies — was believed at the time to be rejected outright
+by this AI Proxy account (see the standalone finding below as it read then:
+every Haiku identifier tried returned "invalid model identifier"). **That
+belief was wrong — see the correction below.** The account-unavailability
+explanation did not hold; the actual defect was passing `modelVersion:
+"latest"` for a dated model. That does not change the score itself (the
+substitution was still what actually ran, and 1/5 is still 1/5), but it does
+mean the *reason given* for why substitution was necessary was false, and nothing
+downstream should keep citing "Haiku is unavailable on this account" as a fact.
+To get a real accuracy signal for the
 extract→infer→parse mechanism itself, the scored calls substituted
 `claude-sonnet-4-6` — a materially *more* capable model than the one
 specified — then the source was reverted to the specified `claude-haiku-4-5`
@@ -476,18 +483,136 @@ here even with a passing score. But a future attempt at tier 3 should design a
 gate where all five questions are answerable from a bounded page extract, not
 from app config the extract never contains.
 
-## Standalone finding: catalog availability is not account invocability
+## Correction (2026-09-23): the "Haiku is unavailable on this account" finding above was wrong
 
-The Smartling AI Proxy's models catalog lists `claude-haiku-4-5` with providers
-`['anthropic', 'bedrock']`. In practice, `/anthropicai/chat` rejects every Haiku
-identifier tried — `claude-haiku-4-5`, `claude-haiku-4-5-20251001`,
-`claude-3-5-haiku`, and Bedrock-prefixed variants — on account `597794c16` with
-`"The provided model identifier is invalid (Service: BedrockRuntime)"`. The
-identical request shape succeeds for `claude-sonnet-5` and `claude-sonnet-4-6`.
-This reads as an account/region provisioning gap, not a proxy bug — the catalog
-says a model is available; the account's Bedrock backend does not actually
-serve it. **This is the same rejection that forced the kill gate above to score
-`claude-sonnet-4-6` standing in for the specified Haiku model** — not a
-methodology choice, a workaround for this gap. Worth raising with the Data
-team before anyone else on this account plans around Haiku through this
-route.
+This section previously claimed catalog availability is not account
+invocability — that `/anthropicai/chat` rejects every Haiku identifier tried,
+reading as an account/region Bedrock provisioning gap. **That claim is false,**
+and it should not be treated as a fact by anyone reading this document,
+including anyone who already relayed it to the Data team.
+
+What was actually wrong: every one of those probes passed `modelVersion:
+"latest"`. That value is accepted for undated models (`claude-sonnet-5`,
+`claude-sonnet-4-6`), which is why the probe worked for both of those and
+looked like it should generalize. It does not generalize: `claude-haiku-4-5`'s
+catalog entry is **dated** and has `alias=false`, and `/anthropicai/chat`
+rejects `"latest"` for a dated, non-aliased model. That's a model-identifier
+mistake in the probe, not an account-provisioning gap.
+
+**Verified 2026-09-23:** `model: "claude-haiku-4-5"` with `modelVersion:
+"20251001"` — the model id and its dated version passed as two separate
+fields, never concatenated into one string like `claude-haiku-4-5-20251001`
+— returns 200 on this same account. `src/lib/chat/context/summarize-page.ts`
+hardcodes exactly this split (`HAIKU_MODEL = 'claude-haiku-4-5'`,
+`HAIKU_MODEL_VERSION = '20251001'`), and `experiments/mastra-chat/
+spike-09-page-read.ts` proves the full round trip against the live proxy —
+see "Page-read tool: proved live" below.
+
+**Consequence for the tier-3 kill gate above:** the gate's own accuracy result
+stands — 1/5 against a ≥4/5 bar is still a failing score, regardless of which
+model produced it, and tier 3 was correctly deleted on that basis. But **the
+reason offered for substituting `claude-sonnet-4-6` in place of the specified
+Haiku model — "Haiku is rejected outright by this AI Proxy account" — did not
+hold.** The substitution happened because of a probe bug, not a platform
+limitation, and should not be cited as evidence that Haiku is unavailable
+here.
+
+**The replacement for tier 3 is not a restoration of the deleted inference
+code.** It is the model-invoked `readCurrentPage` tool built in
+`.superpowers/sdd/2026-09-23-model-invoked-page-read/`: instead of Haiku
+speculatively classifying a page-text extract into a `{kind, label}`
+descriptor on every turn (tier 3's design), the already-running Sonnet agent
+decides for itself, per question, whether it needs the page at all, and only
+then triggers a bounded extract plus a scoped Haiku call answering that one
+question. Tier 3 is not coming back under a different name — this is a
+different mechanism, invoked differently, for a different purpose, that
+happens to exercise the same Haiku-through-the-proxy path tier 3's kill gate
+was trying to use.
+
+---
+
+# Page-read tool: proved live (2026-09-23)
+
+Build ledger: `.superpowers/sdd/2026-09-23-model-invoked-page-read/`. This is
+the model-invoked replacement referenced in the correction above: the agent
+itself decides, per question, whether it needs to see the page, calls
+`readCurrentPage`, the run suspends, the client supplies a page extract, and
+Haiku answers from it.
+
+`experiments/mastra-chat/spike-09-page-read.ts` runs this end to end against
+the real proxy — the real `buildPageReadTool()`, the real `page-store.ts`
+handoff, and the real `answerFromPage()` Haiku call, not stand-ins. Only the
+data tool and the "current page" text are synthetic, the same way spike-08
+stood in a fake write tool to exercise the real approval-suspend primitive.
+
+**Did the model reach for the tool?** Yes. Asked "There's a banner at the top
+of this settings page right now — what does it say? I want to know if I need
+to do anything about it." — a question no data tool and no route-level page
+descriptor could answer — the agent, running the unmodified production
+`CHAT_SYSTEM` prompt (which does name `readCurrentPage` and instructs the
+agent to use it for screen references; this was not a zero-shot discovery),
+followed that instruction and called the tool rather than guessing an answer
+or telling the user it couldn't see the screen. This is the answer to the
+"under-invocation" risk the task called out as the most likely failure mode:
+on this question, invocation worked.
+
+**Suspend/resume, verified:**
+- `finishReason: 'suspended'`, `suspendPayload.toolName: 'readCurrentPage'`,
+  with `runId`, `toolCallId`, and the agent's own `args.question` all present
+  — exactly the shape `mastra.ts`'s `pendingFrom()` turns into
+  `EngineResult.pendingPageRead`.
+- The tool's `execute` body was wrapped with an instrumentation flag (without
+  touching production code) and asserted `false` at this point — **the tool
+  body did not run before the extract was supplied.**
+- After `putPageExtract(runId, syntheticExtract)` and
+  `approveToolCallGenerate({ runId, toolCallId })`, the flag flipped to `true`
+  and the agent produced a final answer quoting the synthetic banner text
+  correctly and drawing the right conclusion from it (see the transcript in
+  the task report).
+
+**Haiku call, measured (two independent runs, same question/extract):**
+`model: "claude-haiku-4-5"`, `modelVersion: "20251001"` (split fields, per the
+correction above) — **135 input tokens, 59 output tokens**, both runs
+identical. At Haiku 4.5 list pricing ($1/$5 per Mtok) that's
+`0.135e-3 + 0.295e-3 ≈ $0.00043` per page-read call. The measured wall-clock
+round trip varied sharply between the two runs (3.6s vs. 0.26s for an
+identical request) — almost certainly the AI Proxy's own request cache on a
+repeated identical body, not a property of the mechanism; the token counts,
+not the latency, are the number to trust here.
+
+## The asymmetry this creates (the first Mastra-only capability)
+
+`readCurrentPage` exists **only** on the mastra engine. It cannot be ported to
+the control arm as written, and that's structural, not a missing 26 lines like
+the MCP client above: the control arm (`control-agent.ts` / `runControlEngine`)
+is a plain request/response loop over `/anthropicai/chat` with no suspend
+primitive and no persisted run state between HTTP requests. `readCurrentPage`
+depends on both — the run has to stop mid-generation, hand control back to an
+HTTP response, survive until a second, later HTTP request supplies the page
+extract, and then resume the *same* in-progress generation with the tool's
+result spliced back in. That's exactly the `requireApproval` suspend primitive
+and the `Mastra` instance's `LibSQLStore`-backed run storage that the
+approval-gated-writes section above already established Mastra provides and
+the control arm does not.
+
+Building the control-arm equivalent would mean building a bespoke
+suspend/resume protocol from scratch — persisting the partial tool-call state,
+the conversation so far, and enough to reconstruct the exact in-flight request
+— which is a materially bigger lift than "add a tool", and is precisely the
+kind of durable-run-state primitive this experiment's Phase 1 parity result
+said the control arm didn't need. It would need it now.
+
+Report both halves plainly, because they cut in opposite directions:
+
+- **This is real evidence for adoption.** After a headline finding of parity
+  — the two arms picking the same tools, producing equivalent answers, at
+  comparable cost — this is the first capability in the whole experiment that
+  only Mastra provides. Approval-gated writes showed Mastra *has* this
+  primitive; this shows a second, independent feature actually needed it and
+  got built on top of it.
+- **It is simultaneously the end of the like-for-like comparison.** Every
+  finding before this one held over a single question answerable through both
+  arms' identical tool-calling paths. `readCurrentPage` is not that: it is a
+  Mastra-only feature with no control-arm counterpart to compare it against,
+  by construction. From here forward, "control vs. mastra" and "read-only vs.
+  approval/page-aware chat" are two different axes, not one.

@@ -85,16 +85,22 @@ What happened next: Glooker's own tier 3 was killed. The pre-committed bar was
 generic. Against that bar, the gate failed and the code was deleted, exactly
 as the plan required. That result should not be softened.
 
-That score was not measured with the specified model. `claude-haiku-4-5` is
-rejected outright by the AI Proxy account this experiment ran on — Section 6
-has the full finding. To still get a real accuracy signal for the mechanism,
-the scored calls substituted `claude-sonnet-4-6`, a materially *more*
-capable model, then the source was reverted to the specified Haiku model
-before the task closed. So 1/5 answers "does inferring a descriptor from a
-page-text extract help at all," not "is Haiku 4.5 bad at this specifically" —
-and it is, if anything, a harder result for tier 3 to explain away: a
-stronger-than-specified model still only reached 1/5, so the outcome is not
-an artefact of an underpowered classifier.
+That score was not measured with the specified model, and the reason given
+for that at the time this document was first written was wrong. This
+document originally stated that `claude-haiku-4-5` is rejected outright by
+the AI Proxy account this experiment ran on. **That is false, and it has
+since been corrected** (verified 2026-09-23; full detail in Section 6). Haiku
+is invocable on this account; the earlier probe simply passed
+`modelVersion: "latest"`, which works for undated models but not for a
+dated, non-aliased catalog entry like Haiku's. The scored calls still
+substituted `claude-sonnet-4-6`, a materially *more* capable model, for the
+1/5 result reported here — that substitution happened, and the score is
+real — but it happened because of a model-identifier bug in the probe, not
+because Haiku was unavailable on this account. So 1/5 answers "does
+inferring a descriptor from a page-text extract help at all," not "is Haiku
+4.5 bad at this specifically" — and it is, if anything, a harder result for
+tier 3 to explain away: a stronger-than-specified model still only reached
+1/5, so the outcome is not an artefact of an underpowered classifier.
 
 It also should not be taken at face value without its own caveat: four of
 the five test questions ("what can I configure here?", "is anything
@@ -252,18 +258,36 @@ Cost was never the reason tier 3 was cut in this experiment — the numbers
 above are cheap in absolute terms. It was cut on accuracy against its own
 gate, with the caveat in Section 2.
 
-**Standalone finding: catalog availability is not account invocability.** The
-AI Proxy's models catalog lists `claude-haiku-4-5` with providers
-`['anthropic', 'bedrock']`, but `/anthropicai/chat` rejects every Haiku
-identifier tried — `claude-haiku-4-5`, `claude-haiku-4-5-20251001`,
-`claude-3-5-haiku`, and Bedrock-prefixed variants — on this account with "The
-provided model identifier is invalid (Service: BedrockRuntime)". The
-identical request shape succeeds for `claude-sonnet-5` and `claude-sonnet-4-6`.
-This is the specific gap that forced Section 2's kill-gate score to be
-measured with `claude-sonnet-4-6` standing in for the specified Haiku model —
-not a methodology choice, a workaround for it. It reads as an account/region
-provisioning issue, not a proxy bug, and is worth raising with Smartling's
-Data team before any team plans around Haiku through this route.
+**Correction (2026-09-23): Haiku is invocable on this account — an earlier
+version of this document said the opposite, and that was wrong.** This
+section previously reported that the AI Proxy's models catalog lists
+`claude-haiku-4-5` but that `/anthropicai/chat` rejects every Haiku
+identifier tried, reading as an account/region provisioning issue. **That
+finding is false and should not be relayed further, including to Smartling's
+Data team if it already was.**
+
+The actual defect was in the probe, not the account: every one of those
+attempts passed `modelVersion: "latest"`. That value works for undated
+catalog entries (`claude-sonnet-5`, `claude-sonnet-4-6`) but is rejected for
+`claude-haiku-4-5`, whose catalog entry is dated and has `alias=false`.
+Verified 2026-09-23: `model: "claude-haiku-4-5"` with `modelVersion:
+"20251001"` — passed as two separate fields, not concatenated into one
+identifier — returns 200 on this same account. Full detail and a live,
+end-to-end proof are in `experiments/mastra-chat/FINDINGS.md`.
+
+This means the reason given in Section 2 for why the kill-gate score was
+measured with `claude-sonnet-4-6` standing in for Haiku — "Haiku is rejected
+outright by this AI Proxy account" — did not hold; the substitution happened
+because of this probe bug, not a platform limitation. The 1/5 gate score
+itself is unaffected and tier 3's deletion still stands on that score. But
+Glooker's replacement for tier 3 is **not** a restoration of the deleted
+inference code — it is a differently-shaped mechanism, a model-invoked
+page-read tool where the conversational agent itself decides per question
+whether it needs the page, rather than an LLM classifying every page
+speculatively. If the Dashboard team is deciding whether to build a
+Haiku-backed fallback of its own, the takeaway is: confirm invocability by
+testing the model/version split directly against the endpoint you'll use,
+not by trusting a proxy catalog listing.
 
 **In-browser inference was considered and rejected for dashboard metrics,
 independent of the tier-3 result above.** Chrome's Summarizer API and
