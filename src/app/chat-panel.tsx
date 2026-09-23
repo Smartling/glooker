@@ -17,6 +17,23 @@ const SUGGESTIONS = [
   'Who improved the most recently?',
 ];
 
+/** Scrape the rendered page. No instrumentation required, so it works on any route. */
+export function collectPageExtract() {
+  if (typeof document === 'undefined') return null;
+  const main = (document.querySelector('main') ?? document.body) as HTMLElement | null;
+  return {
+    path: window.location.pathname,
+    title: document.title ?? '',
+    heading: document.querySelector('h1')?.textContent ?? '',
+    text: main?.innerText ?? main?.textContent ?? '',
+  };
+}
+
+// A model that keeps asking to read the page would otherwise recurse without
+// limit in the user's browser (each round trip is a real network request).
+// Three reads in one turn is already generous — this is a safety rail.
+const MAX_PAGE_READ_DEPTH = 3;
+
 export default function ChatPanel({ org }: { org: string }) {
   const [open, setOpen] = useState(false);
   const [maximized, setMaximized] = useState(false);
@@ -28,6 +45,7 @@ export default function ChatPanel({ org }: { org: string }) {
   const [pending, setPending] = useState<
     { runId: string; toolCallId: string; toolName: string; args: Record<string, unknown> } | null
   >(null);
+  const [readingPage, setReadingPage] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const pageContext = usePageContext();
@@ -64,10 +82,50 @@ export default function ChatPanel({ org }: { org: string }) {
         content: data.error ? `Error: ${data.error}` : data.response,
       }]);
       setPending(data.pendingApproval ?? null);
+      if (data.pendingPageRead) await providePage(data.pendingPageRead);
     } catch (e) {
       setMessages(m => [...m, { role: 'assistant', content: 'Error: approval request failed.' }]);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function providePage(p: { runId: string; toolCallId: string }, depth = 0) {
+    setReadingPage(true);
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          org, engine, action: 'providePage',
+          runId: p.runId, toolCallId: p.toolCallId,
+          pageExtract: collectPageExtract(),
+        }),
+      });
+      const data = await res.json();
+      setMessages(m => [...m, {
+        role: 'assistant',
+        content: data.error ? `Error: ${data.error}` : data.response,
+      }]);
+      if (data.pendingPageRead) {
+        if (depth < MAX_PAGE_READ_DEPTH) {
+          await providePage(data.pendingPageRead, depth + 1);
+          return;
+        }
+        // Safety rail: stop recursing rather than looping forever in the
+        // browser. Say so instead of leaving the user staring at a spinner.
+        setMessages(m => [...m, {
+          role: 'assistant',
+          content: 'The page was read several times without resolving the question. Please rephrase or ask again.',
+        }]);
+        setPending(null);
+        return;
+      }
+      setPending(data.pendingApproval ?? null);
+    } catch {
+      setMessages(m => [...m, { role: 'assistant', content: 'Error: could not read the page.' }]);
+    } finally {
+      setReadingPage(false);
     }
   }
 
@@ -106,6 +164,7 @@ export default function ChatPanel({ org }: { org: string }) {
           (tools.length ? `\n${tools.join('\n')}` : ''),
         );
         setPending(data.pendingApproval ?? null);
+        if (data.pendingPageRead) await providePage(data.pendingPageRead);
         setMessages([...newMessages, { role: 'assistant', content: data.response }]);
       }
     } catch {
@@ -223,6 +282,10 @@ export default function ChatPanel({ org }: { org: string }) {
               </div>
             )}
           </div>
+
+          {readingPage && (
+            <div className="px-3 pb-2 text-[11px] text-gray-500">Reading the page…</div>
+          )}
 
           {/* Approval gate — the write tool has NOT run at this point */}
           {pending && (
