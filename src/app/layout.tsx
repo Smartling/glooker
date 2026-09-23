@@ -24,7 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 <Suspense>
                   <NavBar />
                 </Suspense>
-                {children}
+                <main>{children}</main>
                 <Footer />
               </PageContextProvider>
             </AuthProvider>

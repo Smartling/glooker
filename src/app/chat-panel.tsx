@@ -17,15 +17,30 @@ const SUGGESTIONS = [
   'Who improved the most recently?',
 ];
 
-/** Scrape the rendered page. No instrumentation required, so it works on any route. */
+/** Marks the chat panel's own root so collectPageExtract can strip it out of the
+ *  extract — otherwise the panel's own transcript would be read back as if it
+ *  were page content (Finding 2). */
+const CHAT_PANEL_MARKER = 'data-glooker-chat';
+
+/**
+ * Scrape the rendered page. No instrumentation required, so it works on any route.
+ *
+ * Clones `<main>` before reading it and removes any `[data-glooker-chat]`
+ * subtree from the clone — never the live DOM — so an open chat panel's own
+ * message history (which lives inside `<main>`, right alongside the page it's
+ * layered over) never becomes part of what gets read back to the model as
+ * "page content".
+ */
 export function collectPageExtract() {
   if (typeof document === 'undefined') return null;
   const main = (document.querySelector('main') ?? document.body) as HTMLElement | null;
+  const clone = main?.cloneNode(true) as HTMLElement | undefined;
+  clone?.querySelectorAll(`[${CHAT_PANEL_MARKER}]`).forEach(el => el.remove());
   return {
     path: window.location.pathname,
     title: document.title ?? '',
     heading: document.querySelector('h1')?.textContent ?? '',
-    text: main?.innerText ?? main?.textContent ?? '',
+    text: clone?.innerText ?? clone?.textContent ?? '',
   };
 }
 
@@ -174,7 +189,10 @@ export default function ChatPanel({ org }: { org: string }) {
   }
 
   return (
-    <>
+    // display:contents keeps this wrapper invisible to layout/positioning —
+    // it exists only so collectPageExtract() can find and strip the panel's
+    // own DOM subtree (button and/or panel) out of a page extract.
+    <div {...{ [CHAT_PANEL_MARKER]: '' }} style={{ display: 'contents' }}>
       {/* Floating button */}
       {!open && (
         <button
@@ -412,7 +430,7 @@ export default function ChatPanel({ org }: { org: string }) {
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }
 

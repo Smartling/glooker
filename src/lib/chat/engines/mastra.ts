@@ -137,14 +137,45 @@ export async function resolveMastraApproval(
   }
 }
 
-/** Supply the page extract the agent asked for, then let the run continue. */
+/**
+ * Confirms the named run's suspended tool call really is the page-read tool
+ * before a providePage POST is allowed to resume it (Finding 1).
+ *
+ * /api/chat is open HTTP: the shipped client only calls providePage when the
+ * server said `pendingPageRead`, but nothing stops a crafted POST from naming
+ * a pending write-tool's runId/toolCallId instead — approveToolCallGenerate()
+ * doesn't care what it's resuming. listSuspendedRuns() (@mastra/core >= 1.43)
+ * is the only API that reports a suspended run's actual toolName without
+ * resuming it, so it is the check gate here. It also incidentally covers an
+ * unknown/expired runId: no matching run means no matching tool call either.
+ */
+async function isPageReadSuspend(agent: any, runId: string, toolCallId: string): Promise<boolean> {
+  const { runs } = await agent.listSuspendedRuns();
+  const run = (runs ?? []).find((r: any) => r.runId === runId);
+  const toolCall = run?.toolCalls?.find((tc: any) => tc.toolCallId === toolCallId);
+  return toolCall?.toolName === PAGE_READ_TOOL_ID;
+}
+
+/**
+ * Supply the page extract the agent asked for, then let the run continue.
+ *
+ * `extract` may be null — clampExtract() returns null for an unusable page
+ * scrape. That must still resume the run (just without storing an extract) so
+ * the tool's own "page content unavailable" branch fires and the agent
+ * degrades gracefully instead of the run hanging forever unresolved (Finding 3).
+ */
 export async function resolvePageRead(
-  opts: MastraEngineOpts & { runId: string; toolCallId: string; extract: PageExtract },
+  opts: MastraEngineOpts & { runId: string; toolCallId: string; extract: PageExtract | null },
 ): Promise<EngineResult> {
   const started = Date.now();
   const { mcp, toolCalls, toolCount, agent } = await withMastra(opts);
   try {
-    putPageExtract(opts.runId, opts.extract);
+    if (!(await isPageReadSuspend(agent, opts.runId, opts.toolCallId))) {
+      const message = 'That run is not waiting on a page read — refusing to resume it with page content.';
+      return { response: message, toolCalls, engine: 'mastra', toolCount, ms: Date.now() - started, refused: message };
+    }
+
+    if (opts.extract) putPageExtract(opts.runId, opts.extract);
     const res: any = await agent.approveToolCallGenerate({
       runId: opts.runId,
       toolCallId: opts.toolCallId,

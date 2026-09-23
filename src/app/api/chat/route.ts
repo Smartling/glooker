@@ -68,13 +68,18 @@ async function postHandler(req: NextRequest) {
         if (!runId || !toolCallId) {
           return NextResponse.json({ error: 'runId and toolCallId are required' }, { status: 400 });
         }
+        // An unusable extract still resumes the run — just without storing one —
+        // so the tool's own "page content unavailable" branch fires and the agent
+        // degrades gracefully instead of the run hanging unresolved (Finding 3).
         const extract = clampExtract(pageExtract);
-        if (!extract) {
-          return NextResponse.json({ error: 'a usable pageExtract is required' }, { status: 400 });
+        const result = await resolvePageRead({ ...engineOpts, runId, toolCallId, extract });
+        // resolvePageRead refuses (rather than resuming) a runId/toolCallId that
+        // isn't actually waiting on the page-read tool — including an
+        // unknown/expired runId. Surface that as a 400, not a 200 or a 500.
+        if (result.refused) {
+          return NextResponse.json({ error: result.refused }, { status: 400 });
         }
-        return NextResponse.json(
-          await resolvePageRead({ ...engineOpts, runId, toolCallId, extract }),
-        );
+        return NextResponse.json(result);
       }
 
       if (!runId || !toolCallId) {

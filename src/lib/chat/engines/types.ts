@@ -15,6 +15,13 @@ export interface EngineResult {
   pendingApproval?: PendingApproval;
   /** Set when the agent asked to read the page; the client must supply an extract. */
   pendingPageRead?: { runId: string; toolCallId: string; question: string };
+  /**
+   * Set when a data-carrying resume (providePage) refused to act because the
+   * suspended run it named is not actually waiting on the page-read tool — the
+   * route is open HTTP, so this stands in for a thrown error the caller (route.ts)
+   * turns into a 400, without ever calling into approveToolCallGenerate.
+   */
+  refused?: string;
 }
 
 export const CHAT_SYSTEM = `You are Glooker Assistant — a data analyst for GitHub org developer analytics.
