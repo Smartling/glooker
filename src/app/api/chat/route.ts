@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runChatAgent, type ChatMessage } from '@/lib/chat/agent';
 import { runControlEngine } from '@/lib/chat/engines/control';
-import { runMastraEngine, resolveMastraApproval } from '@/lib/chat/engines/mastra';
+import { runMastraEngine, resolveMastraApproval, resolvePageRead } from '@/lib/chat/engines/mastra';
 import { resolveRequester } from '@/lib/cost-visibility';
 import { withRequestLog } from '@/lib/logger';
 import { buildPreamble } from '@/lib/chat/context/preamble';
+import { clampExtract } from '@/lib/chat/context/page-extract';
 import type { PageContext } from '@/lib/chat/context/types';
 
 export type ChatEngine = 'legacy' | 'control' | 'mastra';
@@ -13,14 +14,15 @@ const DEFAULT_ENGINE = (process.env.CHAT_ENGINE as ChatEngine) || 'control';
 
 async function postHandler(req: NextRequest) {
   const body = await req.json();
-  const { messages, org, engine, action, runId, toolCallId, pageContext } = body as {
+  const { messages, org, engine, action, runId, toolCallId, pageContext, pageExtract } = body as {
     messages?: ChatMessage[];
     org: string;
     engine?: ChatEngine;
-    action?: 'approve' | 'decline';
+    action?: 'approve' | 'decline' | 'providePage';
     runId?: string;
     toolCallId?: string;
     pageContext?: PageContext;
+    pageExtract?: unknown;
   };
 
   if (!org) return NextResponse.json({ error: 'org is required' }, { status: 400 });
@@ -62,6 +64,19 @@ async function postHandler(req: NextRequest) {
 
     // Resolving a pending approval — no new user message involved.
     if (action) {
+      if (action === 'providePage') {
+        if (!runId || !toolCallId) {
+          return NextResponse.json({ error: 'runId and toolCallId are required' }, { status: 400 });
+        }
+        const extract = clampExtract(pageExtract);
+        if (!extract) {
+          return NextResponse.json({ error: 'a usable pageExtract is required' }, { status: 400 });
+        }
+        return NextResponse.json(
+          await resolvePageRead({ ...engineOpts, runId, toolCallId, extract }),
+        );
+      }
+
       if (!runId || !toolCallId) {
         return NextResponse.json({ error: 'runId and toolCallId are required' }, { status: 400 });
       }

@@ -10,6 +10,9 @@ import { LibSQLStore } from '@mastra/libsql';
 import { buildWriteTools } from './write-tools';
 import { createSmartlingAnthropic } from '@/lib/chat/smartling-anthropic';
 import { CHAT_SYSTEM, type EngineResult, type PendingApproval } from './types';
+import { buildPageReadTool, PAGE_READ_TOOL_ID } from '@/lib/chat/context/page-read-tool';
+import { putPageExtract } from '@/lib/chat/context/page-store';
+import type { PageExtract } from '@/lib/chat/context/page-extract';
 
 const AGENT_ID = 'glooker-chat-mastra';
 /** Suspended runs are persisted here so an approval can arrive in a later request. */
@@ -67,6 +70,7 @@ async function withMastra(opts: MastraEngineOpts) {
     tools: {
       ...readTools,
       ...buildWriteTools({ org: opts.org, baseUrl: opts.baseUrl, forward: opts.forward, isAdmin: opts.isAdmin }),
+      ...buildPageReadTool(),
     },
   });
 
@@ -80,6 +84,20 @@ async function withMastra(opts: MastraEngineOpts) {
 
 function pendingFrom(res: any, toolCount: number, toolCalls: string[], started: number): EngineResult {
   const sp = res.suspendPayload ?? {};
+  const base = { toolCalls, engine: 'mastra' as const, toolCount, ms: Date.now() - started };
+
+  if (sp.toolName === PAGE_READ_TOOL_ID) {
+    return {
+      ...base,
+      response: (res.text ?? '').trim() || 'Reading the page…',
+      pendingPageRead: {
+        runId: res.runId,
+        toolCallId: sp.toolCallId,
+        question: String(sp.args?.question ?? ''),
+      },
+    };
+  }
+
   const pending: PendingApproval = {
     runId: res.runId,
     toolCallId: sp.toolCallId,
@@ -87,9 +105,10 @@ function pendingFrom(res: any, toolCount: number, toolCalls: string[], started: 
     args: sp.args ?? {},
   };
   return {
+    ...base,
     response: (res.text ?? '').trim() ||
       `This needs your approval before it runs: ${pending.toolName}(${JSON.stringify(pending.args)}).`,
-    toolCalls, engine: 'mastra', toolCount, ms: Date.now() - started, pendingApproval: pending,
+    pendingApproval: pending,
   };
 }
 
@@ -109,6 +128,31 @@ export async function resolveMastraApproval(
     const text = (res?.text ?? '').trim();
     return {
       response: text || (opts.approve ? 'Done.' : 'Cancelled — nothing was changed.'),
+      toolCalls, engine: 'mastra', toolCount, ms: Date.now() - started,
+    };
+  } finally {
+    await mcp.disconnect().catch(() => {});
+  }
+}
+
+/** Supply the page extract the agent asked for, then let the run continue. */
+export async function resolvePageRead(
+  opts: MastraEngineOpts & { runId: string; toolCallId: string; extract: PageExtract },
+): Promise<EngineResult> {
+  const started = Date.now();
+  const { mcp, toolCalls, toolCount, agent } = await withMastra(opts);
+  try {
+    putPageExtract(opts.runId, opts.extract);
+    const res: any = await agent.approveToolCallGenerate({
+      runId: opts.runId,
+      toolCallId: opts.toolCallId,
+    });
+
+    if (res?.finishReason === 'suspended') return pendingFrom(res, toolCount, toolCalls, started);
+
+    const text = (res?.text ?? '').trim();
+    return {
+      response: text || 'I read the page but could not form an answer.',
       toolCalls, engine: 'mastra', toolCount, ms: Date.now() - started,
     };
   } finally {
