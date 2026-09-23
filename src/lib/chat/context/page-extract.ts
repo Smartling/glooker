@@ -27,10 +27,6 @@ export function clampExtract(raw: unknown): PageExtract | null {
   };
 
   // Nothing worth reading — treat as absent rather than sending an empty page to the model.
-  // Only fires when the caller actually supplied a content field and it resolved to
-  // nothing; a payload that never included title/heading/text at all (e.g. just a path)
-  // is tolerated rather than discarded.
-  const suppliedContentField = 'title' in r || 'heading' in r || 'text' in r;
-  if (suppliedContentField && !out.title && !out.heading && !out.text) return null;
+  if (!out.title && !out.heading && !out.text) return null;
   return out;
 }

@@ -14,9 +14,9 @@ describe('clampExtract', () => {
     expect(out!.text.length).toBe(MAX_TEXT);
   });
 
-  it('tolerates missing fields', () => {
-    const out = clampExtract({ path: '/x' });
-    expect(out).toEqual({ path: '/x', title: '', heading: '', text: '' });
+  it('tolerates missing fields when there is still usable content', () => {
+    const out = clampExtract({ path: '/x', text: 'Teams: 11' });
+    expect(out).toEqual({ path: '/x', title: '', heading: '', text: 'Teams: 11' });
   });
 
   it('returns null for a non-object', () => {
@@ -27,6 +27,10 @@ describe('clampExtract', () => {
 
   it('returns null when there is no usable content at all', () => {
     expect(clampExtract({ path: '/x', title: '', heading: '', text: '   ' })).toBeNull();
+  });
+
+  it('returns null when only a path is supplied — there is nothing to read', () => {
+    expect(clampExtract({ path: '/x' })).toBeNull();
   });
 });
 
