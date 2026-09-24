@@ -14,8 +14,13 @@ RUN npm ci --legacy-peer-deps
 # libsql ships per-platform native bindings. Building linux/amd64 under QEMU on an
 # arm64 host, npm's libc detection picks linux-x64-gnu even though this is Alpine
 # (musl), so the runtime dies with "Cannot find module '@libsql/linux-x64-musl'".
-# Force the musl binding explicitly.
-RUN npm i --no-save --force @libsql/linux-x64-musl
+# Force the musl binding explicitly, for whichever arch we're building
+# (arm64 locally on Apple Silicon, amd64 for AWS).
+RUN case "$(uname -m)" in \
+      x86_64) LIBSQL_ARCH=x64 ;; \
+      aarch64) LIBSQL_ARCH=arm64 ;; \
+      *) echo "unsupported arch $(uname -m)" && exit 1 ;; \
+    esac && npm i --no-save --force "@libsql/linux-${LIBSQL_ARCH}-musl"
 
 # Copy source
 COPY . .
