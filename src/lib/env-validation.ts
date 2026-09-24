@@ -8,6 +8,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { getVulnConfig, KNOWN_VULN_ENV_VARS } from './vulnerabilities/config';
 
 interface EnvRule {
   name: string;
@@ -220,6 +221,36 @@ export function validateEnv(): void {
       fs.accessSync(resolved, fs.constants.W_OK);
     } catch (err) {
       warnings.push(`  - LOG_DIR: directory "${resolved}" is not writable — ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  // GLOOK-43 Wave P: getVulnConfig().errors covers two different things. An unrecognised
+  // VULN_/VULNERABILITIES_ variable name is reported unconditionally — a misspelled
+  // VULNERABILITIES_ORG itself must still warn, even though the feature reads as "off" once
+  // that's the case. Every other configuration problem (SLA policy JSON, VULN_RESOLVED_SINCE,
+  // property keys, tier, codebase groups) only matters once the feature is actually on, so it
+  // stays inside the gate below alongside the cron/TZ checks. Messages never echo the configured
+  // value — ConfigError has no value field, by construction (types.ts).
+  const vulnErrors = getVulnConfig().errors;
+  for (const e of vulnErrors) {
+    if (!KNOWN_VULN_ENV_VARS.has(e.variable)) warnings.push(`  - ${e.rule}`);
+  }
+
+  // GLOOK-43: vulnerability sync schedule and deployment configuration — validated only when the
+  // feature is on.
+  if (process.env.VULNERABILITIES_ORG?.trim()) {
+    for (const e of vulnErrors) {
+      if (KNOWN_VULN_ENV_VARS.has(e.variable)) warnings.push(`  - ${e.rule}`);
+    }
+    const cron = process.env.VULN_SYNC_CRON?.trim();
+    if (cron) {
+      try { const { Cron } = require('croner'); new Cron(cron, { paused: true }).stop(); }
+      catch { warnings.push('  - VULN_SYNC_CRON: not a valid cron expression'); }
+    }
+    const tz = process.env.VULN_SYNC_TZ?.trim();
+    if (tz) {
+      try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); }
+      catch { warnings.push('  - VULN_SYNC_TZ: not a valid IANA time zone'); }
     }
   }
 

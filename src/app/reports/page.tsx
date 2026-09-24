@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 import Link from 'next/link';
 import { useAuth } from '../auth-context';
 import { useIdleAwarePolling } from '@/hooks/use-idle-aware-polling';
+import ReportsTabs from './reports-tabs';
 
 interface Progress {
   status:              string;
@@ -270,33 +271,8 @@ export default function ReportsPage() {
     return m === 0 ? `${h}${suffix}` : `${h}:${String(m).padStart(2, '0')}${suffix}`;
   }
 
-  return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
-      {/* Page header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-lg font-semibold text-white">Report History</h1>
-          <p className="text-xs text-gray-500 mt-0.5">Generate and manage developer impact reports</p>
-        </div>
-        <div className="flex items-center gap-3">
-          {canAct && (
-            <a href="/settings#schedules" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">
-              Schedule
-            </a>
-          )}
-          {canAct && (
-            <button
-              onClick={() => setShowReportForm(true)}
-              disabled={orgs.length === 0 || running}
-              title={running ? 'A report is currently running' : undefined}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors"
-            >
-              {running ? 'Report Running...' : '+ New Report'}
-            </button>
-          )}
-        </div>
-      </div>
-
+  const reportsContent = (
+    <>
       {/* New report modal */}
       {showReportForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -605,6 +581,39 @@ export default function ReportsPage() {
           );
         })}
       </div>
+    </>
+  );
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 py-8">
+      {/* Page header */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-lg font-semibold text-white">Report History</h1>
+          <p className="text-xs text-gray-500 mt-0.5">Generate and manage developer impact reports</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {canAct && (
+            <a href="/settings#schedules" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">
+              Schedule
+            </a>
+          )}
+          {canAct && (
+            <button
+              onClick={() => setShowReportForm(true)}
+              disabled={orgs.length === 0 || running}
+              title={running ? 'A report is currently running' : undefined}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors"
+            >
+              {running ? 'Report Running...' : '+ New Report'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      <Suspense fallback={reportsContent}>
+        <ReportsTabs reports={reportsContent} />
+      </Suspense>
     </div>
   );
 }

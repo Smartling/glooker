@@ -1,9 +1,58 @@
 import type { GitHubProvider, OrgMember, UserActivity, CommitData } from './github';
+import type { FetchedAlert, AlertState, Severity, RawPropertyRow } from './vulnerabilities/types';
+import { toIsoSecond } from './vulnerabilities/time';
+import { mapPropertyRows } from './vulnerabilities/properties';
+import type { MockVulnRepo } from '../../scripts/mock-identities';
 
 let _identities: typeof import('../../scripts/mock-identities') | null = null;
 function getIdentities() {
   if (!_identities) _identities = require('../../scripts/mock-identities');
   return _identities!;
+}
+
+// GLOOK-43: vulnerability mock fixtures. Two calls to listOrgDependabotAlerts within a
+// process ("sweeps") return different data so mock mode exercises reopen/missing/new alerts.
+let mockVulnSweeps = 0;
+export function __resetMockVulnSweeps() { mockVulnSweeps = 0; }
+
+function mockAlerts(sweep: number): FetchedAlert[] {
+  const { MOCK_VULN_REPOS, MOCK_ORG } = getIdentities();
+  const out: FetchedAlert[] = [];
+  const mk = (repoId: number, name: string, n: number, severity: Severity, state: AlertState, createdDaysAgo: number, resolvedDaysAgo?: number): FetchedAlert => {
+    const iso = (d: number) => toIsoSecond(new Date(Date.now() - d * 86400000));
+    const resolved = resolvedDaysAgo === undefined ? null : iso(resolvedDaysAgo);
+    return {
+      repoId, repoFullName: `${MOCK_ORG}/${name}`, number: n, htmlUrl: `https://github.com/${MOCK_ORG}/${name}/security/dependabot/${n}`,
+      state, severity, ghsaId: `GHSA-mock-${repoId}-${n}`, cveId: `CVE-2026-${repoId}${n}`, summary: `Mock advisory ${n} in ${name}`,
+      cvssScore: severity === 'critical' ? 9.8 : 7.5, epssPercentage: 0.01, advisoryWithdrawnAt: null,
+      packageName: ['lodash', 'minimist', 'jackson-databind', 'log4j-core'][n % 4], ecosystem: n % 2 ? 'npm' : 'maven',
+      manifestPath: n % 2 ? 'package-lock.json' : 'pom.xml', relationship: n % 3 ? 'transitive' : 'direct',
+      scope: n % 2 ? 'runtime' : null, firstPatchedVersion: n % 2 ? '1.2.3' : null,
+      createdAt: iso(createdDaysAgo), updatedAt: iso(0),
+      fixedAt: state === 'fixed' ? resolved : null, dismissedAt: state === 'dismissed' ? resolved : null,
+      autoDismissedAt: state === 'auto_dismissed' ? resolved : null, dismissedReason: state === 'dismissed' ? 'tolerable_risk' : null,
+    };
+  };
+  for (const r of MOCK_VULN_REPOS) {
+    // flaky-service and silent-service return no alerts, so the sync status-checks them and marks
+    // them unmeasured (error and dependabot-off respectively).
+    if (r.statusCheck === 'error' || r.statusCheck === 'dependabot-off') continue;
+    const base = r.repoId % 7 + 2;
+    for (let n = 1; n <= base; n++) out.push(mk(r.repoId, r.name, n, n % 3 === 0 ? 'high' : 'critical', 'open', 10 + n * 9));
+    out.push(mk(r.repoId, r.name, 50, 'critical', 'fixed', 120, 30));
+    out.push(mk(r.repoId, r.name, 51, 'high', 'dismissed', 90, 20));
+    out.push(mk(r.repoId, r.name, 52, 'critical', 'auto_dismissed', 80, 15));
+  }
+  if (sweep >= 2) {
+    // reopen: api-service #50 goes fixed → open
+    const i = out.findIndex(a => a.repoId === 9001 && a.number === 50);
+    out[i] = { ...out[i], state: 'open', fixedAt: null };
+    // missing: api-service #1 disappears from the sweep
+    out.splice(out.findIndex(a => a.repoId === 9001 && a.number === 1), 1);
+    // new: billing-service #60
+    out.push(mk(9002, 'billing-service', 60, 'critical', 'open', 0));
+  }
+  return out;
 }
 
 export function createMockGitHubProvider(): GitHubProvider {
@@ -109,6 +158,40 @@ export function createMockGitHubProvider(): GitHubProvider {
     async isShaInMergedPR(_owner, _repo, _sha, log) {
       log?.(`[mock] isShaInMergedPR`);
       return false;
+    },
+
+    // GLOOK-43: vulnerability fixtures (Task 12).
+    async listOrgReposForVulns() {
+      const { MOCK_VULN_REPOS, MOCK_ORG } = getIdentities();
+      return MOCK_VULN_REPOS.map((r: MockVulnRepo) => ({ repoId: r.repoId, fullName: `${MOCK_ORG}/${r.name}`, archived: r.archived }));
+    },
+    async listOrgRepoProperties(_org, keys) {
+      const { MOCK_VULN_REPOS, MOCK_ORG } = getIdentities();
+      // GLOOK-43 Wave P: the mock fixtures are always keyed under the neutral default names
+      // (team/service_tier/codebase_type) — mapPropertyRows below applies the *configured* keys,
+      // so a mistyped VULN_*_PROPERTY trips the taxonomy guard in mock mode too.
+      const raw: RawPropertyRow[] = MOCK_VULN_REPOS.map((r: MockVulnRepo) => ({
+        repoId: r.repoId,
+        fullName: `${MOCK_ORG}/${r.name}`,
+        properties: [
+          ...(r.team !== null ? [{ property_name: 'team', value: r.team }] : []),
+          ...(r.serviceTier !== null ? [{ property_name: 'service_tier', value: r.serviceTier }] : []),
+          ...(r.codebaseType !== null ? [{ property_name: 'codebase_type', value: r.codebaseType }] : []),
+        ],
+      }));
+      return mapPropertyRows(raw, keys);
+    },
+    async listOrgDependabotAlerts(_org, log) {
+      mockVulnSweeps++;
+      log?.(`[mock] Dependabot sweep #${mockVulnSweeps}`);
+      return mockAlerts(mockVulnSweeps);
+    },
+    async getRepoDependabotStatus(fullName) {
+      const { MOCK_VULN_REPOS } = getIdentities();
+      const r = MOCK_VULN_REPOS.find((x: MockVulnRepo) => fullName.endsWith(`/${x.name}`));
+      if (r?.statusCheck === 'error') return { status: 'error' as const, detail: 'HTTP 500: mock status check failure' };
+      if (r?.statusCheck === 'dependabot-off') return { status: 'dependabot-off' as const, detail: 'Dependabot alerts are disabled for this repository.' };
+      return r?.archived ? { status: 'archived' as const } : { status: 'ok' as const };
     },
   };
 }

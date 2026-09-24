@@ -10,9 +10,9 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "seed": "tsx scripts/seed.ts",
-    "seed:reset": "rm -f glooker.db && tsx scripts/seed.ts",
-    "dev:mock": "GITHUB_PROVIDER=mock LLM_PROVIDER=mock JIRA_ENABLED=true JIRA_PROVIDER=mock JIRA_PROJECTS_JQL='project = MOCK AND issuetype = Epic' next dev"
+    "seed": "VULN_CODEBASE_GROUPS='{\"backend\":[\"backend\",\"api\"],\"frontend\":[\"frontend\"],\"shared\":[\"shared\"]}' tsx scripts/seed.ts",
+    "seed:reset": "rm -f glooker.db && VULN_CODEBASE_GROUPS='{\"backend\":[\"backend\",\"api\"],\"frontend\":[\"frontend\"],\"shared\":[\"shared\"]}' tsx scripts/seed.ts",
+    "dev:mock": "VULNERABILITIES_SLA_POLICY='[{\"id\":\"critical-2020-01\",\"severity\":\"critical\",\"effectiveFrom\":\"2020-01-08\",\"days\":7},{\"id\":\"high-2020-01\",\"severity\":\"high\",\"effectiveFrom\":\"2020-01-08\",\"days\":9}]' VULN_CODEBASE_GROUPS='{\"backend\":[\"backend\",\"api\"],\"frontend\":[\"frontend\"],\"shared\":[\"shared\"]}' VULNERABILITIES_ORG=mock-org GITHUB_PROVIDER=mock LLM_PROVIDER=mock JIRA_ENABLED=true JIRA_PROVIDER=mock JIRA_PROJECTS_JQL='project = MOCK AND issuetype = Epic' next dev"
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.1014.0",

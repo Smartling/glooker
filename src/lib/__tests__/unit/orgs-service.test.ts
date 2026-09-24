@@ -32,6 +32,10 @@ describe('listOrgs', () => {
       compareBranchCommits: jest.fn().mockResolvedValue([]),
       isCommitInDefaultBranch: jest.fn().mockResolvedValue(true),
       isShaInMergedPR: jest.fn().mockResolvedValue(false),
+      listOrgReposForVulns: jest.fn().mockResolvedValue([]),
+      listOrgRepoProperties: jest.fn().mockResolvedValue([]),
+      listOrgDependabotAlerts: jest.fn().mockResolvedValue([]),
+      getRepoDependabotStatus: jest.fn().mockResolvedValue({ status: 'ok' }),
     });
 
     const orgs = await listOrgs();
@@ -58,6 +62,10 @@ describe('listOrgs', () => {
       compareBranchCommits: jest.fn().mockResolvedValue([]),
       isCommitInDefaultBranch: jest.fn().mockResolvedValue(true),
       isShaInMergedPR: jest.fn().mockResolvedValue(false),
+      listOrgReposForVulns: jest.fn().mockResolvedValue([]),
+      listOrgRepoProperties: jest.fn().mockResolvedValue([]),
+      listOrgDependabotAlerts: jest.fn().mockResolvedValue([]),
+      getRepoDependabotStatus: jest.fn().mockResolvedValue({ status: 'ok' }),
     });
 
     const orgs = await listOrgs();
@@ -85,6 +93,10 @@ describe('listOrgs', () => {
       compareBranchCommits: jest.fn().mockResolvedValue([]),
       isCommitInDefaultBranch: jest.fn().mockResolvedValue(true),
       isShaInMergedPR: jest.fn().mockResolvedValue(false),
+      listOrgReposForVulns: jest.fn().mockResolvedValue([]),
+      listOrgRepoProperties: jest.fn().mockResolvedValue([]),
+      listOrgDependabotAlerts: jest.fn().mockResolvedValue([]),
+      getRepoDependabotStatus: jest.fn().mockResolvedValue({ status: 'ok' }),
     });
 
     const orgs = await listOrgs();
@@ -110,6 +122,10 @@ describe('listOrgs', () => {
       compareBranchCommits: jest.fn().mockResolvedValue([]),
       isCommitInDefaultBranch: jest.fn().mockResolvedValue(true),
       isShaInMergedPR: jest.fn().mockResolvedValue(false),
+      listOrgReposForVulns: jest.fn().mockResolvedValue([]),
+      listOrgRepoProperties: jest.fn().mockResolvedValue([]),
+      listOrgDependabotAlerts: jest.fn().mockResolvedValue([]),
+      getRepoDependabotStatus: jest.fn().mockResolvedValue({ status: 'ok' }),
     });
 
     const orgs = await listOrgs();

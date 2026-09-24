@@ -6,5 +6,8 @@ export async function register() {
 
     const { initScheduler } = await import('./lib/schedule/manager');
     await initScheduler();
+
+    const { initVulnerabilityScheduler } = await import('./lib/vulnerabilities/scheduler');
+    await initVulnerabilityScheduler();
   }
 }

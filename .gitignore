@@ -8,5 +8,6 @@ node_modules/
 *.db-shm
 *.db-wal
 *.tsbuildinfo
-coverage/
+/coverage/
 logs/
+.superpowers/

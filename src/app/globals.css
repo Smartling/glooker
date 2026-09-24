@@ -10,6 +10,25 @@
   --accent-dark: #B45309;
   --accent-darker: #92400E;
   --accent-bg: #78350F;
+
+  /* GLOOK-43 J2-1: trend-chart series colours, ranked by current open count (dark palette,
+     the app's default). Up to 12 teams get a distinct colour by rank; rank 12+ shares "other". */
+  --vuln-series-1: #f87171;
+  --vuln-series-2: #60a5fa;
+  --vuln-series-3: #4ade80;
+  --vuln-series-4: #c084fc;
+  --vuln-series-5: #fbbf24;
+  --vuln-series-6: #22d3ee;
+  --vuln-series-7: #f472b6;
+  --vuln-series-8: #a3e635;
+  --vuln-series-9: #fb923c;
+  --vuln-series-10: #2dd4bf;
+  --vuln-series-11: #818cf8;
+  --vuln-series-12: #fda4af;
+  /* K5: #6b7280 failed WCAG AA text contrast (4.5:1) against this palette's dark bodyBgs (min
+     3.96); #9ca3af clears it (min 7.55). The legend renders this colour as 11px text, which needs
+     4.5:1 — the polyline/dot are graphics and only need 3:1, so they're unaffected. */
+  --vuln-series-other: #9ca3af;
 }
 
 /* Accent utility classes */
@@ -42,6 +61,31 @@
 /* Remap dark-mode Tailwind classes to light equivalents */
 [data-theme-mode="light"] {
   color-scheme: light;
+
+  /* GLOOK-43 J2-1: the light-mode trend-chart series palette, same order as the dark :root
+     block above. --vuln-series-other stays #6b7280 here (min 4.62 against this palette's light
+     bodyBgs) — the dark palette's grey needed to change instead (see :root above), because the
+     two modes' bodyBgs differ.
+     K5: five colours failed WCAG AA text contrast (4.5:1) against this palette's light bodyBgs —
+     series-3 (min 3.15), series-6 (3.52), series-9 (3.40), series-10 (3.58), and series-7 (4.39,
+     the closest). Each was swapped for a darker shade that clears 4.5:1: series-3 #15803d (min
+     4.79), series-6 #0e7490 (5.12), series-9 #c2410c (4.95), series-10 #0f766e (5.23). series-7
+     became fuchsia #a21caf (6.04) rather than a darker pink, so it stays visually distinct from
+     red #dc2626 and rose #be123c. The legend renders these as 11px text, which needs 4.5:1 — the
+     polyline/dot are graphics and only need 3:1, so they're unaffected. */
+  --vuln-series-1: #dc2626;
+  --vuln-series-2: #2563eb;
+  --vuln-series-3: #15803d;
+  --vuln-series-4: #9333ea;
+  --vuln-series-5: #b45309;
+  --vuln-series-6: #0e7490;
+  --vuln-series-7: #a21caf;
+  --vuln-series-8: #4d7c0f;
+  --vuln-series-9: #c2410c;
+  --vuln-series-10: #0f766e;
+  --vuln-series-11: #4f46e5;
+  --vuln-series-12: #be123c;
+  --vuln-series-other: #6b7280;
 }
 
 /* Body & base text */
