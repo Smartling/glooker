@@ -1,11 +1,12 @@
 'use client';
 
+import { type ReactElement } from 'react';
 import { Bar, BarChart, CartesianGrid, Rectangle, XAxis, YAxis, type BarShapeProps, type RectangleProps } from 'recharts';
 import type { TooltipContentProps, TooltipValueType } from 'recharts';
 import { ChartContainer, ChartTooltip, CHART_TOOLTIP_CLASS } from './chart';
 import { formatCompact, formatWeek, indexByWeek, isTopOfStack } from './chart-format';
 import { COMMIT_TYPE_ORDER, commitTypeColor, foldTypes, type CommitType } from './commit-types';
-import { HatchSwatch, useHatch } from './hatch';
+import { TypeSwatch, useHatch } from './hatch';
 
 interface TypesWeek {
   week: string;
@@ -13,6 +14,20 @@ interface TypesWeek {
 }
 
 type StackRow = { week: string; total: number } & Record<CommitType, number>;
+
+// Built once at module load, not per render (GLOOK-58 review, fix round 1): a fresh shape
+// component per type per render remounts the Rectangle each time. COMMIT_TYPE_ORDER (the full
+// fixed order, not the per-render `present` list) is safe here — a type excluded from `present`
+// is zero in every row, so it always reads as zero in isTopOfStack regardless of which list is
+// passed, and it never has its own Bar to apply this shape to anyway.
+const typeShapes = Object.fromEntries(
+  COMMIT_TYPE_ORDER.map(t => [
+    t,
+    (props: BarShapeProps): ReactElement => (
+      <Rectangle {...(props as RectangleProps)} radius={isTopOfStack(props.payload, COMMIT_TYPE_ORDER, t) ? [4, 4, 0, 0] : 0} />
+    ),
+  ]),
+) as Record<CommitType, (props: BarShapeProps) => ReactElement>;
 
 export function StackedTypesTooltip({ active, payload }: Partial<TooltipContentProps<TooltipValueType, string | number>>) {
   const row = payload?.[0]?.payload as StackRow | undefined;
@@ -40,12 +55,6 @@ export function StackedTypesChart({ data, weeks }: { data: TypesWeek[]; weeks: s
   });
   const present = COMMIT_TYPE_ORDER.filter(t => rows.some(r => r[t] > 0));
   const fillFor = (t: CommitType) => (t === 'in_flight' ? hatch.fill : commitTypeColor(t));
-  const shapeFor = (t: CommitType) => {
-    function TypeSegment(props: BarShapeProps) {
-      return <Rectangle {...(props as RectangleProps)} radius={isTopOfStack(props.payload, present, t) ? [4, 4, 0, 0] : 0} />;
-    }
-    return TypeSegment;
-  };
 
   return (
     <div className="bg-gray-900 rounded-xl p-4 mb-6">
@@ -54,9 +63,7 @@ export function StackedTypesChart({ data, weeks }: { data: TypesWeek[]; weeks: s
         <div className="flex flex-wrap gap-3">
           {present.map(t => (
             <span key={t} className="flex items-center gap-1.5 text-[11px] text-chart-axis">
-              {t === 'in_flight'
-                ? <HatchSwatch colorVar={commitTypeColor(t)} />
-                : <i aria-hidden="true" className="w-2.5 h-2.5 rounded-sm" style={{ background: commitTypeColor(t) }} />}
+              <TypeSwatch colorVar={commitTypeColor(t)} hatched={t === 'in_flight'} />
               {t}
             </span>
           ))}
@@ -74,7 +81,7 @@ export function StackedTypesChart({ data, weeks }: { data: TypesWeek[]; weeks: s
             <ChartTooltip content={<StackedTypesTooltip />} />
             {present.map(t => (
               <Bar key={t} dataKey={t} name={t} stackId="types" fill={fillFor(t)} stroke="var(--chart-surface)" strokeWidth={2}
-                shape={shapeFor(t)} isAnimationActive={false} />
+                shape={typeShapes[t]} isAnimationActive={false} />
             ))}
           </BarChart>
         </ChartContainer>

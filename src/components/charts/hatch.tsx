@@ -38,3 +38,14 @@ export function HatchSwatch({ colorVar, size = 10 }: { colorVar: string; size?: 
     </svg>
   );
 }
+
+/**
+ * A small legend/swatch mark: hatched when `hatched` is true, otherwise a solid fill of
+ * `colorVar`. Shared by StackedTypesChart, LinesChangedChart and CommitTypeDonut, each of which
+ * decides `hatched` from its own "is this the in_flight type" check (GLOOK-58 review, fix
+ * round 1 — this rendering was duplicated three times before).
+ */
+export function TypeSwatch({ colorVar, size = 10, hatched = false }: { colorVar: string; size?: number; hatched?: boolean }) {
+  if (hatched) return <HatchSwatch colorVar={colorVar} size={size} />;
+  return <i aria-hidden="true" className="rounded-sm shrink-0 inline-block" style={{ width: size, height: size, background: colorVar }} />;
+}

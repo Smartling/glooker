@@ -4,17 +4,12 @@
 // and the hovered type's figures on hover. Centre text is chrome text; type identity comes from a
 // swatch beside it, never from coloured text. Callers pass entries built with typeEntriesFrom(),
 // so unknown types are already folded into `other`.
-import { useState, type ReactElement } from 'react';
+import { useState } from 'react';
 import { Pie, PieChart } from 'recharts';
 import { ChartContainer } from './chart';
 import { toNum } from './chart-format';
 import { commitTypeColor } from './commit-types';
-import { HatchSwatch, useHatch } from './hatch';
-
-function Swatch({ type, size }: { type: string; size: number }): ReactElement {
-  if (type === 'in_flight') return <HatchSwatch colorVar={commitTypeColor(type)} size={size} />;
-  return <i aria-hidden="true" className="rounded-sm shrink-0 inline-block" style={{ width: size, height: size, background: commitTypeColor(type) }} />;
-}
+import { TypeSwatch, useHatch } from './hatch';
 
 export function CommitTypeDonut({ entries, total }: { entries: [string, number][]; total: number | string }) {
   const [hover, setHover] = useState<string | null>(null);
@@ -46,7 +41,12 @@ export function CommitTypeDonut({ entries, total }: { entries: [string, number][
               stroke="var(--chart-surface)"
               strokeWidth={2}
               isAnimationActive={false}
-              onMouseEnter={d => setHover(String(d?.payload?.type ?? ''))}
+              onMouseEnter={d => {
+                // Guard: an event with no resolvable type must not dim every slice while the
+                // center still shows the resting total (GLOOK-58 review, fix round 1).
+                const type = d?.payload?.type;
+                if (type) setHover(String(type));
+              }}
               onMouseLeave={() => setHover(null)}
             />
           </PieChart>
@@ -56,7 +56,7 @@ export function CommitTypeDonut({ entries, total }: { entries: [string, number][
             <>
               <span className="text-xl font-bold text-chart-tooltip-text">{hovered.count.toLocaleString('en-US')}</span>
               <span className="flex items-center gap-1 text-xs font-semibold text-chart-axis">
-                <Swatch type={hovered.type} size={8} />
+                <TypeSwatch colorVar={commitTypeColor(hovered.type)} size={8} hatched={hovered.type === 'in_flight'} />
                 {hovered.type}
               </span>
               <span className="text-xs text-chart-axis">{pct(hovered.count)}%</span>
@@ -78,7 +78,7 @@ export function CommitTypeDonut({ entries, total }: { entries: [string, number][
             onMouseEnter={() => setHover(d.type)}
             onMouseLeave={() => setHover(null)}
           >
-            <Swatch type={d.type} size={12} />
+            <TypeSwatch colorVar={commitTypeColor(d.type)} size={12} hatched={d.type === 'in_flight'} />
             <span className="text-chart-tooltip-text font-medium">{d.type}</span>
             <span className="text-chart-axis">{d.count.toLocaleString('en-US')} ({pct(d.count)}%)</span>
           </div>

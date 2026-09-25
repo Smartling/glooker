@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 import React from 'react';
 import { render, screen } from '@testing-library/react';
-import { LinesChangedChart, LinesTooltip } from '@/components/charts/lines-changed-chart';
+import { LinesChangedChart, LinesTooltip, buildLinesRows } from '@/components/charts/lines-changed-chart';
 import { fixChartSize } from '../setup/chart-size';
 
 fixChartSize();
@@ -70,5 +70,25 @@ it('the tooltip shows added, removed, in-flight and total for the week', () => {
   expect(container.textContent).toContain('+30 added in flight');
   expect(container.textContent).toContain('−20 removed');
   expect(container.textContent).toContain('−10 removed in flight');
-  expect(container.textContent).toContain('50 total');
+  // Total is churn (added + removed as magnitudes), matching the card title "Lines
+  // Changed / Week": 50 + 30 + 20 + 10 = 110, not the net change of 50.
+  expect(container.textContent).toContain('110 total');
+});
+
+it('the tooltip total is churn, never negative, even when removed exceeds added', () => {
+  // buildLinesRows() is LinesChangedChart's own row builder — the real pipeline, not a
+  // hand-built row — so this exercises the actual toNum()+negate step together with the
+  // tooltip's Math.abs() in one path. Recharts never activates its tooltip on a synthetic
+  // jsdom mouse event (confirmed: the wrapper stays visibility:hidden), so this is the way
+  // to drive the real row-building code into the real tooltip component.
+  const data = [{ week: '2026-09-14', linesP95Added: 20, linesP95Removed: 60 }];
+  const row = buildLinesRows(data, weeks).find(r => r.week === '2026-09-14')!;
+  expect(row.added).toBe(20);
+  expect(row.removed).toBe(-60);
+
+  const { container } = render(<LinesTooltip active payload={[{ payload: row }] as never} />);
+  expect(container.textContent).toContain('+20 added');
+  expect(container.textContent).toContain('−60 removed');
+  expect(container.textContent).toContain('80 total');
+  expect(container.textContent).not.toMatch(/−\d+ total/);
 });

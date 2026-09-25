@@ -8,7 +8,7 @@ import type { TooltipContentProps, TooltipValueType } from 'recharts';
 import { ChartContainer, ChartTooltip, CHART_TOOLTIP_CLASS } from './chart';
 import { formatCompact, formatValue, formatWeek, indexByWeek, toNum } from './chart-format';
 import { commitTypeColor } from './commit-types';
-import { HatchSwatch, useHatch } from './hatch';
+import { TypeSwatch, useHatch } from './hatch';
 
 export interface LinesWeek {
   week: string;
@@ -35,7 +35,9 @@ export function LinesTooltip({ active, payload }: Partial<TooltipContentProps<To
   const row = payload?.[0]?.payload as LinesRow | undefined;
   if (!active || !row) return null;
   const fmt = (v: number) => formatValue(v);
-  const total = row.added + row.inFlightAdded + row.removed + row.inFlightRemoved;
+  // Churn, not net change: "Lines Changed / Week" is added + removed as magnitudes.
+  // removed/inFlightRemoved are negated for the diverging stack, so abs() them back.
+  const total = row.added + row.inFlightAdded + Math.abs(row.removed) + Math.abs(row.inFlightRemoved);
   return (
     <div className={CHART_TOOLTIP_CLASS}>
       <div className="font-medium">{formatWeek(row.week)}</div>
@@ -57,10 +59,16 @@ function removedShape(props: BarShapeProps) {
   return <Rectangle {...(props as RectangleProps)} radius={row.inFlightRemoved < 0 ? 0 : BOTTOM} />;
 }
 
-export function LinesChangedChart({ data, weeks, syncId }: { data: LinesWeek[]; weeks: string[]; syncId?: string }) {
-  const hatch = useHatch(commitTypeColor('in_flight'));
+/**
+ * Builds the diverging rows from real week data: added/removed magnitudes go through toNum(),
+ * then removed and inFlightRemoved are negated for the stackOffset="sign" stack. Exported so
+ * tests can exercise this real sign-flip pipeline directly, instead of hand-building a row whose
+ * signs the test author has to get right on their own (GLOOK-58 review, fix round 1: a hand-built
+ * row is exactly how the tooltip's total-formula bug slipped through the first time).
+ */
+export function buildLinesRows(data: LinesWeek[], weeks: string[]): LinesRow[] {
   const byWeek = indexByWeek(data);
-  const rows: LinesRow[] = weeks.map(week => {
+  return weeks.map(week => {
     const r = byWeek.get(week);
     return {
       week,
@@ -70,6 +78,11 @@ export function LinesChangedChart({ data, weeks, syncId }: { data: LinesWeek[]; 
       inFlightRemoved: -toNum(r?.inFlightLinesP95Removed),
     };
   });
+}
+
+export function LinesChangedChart({ data, weeks, syncId }: { data: LinesWeek[]; weeks: string[]; syncId?: string }) {
+  const hatch = useHatch(commitTypeColor('in_flight'));
+  const rows = buildLinesRows(data, weeks);
   const hasAny = rows.some(r => r.added || r.inFlightAdded || r.removed || r.inFlightRemoved);
   const hasInFlight = rows.some(r => r.inFlightAdded > 0 || r.inFlightRemoved < 0);
 
@@ -98,14 +111,14 @@ export function LinesChangedChart({ data, weeks, syncId }: { data: LinesWeek[]; 
       )}
       <div className="flex gap-4 mt-2 justify-end">
         <span className="flex items-center gap-1.5 text-[11px] text-chart-axis">
-          <i aria-hidden="true" className="w-2.5 h-2.5 rounded-sm" style={{ background: ADDED }} /> Added
+          <TypeSwatch colorVar={ADDED} /> Added
         </span>
         <span className="flex items-center gap-1.5 text-[11px] text-chart-axis">
-          <i aria-hidden="true" className="w-2.5 h-2.5 rounded-sm" style={{ background: REMOVED }} /> Removed
+          <TypeSwatch colorVar={REMOVED} /> Removed
         </span>
         {hasInFlight && (
           <span className="flex items-center gap-1.5 text-[11px] text-chart-axis">
-            <HatchSwatch colorVar={commitTypeColor('in_flight')} /> In flight
+            <TypeSwatch colorVar={commitTypeColor('in_flight')} hatched /> In flight
           </span>
         )}
       </div>
