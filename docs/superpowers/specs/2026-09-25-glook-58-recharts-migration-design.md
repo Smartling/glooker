@@ -133,6 +133,7 @@ Libraries evaluated on 2026-09-25 against GitHub, npm and official docs:
 - **Non-chart bars, colors only.** `src/components/ProjectsCard.tsx`, `src/app/reports/page.tsx` and `src/app/reports/vulnerability-syncs-tab.tsx`.
 - **`src/app/report/[id]/org/spend-tab.tsx`.** The scatter moves out to `spend-impact-scatter.tsx`.
 - **`src/lib/report/timeline.ts`.** `weekKeyForDate` switches to UTC (Decision 10).
+- **`scripts/seed-data.ts` and `scripts/seed.ts`.** The seed counts back from today's UTC midnight instead of the fixed anchor `2026-04-01`. That anchor had aged out of the 90-day window, so every mock timeline showed its empty state. The seed also gains an `unmerged_commits` section for in-flight data. Approved by the product owner on 2026-09-25.
 - **Config and dependencies.**
   - `src/app/globals.css` (tokens) and `tailwind.config.ts` (`chart.*` colors).
   - `jest.config.ts` (`setupFiles`).
