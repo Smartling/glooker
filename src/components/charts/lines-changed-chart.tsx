@@ -1,0 +1,114 @@
+'use client';
+
+// GLOOK-58 Decision 12: a diverging chart. Added lines stack above zero, removed lines are negated
+// and stack below, in ONE stackOffset="sign" stack. Two stackIds would place them side by side
+// instead. Shipped linesP95* and in-flight inFlightLinesP95* are separate additive layers, as today.
+import { Bar, BarChart, CartesianGrid, Rectangle, ReferenceLine, XAxis, YAxis, type BarShapeProps, type RectangleProps } from 'recharts';
+import type { TooltipContentProps, TooltipValueType } from 'recharts';
+import { ChartContainer, ChartTooltip, CHART_TOOLTIP_CLASS } from './chart';
+import { formatCompact, formatValue, formatWeek, indexByWeek, toNum } from './chart-format';
+import { commitTypeColor } from './commit-types';
+import { HatchSwatch, useHatch } from './hatch';
+
+export interface LinesWeek {
+  week: string;
+  linesP95Added?: unknown;
+  linesP95Removed?: unknown;
+  inFlightLinesP95Added?: unknown;
+  inFlightLinesP95Removed?: unknown;
+}
+
+interface LinesRow {
+  week: string;
+  added: number;
+  inFlightAdded: number;
+  removed: number;
+  inFlightRemoved: number;
+}
+
+const ADDED = 'var(--chart-lines-added)';
+const REMOVED = 'var(--chart-lines-removed)';
+const TOP: [number, number, number, number] = [4, 4, 0, 0];
+const BOTTOM: [number, number, number, number] = [0, 0, 4, 4];
+
+export function LinesTooltip({ active, payload }: Partial<TooltipContentProps<TooltipValueType, string | number>>) {
+  const row = payload?.[0]?.payload as LinesRow | undefined;
+  if (!active || !row) return null;
+  const fmt = (v: number) => formatValue(v);
+  const total = row.added + row.inFlightAdded + row.removed + row.inFlightRemoved;
+  return (
+    <div className={CHART_TOOLTIP_CLASS}>
+      <div className="font-medium">{formatWeek(row.week)}</div>
+      <div className="font-mono tabular-nums">+{fmt(row.added)} added</div>
+      {row.inFlightAdded > 0 && <div className="font-mono tabular-nums">+{fmt(row.inFlightAdded)} added in flight</div>}
+      <div className="font-mono tabular-nums">−{fmt(-row.removed)} removed</div>
+      {row.inFlightRemoved < 0 && <div className="font-mono tabular-nums">−{fmt(-row.inFlightRemoved)} removed in flight</div>}
+      <div className="font-mono tabular-nums">{fmt(total)} total</div>
+    </div>
+  );
+}
+
+function addedShape(props: BarShapeProps) {
+  const row = props.payload as LinesRow;
+  return <Rectangle {...(props as RectangleProps)} radius={row.inFlightAdded > 0 ? 0 : TOP} />;
+}
+function removedShape(props: BarShapeProps) {
+  const row = props.payload as LinesRow;
+  return <Rectangle {...(props as RectangleProps)} radius={row.inFlightRemoved < 0 ? 0 : BOTTOM} />;
+}
+
+export function LinesChangedChart({ data, weeks, syncId }: { data: LinesWeek[]; weeks: string[]; syncId?: string }) {
+  const hatch = useHatch(commitTypeColor('in_flight'));
+  const byWeek = indexByWeek(data);
+  const rows: LinesRow[] = weeks.map(week => {
+    const r = byWeek.get(week);
+    return {
+      week,
+      added: toNum(r?.linesP95Added),
+      inFlightAdded: toNum(r?.inFlightLinesP95Added),
+      removed: -toNum(r?.linesP95Removed),
+      inFlightRemoved: -toNum(r?.inFlightLinesP95Removed),
+    };
+  });
+  const hasAny = rows.some(r => r.added || r.inFlightAdded || r.removed || r.inFlightRemoved);
+  const hasInFlight = rows.some(r => r.inFlightAdded > 0 || r.inFlightRemoved < 0);
+
+  return (
+    <div className="bg-gray-900 rounded-xl p-4">
+      <p className="text-xs text-gray-500 font-medium mb-2">
+        Lines Changed / Week <span className="text-gray-600 font-normal">(outlier commits excluded)</span>
+      </p>
+      {!hasAny ? (
+        <p className="text-xs text-chart-axis py-8 text-center">No line changes in the last 90 days</p>
+      ) : (
+        <ChartContainer config={{}} className="aspect-auto h-[160px] w-full">
+          <BarChart data={rows} stackOffset="sign" syncId={syncId} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+            {hatch.defs}
+            <CartesianGrid vertical={false} />
+            <XAxis dataKey="week" tickLine={false} axisLine={false} minTickGap={24} tickFormatter={formatWeek} />
+            <YAxis tickLine={false} axisLine={false} width={44} tickCount={5} tickFormatter={formatCompact} />
+            <ChartTooltip content={<LinesTooltip />} />
+            <ReferenceLine y={0} stroke="var(--chart-axis)" strokeWidth={1} ifOverflow="extendDomain" />
+            <Bar dataKey="added" stackId="lines" fill={ADDED} stroke="var(--chart-surface)" strokeWidth={2} shape={addedShape} isAnimationActive={false} />
+            <Bar dataKey="inFlightAdded" stackId="lines" fill={hatch.fill} stroke="var(--chart-surface)" strokeWidth={2} radius={TOP} isAnimationActive={false} />
+            <Bar dataKey="removed" stackId="lines" fill={REMOVED} stroke="var(--chart-surface)" strokeWidth={2} shape={removedShape} isAnimationActive={false} />
+            <Bar dataKey="inFlightRemoved" stackId="lines" fill={hatch.fill} stroke="var(--chart-surface)" strokeWidth={2} radius={BOTTOM} isAnimationActive={false} />
+          </BarChart>
+        </ChartContainer>
+      )}
+      <div className="flex gap-4 mt-2 justify-end">
+        <span className="flex items-center gap-1.5 text-[11px] text-chart-axis">
+          <i aria-hidden="true" className="w-2.5 h-2.5 rounded-sm" style={{ background: ADDED }} /> Added
+        </span>
+        <span className="flex items-center gap-1.5 text-[11px] text-chart-axis">
+          <i aria-hidden="true" className="w-2.5 h-2.5 rounded-sm" style={{ background: REMOVED }} /> Removed
+        </span>
+        {hasInFlight && (
+          <span className="flex items-center gap-1.5 text-[11px] text-chart-axis">
+            <HatchSwatch colorVar={commitTypeColor('in_flight')} /> In flight
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
