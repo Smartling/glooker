@@ -29,6 +29,57 @@
      3.96); #9ca3af clears it (min 7.55). The legend renders this colour as 11px text, which needs
      4.5:1 — the polyline/dot are graphics and only need 3:1, so they're unaffected. */
   --vuln-series-other: #9ca3af;
+
+  /* GLOOK-58: chart tokens (dark, the app's default). Values validated in the spec's Palette
+     section; chart-contrast.test.ts guards every Decision 14 threshold. --chart-surface is the
+     card colour charts sit on (bg-gray-900). The grid and tooltip border are decorative and
+     exempt from contrast, so they stay recessive. */
+  --chart-grid: #1f2937;
+  --chart-axis: #9ca3af;
+  --chart-cursor: #1f2937;
+  --chart-tooltip-bg: #1f2937;
+  --chart-tooltip-border: #374151;
+  --chart-tooltip-text: #e5e7eb;
+  --chart-track: #1f2937;
+  --chart-surface: #111827;
+  --chart-type-feature: #3b82f6;
+  --chart-type-bug: #ef4444;
+  --chart-type-refactor: #a855f7;
+  --chart-type-infra: #eab308;
+  --chart-type-docs: #6b7280;
+  --chart-type-test: #22c55e;
+  --chart-type-other: #d1d5db;
+  --chart-type-in-flight: #06b6d4;
+  /* --chart-lines-added is lime, not emerald: emerald #10b981 vs the in-flight cyan #06b6d4 failed
+     the normal-vision floor (ΔE 12.5 < 15). Lime #84cc16 clears every pair (worst normal ΔE 23.5,
+     worst colorblind ΔE 12.7), validated in the Palette section below. */
+  --chart-lines-added: #84cc16;
+  --chart-lines-removed: #ef4444;
+  --chart-ring-jira: #d97706;
+  --chart-ring-commits: #10b981;
+  --chart-scatter-typical: #60a5fa;
+  --chart-scatter-outlier: #fb923c;
+  --chart-volume-prs: #06b6d4;
+  --chart-volume-jiras: #a855f7;
+  --chart-volume-commits: #374151;
+  /* Commit-type badges carry text, so they get their own fill/text pairs (4.5:1), separate from
+     the mark colours above. */
+  --chart-badge-feature-bg: #2563eb;
+  --chart-badge-feature-text: #ffffff;
+  --chart-badge-bug-bg: #dc2626;
+  --chart-badge-bug-text: #ffffff;
+  --chart-badge-refactor-bg: #9333ea;
+  --chart-badge-refactor-text: #ffffff;
+  --chart-badge-infra-bg: #ca8a04;
+  --chart-badge-infra-text: #111827;
+  --chart-badge-docs-bg: #4b5563;
+  --chart-badge-docs-text: #ffffff;
+  --chart-badge-test-bg: #15803d;
+  --chart-badge-test-text: #ffffff;
+  --chart-badge-other-bg: #374151;
+  --chart-badge-other-text: #ffffff;
+  --chart-badge-in-flight-bg: #0e7490;
+  --chart-badge-in-flight-text: #ffffff;
 }
 
 /* Accent utility classes */
@@ -86,6 +137,64 @@
   --vuln-series-11: #4f46e5;
   --vuln-series-12: #be123c;
   --vuln-series-other: #6b7280;
+
+  /* GLOOK-58: chart tokens (light). Same names as :root. --chart-surface is the light card
+     (the .bg-gray-900 override below is #ffffff).
+     Three values moved off the dark-mode starting hexes after the light-mode validator run
+     (see the Palette section for full output):
+     - chart-type-docs/-other/-in-flight: docs takes the old other grey (#4b5563), other moves
+       darker to #374151, and in-flight becomes teal #0891b2 — the original other/in-flight pair
+       (#4b5563/#0e7490) failed the normal-vision floor (ΔE 10.4), and infra/docs
+       (#a16207/#6b7280) also failed it (ΔE 14.3).
+     - chart-lines-added/-removed: emerald #047857 vs the new in-flight teal #0891b2 still failed
+       the normal-vision floor (ΔE 14.3). Lime #65a30d clears it, but lime vs the original red
+       #dc2626 then failed colorblind separation (ΔE 6.1, and that pair has no in-flight
+       exception). Moving removed one shade darker to #b91c1c clears colorblind separation
+       (ΔE 13.3) without lime needing a further move.
+     - chart-ring-jira: amber-700 #b45309 vs commits #047857 scored colorblind ΔE 7.9 — just
+       under the 8 floor, and the ring has no hatch to justify the 6-8 allowance. Amber-800
+       #92400e clears it (ΔE 8.1). */
+  --chart-grid: #e5e7eb;
+  --chart-axis: #4b5563;
+  --chart-cursor: #f3f4f6;
+  --chart-tooltip-bg: #ffffff;
+  --chart-tooltip-border: #e5e7eb;
+  --chart-tooltip-text: #111827;
+  --chart-track: #e5e7eb;
+  --chart-surface: #ffffff;
+  --chart-type-feature: #2563eb;
+  --chart-type-bug: #dc2626;
+  --chart-type-refactor: #9333ea;
+  --chart-type-infra: #a16207;
+  --chart-type-docs: #4b5563;
+  --chart-type-test: #15803d;
+  --chart-type-other: #374151;
+  --chart-type-in-flight: #0891b2;
+  --chart-lines-added: #65a30d;
+  --chart-lines-removed: #b91c1c;
+  --chart-ring-jira: #92400e;
+  --chart-ring-commits: #047857;
+  --chart-scatter-typical: #2563eb;
+  --chart-scatter-outlier: #c2410c;
+  --chart-volume-prs: #0e7490;
+  --chart-volume-jiras: #9333ea;
+  --chart-volume-commits: #d1d5db;
+  --chart-badge-feature-bg: #dbeafe;
+  --chart-badge-feature-text: #1e40af;
+  --chart-badge-bug-bg: #fee2e2;
+  --chart-badge-bug-text: #991b1b;
+  --chart-badge-refactor-bg: #f3e8ff;
+  --chart-badge-refactor-text: #6b21a8;
+  --chart-badge-infra-bg: #fef9c3;
+  --chart-badge-infra-text: #854d0e;
+  --chart-badge-docs-bg: #f3f4f6;
+  --chart-badge-docs-text: #374151;
+  --chart-badge-test-bg: #dcfce7;
+  --chart-badge-test-text: #166534;
+  --chart-badge-other-bg: #e5e7eb;
+  --chart-badge-other-text: #1f2937;
+  --chart-badge-in-flight-bg: #cffafe;
+  --chart-badge-in-flight-text: #155e75;
 }
 
 /* Body & base text */

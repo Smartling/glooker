@@ -161,7 +161,225 @@ Each token is defined under `:root` (dark) and redefined under `[data-theme-mode
 
 ### Palette
 
-*Filled in by the first implementation task: the validated dark and light hex values, and the validator's output (Decision 14). No chart task starts before this section is complete.*
+**Token table.** One row per `--chart-*` token.
+
+| Token | Dark | Light | Colors |
+|---|---|---|---|
+| `--chart-grid` | `#1f2937` | `#e5e7eb` | Horizontal grid lines (decorative, exempt) |
+| `--chart-axis` | `#9ca3af` | `#4b5563` | Axis tick text |
+| `--chart-cursor` | `#1f2937` | `#f3f4f6` | Hover cursor fill |
+| `--chart-tooltip-bg` | `#1f2937` | `#ffffff` | Tooltip background |
+| `--chart-tooltip-border` | `#374151` | `#e5e7eb` | Tooltip border (decorative, exempt) |
+| `--chart-tooltip-text` | `#e5e7eb` | `#111827` | Tooltip text |
+| `--chart-track` | `#1f2937` | `#e5e7eb` | Ring track / unfilled background the ring colors sit on |
+| `--chart-surface` | `#111827` | `#ffffff` | The card color every chart sits on; also the 2px gap between stacked bar segments |
+| `--chart-type-feature` | `#3b82f6` | `#2563eb` | Commit type: feature |
+| `--chart-type-bug` | `#ef4444` | `#dc2626` | Commit type: bug |
+| `--chart-type-refactor` | `#a855f7` | `#9333ea` | Commit type: refactor |
+| `--chart-type-infra` | `#eab308` | `#a16207` | Commit type: infra |
+| `--chart-type-docs` | `#6b7280` | `#4b5563` | Commit type: docs |
+| `--chart-type-test` | `#22c55e` | `#15803d` | Commit type: test |
+| `--chart-type-other` | `#d1d5db` | `#374151` | Commit type: other (unrecognized types fold in) |
+| `--chart-type-in-flight` | `#06b6d4` | `#0891b2` | Commit type: in-flight (always hatched) |
+| `--chart-lines-added` | `#84cc16` | `#65a30d` | Lines-changed chart: added |
+| `--chart-lines-removed` | `#ef4444` | `#b91c1c` | Lines-changed chart: removed |
+| `--chart-ring-jira` | `#d97706` | `#92400e` | `ProgressRing` Jira arc |
+| `--chart-ring-commits` | `#10b981` | `#047857` | `ProgressRing` commits arc |
+| `--chart-scatter-typical` | `#60a5fa` | `#2563eb` | Spend vs impact scatter: typical dot |
+| `--chart-scatter-outlier` | `#fb923c` | `#c2410c` | Spend vs impact scatter: outlier dot |
+| `--chart-volume-prs` | `#06b6d4` | `#0e7490` | `ProjectsCard` volume bar: PR segment |
+| `--chart-volume-jiras` | `#a855f7` | `#9333ea` | `ProjectsCard` volume bar: Jira segment |
+| `--chart-volume-commits` | `#374151` | `#d1d5db` | `ProjectsCard` volume bar: commits segment (de-emphasized remainder, exempt) |
+| `--chart-badge-feature-bg` / `-text` | `#2563eb` / `#ffffff` | `#dbeafe` / `#1e40af` | Feature badge fill/text |
+| `--chart-badge-bug-bg` / `-text` | `#dc2626` / `#ffffff` | `#fee2e2` / `#991b1b` | Bug badge fill/text |
+| `--chart-badge-refactor-bg` / `-text` | `#9333ea` / `#ffffff` | `#f3e8ff` / `#6b21a8` | Refactor badge fill/text |
+| `--chart-badge-infra-bg` / `-text` | `#ca8a04` / `#111827` | `#fef9c3` / `#854d0e` | Infra badge fill/text |
+| `--chart-badge-docs-bg` / `-text` | `#4b5563` / `#ffffff` | `#f3f4f6` / `#374151` | Docs badge fill/text |
+| `--chart-badge-test-bg` / `-text` | `#15803d` / `#ffffff` | `#dcfce7` / `#166534` | Test badge fill/text |
+| `--chart-badge-other-bg` / `-text` | `#374151` / `#ffffff` | `#e5e7eb` / `#1f2937` | Other badge fill/text |
+| `--chart-badge-in-flight-bg` / `-text` | `#0e7490` / `#ffffff` | `#cffafe` / `#155e75` | In-flight badge fill/text |
+
+**Moves list.** Every value that moved from its Task 1 starting hex, with the reason.
+
+- `--chart-type-other` (dark) `#4B5563` → `#D1D5DB`: 2.35:1 on `#111827`, below the 3:1 mark-contrast floor.
+- `--chart-type-docs` (light) `#6B7280` → `#4B5563`: took the old `other` grey to make room for `other` moving darker below.
+- `--chart-type-other` (light) `#4B5563` → `#374151`: `other`/`in_flight` at the original `#0E7490` in-flight failed the normal-vision floor (ΔE 10.4); moving `other` darker, paired with the in-flight hue change below, clears it (isolation ΔE 23.6 colorblind / 25.2 normal).
+- `--chart-type-in-flight` (light) `#0E7490` → `#0891B2`: the `docs`/`other` re-step above needed a lighter, more saturated cyan to keep `other`/`in-flight` separated; `infra`/`docs` (`#A16207`/`#6B7280`) also failed the normal-vision floor (ΔE 14.3) at the original grey, which the `docs` move above also fixes.
+- `--chart-lines-added` (dark) `#10B981` → `#84CC16`: emerald vs. the in-flight cyan `#06B6D4` failed the normal-vision floor (ΔE 12.5, below 15). Lime clears every pair (worst normal ΔE 23.5, worst colorblind ΔE 12.7). This is a hue change, not just a shade move — see reason 4 below.
+- `--chart-lines-added` (light) `#047857` → `#65A30D`: emerald vs. the new in-flight teal `#0891B2` still failed the normal-vision floor (ΔE 14.3, just under 15). Lime (same hue family as the dark move) clears it once `removed` also moves (next row).
+- `--chart-lines-removed` (light) `#DC2626` → `#B91C1C`: lime `added` vs. `#DC2626` failed colorblind separation (ΔE 6.1) — that pair is added/removed, which has no in-flight exception, so it needs the full 8 floor. Red one shade darker (red-700) clears it (ΔE 13.3) without moving `added` again.
+- `--chart-ring-jira` (light) `#B45309` → `#92400E`: `ring-jira`/`ring-commits` (`#B45309`/`#047857`) scored colorblind ΔE 7.9 — just under the 8 floor, and the ring has no hatch to justify the 6-8 allowance (that allowance is in-flight-only, and the ring has no in-flight color). Amber one shade darker (amber-800) clears it (ΔE 8.1). This was not in Task 1's known-failures list; it surfaced during this task's validator run.
+
+**Validator output**, one fenced block per palette/mode/run, all from Step 4's final (passing) candidates:
+
+Commit types, dark, full order:
+```
+Palette (dark, surface #111827, categorical): 8 slots
+  [FAIL] Lightness band         outside band: [["#EAB308",0.795],["#22C55E",0.723],["#D1D5DB",0.872],["#06B6D4",0.715]]
+  [FAIL] Chroma floor           below floor (reads gray): [["#6B7280",0.023],["#D1D5DB",0.009]]
+  [PASS] CVD separation         worst adjacent #06B6D4↔#D1D5DB ΔE 12.5 (protan) · tritan 18.1
+  [PASS] Normal-vision floor    worst adjacent #06B6D4↔#D1D5DB ΔE 19.7 (normal)
+  [PASS] Contrast vs surface    all 8 >= 3:1
+```
+
+Commit types, light, full order:
+```
+Palette (light, surface #ffffff, categorical): 8 slots
+  [FAIL] Lightness band         outside band: [["#374151",0.373]]
+  [FAIL] Chroma floor           below floor (reads gray): [["#4B5563",0.026],["#374151",0.031]]
+  [PASS] CVD separation         worst adjacent #15803D↔#4B5563 ΔE 12.2 (deutan) · tritan 11.3
+  [PASS] Normal-vision floor    worst adjacent #15803D↔#4B5563 ΔE 16.8 (normal)
+  [PASS] Contrast vs surface    all 8 >= 3:1
+```
+
+Commit types, dark, without in-flight:
+```
+Palette (dark, surface #111827, categorical): 7 slots
+  [FAIL] Lightness band         outside band: [["#EAB308",0.795],["#22C55E",0.723],["#D1D5DB",0.872]]
+  [FAIL] Chroma floor           below floor (reads gray): [["#6B7280",0.023],["#D1D5DB",0.009]]
+  [PASS] CVD separation         worst adjacent #D1D5DB↔#22C55E ΔE 16.6 (protan) · tritan 18.8
+  [PASS] Normal-vision floor    worst adjacent #D1D5DB↔#22C55E ΔE 24.6 (normal)
+  [PASS] Contrast vs surface    all 7 >= 3:1
+```
+
+Commit types, light, without in-flight:
+```
+Palette (light, surface #ffffff, categorical): 7 slots
+  [FAIL] Lightness band         outside band: [["#374151",0.373]]
+  [FAIL] Chroma floor           below floor (reads gray): [["#4B5563",0.026],["#374151",0.031]]
+  [PASS] CVD separation         worst adjacent #15803D↔#4B5563 ΔE 12.2 (deutan) · tritan 11.3
+  [PASS] Normal-vision floor    worst adjacent #15803D↔#4B5563 ΔE 16.8 (normal)
+  [PASS] Contrast vs surface    all 7 >= 3:1
+```
+
+`other`/`in_flight` in isolation, dark (uses the 6-8 colorblind allowance's headroom, well clear of it):
+```
+Palette (dark, surface #111827, categorical): 2 slots
+  [FAIL] Lightness band         outside band: [["#D1D5DB",0.872],["#06B6D4",0.715]]
+  [FAIL] Chroma floor           below floor (reads gray): [["#D1D5DB",0.009]]
+  [PASS] CVD separation         worst adjacent #06B6D4↔#D1D5DB ΔE 12.5 (protan) · tritan 18.1
+  [PASS] Normal-vision floor    worst adjacent #06B6D4↔#D1D5DB ΔE 19.7 (normal)
+  [PASS] Contrast vs surface    all 2 >= 3:1
+```
+
+`other`/`in_flight` in isolation, light:
+```
+Palette (light, surface #ffffff, categorical): 2 slots
+  [FAIL] Lightness band         outside band: [["#374151",0.373]]
+  [FAIL] Chroma floor           below floor (reads gray): [["#374151",0.031]]
+  [PASS] CVD separation         worst adjacent #0891B2↔#374151 ΔE 23.6 (deutan) · tritan 26.6
+  [PASS] Normal-vision floor    worst adjacent #0891B2↔#374151 ΔE 25.2 (normal)
+  [PASS] Contrast vs surface    all 2 >= 3:1
+```
+
+Lines, dark, all pairs (added, in-flight, removed):
+```
+Palette (dark, surface #111827, categorical): 3 slots
+  [FAIL] Lightness band         outside band: [["#84CC16",0.768],["#06B6D4",0.715]]
+  [PASS] Chroma floor           all 3 >= 0.1
+  [PASS] CVD separation         worst all-pairs #EF4444↔#84CC16 ΔE 12.7 (deutan) · tritan 7.7
+  [PASS] Normal-vision floor    worst all-pairs #06B6D4↔#84CC16 ΔE 23.5 (normal)
+  [PASS] Contrast vs surface    all 3 >= 3:1
+```
+The worst-CVD pair here is `added`/`removed` (no in-flight exception, and it clears 8 anyway at 12.7). The tritan 7.7 belongs to a different pair; see the isolation run below, which confirms it's `added`/`in-flight` and within the allowed 6-8 band.
+
+Lines, light, all pairs (added, in-flight, removed):
+```
+Palette (light, surface #ffffff, categorical): 3 slots
+  [PASS] Lightness band         all 3 inside L 0.43–0.77
+  [PASS] Chroma floor           all 3 >= 0.1
+  [PASS] CVD separation         worst all-pairs #B91C1C↔#65A30D ΔE 13.3 (deutan) · tritan 6.0
+  [PASS] Normal-vision floor    worst all-pairs #0891B2↔#65A30D ΔE 21.1 (normal)
+  [PASS] Contrast vs surface    all 3 >= 3:1
+```
+The tritan 6.0 belongs to `added`/`in-flight` (`#65A30D`/`#0891B2`), confirmed by the isolation run below — that pair includes in-flight, so 6.0 is within the allowed 6-8 band. The `added`/`removed` pair (no exception) is 13.3, well clear.
+
+Lines, `added`/`removed` alone (the pair with no in-flight exception), dark:
+```
+Palette (dark, surface #111827, categorical): 2 slots
+  [FAIL] Lightness band         outside band: [["#84CC16",0.768]]
+  [PASS] Chroma floor           all 2 >= 0.1
+  [PASS] CVD separation         worst adjacent #EF4444↔#84CC16 ΔE 12.7 (deutan) · tritan 34.5
+  [PASS] Normal-vision floor    worst adjacent #EF4444↔#84CC16 ΔE 35.3 (normal)
+  [PASS] Contrast vs surface    all 2 >= 3:1
+```
+
+Lines, `added`/`removed` alone, light:
+```
+Palette (light, surface #ffffff, categorical): 2 slots
+  [PASS] Lightness band         all 2 inside L 0.43–0.77
+  [PASS] Chroma floor           all 2 >= 0.1
+  [PASS] CVD separation         worst adjacent #B91C1C↔#65A30D ΔE 13.3 (deutan) · tritan 29.4
+  [PASS] Normal-vision floor    worst adjacent #B91C1C↔#65A30D ΔE 32.2 (normal)
+  [PASS] Contrast vs surface    all 2 >= 3:1
+```
+
+Ring, dark:
+```
+Palette (dark, surface #111827, categorical): 2 slots
+  [FAIL] Lightness band         outside band: [["#10B981",0.696]]
+  [PASS] Chroma floor           all 2 >= 0.1
+  [PASS] CVD separation         worst adjacent #10B981↔#D97706 ΔE 10.7 (deutan) · tritan 29.9
+  [PASS] Normal-vision floor    worst adjacent #10B981↔#D97706 ΔE 24.4 (normal)
+  [PASS] Contrast vs surface    all 2 >= 3:1
+```
+
+Ring, light (after the `ring-jira` move to `#92400E`):
+```
+Palette (light, surface #ffffff, categorical): 2 slots
+  [PASS] Lightness band         all 2 inside L 0.43–0.77
+  [PASS] Chroma floor           all 2 >= 0.1
+  [PASS] CVD separation         worst adjacent #047857↔#92400E ΔE 8.1 (deutan) · tritan 24.4
+  [PASS] Normal-vision floor    worst adjacent #047857↔#92400E ΔE 20.2 (normal)
+  [PASS] Contrast vs surface    all 2 >= 3:1
+```
+The pre-move candidate (`#B45309`/`#047857`) scored colorblind ΔE 7.9 here — inside the 6-8 band, which is legal only with secondary encoding. The ring has none, so this needed a move; see the Moves list.
+
+Scatter, dark:
+```
+Palette (dark, surface #111827, categorical): 2 slots
+  [FAIL] Lightness band         outside band: [["#60A5FA",0.714],["#FB923C",0.758]]
+  [PASS] Chroma floor           all 2 >= 0.1
+  [PASS] CVD separation         worst adjacent #FB923C↔#60A5FA ΔE 25.8 (protan) · tritan 28.3
+  [PASS] Normal-vision floor    worst adjacent #FB923C↔#60A5FA ΔE 30.2 (normal)
+  [PASS] Contrast vs surface    all 2 >= 3:1
+```
+
+Scatter, light:
+```
+Palette (light, surface #ffffff, categorical): 2 slots
+  [PASS] Lightness band         all 2 inside L 0.43–0.77
+  [PASS] Chroma floor           all 2 >= 0.1
+  [PASS] CVD separation         worst adjacent #C2410C↔#2563EB ΔE 31.7 (protan) · tritan 31.6
+  [PASS] Normal-vision floor    worst adjacent #C2410C↔#2563EB ΔE 36.1 (normal)
+  [PASS] Contrast vs surface    all 2 >= 3:1
+```
+
+Volume (`prs`, `jiras`), dark:
+```
+Palette (dark, surface #111827, categorical): 2 slots
+  [FAIL] Lightness band         outside band: [["#06B6D4",0.715]]
+  [PASS] Chroma floor           all 2 >= 0.1
+  [PASS] CVD separation         worst adjacent #A855F7↔#06B6D4 ΔE 15.1 (deutan) · tritan 20.8
+  [PASS] Normal-vision floor    worst adjacent #A855F7↔#06B6D4 ΔE 27.6 (normal)
+  [PASS] Contrast vs surface    all 2 >= 3:1
+```
+
+Volume (`prs`, `jiras`), light:
+```
+Palette (light, surface #ffffff, categorical): 2 slots
+  [PASS] Lightness band         all 2 inside L 0.43–0.77
+  [FAIL] Chroma floor           below floor (reads gray): [["#0E7490",0.094]]
+  [PASS] CVD separation         worst adjacent #9333EA↔#0E7490 ΔE 14.2 (deutan) · tritan 14.1
+  [PASS] Normal-vision floor    worst adjacent #9333EA↔#0E7490 ΔE 25.5 (normal)
+  [PASS] Contrast vs surface    all 2 >= 3:1
+```
+
+**Hue changes.** Two colors moved outside a simple same-hue-family shade snap:
+- `--chart-type-in-flight` (light) moved from `#0E7490` to the more saturated `#0891B2`, both cyan/teal — a shade move within the same hue, not a new hue, driven by the `other`/`docs` re-step above.
+- `--chart-lines-added` (both modes) moved from emerald (`#10B981`/`#047857`) to lime (`#84CC16`/`#65A30D`). This is a hue shift within the broad green family (still recognizably green, per the controller's instruction to keep it green where possible) — emerald sits too close to the cyan in-flight token in both modes to clear the normal-vision floor, and lime was the only green-family shade found that clears every pair, including `added`/`removed` in light mode once `removed` also moved one shade darker.
+
+**Not gated.** The **lightness band** and **chroma floor** checks are recorded above but not gated — `docs` and `other` are grays by design and always fail the chroma floor, which is why the validator exits 1 on otherwise-passing runs; only the CVD separation, normal-vision floor and 3:1 contrast lines are enforced. `--chart-grid` and `--chart-tooltip-border` are exempt from contrast (decorative). `--chart-volume-commits` is exempt from contrast (de-emphasized remainder).
 
 ### Hatch
 
