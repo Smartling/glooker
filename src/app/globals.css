@@ -512,7 +512,11 @@
   /* Keep badges colored */
   .bg-blue-500, .bg-blue-600, .bg-blue-700,
   .bg-red-500, .bg-green-500, .bg-purple-500,
-  .bg-yellow-500, .bg-gray-500, .bg-gray-600, .bg-gray-700 {
+  .bg-yellow-500, .bg-gray-500, .bg-gray-600, .bg-gray-700,
+  .bg-chart-type-feature, .bg-chart-type-bug, .bg-chart-type-refactor, .bg-chart-type-infra,
+  .bg-chart-type-docs, .bg-chart-type-test, .bg-chart-type-other, .bg-chart-type-in-flight,
+  .bg-chart-badge-feature-bg, .bg-chart-badge-bug-bg, .bg-chart-badge-refactor-bg, .bg-chart-badge-infra-bg,
+  .bg-chart-badge-docs-bg, .bg-chart-badge-test-bg, .bg-chart-badge-other-bg, .bg-chart-badge-in-flight-bg {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }

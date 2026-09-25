@@ -45,7 +45,7 @@ it('typeEntriesFrom gives one row per non-zero type in fixed COMMIT_TYPE_ORDER, 
 });
 
 // The palette gate could move a hue in the charts while a page kept an old copy of the map.
-it.skip('no report page keeps its own commit-type colour map', () => {
+it('no report page keeps its own commit-type colour map', () => {
   const files = [
     'src/app/report/[id]/org/page.tsx',
     'src/app/report/[id]/dev/[login]/page.tsx',

@@ -8,16 +8,7 @@ import { findFirstJiraKey } from '@/lib/jira-key-utils';
 import { ClaudeCodeUsageCard, type SkillRow, type ModelRow } from './usage-card';
 import { TimelineChart } from '@/components/charts/timeline-chart';
 import { recentWeekDomain, toNum } from '@/components/charts/chart-format';
-
-const TYPE_COLORS: Record<string, string> = {
-  feature: 'bg-blue-500', bug: 'bg-red-500', refactor: 'bg-purple-500',
-  infra: 'bg-yellow-500', docs: 'bg-gray-500', test: 'bg-green-500', other: 'bg-gray-600',
-};
-
-const TYPE_TEXT_COLORS: Record<string, string> = {
-  feature: 'text-blue-400', bug: 'text-red-400', refactor: 'text-purple-400',
-  infra: 'text-yellow-400', docs: 'text-gray-400', test: 'text-green-400', other: 'text-gray-500',
-};
+import { commitTypeBadge, commitTypeBg, typeEntriesFrom } from '@/components/charts/commit-types';
 
 interface DevStats {
   github_login: string; github_name: string; avatar_url: string;
@@ -164,7 +155,7 @@ export default function DevDetailPage() {
   ];
 
   // Type breakdown for stacked bar
-  const typeEntries = Object.entries(dev.type_breakdown || {}).sort((a, b) => b[1] - a[1]);
+  const typeEntries = typeEntriesFrom([dev.type_breakdown ?? {}]);
   const totalTyped = typeEntries.reduce((s, [, c]) => s + c, 0);
 
   // One week domain per render, shared by every chart below so hover sync (syncId) lines up.
@@ -274,7 +265,7 @@ export default function DevDetailPage() {
               {typeEntries.map(([type, count]) => (
                 <div
                   key={type}
-                  className={`${TYPE_COLORS[type] || 'bg-gray-600'} h-full`}
+                  className={`${commitTypeBg(type)} h-full`}
                   style={{ width: `${(count / totalTyped) * 100}%` }}
                   title={`${type}: ${count}`}
                 />
@@ -282,13 +273,14 @@ export default function DevDetailPage() {
             </div>
           )}
           <div className="flex flex-wrap gap-2">
-            {typeEntries.map(([type, count]) => (
-              <div key={type} className="flex items-center gap-1.5 text-xs">
-                <span className={`w-2.5 h-2.5 rounded-sm ${TYPE_COLORS[type] || 'bg-gray-600'}`} />
-                <span className="text-gray-400">{type}</span>
-                <span className="text-gray-600">{count} ({Math.round((count / totalTyped) * 100)}%)</span>
-              </div>
-            ))}
+            {typeEntries.map(([type, count]) => {
+              const badge = commitTypeBadge(type);
+              return (
+                <span key={type} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs ${badge.bg} ${badge.text}`}>
+                  {type} <span className="opacity-80">{count} ({Math.round((count / totalTyped) * 100)}%)</span>
+                </span>
+              );
+            })}
           </div>
         </div>
 
@@ -492,7 +484,7 @@ export default function DevDetailPage() {
                     <td className="px-4 py-2.5 text-gray-500 text-xs whitespace-nowrap">{c.repo}</td>
                     <td className="px-4 py-2.5">
                       {c.type && (
-                        <span className={`inline-block px-1.5 py-0.5 rounded text-xs text-white ${TYPE_COLORS[c.type] || 'bg-gray-600'}`}>
+                        <span className={`inline-block px-1.5 py-0.5 rounded text-xs ${commitTypeBadge(c.type).bg} ${commitTypeBadge(c.type).text}`}>
                           {c.type}
                         </span>
                       )}
