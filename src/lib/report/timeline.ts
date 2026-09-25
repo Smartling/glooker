@@ -18,13 +18,16 @@ export interface WeeklyBucket {
   avgImpact?: number;
 }
 
-// ISO date string for the Monday of the week containing `d`. Used by both the
-// shipped-commit aggregator below and the in-flight overlay in `org.ts`, so the
-// two paths can't drift on what counts as the same week.
+// ISO date string for the Monday of the UTC week containing `d`. Used by both the shipped-commit
+// aggregator below and the in-flight overlay in `org.ts`, so the two paths can't drift on what
+// counts as the same week. GLOOK-58: UTC throughout. The old local-time arithmetic formatted with
+// toISOString(), so on a server west of UTC a Monday-evening commit got a Tuesday key and one week
+// arrived as two buckets. No week keys are persisted (timelines are computed per request), so this
+// needs no migration.
 export function weekKeyForDate(d: Date): string {
-  const day = d.getDay();
+  const day = d.getUTCDay();
   const monday = new Date(d);
-  monday.setDate(d.getDate() - ((day + 6) % 7));
+  monday.setUTCDate(d.getUTCDate() - ((day + 6) % 7));
   return monday.toISOString().split('T')[0];
 }
 
