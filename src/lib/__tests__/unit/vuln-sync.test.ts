@@ -4,6 +4,7 @@ import path from 'path';
 import type { FetchedAlert, VulnerabilitySource } from '@/lib/vulnerabilities/types';
 import { __clearVulnConfigCache } from '@/lib/vulnerabilities/config';
 import { mapPropertyRows } from '@/lib/vulnerabilities/properties';
+import { initSyncProgress, getSyncProgress } from '@/lib/vulnerabilities/progress';
 
 let db: any; let insertRunningSync: any; let runSync: any; let permissionMessage: any; let rowToAlertFact: any; let dbPath: string;
 const priorSqlitePath = process.env.SQLITE_PATH; const priorDbType = process.env.DB_TYPE;
@@ -616,6 +617,99 @@ it("a resolved alert's snapshot count agrees with rowToAlertFact(...).resolvedAt
     delete process.env.VULN_RESOLVED_SINCE;
     __clearVulnConfigCache();
   }
+});
+
+// GLOOK-43 follow-up: the in-process progress store (progress.ts). These tests call
+// runSync directly (not via startSync/scheduler.ts, which is what actually calls
+// initSyncProgress in production), so each one calls initSyncProgress(id) itself first —
+// updateSyncProgress/addSyncLog are no-ops for an id with no entry (same semantic as
+// progress-store.ts: never auto-create), so skipping this step would silently make the
+// assertions below vacuous rather than fail loudly.
+describe('sync progress store integration', () => {
+  it('a successful run leaves the store Done with the matching status, and the completion log line', async () => {
+    const id = await insertRunningSync('o', 'manual', 'a@x', new Date('2026-09-22T10:00:00Z'));
+    initSyncProgress(id);
+    const out = await runSync(id, 'o', source([A(1, 1)]), { now: () => new Date('2026-09-22T10:00:00Z') });
+    expect(out.status).toBe('succeeded');
+    const p = getSyncProgress(id)!;
+    expect(p.status).toBe('succeeded');
+    expect(p.step).toBe('Done');
+    expect(p.logs.some((l: string) => l.includes(`sync ${id} succeeded in`))).toBe(true);
+  });
+
+  it('a partial run leaves the store at Done with status partial', async () => {
+    const id = await insertRunningSync('o', 'manual', 'a@x', new Date('2026-09-22T10:00:00Z'));
+    initSyncProgress(id);
+    const src = source([A(1, 1)], {
+      getRepoDependabotStatus: async (name: string) => (name === 'o/r4' ? { status: 'error', detail: 'HTTP 500: x' } : { status: 'ok' }),
+    });
+    const out = await runSync(id, 'o', src, { now: () => new Date('2026-09-22T10:00:00Z') });
+    expect(out.status).toBe('partial');
+    const p = getSyncProgress(id)!;
+    expect(p.status).toBe('partial');
+    expect(p.step).toBe('Done');
+  });
+
+  it('a fetch failure leaves the progress store at status failed / step Failed', async () => {
+    const id = await insertRunningSync('o', 'manual', 'a@x', new Date('2026-09-22T10:00:00Z'));
+    initSyncProgress(id);
+    const failing = source(async () => { throw Object.assign(new Error('boom'), { status: 502 }); });
+    const out = await runSync(id, 'o', failing, { now: () => new Date('2026-09-22T10:00:00Z') });
+    expect(out.status).toBe('failed');
+    const p = getSyncProgress(id)!;
+    expect(p.status).toBe('failed');
+    expect(p.step).toBe('Failed');
+  });
+
+  it('a write-phase failure also leaves the progress store at status failed / step Failed', async () => {
+    const id = await insertRunningSync('o', 'manual', 'a@x', new Date('2026-09-22T10:00:00Z'));
+    initSyncProgress(id);
+    const renamed = source([A(1, 1, { htmlUrl: null as any })]);
+    const out = await runSync(id, 'o', renamed, { now: () => new Date('2026-09-22T10:00:00Z') });
+    expect(out.status).toBe('failed');
+    const p = getSyncProgress(id)!;
+    expect(p.status).toBe('failed');
+    expect(p.step).toBe('Failed');
+  });
+
+  it('an id never initialized never gets a progress entry (updateSyncProgress/addSyncLog stay no-ops)', async () => {
+    const id = await insertRunningSync('o', 'manual', 'a@x', new Date('2026-09-22T10:00:00Z'));
+    // deliberately no initSyncProgress(id) here
+    const out = await runSync(id, 'o', source([A(1, 1)]), { now: () => new Date('2026-09-22T10:00:00Z') });
+    expect(out.status).toBe('succeeded');
+    expect(getSyncProgress(id)).toBeNull();
+  });
+
+  it('status checks record done/total, updated after every check', async () => {
+    const id = await insertRunningSync('o', 'manual', 'a@x', new Date('2026-09-22T10:00:00Z'));
+    initSyncProgress(id);
+    const snapshots: Array<{ done: number; total: number }> = [];
+    const src: VulnerabilitySource = {
+      listOrgReposForVulns: async () => [
+        { repoId: 1, fullName: 'o/r1', archived: false },
+        { repoId: 2, fullName: 'o/r2', archived: false },
+      ],
+      listOrgRepoProperties: async () => ({
+        rows: [
+          { repoId: 1, fullName: 'o/r1', team: 'T1', serviceTier: 'production', codebaseType: 'backend' },
+          { repoId: 2, fullName: 'o/r2', team: 'T1', serviceTier: 'production', codebaseType: 'backend' },
+        ],
+        keysSeen: { team: true, tier: true, codebase: true },
+      }),
+      listOrgDependabotAlerts: async () => [],
+      // Snapshots the store BEFORE each check completes — the update for THIS check only lands
+      // right after this call resolves, so the first snapshot reflects the fetch-phase's
+      // 'Fetching alerts…' step (done/total still 0/0), and the second reflects the first check.
+      getRepoDependabotStatus: async () => {
+        const before = getSyncProgress(id)!;
+        snapshots.push({ done: before.done, total: before.total });
+        return { status: 'ok' as const };
+      },
+    };
+    const out = await runSync(id, 'o', src, { now: () => new Date('2026-09-22T10:00:00Z') });
+    expect(out.status).toBe('succeeded');
+    expect(snapshots).toEqual([{ done: 0, total: 0 }, { done: 1, total: 2 }]);
+  });
 });
 
 // the sync-time taxonomy guard. Unlike the `source()` helper above (which hands

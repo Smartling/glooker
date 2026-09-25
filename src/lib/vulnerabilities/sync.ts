@@ -5,6 +5,7 @@ import type { DB } from '../db/index';
 import { upsertRows, insertRows, bool, RESOLVED_AT_SQL } from './db-helpers';
 import { isInScope, codebaseGroupOf } from './codebase';
 import { getVulnConfig } from './config';
+import { updateSyncProgress, addSyncLog } from './progress';
 import { toIsoSecond } from './time';
 import type {
   VulnerabilitySource, FetchedAlert, FetchedRepo, FetchedRepoProperties, RepoAlertStatus, TriggerKind,
@@ -109,14 +110,17 @@ export function permissionMessage(err: unknown): string {
   return raw;
 }
 
-async function fetchPhase(org: string, source: VulnerabilitySource, log: (m: string) => void): Promise<FetchResult> {
+async function fetchPhase(syncId: number, org: string, source: VulnerabilitySource, log: (m: string) => void): Promise<FetchResult> {
   let sanitized = 0, clipped = 0;
   const onDataNotice = (kind: 'sanitized' | 'clipped', count: number) => { if (kind === 'sanitized') sanitized += count; else clipped += count; };
+  updateSyncProgress(syncId, { step: 'Fetching repos…', done: 0, total: 0 });
   log('fetching repos');
   const repos = await withStep('repos', () => source.listOrgReposForVulns(org, log, onDataNotice));
+  updateSyncProgress(syncId, { step: 'Fetching custom properties…', done: 0, total: 0 });
   log('fetching properties');
   const propsResult = await withStep('properties', () => source.listOrgRepoProperties(org, getVulnConfig().keys, log, onDataNotice));
   const props = new Map(propsResult.rows.map(p => [p.repoId, p]));
+  updateSyncProgress(syncId, { step: 'Fetching alerts…', done: 0, total: 0 });
   log('fetching alerts');
   const alerts = await withStep('alerts', () => source.listOrgDependabotAlerts(org, log, onDataNotice));
   const withAlerts = new Set(alerts.map(a => a.repoId));
@@ -133,6 +137,7 @@ async function fetchPhase(org: string, source: VulnerabilitySource, log: (m: str
     if (!isInScope(props.get(r.repoId)?.serviceTier ?? null)) { statuses.set(r.repoId, { status: 'ok' }); continue; }
     statuses.set(r.repoId, await withStep('repo-status', () => source.getRepoDependabotStatus(r.fullName, log)));
     checked++;
+    updateSyncProgress(syncId, { step: `[${checked}/${toCheck.length}] Checking Dependabot status`, done: checked, total: toCheck.length });
     if (checked % 50 === 0) log(`status checks: ${checked}/${toCheck.length}`);
   }
   return { repos, props, alerts, statuses, dataNotice: { sanitized, clipped }, keysSeen: propsResult.keysSeen };
@@ -321,16 +326,22 @@ export async function runSync(
   opts: { now?: () => Date; log?: (m: string) => void } = {},
 ): Promise<SyncOutcome> {
   const now = opts.now ?? (() => new Date());
-  const log = opts.log ?? ((m: string) => console.log(`[vuln-sync] ${m}`));
+  // GLOOK-43 follow-up: the default log writes into the progress store AND the server
+  // console, same as report-runner.ts:45. A caller-supplied log (tests) is always called too, so
+  // the store is populated either way — never made conditional on whether opts.log was passed.
+  const log = opts.log
+    ? (m: string) => { opts.log!(m); addSyncLog(syncId, m); }
+    : (m: string) => { addSyncLog(syncId, m); console.log(`[vuln-sync] ${m}`); };
   const startedAt = now();
   let fetched: FetchResult;
   try {
-    fetched = await fetchPhase(org, source, log);
+    fetched = await fetchPhase(syncId, org, source, log);
   } catch (err) {
     const issues = [{ kind: 'fetch', message: permissionMessage(err) }];
     log(`sync failed: ${issues[0].message}`);
     await db.execute(`UPDATE vulnerability_syncs SET status = 'failed', finished_at = ?, issues = ? WHERE id = ?`,
       [toIsoSecond(now()), JSON.stringify(issues), syncId]);
+    updateSyncProgress(syncId, { status: 'failed', step: 'Failed' });
     return { status: 'failed', issues };
   }
 
@@ -373,6 +384,7 @@ export async function runSync(
   // actually persisted.
   let status: 'succeeded' | 'partial' = 'succeeded';
   let issues: SyncIssue[] = [];
+  updateSyncProgress(syncId, { step: 'Writing results…', done: 0, total: 0 });
   try {
     await db.transaction(async (tx) => {
       const c = await writePhase(tx, org, syncId, fetched, at);
@@ -417,6 +429,7 @@ export async function runSync(
     // watching the server console doesn't have to infer a multi-minute run finished from silence.
     log(`sync ${syncId} ${status} in ${formatDuration(now().getTime() - startedAt.getTime())}: `
       + `${fetched.alerts.length} alerts, ${fetched.repos.length} repos, ${issues.length} issues`);
+    updateSyncProgress(syncId, { status, step: 'Done' });
   } catch (err) {
     // The fatal issue goes first: banners that show issues[0] must blame the write failure,
     // not whichever repo happened to be first in a repo-status issue collected earlier.
@@ -428,6 +441,7 @@ export async function runSync(
     log(`sync failed: ${failIssues[0].message}`);
     await db.execute(`UPDATE vulnerability_syncs SET status = 'failed', finished_at = ?, issues = ? WHERE id = ?`,
       [toIsoSecond(now()), JSON.stringify(failIssues), syncId]);
+    updateSyncProgress(syncId, { status: 'failed', step: 'Failed' });
     return { status: 'failed', issues: failIssues };
   }
   return { status, issues };

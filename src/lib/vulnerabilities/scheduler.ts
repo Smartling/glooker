@@ -3,6 +3,7 @@ import db from '../db/index';
 import { getGitHubProvider } from '../github';
 import { insertRunningSync, runSync } from './sync';
 import { getVulnerabilitiesOrg, getSyncSchedule } from './config';
+import { initSyncProgress } from './progress';
 import { toIsoSecond } from './time';
 import type { TriggerKind } from './types';
 
@@ -45,6 +46,7 @@ export async function startSync(trigger: TriggerKind, triggeredBy: string | null
       [toIsoSecond(new Date()), JSON.stringify([{ kind: 'watchdog', message: 'marked failed: still running after 2h' }]), org, cutoff],
     );
     syncId = await insertRunningSync(org, trigger, triggeredBy);
+    initSyncProgress(syncId);
   } catch (err) {
     g.__glooker_vuln_sync_running = false;
     throw err;

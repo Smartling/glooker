@@ -1,6 +1,7 @@
 // Shared by /api/vulnerabilities/* and the MCP tools, so the dashboard and an agent can never disagree.
 import db from '../db/index';
 import { getVulnerabilitiesOrg, getSyncSchedule, getVulnConfig } from './config';
+import { getSyncProgress, type SyncProgress } from './progress';
 import { rowToAlertFact, rowToRepoFact } from './db-helpers';
 import {
   computePivot, computeKpi, computeCoverage, listAlerts, computeDelta, computeTrend, snapshotSets, pickBaseline, knownTeams, teamOf, setKey,
@@ -376,4 +377,31 @@ export async function listSyncs(limit = 30): Promise<ListSyncsResponse> {
       issues: JSON.parse(r.issues ?? '[]'),
     })),
   };
+}
+
+export class SyncNotFoundError extends Error {
+  constructor(id: number) {
+    super(`Vulnerability sync not found: ${id}`);
+    this.name = 'SyncNotFoundError';
+  }
+}
+
+/**
+ * GLOOK-43 follow-up: the syncs tab's per-card progress view, mirroring
+ * `getReportProgress` (`src/lib/report/service.ts`). The in-process store (`progress.ts`) is the
+ * live path while a sync is running in THIS process; a store miss falls back to the DB row so a
+ * fresh process (after a restart) or a finished-but-never-observed sync still returns something
+ * sensible rather than 404ing a real, finished sync.
+ */
+export async function getSyncProgressView(id: number): Promise<SyncProgress> {
+  const stored = getSyncProgress(id);
+  if (stored) return stored;
+
+  const org = getVulnerabilitiesOrg();
+  const [rows] = await db.execute<any>(
+    `SELECT status FROM vulnerability_syncs WHERE id = ? AND org = ?`, [id, org]);
+  const row = rows[0];
+  if (!row) throw new SyncNotFoundError(id);
+  if (row.status === 'running') return { status: 'running', step: 'Running…', done: 0, total: 0, logs: [] };
+  return { status: row.status, step: row.status === 'failed' ? 'Failed' : 'Done', done: 0, total: 0, logs: [] };
 }

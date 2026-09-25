@@ -3,9 +3,13 @@ jest.mock('@/lib/auth', () => ({
   requireAdmin: jest.fn().mockResolvedValue(null),
   extractUser: jest.fn().mockReturnValue({ email: 'admin@x', groups: [] }),
 }));
-jest.mock('@/lib/vulnerabilities/queries', () => ({
-  getSummary: jest.fn(), getTrend: jest.fn(), getAlerts: jest.fn(), getCoverage: jest.fn(), listSyncs: jest.fn(),
-}));
+jest.mock('@/lib/vulnerabilities/queries', () => {
+  class SyncNotFoundError extends Error {}
+  return {
+    getSummary: jest.fn(), getTrend: jest.fn(), getAlerts: jest.fn(), getCoverage: jest.fn(), listSyncs: jest.fn(),
+    getSyncProgressView: jest.fn(), SyncNotFoundError,
+  };
+});
 jest.mock('@/lib/vulnerabilities/scheduler', () => ({ startSync: jest.fn() }));
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -14,12 +18,14 @@ import { GET as trend } from '@/app/api/vulnerabilities/trend/route';
 import { GET as alerts } from '@/app/api/vulnerabilities/alerts/route';
 import { GET as coverage } from '@/app/api/vulnerabilities/coverage/route';
 import { GET as syncs } from '@/app/api/vulnerabilities/syncs/route';
+import { GET as syncProgress } from '@/app/api/vulnerabilities/syncs/[id]/progress/route';
 import { POST as sync } from '@/app/api/vulnerabilities/sync/route';
-import { getSummary, getTrend, getAlerts, getCoverage, listSyncs } from '@/lib/vulnerabilities/queries';
+import { getSummary, getTrend, getAlerts, getCoverage, listSyncs, getSyncProgressView, SyncNotFoundError } from '@/lib/vulnerabilities/queries';
 import { startSync } from '@/lib/vulnerabilities/scheduler';
 import { requireAdmin } from '@/lib/auth';
 
 const req = (p: string, init?: any) => new NextRequest(`http://localhost${p}`, init);
+const progressReq = (id: string) => syncProgress(req(`/api/vulnerabilities/syncs/${id}/progress`), { params: Promise.resolve({ id }) });
 const prior = process.env.VULNERABILITIES_ORG;
 beforeEach(() => { process.env.VULNERABILITIES_ORG = 'o'; jest.clearAllMocks(); (requireAdmin as jest.Mock).mockResolvedValue(null); });
 afterAll(() => { if (prior === undefined) delete process.env.VULNERABILITIES_ORG; else process.env.VULNERABILITIES_ORG = prior; });
@@ -32,6 +38,7 @@ it('404s every route when the feature is off', async () => {
   delete process.env.VULNERABILITIES_ORG;
   for (const [name, h] of GETS) expect((await h(req(`/api/vulnerabilities/${name}`))).status).toBe(404);
   expect((await sync(req('/api/vulnerabilities/sync', { method: 'POST' }))).status).toBe(404);
+  expect((await progressReq('5')).status).toBe(404);
 });
 
 it('every GET is readable by a non-admin (requireAdmin would deny, and is never consulted)', async () => {
@@ -65,4 +72,26 @@ it('POST sync: admin only, 202 / 409, records who triggered it', async () => {
   expect(startSync).toHaveBeenCalledWith('manual', 'admin@x');
   (startSync as jest.Mock).mockResolvedValueOnce({ status: 'already-running' });
   expect((await sync(req('/api/vulnerabilities/sync', { method: 'POST' }))).status).toBe(409);
+});
+
+it('GET syncs/:id/progress: 400s on a non-integer id, never reaching the query layer', async () => {
+  const res = await progressReq('abc');
+  expect(res.status).toBe(400);
+  expect(getSyncProgressView).not.toHaveBeenCalled();
+});
+
+it('GET syncs/:id/progress: 404s on an unknown id', async () => {
+  (getSyncProgressView as jest.Mock).mockRejectedValueOnce(new SyncNotFoundError(999));
+  const res = await progressReq('999');
+  expect(res.status).toBe(404);
+});
+
+it('GET syncs/:id/progress: readable by a non-admin, returns the view as-is', async () => {
+  (requireAdmin as jest.Mock).mockResolvedValue(NextResponse.json({ error: 'Forbidden' }, { status: 403 }));
+  const view = { status: 'running' as const, step: 'Fetching alerts…', done: 3, total: 10, logs: ['[10:00:00] fetching alerts'] };
+  (getSyncProgressView as jest.Mock).mockResolvedValueOnce(view);
+  const res = await progressReq('5');
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual(view);
+  expect(getSyncProgressView).toHaveBeenCalledWith(5);
 });
