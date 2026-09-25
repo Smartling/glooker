@@ -2,49 +2,63 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace every hand-rolled SVG chart with Recharts v3 components that live outside `page.tsx`, read all colors from theme-aware CSS tokens, and have behavioral tests.
+**Goal:** Replace every hand-rolled SVG chart with a Recharts v3 component that lives outside `page.tsx`, takes every color from a theme-aware CSS token, and has behavioral tests. This includes the Spend vs Impact scatter.
 
-**Architecture:** A ported shadcn `chart.tsx` wrapper sits on Recharts 3.10. Pure helpers (`chart-format.ts`, `commit-types.ts`) and a hatch-pattern hook (`hatch.tsx`) sit under it. Five chart components sit on top in `src/components/charts/`, and `TrendChart` and `ProgressRing` are rewritten in place. Every color is a `--chart-*` CSS variable defined for dark under `:root` and for light under `[data-theme-mode="light"]`. Three guard tests stop literal colors, missing tokens and contrast regressions from coming back.
+**Architecture:**
+- **Wrapper:** a ported shadcn `chart.tsx` sits on Recharts 3.10.
+- **Helpers under it:** pure functions in `chart-format.ts` and `commit-types.ts`, and a hatch-pattern hook in `hatch.tsx`.
+- **Charts on top:** six components in `src/components/charts/`. `TrendChart` and `ProgressRing` are rewritten in place.
+- **Tokens:** every color is a `--chart-*` CSS variable, defined for dark under `:root` and for light under `[data-theme-mode="light"]`. Commit-type badges carry text, so they get their own badge tokens rather than reusing the mark colors.
+- **Week keys:** the server's `weekKeyForDate` is fixed to use UTC. The client's week helpers use UTC too, so week keys match exactly with no client-side repair.
+- **Guards:** three tests stop literal colors, missing tokens and contrast regressions from coming back.
 
-**Tech Stack:** Next.js 15 App Router, React 19.2, TypeScript, Tailwind CSS 3.4, Recharts 3.10.1, clsx 2, tailwind-merge 2.6, Jest 30 + ts-jest + jsdom 26, @testing-library/react 16.
+**Tech Stack:** Next.js 15 App Router, React 19.2, TypeScript, Tailwind CSS 3.4, Recharts 3.10.1, clsx 2, tailwind-merge 2.6, react-is 19, Jest 30 + ts-jest + jsdom 26, @testing-library/react 16.
 
-**Spec:** `docs/superpowers/specs/2026-09-25-glook-58-recharts-migration-design.md`. Read it fully before Task 1. The plan argues from it, and where the two disagree the plan says so and says why.
+**Spec:** `docs/superpowers/specs/2026-09-25-glook-58-recharts-migration-design.md`, as amended at commit `033fe01`. Read it fully before Task 1. The plan argues from the spec, and where the two disagree the plan says so and why.
 
 ## Global Constraints
 
-- **Run every node command through Node 24.** The machine default (Node 26) breaks `better-sqlite3`. Always use this form from the worktree root, with one plain command inside the quotes: no `$VARS`, no `&&`, no pipes. The harness refuses compound payloads.
+- **Run every node command through Node 24.** The machine's default Node 26 breaks `better-sqlite3`. Always use this form from the worktree root, with one plain command inside the quotes: no `$VARS`, no `&&`, no pipes. The harness refuses compound payloads.
   `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c '<one command>'`
-- **Worktree:** `/Users/maes/Documents/1macmount/code/glooker/.claude/worktrees/GLOOK-58-recharts`. Work only here. Git works normally in this worktree (`git status` returns instantly). Use `git add <explicit paths>`, never `git add -A` or `git add .`.
-- **Test baseline:** 169 suites / 1669 tests green. Single file: `npx jest <path>`. Full suite: `npx jest --maxWorkers=3`.
+- **Worktree:** `/Users/maes/Documents/1macmount/code/glooker/.claude/worktrees/GLOOK-58-recharts`. Work only here. Git works normally in this worktree. Use `git add <explicit paths>`, never `git add -A` or `git add .`.
+- **Test baseline:** 169 suites / 1669 tests green. Run a single file with `npx jest <path>` and the full suite with `npx jest --maxWorkers=3`.
 - **Commit messages** start with `GLOOK-58: ` and end with a blank line followed by `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. Write each message with a heredoc: `git commit -F - <<'EOF' ... EOF`.
-- **Dependency versions (spec Decision 2):** `recharts@^3.10`, `clsx@^2.1`, `tailwind-merge@^2.6`. Do **not** use tailwind-merge 3.x, which supports Tailwind v4 only. Also add `react-is@^19.2` (see Task 2 for why).
-- **`src/app/**/page.tsx` may export only `default`.** An extra export passes `npm test` and `tsc` and fails only at `npm run build`. Charts and their helpers live in `src/components/charts/`.
-- **Tests live flat in `src/lib/__tests__/unit/`** (Jest `roots` is `src/lib`). Component tests start with `/** @jest-environment jsdom */` on line 1. `@testing-library/jest-dom` is **not** installed, so use plain Jest matchers (`toBe`, `toBeTruthy`, `toBeNull`, `toEqual`).
-- **Tests check behavior a user sees:** rendered values, fills, ARIA, legend and tooltip text, counts of marks. They never assert tick counts, tick positions or label placement, because jsdom has no SVG text layout.
-- **Numeric inputs pass through `toNum()`** (from `chart-format.ts`). `DECIMAL`/`REAL` columns can arrive as strings. Charts never throw, and `NaN` renders as 0.
-- **No literal colors in chart modules** (spec Decision 5). No hex color, no `fill-gray-*` or `stroke-gray-*` class. That covers `src/components/charts/*`, `src/app/vulnerabilities/trend-chart.tsx`, `src/app/vulnerabilities/team-colors.ts` and `src/app/projects/progress-ring.tsx`. Do not write `#` followed by three or more hex digits in those files' comments either, for example an issue reference like `#6806`: the guard in Task 10 reads it as a color.
+- **Dependency versions (spec Decision 2):** `recharts@^3.10`, `clsx@^2.1`, `tailwind-merge@^2.6` and `react-is@^19.2`. Do **not** use tailwind-merge 3.x, which supports Tailwind v4 only.
+- **`src/app/**/page.tsx` may export only `default`.** An extra export passes `npm test` and `tsc`, and fails only at `npm run build`. Charts and their helpers live in `src/components/charts/`.
+- **Tests live flat in `src/lib/__tests__/unit/`**, because Jest's `roots` is `src/lib`. Component tests start with `/** @jest-environment jsdom */` on line 1. `@testing-library/jest-dom` is **not** installed, so use plain Jest matchers.
+- **Tests check behavior a user sees:** rendered values, fills, marker shapes, ARIA, legend and tooltip text, and counts of marks. They never assert tick counts, tick positions or label placement, because jsdom has no SVG text layout.
+- **Numeric inputs pass through `toNum()`** from `chart-format.ts`, because `DECIMAL`/`REAL` columns can arrive as strings. Charts never throw, and `NaN` renders as 0.
+- **No literal colors in chart modules** (spec Decision 5): no hex color and no `fill-gray-*` or `stroke-gray-*` class.
+  - This covers `src/components/charts/*`, `src/app/vulnerabilities/trend-chart.tsx`, `src/app/vulnerabilities/team-colors.ts` and `src/app/projects/progress-ring.tsx`.
+  - It includes comments. Don't write `#` followed by three or more hex digits in those files, for example an issue reference like `#6806`. The guard in Task 11 reads it as a color.
 - **Every `--chart-*` token value is a 6-digit hex** (`#rrggbb`) in both blocks. The contrast guard only parses that form.
-- **Text in charts uses chrome tokens** (`text-chart-axis`, `text-chart-tooltip-text`, `fill-chart-axis`), never a series color.
-- **Every Recharts series sets `isAnimationActive={false}`.** Two reasons:
-  1. The org page has a Download PDF button, and `window.print()` would capture bars mid-animation.
+- **Text in charts uses chrome tokens** (`text-chart-axis`, `text-chart-tooltip-text`, `fill-chart-axis`), never a series color. Badge text uses the badge text tokens.
+- **Every Recharts series sets `isAnimationActive={false}`.** There are two reasons:
+  1. `window.print()` from the org page's Download PDF button would capture bars mid-animation.
   2. jsdom has no `matchMedia`, so Recharts' `'auto'` animation stays on in tests. A bar's first frame has zero height, and a zero-height `Rectangle` renders nothing.
-- **The repo is public OSS.** No company-internal names (teams, repos, people, org structure) in code, tests, fixtures, docs or commit messages. Use generic names: `acme`, `TeamA`, `team.alpha`.
-- **Find edits by the quoted code, not by line number.** Line numbers are as of the start of the plan (commit `acad605`). An earlier step in the same task, such as an added import, shifts them.
-- **Do not touch unrelated code.** Each task lists its files. If a change seems to need a file that isn't listed, stop and ask.
+- **Weeks are UTC calendar weeks everywhere.** The server keys them with `weekKeyForDate`, which is fixed in Task 3. The client builds them with `buildWeekDomain`. Neither side reads the local time zone.
+- **The repo is public OSS.** No company-internal names (teams, repos, people, org structure) in code, tests, fixtures, docs or commit messages. Use generic names such as `acme`, `TeamA` and `team.alpha`.
+- **Find edits by the quoted code, not by line number.** Line numbers are as of commit `033fe01`; the source is unchanged since `acad605`. An earlier step in the same task, such as an added import, shifts them.
+- **Do not touch unrelated code.** Each task lists its files. If a change seems to need a file that isn't listed, stop and ask. The one standing exception is Task 11's screenshot pass. It may make a colors-only fix to an inline bar or badge that is broken in light mode (spec Decision 1).
 
 ## Review Focus
 
-1. **Week keys that are not Mondays.** `weekKeyForDate()` (`src/lib/report/timeline.ts:24-29`) sets the date to Monday in local time but keeps the commit's time of day, then formats the result in UTC. A commit on Monday at 21:00 in New York gets a **Tuesday** key, and in a UTC+ zone a Sunday key is possible. One real week can then arrive as two buckets. If the week domain matched keys exactly, those weeks would render as false zeros, silently losing data. `snapWeekKey()` snaps every key to its nearest Monday and merges the rows. Pinned in Task 3 (`chart-format.test.ts`) and Task 4 (a Tuesday-keyed row still draws a bar).
-2. **Numbers that arrive as strings.** A `"12.50"` or `""` from a DECIMAL column must render as 12.5 or 0, never as `NaN` or string concatenation. Pinned in Task 3 (`toNum`) and Task 4 (a string-valued ratio renders its header value).
-3. **All-zero and zero-total inputs.** These must show an explicit empty state, not an empty frame or `NaN%`:
-   - A donut total of 0, or `"0"`.
+1. **A report older than 90 days.** The week domain is anchored to *today*, as the old charts' cutoff was, so a report viewed long after it ran has no weeks in range. A reasonable person expects a message, not a blank card or a crash. Every chart must render its explicit empty state, and the page must not throw. Today the org charts silently disappear (`filtered.length < 2 → null`). Tests:
+   - Task 4: the timeline shows "No data in the last 90 days" when data is present but entirely outside the domain.
+   - Task 5: the stacked chart and the lines chart each show their empty state in the same case.
+2. **Numbers that arrive as strings.** A `"12.50"` or `""` from a DECIMAL column must render as 12.5 or 0, never as `NaN` or as a concatenated string. Tests:
+   - Task 3 covers `toNum`.
+   - Task 4 checks that a string-valued ratio renders its header value.
+   - Task 6 checks that string cost and impact values place a scatter dot.
+3. **All-zero and zero-total inputs.** Each case below must show its explicit empty state, never an empty frame or `NaN%`. ProgressRing is the spec's exception: its all-zero state draws both tracks and no arc, with no `NaN`.
+   - A donut total of 0 or `"0"`.
    - A lines chart whose weeks are all zero.
-   - A timeline with no data in 90 days.
-   - A ring with `maxVolume = 0`.
+   - A timeline with no data.
+   - A scatter with no spend.
 
-   Pinned in Tasks 4, 5 and 8.
-4. **Team names containing `.` or spaces.** Recharts treats a string `dataKey` as a lodash-style path, so a team named `team.alpha` would read `row.team.alpha` and draw nothing. `TrendChart` uses a function `dataKey`. Pinned in Task 7.
-5. **In-flight values larger than the week's total.** If the overlay claims more in-flight commits than the week has, shipped would go negative and the stack would draw below zero. The timeline clamps in-flight to `[0, total]`. Pinned in Task 4.
+   Pinned in Tasks 4, 5, 6 and 9.
+4. **A team name containing `.`.** Recharts resolves a string `dataKey` as a lodash-style path, so a team named `team.alpha` would be read as `row.team.alpha` and draw nothing. `TrendChart` uses a function `dataKey` to avoid this. Pinned in Task 8.
+5. **In-flight larger than the week's total.** If the overlay claims more in-flight commits than the week has, shipped would go negative and the stack would draw below zero. The timeline clamps in-flight to `[0, total]`. Pinned in Task 4.
 
 ---
 
@@ -52,61 +66,80 @@
 
 | File | Responsibility | Task |
 |---|---|---|
-| `src/app/globals.css` | `--chart-*` tokens for both modes, plus light and print rules for type-badge classes | 1, 6 |
-| `tailwind.config.ts` | `chart.*` color namespace | 1 |
-| `src/lib/cn.ts` | `cn()` class merger | 2 |
+| `src/app/globals.css` | `--chart-*` tokens for both modes (marks, chrome, scatter, volume, badges); print rule for the new classes | 1, 7 |
+| `tailwind.config.ts` | The `chart.*` color namespace | 1 |
+| `src/lib/cn.ts` | The `cn()` class merger | 2 |
 | `src/lib/__tests__/setup/resize-observer.ts` | jsdom-only `ResizeObserver` stub (`setupFiles`) | 2 |
-| `src/lib/__tests__/setup/chart-size.ts` | `fixChartSize()` test helper | 2 |
-| `jest.config.ts` | `setupFiles` entry | 2 |
-| `src/components/charts/chart.tsx` | Ported shadcn wrapper | 2 |
-| `src/components/charts/chart-format.ts` | `toNum`, week domain, snapping, filling, formatters, `isTopOfStack` | 3 |
-| `src/components/charts/commit-types.ts` | Type order, color and background-class maps, `foldTypes` | 3 |
-| `src/components/charts/hatch.tsx` | `useHatch()`, `HatchSwatch` | 3 |
-| `src/components/charts/timeline-chart.tsx` | `TimelineChart`, `TimelineTooltip` | 4 |
-| `src/components/charts/stacked-types-chart.tsx` | `StackedTypesChart`, `StackedTypesTooltip` | 5 |
-| `src/components/charts/lines-changed-chart.tsx` | `LinesChangedChart`, `LinesTooltip` | 5 |
+| `src/lib/__tests__/setup/chart-size.ts` | The `fixChartSize()` test helper | 2 |
+| `jest.config.ts` | The `setupFiles` entry, and ESM recovery if needed | 2 |
+| `src/components/charts/chart.tsx` | The ported shadcn wrapper | 2 |
+| `src/lib/report/timeline.ts` | `weekKeyForDate` switches to UTC | 3 |
+| `src/components/charts/chart-format.ts` | `toNum`, the UTC week domain, `indexByWeek`, `fillWeeks`, the formatters, `isTopOfStack` | 3 |
+| `src/components/charts/commit-types.ts` | Type order, mark color and background maps, `commitTypeBadge`, `foldTypes`, `typeEntriesFrom` | 3 |
+| `src/components/charts/hatch.tsx` | `useHatch()` and `HatchSwatch` | 3 |
+| `src/components/charts/timeline-chart.tsx` | `TimelineChart` and `TimelineTooltip` | 4 |
+| `src/components/charts/stacked-types-chart.tsx` | `StackedTypesChart` and `StackedTypesTooltip` | 5 |
+| `src/components/charts/lines-changed-chart.tsx` | `LinesChangedChart` and `LinesTooltip` | 5 |
 | `src/components/charts/commit-type-donut.tsx` | `CommitTypeDonut` | 5 |
+| `src/components/charts/spend-impact-scatter.tsx` | `SpendImpactScatter` and `SpendImpactTooltip` | 6 |
 | `src/app/report/[id]/org/page.tsx` | Wiring only | 4, 5 |
-| `src/app/report/[id]/dev/[login]/page.tsx` | Wiring only | 4, 6 |
-| `src/app/report/[id]/team/dev-table.tsx` | Type badges read `commit-types.ts` | 6 |
-| `src/app/vulnerabilities/team-colors.ts` | `assignTeamColors`, `OTHER_TEAM_COLOR` | 7 |
-| `src/app/vulnerabilities/trend-chart.tsx` | Rewritten `TrendChart` | 7 |
-| `src/app/vulnerabilities/vulnerabilities-content.tsx` | Passes `colorByTeam` | 7 |
-| `src/app/projects/progress-ring.tsx` | Rewritten `ProgressRing`, `ringGeometry` | 8 |
-| `src/components/ProjectsCard.tsx`, `src/app/reports/page.tsx`, `src/app/reports/vulnerability-syncs-tab.tsx` | Colors only | 9 |
+| `src/app/report/[id]/org/spend-tab.tsx` | The scatter wiring | 6 |
+| `src/app/report/[id]/dev/[login]/page.tsx` | Wiring, the Commit Types bar and badges | 4, 7 |
+| `src/app/report/[id]/team/dev-table.tsx` | Badges read `commitTypeBadge`; types are folded | 7 |
+| `src/app/vulnerabilities/team-colors.ts` | `assignTeamColors` and `OTHER_TEAM_COLOR` | 8 |
+| `src/app/vulnerabilities/trend-chart.tsx` | The rewritten `TrendChart` | 8 |
+| `src/app/vulnerabilities/vulnerabilities-content.tsx` | Passes `colorByTeam` | 8 |
+| `src/app/projects/progress-ring.tsx` | The rewritten `ProgressRing` and `ringGeometry` | 9 |
+| `src/components/ProjectsCard.tsx`, `src/app/reports/page.tsx`, `src/app/reports/vulnerability-syncs-tab.tsx` | Colors only | 10 |
 
-**Two deliberate additions to the spec's interfaces, both needed by its own requirements:**
-
-1. **Every page-grid chart takes a `weeks: string[]` prop.** The page computes it once with `recentWeekDomain(new Date())`. Decision 10 says every chart on a page shares the same week array, because `syncId` matches on index. Computing the domain once per page render guarantees that, even across midnight.
-2. **`fillWeeks()` and `groupByWeek()` sit next to `buildWeekDomain()`.** `buildWeekDomain()` only lists Mondays. Filling per `kind`, snapping off-Monday keys and merging split weeks are separate, testable steps.
+**One deliberate addition to the spec's interfaces:** every page-grid chart takes a `weeks: string[]` prop. The page computes it once, with `recentWeekDomain(new Date())`. Decision 10 says every chart on a page shares the same week array, because `syncId` matches charts by index. Computing the domain once per render guarantees that, even across midnight.
 
 ---
 
 ### Task 1: Palette and tokens (gate)
 
-Every later task depends on this one. Its values are produced here, not in the plan: the plan gives the starting hexes, the exact commands and the acceptance criteria.
+Every later task depends on this one. Its values are produced here, not in the plan. The plan gives the starting hexes, the exact commands and the acceptance criteria.
 
 **Files:**
-- Modify: `src/app/globals.css` (`:root` block, lines 6-32; bare `[data-theme-mode="light"]` block, lines 62-89)
+- Modify: `src/app/globals.css`, in two places:
+  - the `:root` block (lines 6-32)
+  - the bare `[data-theme-mode="light"]` block (lines 62-89)
 - Modify: `tailwind.config.ts`
-- Modify: `docs/superpowers/specs/2026-09-25-glook-58-recharts-migration-design.md` (the `### Palette` section only)
+- Modify: `docs/superpowers/specs/2026-09-25-glook-58-recharts-migration-design.md`, the `### Palette` section only
 - Create: `src/lib/__tests__/unit/chart-tokens-css.test.ts` (spec guard test 2)
 - Create: `src/lib/__tests__/unit/chart-contrast.test.ts` (spec guard test 3)
 
 **Interfaces:**
 - Consumes: `THEMES` from `src/app/themes.ts`.
-- Produces:
-  - **CSS custom properties** in both blocks:
-    - `--chart-grid`, `--chart-axis`, `--chart-cursor`, `--chart-tooltip-bg`, `--chart-tooltip-border`, `--chart-tooltip-text`, `--chart-track`, `--chart-surface`
-    - `--chart-type-feature`, `--chart-type-bug`, `--chart-type-refactor`, `--chart-type-infra`, `--chart-type-docs`, `--chart-type-test`, `--chart-type-other`, `--chart-type-in-flight`
-    - `--chart-lines-added`, `--chart-lines-removed`
-    - `--chart-ring-jira`, `--chart-ring-commits`
-    - `--chart-volume-prs`, `--chart-volume-jiras`, `--chart-volume-commits`
-  - **Tailwind classes:**
-    - Chrome: `bg-/text-/fill-/stroke-/border-` + `chart-grid`, `chart-axis`, `chart-cursor`, `chart-tooltip-bg`, `chart-tooltip-border`, `chart-tooltip-text`, `chart-track`, `chart-surface`
-    - Types: `bg-chart-type-feature` … `bg-chart-type-in-flight`
+- Produces CSS custom properties, defined in both blocks:
+  - **Chrome:** `--chart-grid`, `--chart-axis`, `--chart-cursor`, `--chart-tooltip-bg`, `--chart-tooltip-border`, `--chart-tooltip-text`, `--chart-track`, `--chart-surface`.
+  - **Commit-type marks:** `--chart-type-feature`, `--chart-type-bug`, `--chart-type-refactor`, `--chart-type-infra`, `--chart-type-docs`, `--chart-type-test`, `--chart-type-other`, `--chart-type-in-flight`.
+  - **Lines:** `--chart-lines-added`, `--chart-lines-removed`.
+  - **Ring:** `--chart-ring-jira`, `--chart-ring-commits`.
+  - **Scatter:** `--chart-scatter-typical`, `--chart-scatter-outlier`.
+  - **Volume bar:** `--chart-volume-prs`, `--chart-volume-jiras`, `--chart-volume-commits`.
+  - **Badges:** `--chart-badge-<t>-bg` and `--chart-badge-<t>-text` for each `<t>` in `feature, bug, refactor, infra, docs, test, other, in-flight`.
+- Produces Tailwind classes:
+  - **Chrome:** the `bg-`, `text-`, `fill-`, `stroke-` and `border-` prefixes for `chart-grid`, `chart-axis`, `chart-cursor`, `chart-tooltip-bg`, `chart-tooltip-border`, `chart-tooltip-text`, `chart-track` and `chart-surface`.
+  - **Mark backgrounds:** `bg-chart-type-feature` … `bg-chart-type-in-flight`.
+  - **Badges:** `bg-chart-badge-<t>-bg` and `text-chart-badge-<t>-text`.
 
-**Why `--chart-volume-*` exists.** It is not in the spec's token list. The spec does say the `ProjectsCard` volume bar's colors "move to tokens" (Non-goals), and that bar uses three colors no other token covers: cyan PRs, purple Jiras and a faint white "commits" remainder. The white remainder is invisible on a light card today. `prs` and `jiras` get the same 3:1 contrast gate as the other fixed palettes. `commits` is a deliberately de-emphasized remainder, so it is exempt from the gate, and it only has to differ from `--chart-track`.
+**What the contrast gate checks, per the amended Decision 14:**
+
+| Check | Threshold | Against |
+|---|---|---|
+| Fixed mark palettes: types, lines, ring, scatter, and volume `prs`/`jiras` | 3:1 | the card surface |
+| Ring colors | 3:1 | `--chart-track` |
+| All ten theme accents | 3:1 | their own mode's surface |
+| `--chart-axis` | 4.5:1 | the card surface |
+| `--chart-tooltip-text` | 4.5:1 | `--chart-tooltip-bg` |
+| Badge text, all 8 types, both modes | 4.5:1 | its badge fill |
+
+Four things sit outside the numeric thresholds:
+- **Grid and tooltip border are exempt.** They are decorative, so the grid can stay recessive.
+- **Volume `commits` is exempt.** It is a de-emphasized remainder.
+- **Scatter vs bug red.** Neither scatter color may equal `--chart-type-bug` in either mode. This is an identity check, not a contrast check.
+- **Colorblind separation** is checked by the dataviz validator in Step 4 and recorded in the spec, not in Jest.
 
 - [ ] **Step 1: Write guard test 2 (tokens in both modes)**
 
@@ -151,14 +184,16 @@ const dark = chartTokens(extractBlock(css, /^:root\s*{$/));
 // Match the bare selector exactly, not one of the many `[data-theme-mode="light"] .foo {` rules.
 const light = chartTokens(extractBlock(css, /^\[data-theme-mode="light"\]\s*{$/));
 
+const TYPES = ['feature', 'bug', 'refactor', 'infra', 'docs', 'test', 'other', 'in-flight'];
 const REQUIRED = [
   'chart-grid', 'chart-axis', 'chart-cursor', 'chart-tooltip-bg', 'chart-tooltip-border',
   'chart-tooltip-text', 'chart-track', 'chart-surface',
-  'chart-type-feature', 'chart-type-bug', 'chart-type-refactor', 'chart-type-infra',
-  'chart-type-docs', 'chart-type-test', 'chart-type-other', 'chart-type-in-flight',
+  ...TYPES.map(t => `chart-type-${t}`),
   'chart-lines-added', 'chart-lines-removed',
   'chart-ring-jira', 'chart-ring-commits',
+  'chart-scatter-typical', 'chart-scatter-outlier',
   'chart-volume-prs', 'chart-volume-jiras', 'chart-volume-commits',
+  ...TYPES.flatMap(t => [`chart-badge-${t}-bg`, `chart-badge-${t}-text`]),
 ];
 
 // Files whose var(--chart-*) references must resolve. Missing files are skipped, so this test can
@@ -172,7 +207,7 @@ const REFERENCING_FILES = [
 const CHART_DIR = path.join(root, 'src/components/charts');
 
 function referencedTokens(): Array<{ file: string; token: string }> {
-  const files = [...REFERENCING_FILES.map(f => path.join(root, f))];
+  const files = REFERENCING_FILES.map(f => path.join(root, f));
   if (fs.existsSync(CHART_DIR)) {
     for (const f of fs.readdirSync(CHART_DIR)) files.push(path.join(CHART_DIR, f));
   }
@@ -214,14 +249,16 @@ Create `src/lib/__tests__/unit/chart-contrast.test.ts`:
 ```ts
 // src/lib/__tests__/unit/chart-contrast.test.ts
 // GLOOK-58 guard test 3: every contrast threshold in spec Decision 14, in both modes.
-//   - Fixed palettes (commit types, lines, ring, volume prs/jiras) >= 3:1 against the card surface.
+//   - Fixed mark palettes (commit types, lines, ring, scatter, volume prs/jiras) >= 3:1 against
+//     the card surface.
 //   - Ring colours >= 3:1 against --chart-track, the surface they are drawn over.
 //   - All ten theme accents >= 3:1 against their own mode's card surface (single-metric timelines
 //     are drawn in var(--accent)).
 //   - --chart-axis >= 4.5:1 against the card; --chart-tooltip-text >= 4.5:1 against --chart-tooltip-bg.
-//   - --chart-grid >= 3:1 against the card; --chart-tooltip-border >= 3:1 against --chart-tooltip-bg.
-// Colour-blind separation is checked by the dataviz validator in the palette task and recorded in
-// the spec's Palette section; it is not recomputed here.
+//   - Commit-type badge text >= 4.5:1 against its own badge fill, all 8 types.
+// --chart-grid and --chart-tooltip-border are exempt (decorative; Decision 14), so the grid can
+// stay recessive. Colour-blind separation is checked by the dataviz validator and recorded in the
+// spec's Palette section.
 import fs from 'fs';
 import path from 'path';
 import { THEMES } from '@/app/themes';
@@ -273,15 +310,17 @@ const modes = {
   light: parseHexVars(extractBlock(css, /^\[data-theme-mode="light"\]\s*{$/)),
 } as const;
 
+const TYPES = ['feature', 'bug', 'refactor', 'infra', 'docs', 'test', 'other', 'in-flight'];
 const FIXED = [
-  'chart-type-feature', 'chart-type-bug', 'chart-type-refactor', 'chart-type-infra',
-  'chart-type-docs', 'chart-type-test', 'chart-type-other', 'chart-type-in-flight',
+  ...TYPES.map(t => `chart-type-${t}`),
   'chart-lines-added', 'chart-lines-removed',
   'chart-ring-jira', 'chart-ring-commits',
+  'chart-scatter-typical', 'chart-scatter-outlier',
   'chart-volume-prs', 'chart-volume-jiras',
 ];
 
-function check(pairs: Array<[string, string, string, number]>): string[] {
+type Pair = [label: string, a: string, b: string, min: number];
+function check(pairs: Pair[]): string[] {
   return pairs
     .filter(([, a, b, min]) => contrast(a, b) < min)
     .map(([label, a, b, min]) => `${label}: ${a} vs ${b} = ${contrast(a, b).toFixed(2)} (< ${min})`);
@@ -294,8 +333,8 @@ describe.each(['dark', 'light'] as const)('%s mode chart contrast', mode => {
     expect(v['chart-surface']).toBe(mode === 'dark' ? '#111827' : '#ffffff');
   });
 
-  it('fixed palettes clear 3:1 against the card surface', () => {
-    expect(check(FIXED.map(t => [`--${t}`, v[t], v['chart-surface'], 3] as [string, string, string, number]))).toEqual([]);
+  it('fixed mark palettes clear 3:1 against the card surface', () => {
+    expect(check(FIXED.map(t => [`--${t}`, v[t], v['chart-surface'], 3] as Pair))).toEqual([]);
   });
 
   it('ring colours clear 3:1 against --chart-track', () => {
@@ -308,16 +347,23 @@ describe.each(['dark', 'light'] as const)('%s mode chart contrast', mode => {
   it('every theme accent in this mode clears 3:1 against the card surface', () => {
     const accents = THEMES.filter(t => t.mode === mode);
     expect(accents.length).toBeGreaterThan(0);
-    expect(check(accents.map(t => [`${t.id} accent`, t.accent.toLowerCase(), v['chart-surface'], 3] as [string, string, string, number]))).toEqual([]);
+    expect(check(accents.map(t => [`${t.id} accent`, t.accent.toLowerCase(), v['chart-surface'], 3] as Pair))).toEqual([]);
   });
 
-  it('chrome text clears 4.5:1 and chrome lines clear 3:1 against their own backgrounds', () => {
+  it('chrome text clears 4.5:1 against its own background', () => {
     expect(check([
       ['--chart-axis vs surface', v['chart-axis'], v['chart-surface'], 4.5],
       ['--chart-tooltip-text vs tooltip-bg', v['chart-tooltip-text'], v['chart-tooltip-bg'], 4.5],
-      ['--chart-grid vs surface', v['chart-grid'], v['chart-surface'], 3],
-      ['--chart-tooltip-border vs tooltip-bg', v['chart-tooltip-border'], v['chart-tooltip-bg'], 3],
     ])).toEqual([]);
+  });
+
+  it('every commit-type badge has text at 4.5:1 against its own fill', () => {
+    expect(check(TYPES.map(t => [`badge ${t}`, v[`chart-badge-${t}-text`], v[`chart-badge-${t}-bg`], 4.5] as Pair))).toEqual([]);
+  });
+
+  it('neither scatter colour is the commit-type bug red', () => {
+    expect(v['chart-scatter-typical']).not.toBe(v['chart-type-bug']);
+    expect(v['chart-scatter-outlier']).not.toBe(v['chart-type-bug']);
   });
 });
 ```
@@ -326,38 +372,41 @@ describe.each(['dark', 'light'] as const)('%s mode chart contrast', mode => {
 
 Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest src/lib/__tests__/unit/chart-tokens-css.test.ts src/lib/__tests__/unit/chart-contrast.test.ts'`
 
-Expected: FAIL. The tokens test lists all 23 required tokens as missing. The contrast test fails with `undefined`-valued comparisons, or with the `--chart-surface` assertion.
+Expected: FAIL. The tokens test lists all 41 required tokens as missing. The contrast test fails on `undefined`-valued comparisons, or on the `--chart-surface` assertion.
 
-- [ ] **Step 4: Run the dataviz validator on the starting palettes**
+- [ ] **Step 4: Run the dataviz validator on the starting mark palettes**
 
 The validator lives at `/private/tmp/claude-501/bundled-skills/2.1.282/27f946b5296782145e05ad642766e802/dataviz/scripts/validate_palette.js`. If that path is gone, find it with `ls /private/tmp/claude-501/bundled-skills` and use the `dataviz/scripts/validate_palette.js` under the newest version directory.
 
-Starting values:
+**Starting values:**
 
-| Palette (in stack/adjacency order) | Dark (surface `#111827`) | Light (surface `#ffffff`) |
+| Palette (listed in stack/adjacency order) | Dark (surface `#111827`) | Light (surface `#ffffff`) |
 |---|---|---|
 | Commit types (feature, bug, refactor, infra, docs, test, other, in_flight) | `#3B82F6,#EF4444,#A855F7,#EAB308,#6B7280,#22C55E,#9CA3AF,#06B6D4` | `#2563EB,#DC2626,#9333EA,#A16207,#6B7280,#15803D,#4B5563,#0E7490` |
 | Lines (added, in-flight, removed) | `#10B981,#06B6D4,#EF4444` | `#047857,#0E7490,#DC2626` |
 | Ring (jira, commits) | `#D97706,#10B981` | `#B45309,#047857` |
+| Scatter (typical, outlier) | `#60A5FA,#FB923C` | `#2563EB,#C2410C` |
 | Volume (prs, jiras) | `#06B6D4,#A855F7` | `#0E7490,#9333EA` |
 
-The dark commit-type starting set is today's `TYPE_HEX` (`org/page.tsx:22-31`) with one change: `other` moves from `#4B5563` to `#9CA3AF`, because `#4B5563` measures 2.35:1 on `#111827`. The light set starts from the nearest Tailwind 600/700 steps. The lines palette includes the in-flight color, because the in-flight hatch sits against both added and removed.
+**Where the starting values come from:**
+- **Dark commit types:** today's `TYPE_HEX` (`org/page.tsx:22-31`), with one change. `other` moves from `#4B5563` to `#9CA3AF`, because `#4B5563` measures 2.35:1 on `#111827`.
+- **Scatter:** replaces today's `bg-blue-400`/`bg-red-400`. The outlier color moves off red, because red must not collide with the bug type.
 
-Run each command, one per invocation. Commit types, dark, adjacent pairs:
+**Commands.** Run each one separately. Commit types, dark, adjacent pairs:
 
 `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'node /private/tmp/claude-501/bundled-skills/2.1.282/27f946b5296782145e05ad642766e802/dataviz/scripts/validate_palette.js "#3B82F6,#EF4444,#A855F7,#EAB308,#6B7280,#22C55E,#9CA3AF,#06B6D4" --mode dark --surface "#111827"'`
 
-Commit types, dark, all pairs (the donut sorts by count, so any two types can end up adjacent; record this, do not gate on it):
+Commit types, dark, all pairs. Record this run but don't gate on it. It's here because the donut sorts slices by count, so any two types can end up adjacent.
 
 `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'node /private/tmp/claude-501/bundled-skills/2.1.282/27f946b5296782145e05ad642766e802/dataviz/scripts/validate_palette.js "#3B82F6,#EF4444,#A855F7,#EAB308,#6B7280,#22C55E,#9CA3AF,#06B6D4" --mode dark --surface "#111827" --pairs all'`
 
-Commit types, light, adjacent, then all pairs:
+Commit types, light, adjacent pairs and then all pairs:
 
 `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'node /private/tmp/claude-501/bundled-skills/2.1.282/27f946b5296782145e05ad642766e802/dataviz/scripts/validate_palette.js "#2563EB,#DC2626,#9333EA,#A16207,#6B7280,#15803D,#4B5563,#0E7490" --mode light --surface "#ffffff"'`
 
 `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'node /private/tmp/claude-501/bundled-skills/2.1.282/27f946b5296782145e05ad642766e802/dataviz/scripts/validate_palette.js "#2563EB,#DC2626,#9333EA,#A16207,#6B7280,#15803D,#4B5563,#0E7490" --mode light --surface "#ffffff" --pairs all'`
 
-Lines, both modes (all pairs, since each of the three touches the other two):
+Lines, both modes, all pairs:
 
 `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'node /private/tmp/claude-501/bundled-skills/2.1.282/27f946b5296782145e05ad642766e802/dataviz/scripts/validate_palette.js "#10B981,#06B6D4,#EF4444" --mode dark --surface "#111827" --pairs all'`
 
@@ -369,41 +418,50 @@ Ring, both modes:
 
 `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'node /private/tmp/claude-501/bundled-skills/2.1.282/27f946b5296782145e05ad642766e802/dataviz/scripts/validate_palette.js "#B45309,#047857" --mode light --surface "#ffffff"'`
 
+Scatter, both modes:
+
+`env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'node /private/tmp/claude-501/bundled-skills/2.1.282/27f946b5296782145e05ad642766e802/dataviz/scripts/validate_palette.js "#60A5FA,#FB923C" --mode dark --surface "#111827"'`
+
+`env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'node /private/tmp/claude-501/bundled-skills/2.1.282/27f946b5296782145e05ad642766e802/dataviz/scripts/validate_palette.js "#2563EB,#C2410C" --mode light --surface "#ffffff"'`
+
 Volume, both modes:
 
 `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'node /private/tmp/claude-501/bundled-skills/2.1.282/27f946b5296782145e05ad642766e802/dataviz/scripts/validate_palette.js "#06B6D4,#A855F7" --mode dark --surface "#111827"'`
 
 `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'node /private/tmp/claude-501/bundled-skills/2.1.282/27f946b5296782145e05ad642766e802/dataviz/scripts/validate_palette.js "#0E7490,#9333EA" --mode light --surface "#ffffff"'`
 
-**Acceptance: gate on exactly the three checks spec Decision 14 names.** In each **adjacent** run (the default, no `--pairs all`):
+**Acceptance: gate on exactly the checks spec Decision 14 names.** In each **adjacent** run (the default, with no `--pairs all`):
+1. `CVD separation` must read `[PASS]`, which means ΔE ≥ 8. The validator's `[WARN]` band (6-8) counts as a failure, because the spec's floor is 8.
+2. `Normal-vision floor` must read `[PASS]`.
+3. 3:1 contrast is gated by `chart-contrast.test.ts`, not by the validator's `Contrast vs surface` line. Record that line, but treat the Jest test as authoritative.
 
-1. **`CVD separation`** must read `[PASS]`. That means ΔE ≥ 8. The validator's `[WARN]` band (6-8) counts as a failure here, because the spec's floor is 8.
-2. **`Normal-vision floor`** must read `[PASS]`.
-3. **3:1 contrast is gated by `chart-contrast.test.ts`,** not by the validator's `Contrast vs surface` line. Record that line, but the Jest test is authoritative.
-
-`Lightness band` and `Chroma floor` are **recorded, not gated.** `docs` and `other` are grays by design, so the chroma floor always fails them. The validator's exit code is therefore expected to be 1 for the commit-type palettes, so don't loop on it. The `--pairs all` runs are recorded, not gated.
+**Recorded, not gated:**
+- `Lightness band` and `Chroma floor`. `docs` and `other` are grays by design, so they always fail the chroma floor. Expect the validator to exit 1 on the commit-type palettes, and don't loop on it.
+- All `--pairs all` runs.
+- The badge tokens. They carry text and are gated only by the 4.5:1 badge test.
 
 **Snapping rule when a gated check fails:**
-- Move the failing color one Tailwind shade within its hue family. Dark mode goes lighter (500→400), light mode goes darker (600→700).
-- If the pair is still too close, change the other member of the pair instead.
-- Keep feature blue and bug red in both modes (Decision 8).
-- Re-run until the gated checks pass.
+1. Move the failing color one Tailwind shade within its hue family: lighter in dark mode (500→400), darker in light mode (600→700).
+2. If the pair is still too close, change the other member of the pair instead.
+3. Keep feature blue and bug red in both modes (Decision 8).
+4. Re-run until the gated checks pass.
 
-Save each final command's full output. It goes into the spec in Step 7.
+Save each final command's full output. It goes into the spec in Step 8.
 
 - [ ] **Step 5: Add the tokens to `globals.css`**
 
-Add this at the end of the `:root` block, after `--vuln-series-other` (line 31, before the closing `}` on line 32). Replace any value Step 4 changed.
+Add this at the end of the `:root` block, after `--vuln-series-other` and before the block's closing `}`. Replace any value that Step 4 changed.
 
 ```css
   /* GLOOK-58: chart tokens (dark, the app's default). Values validated in the spec's Palette
      section; chart-contrast.test.ts guards every Decision 14 threshold. --chart-surface is the
-     card colour charts sit on (bg-gray-900). */
-  --chart-grid: #6b7280;
+     card colour charts sit on (bg-gray-900). The grid and tooltip border are decorative and
+     exempt from contrast, so they stay recessive. */
+  --chart-grid: #1f2937;
   --chart-axis: #9ca3af;
   --chart-cursor: #1f2937;
   --chart-tooltip-bg: #1f2937;
-  --chart-tooltip-border: #6b7280;
+  --chart-tooltip-border: #374151;
   --chart-tooltip-text: #e5e7eb;
   --chart-track: #1f2937;
   --chart-surface: #111827;
@@ -419,21 +477,41 @@ Add this at the end of the `:root` block, after `--vuln-series-other` (line 31, 
   --chart-lines-removed: #ef4444;
   --chart-ring-jira: #d97706;
   --chart-ring-commits: #10b981;
+  --chart-scatter-typical: #60a5fa;
+  --chart-scatter-outlier: #fb923c;
   --chart-volume-prs: #06b6d4;
   --chart-volume-jiras: #a855f7;
   --chart-volume-commits: #374151;
+  /* Commit-type badges carry text, so they get their own fill/text pairs (4.5:1), separate from
+     the mark colours above. */
+  --chart-badge-feature-bg: #2563eb;
+  --chart-badge-feature-text: #ffffff;
+  --chart-badge-bug-bg: #dc2626;
+  --chart-badge-bug-text: #ffffff;
+  --chart-badge-refactor-bg: #9333ea;
+  --chart-badge-refactor-text: #ffffff;
+  --chart-badge-infra-bg: #ca8a04;
+  --chart-badge-infra-text: #111827;
+  --chart-badge-docs-bg: #4b5563;
+  --chart-badge-docs-text: #ffffff;
+  --chart-badge-test-bg: #15803d;
+  --chart-badge-test-text: #ffffff;
+  --chart-badge-other-bg: #374151;
+  --chart-badge-other-text: #ffffff;
+  --chart-badge-in-flight-bg: #0e7490;
+  --chart-badge-in-flight-text: #ffffff;
 ```
 
-Add this at the end of the bare `[data-theme-mode="light"]` block, after `--vuln-series-other: #6b7280;` (line 88, before the closing `}` on line 89). Again, replace any value Step 4 changed.
+Add this at the end of the bare `[data-theme-mode="light"]` block, after `--vuln-series-other: #6b7280;` and before the block's closing `}`. Again, replace any value that Step 4 changed.
 
 ```css
   /* GLOOK-58: chart tokens (light). Same names as :root. --chart-surface is the light card
      (the .bg-gray-900 override below is #ffffff). */
-  --chart-grid: #6b7280;
+  --chart-grid: #e5e7eb;
   --chart-axis: #4b5563;
   --chart-cursor: #f3f4f6;
   --chart-tooltip-bg: #ffffff;
-  --chart-tooltip-border: #6b7280;
+  --chart-tooltip-border: #e5e7eb;
   --chart-tooltip-text: #111827;
   --chart-track: #e5e7eb;
   --chart-surface: #ffffff;
@@ -449,10 +527,34 @@ Add this at the end of the bare `[data-theme-mode="light"]` block, after `--vuln
   --chart-lines-removed: #dc2626;
   --chart-ring-jira: #b45309;
   --chart-ring-commits: #047857;
+  --chart-scatter-typical: #2563eb;
+  --chart-scatter-outlier: #c2410c;
   --chart-volume-prs: #0e7490;
   --chart-volume-jiras: #9333ea;
   --chart-volume-commits: #d1d5db;
+  --chart-badge-feature-bg: #dbeafe;
+  --chart-badge-feature-text: #1e40af;
+  --chart-badge-bug-bg: #fee2e2;
+  --chart-badge-bug-text: #991b1b;
+  --chart-badge-refactor-bg: #f3e8ff;
+  --chart-badge-refactor-text: #6b21a8;
+  --chart-badge-infra-bg: #fef9c3;
+  --chart-badge-infra-text: #854d0e;
+  --chart-badge-docs-bg: #f3f4f6;
+  --chart-badge-docs-text: #374151;
+  --chart-badge-test-bg: #dcfce7;
+  --chart-badge-test-text: #166534;
+  --chart-badge-other-bg: #e5e7eb;
+  --chart-badge-other-text: #1f2937;
+  --chart-badge-in-flight-bg: #cffafe;
+  --chart-badge-in-flight-text: #155e75;
 ```
+
+I pre-computed the badge starting pairs with the same WCAG formula the test uses:
+- **Dark:** 4.83 for `bug` (the lowest) up to 10.31.
+- **Light:** 6.38 up to 11.86.
+
+The grid starts at `#1f2937` (1.21:1) in dark and `#e5e7eb` (1.24:1) in light. Both are recessive by design.
 
 - [ ] **Step 6: Register the `chart.*` color namespace in Tailwind**
 
@@ -464,6 +566,8 @@ import type { Config } from 'tailwindcss';
 // GLOOK-58: chart tokens are CSS variables (globals.css), so the same class resolves to the dark
 // value under :root and the light value under [data-theme-mode="light"]. Opacity modifiers
 // (e.g. bg-chart-grid/50) do NOT work on these: Tailwind v3 cannot split a var() hex into channels.
+const TYPES = ['feature', 'bug', 'refactor', 'infra', 'docs', 'test', 'other', 'in-flight'] as const;
+
 const config: Config = {
   content: ['./src/**/*.{js,ts,jsx,tsx,mdx}'],
   theme: {
@@ -478,16 +582,10 @@ const config: Config = {
           'tooltip-text': 'var(--chart-tooltip-text)',
           track: 'var(--chart-track)',
           surface: 'var(--chart-surface)',
-          type: {
-            feature: 'var(--chart-type-feature)',
-            bug: 'var(--chart-type-bug)',
-            refactor: 'var(--chart-type-refactor)',
-            infra: 'var(--chart-type-infra)',
-            docs: 'var(--chart-type-docs)',
-            test: 'var(--chart-type-test)',
-            other: 'var(--chart-type-other)',
-            'in-flight': 'var(--chart-type-in-flight)',
-          },
+          type: Object.fromEntries(TYPES.map(t => [t, `var(--chart-type-${t})`])),
+          badge: Object.fromEntries(
+            TYPES.flatMap(t => [[`${t}-bg`, `var(--chart-badge-${t}-bg)`], [`${t}-text`, `var(--chart-badge-${t}-text)`]]),
+          ),
         },
       },
     },
@@ -498,26 +596,29 @@ const config: Config = {
 export default config;
 ```
 
+Guard test 2 scans this file for `var(--chart-…)`. The template literals above don't match that literal pattern, so guard 2 cannot check the names they generate. Two other things cover them:
+- The `REQUIRED` list in guard 2 names every token these templates produce.
+- Task 11's screenshot pass shows any badge or mark class that failed to resolve.
+
 - [ ] **Step 7: Run both guards and confirm they pass**
 
 Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest src/lib/__tests__/unit/chart-tokens-css.test.ts src/lib/__tests__/unit/chart-contrast.test.ts'`
 
-Expected: PASS. If a contrast line fails, snap that token as in Step 4 (for chrome grays, step one Tailwind gray at a time) and re-run. Re-run the matching validator command for any fixed-palette color you changed.
+Expected: PASS. If a contrast line fails, snap that token as in Step 4, one Tailwind step at a time, and re-run. Re-run the matching validator command for any mark color you change.
 
 - [ ] **Step 8: Write the Palette section into the spec**
 
-In the spec, replace the placeholder paragraph under `### Palette` (the one beginning *"Filled in by the first implementation task"*) with:
-
-1. **A table.** Columns: token, dark hex, light hex, and what it colors. One row per `--chart-*` token.
-2. **A short list of every value that moved from its starting hex,** with the reason, for example "`--chart-type-other` dark `#4B5563` → `#9CA3AF`: 2.35:1 on `#111827`".
-3. **The full validator output for every run in Step 4,** in fenced code blocks, labeled by palette, mode and pairs. Adjacent runs are the gated ones. `--pairs all` runs are "recorded, not gated".
-4. **One sentence on what is not gated:** lightness band, chroma floor (grays fail it by design), and all-pairs separation.
+In the spec, replace the placeholder paragraph under `### Palette` (the one beginning *"Filled in by the first implementation task"*) with four things:
+1. **A token table.** One row per `--chart-*` token, with columns for the token, its dark hex, its light hex, and what it colors.
+2. **A moves list.** Every value that moved from its starting hex, with the reason. For example: "`--chart-type-other` dark `#4B5563` → `#9CA3AF`: 2.35:1 on `#111827`".
+3. **The full validator output** for every run in Step 4, in fenced code blocks labeled by palette, mode and pairs. Label the adjacent runs "gated" and the `--pairs all` runs "recorded, not gated".
+4. **One sentence on what is not gated:** the lightness band, the chroma floor (grays fail it by design), all-pairs separation, the grid and tooltip border (exempt), and volume `commits` (exempt).
 
 - [ ] **Step 9: Run the full suite**
 
 Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest --maxWorkers=3'`
 
-Expected: all suites pass. That is 171 suites: the 169 baseline plus the 2 new ones. `vuln-trend-colors-css.test.ts` and `vuln-series-contrast.test.ts` still pass, because `--vuln-series-*` is untouched.
+Expected: all 171 suites pass. `vuln-trend-colors-css.test.ts` and `vuln-series-contrast.test.ts` still pass, because the `--vuln-series-*` tokens are untouched.
 
 - [ ] **Step 10: Commit**
 
@@ -535,7 +636,7 @@ EOF
 ### Task 2: Foundation (dependencies, jsdom setup, `cn`, ported `chart.tsx`)
 
 **Files:**
-- Modify: `package.json`, `package-lock.json` (via npm)
+- Modify: `package.json` and `package-lock.json` (via npm)
 - Modify: `jest.config.ts`
 - Create: `src/lib/cn.ts`
 - Create: `src/lib/__tests__/setup/resize-observer.ts`
@@ -544,52 +645,52 @@ EOF
 - Test: `src/lib/__tests__/unit/cn.test.ts`, `src/lib/__tests__/unit/chart-wrapper.test.tsx`
 
 **Interfaces:**
-- Consumes: `chart.*` Tailwind colors from Task 1.
+- Consumes: the `chart.*` Tailwind colors from Task 1.
 - Produces:
-  - `cn(...inputs: ClassValue[]): string` from `@/lib/cn`
+  - `cn(...inputs: ClassValue[]): string` from `@/lib/cn`.
   - `fixChartSize(width?: number, height?: number): void` from `src/lib/__tests__/setup/chart-size.ts`. It registers a `beforeEach`.
-  - From `@/components/charts/chart`:
-    - `ChartContainer` (props: `config: ChartConfig`, `className?`, `initialDimension?`, `children`)
-    - `ChartTooltip` (alias of Recharts `Tooltip`)
-    - `ChartTooltipContent`, `ChartLegend`, `ChartLegendContent`, `ChartStyle`
-    - `type ChartConfig`
-    - `CHART_TOOLTIP_CLASS: string`
+  - From `@/components/charts/chart`: `ChartContainer` (props `config: ChartConfig`, `className?`, `initialDimension?`, `children`), `ChartTooltip`, `ChartTooltipContent`, `ChartLegend`, `ChartLegendContent`, `ChartStyle`, `type ChartConfig` and `CHART_TOOLTIP_CLASS: string`.
 
-**Why `react-is@^19.2` is added.** It is not in the spec's dependency list. Recharts 3.10.1 has `react-is` as a peer dependency and imports `isFragment` from it (`es6/util/ReactUtils.js:3`). The copy hoisted in `node_modules` today is 18.3.1, while React is 19.2.4. React 19 changed the element `$$typeof` symbol, so `react-is` 18 does not recognize React 19 fragments. Recharts would then fail to flatten `<>…</>` children.
+**Why `react-is@^19.2` is needed (spec Decision 2).** Recharts 3.10.1 declares `react-is` as a peer dependency and imports `isFragment` from it (`es6/util/ReactUtils.js:3`). The copy hoisted in the repo today is 18.3.1, while React is 19.2.4. React 19 changed the element `$$typeof` symbol, so `react-is` 18 would not recognize React 19 fragments.
 
-**Two jsdom facts this task works around.** Both were read from the Recharts 3.10.1 source.
+**jsdom sizing (per the amended spec Testing section).** In 3.10.1, `ResponsiveContainer`'s size detector (`es6/component/ResponsiveContainer.js:96-123`) behaves in two ways:
+- It returns early when `ResizeObserver` is undefined.
+- Otherwise, it calls `getBoundingClientRect()` on mount. jsdom returns 0×0, and that overwrites `initialDimension`.
 
-1. **`initialDimension` does not survive a mount in jsdom.** `ResponsiveContainer`'s size detector (`es6/component/ResponsiveContainer.js:96-123`) returns early when `ResizeObserver` is undefined. When it is defined, it immediately calls `getBoundingClientRect()` and stores the result. In jsdom that result is 0×0, which overwrites `initialDimension` and renders no chart. The spec's Testing section suggests `initialDimension` as the sizing mechanism; it is not sufficient on its own. The global stub makes `ResizeObserver` exist, and `fixChartSize()` stubs `getBoundingClientRect` so the measurement returns a real size.
-2. **Recharts animation.** This is handled by the Global Constraints rule: every series sets `isAnimationActive={false}`.
+So two pieces are needed. The global stub makes `ResizeObserver` exist, and `fixChartSize()` stubs `getBoundingClientRect` so the mount-time measurement returns a real size.
 
-**Wrapper port choices (spec Decisions 3, 4, 6).**
-- **Tailwind classes** come from shadcn `new-york` (the Tailwind v3 variant), fetched from `https://ui.shadcn.com/r/styles/new-york/chart.json`. For example, it uses `border-[--color-border]`, not v4's `border-(--color-border)`.
-- **TypeScript types** come from `new-york-v4`, which already targets Recharts 3.8: `DefaultTooltipContentProps<TooltipValueType, …>`, `DefaultLegendContentProps` and the `initialDimension` prop. This is how the port applies the Recharts 3 type changes Decision 3 asks for. Components are plain functions (React 19 passes `ref` as a prop), as in v4.
-- **`THEMES`** is `{ dark: '', light: '[data-theme-mode="light"]' }` (Decision 4).
-- **Class rewrites (Decision 6):**
-  - `fill-muted-foreground` → `fill-chart-axis`
-  - `stroke-border/50` and `stroke-border` → `stroke-chart-grid`. Opacity modifiers are dropped, because Tailwind v3 cannot apply alpha to a `var()` hex, and 50% would break the grid's 3:1 guarantee.
-  - `fill-muted` → `fill-chart-track` (radial background) or `fill-chart-cursor` (tooltip cursor)
-  - the curve cursor → `stroke-chart-cursor`
-  - `border-border/50` → `border-chart-tooltip-border`
-  - `bg-background` → `bg-chart-tooltip-bg`
-  - `text-muted-foreground` and `text-foreground` → `text-chart-tooltip-text`
-  - The legend root gains `text-chart-axis`, so legend labels are chrome text.
-- **The `[stroke='#ccc']` and `[stroke='#fff']` attribute selectors stay.** They match the default colors Recharts emits and restyle them. They never set a color. The Task 10 guard strips attribute selectors before it scans, and proves that a bare hex still fails.
-- **The value display uses v4's `item.value != null`,** so a 0 is shown. The v3 variant's `item.value &&` hides zeros.
-- **`chartId` is sanitized with `/[^A-Za-z0-9_-]/g`,** not just `:`. React 19's `useId()` format is not guaranteed to be `:r0:`, and the ID goes unquoted into a CSS attribute selector.
+**Wrapper port choices (spec Decisions 3, 4, 6):**
+- **Tailwind classes** come from shadcn `new-york`, the Tailwind v3 variant: for example, `border-[--color-border]`.
+- **TypeScript types** come from `new-york-v4`, which already targets Recharts 3.8: `DefaultTooltipContentProps<TooltipValueType, …>`, `DefaultLegendContentProps` and the `initialDimension` prop. Components are plain functions, as in v4.
+- **`THEMES`** is `{ dark: '', light: '[data-theme-mode="light"]' }`.
+- **Class rewrites:**
+
+  | shadcn class | Replacement |
+  |---|---|
+  | `fill-muted-foreground` | `fill-chart-axis` |
+  | `stroke-border/50`, `stroke-border` | `stroke-chart-grid` (the alpha modifier is dropped; Tailwind v3 cannot apply alpha to a `var()` hex) |
+  | `fill-muted` | `fill-chart-track` for the radial background, `fill-chart-cursor` for the tooltip cursor |
+  | curve cursor | `stroke-chart-cursor` |
+  | `border-border/50` | `border-chart-tooltip-border` |
+  | `bg-background` | `bg-chart-tooltip-bg` |
+  | `text-muted-foreground`, `text-foreground` | `text-chart-tooltip-text` |
+
+  The legend root gains `text-chart-axis`.
+- **The `[stroke='#ccc']` and `[stroke='#fff']` attribute selectors stay.** They match the default colors Recharts emits; they never set a color. The Task 11 guard strips them before it scans.
+- **Values use v4's `item.value != null`,** so a 0 is shown.
+- **`chartId` is sanitized** with `/[^A-Za-z0-9_-]/g`.
 
 - [ ] **Step 1: Install the dependencies**
 
 Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npm install recharts@^3.10 clsx@^2.1 tailwind-merge@^2.6 react-is@^19.2'`
 
-Expected: `package.json` `dependencies` gains `"recharts": "^3.10.1"` (or later 3.x), `"clsx": "^2.1.x"`, `"tailwind-merge": "^2.6.x"` and `"react-is": "^19.2.x"`.
+Expected: `package.json` gains `recharts ^3.10.x`, `clsx ^2.1.x`, `tailwind-merge ^2.6.x` and `react-is ^19.2.x` under `dependencies`.
 
 - [ ] **Step 2: Confirm Recharts resolves react-is 19**
 
 Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npm ls react-is'`
 
-Expected: the `recharts@3.x` entry shows `react-is@19.x` (deduped is fine). If it shows 18.x, stop and report it. Do not continue with a mismatched `react-is`.
+Expected: the `recharts@3.x` entry shows `react-is@19.x` (deduped is fine). If it shows 18.x, stop and report it.
 
 - [ ] **Step 3: Add the jsdom setup file and the Jest `setupFiles` entry**
 
@@ -728,7 +829,7 @@ it('the legend lists configured labels in chrome text', () => {
 
 Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest src/lib/__tests__/unit/cn.test.ts src/lib/__tests__/unit/chart-wrapper.test.tsx'`
 
-Expected: FAIL with `Cannot find module '@/lib/cn'` and `Cannot find module '@/components/charts/chart'`.
+Expected: FAIL, with `Cannot find module '@/lib/cn'` and `Cannot find module '@/components/charts/chart'`.
 
 - [ ] **Step 7: Implement `cn`**
 
@@ -1051,14 +1152,26 @@ Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin
 
 Expected: PASS, 7 tests.
 
-**Verification, not assumption.** Handle each of these failure modes as described.
+**If Jest reports `SyntaxError: Unexpected token 'export'` in a `node_modules/<pkg>` path,** recover in two stages. Try the next stage only if the current one fails. Un-ignoring the package in `transformIgnorePatterns` alone does nothing, because `transform` only covers `.tsx?` files.
+1. **Stage 1: ask for CommonJS builds.** jsdom's default `browser` export condition can select a package's ESM build. Add this to `jest.config.ts`, next to `setupFiles`, then re-run:
+   ```ts
+     testEnvironmentOptions: { customExportConditions: ['node', 'node-addons'] },
+   ```
+2. **Stage 2: transform the ESM files.** Add a JS transform to the existing `transform` map. `tsconfig.jest.json` extends `tsconfig.json`, which has `allowJs: true`, so ts-jest can compile JS. Then append the package name to the `transformIgnorePatterns` alternation, for example `'node_modules/(?!(p-limit|yocto-queue|@octokit|universal-user-agent|before-after-hook|<pkg>)/)'`, and re-run.
+   ```ts
+     transform: {
+       '^.+\\.tsx?$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.jest.json' }],
+       '^.+\\.m?js$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.jest.json' }],
+     },
+   ```
 
-- **Jest reports `SyntaxError: Unexpected token 'export'` in a `node_modules/<pkg>` path.** jsdom's `browser` export condition picked an ESM build. Append that package name to the `transformIgnorePatterns` alternation in `jest.config.ts`, for example `'node_modules/(?!(p-limit|yocto-queue|@octokit|universal-user-agent|before-after-hook|<pkg>)/)'`. Then re-run.
-- **The spike test finds 0 rectangles.** Log `container.innerHTML`.
-  - If the `.recharts-responsive-container` div is present but empty, the size stub did not apply. Check that `fixChartSize()` is called at module top level.
-  - If `recharts-wrapper` is present but without rectangles, check that `isAnimationActive={false}` reached the `Bar`.
-  - Do not continue to Task 3 until this test passes.
-- **The ChartStyle regex fails only on whitespace.** Compare against the actual `innerHTML` and fix the test's whitespace, not the component's selector order.
+**If the spike test finds 0 rectangles,** log `container.innerHTML` and check which case you're in:
+- **The `.recharts-responsive-container` div is present but empty:** the size stub did not apply. Check that `fixChartSize()` is called at module top level.
+- **`recharts-wrapper` is present but has no rectangles:** check that `isAnimationActive={false}` reached the `Bar`.
+
+Do not continue to Task 3 until this test passes.
+
+**If the ChartStyle regex fails only on whitespace,** compare against the actual `innerHTML` and fix the test's whitespace, not the component's selector order.
 
 - [ ] **Step 10: Confirm the four vuln-content suites that render the real TrendChart still pass**
 
@@ -1070,7 +1183,7 @@ Expected: PASS (unchanged).
 
 Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx tsc --noEmit --pretty false'`
 
-Expected: no errors in `src/lib/cn.ts`, `src/components/charts/chart.tsx`, `src/lib/__tests__/setup/*` or `src/lib/__tests__/unit/chart-wrapper.test.tsx`. Errors in files this task did not touch predate it; `git diff --stat HEAD` confirms which files changed. Only errors in files this task created are this task's to fix. For errors in `ChartTooltipContent`'s intersected prop type, match the new-york-v4 source, which compiles against Recharts 3.8.
+Expected: no errors in `src/lib/cn.ts`, `src/components/charts/chart.tsx`, `src/lib/__tests__/setup/*` or `src/lib/__tests__/unit/chart-wrapper.test.tsx`. Errors in files this task did not touch predate it, and `git diff --stat HEAD` shows which files changed. For errors in `ChartTooltipContent`'s intersected prop type, match the new-york-v4 source, which compiles against Recharts 3.8.
 
 - [ ] **Step 12: Commit**
 
@@ -1085,58 +1198,109 @@ EOF
 
 ---
 
-### Task 3: Shared helpers (`chart-format.ts`, `commit-types.ts`, `hatch.tsx`)
+### Task 3: UTC week keys and shared helpers (`timeline.ts`, `chart-format.ts`, `commit-types.ts`, `hatch.tsx`)
 
 **Files:**
+- Modify: `src/lib/report/timeline.ts:23-28` (`weekKeyForDate`)
 - Create: `src/components/charts/chart-format.ts`
 - Create: `src/components/charts/commit-types.ts`
 - Create: `src/components/charts/hatch.tsx`
-- Test: `src/lib/__tests__/unit/chart-format.test.ts`, `src/lib/__tests__/unit/commit-types.test.ts`, `src/lib/__tests__/unit/chart-hatch.test.tsx`
+- Test: `src/lib/__tests__/unit/week-key-utc.test.ts`, `src/lib/__tests__/unit/chart-format.test.ts`, `src/lib/__tests__/unit/commit-types.test.ts`, `src/lib/__tests__/unit/chart-hatch.test.tsx`
 
 **Interfaces:**
-- Consumes: nothing from earlier tasks except the token names.
-- Produces, from `@/components/charts/chart-format`:
-  - `type MetricKind = 'count' | 'ratio'`
-  - `toNum(v: unknown): number`
-  - `mondayOf(date: Date): string`. UTC calendar date, `YYYY-MM-DD`.
-  - `snapWeekKey(key: string): string | null`. The nearest Monday, or `null` for an invalid key.
-  - `buildWeekDomain(cutoff: Date, today: Date): string[]`. Every Monday from `mondayOf(cutoff)` to `mondayOf(today)`, inclusive.
-  - `recentWeekDomain(now?: Date, days?: number): string[]`. Defaults: `new Date()`, `90`.
-  - `groupByWeek<T extends { week: string }>(weeks: string[], data: T[]): Map<string, T[]>`
-  - `interface WeekPoint<T> { week: string; value: number | null; hasData: boolean; rows: T[] }`
-  - `interface FillOptions<T> { value: (row: T) => unknown; kind: MetricKind; isDefined?: (row: T) => boolean; weight?: (row: T) => number }`
-  - `fillWeeks<T extends { week: string }>(weeks: string[], data: T[], opts: FillOptions<T>): WeekPoint<T>[]`
-  - `formatWeek(iso: string): string`. For example `'Sep 21'`.
-  - `formatValue(v: number | null | undefined, opts?: { suffix?: string; decimals?: number }): string`
-  - `formatCompact(v: number): string`. For example `'1.5K'` or `'-2K'`.
-  - `isTopOfStack(row: Record<string, unknown>, keys: readonly string[], key: string): boolean`
-- Produces, from `@/components/charts/commit-types`:
-  - `COMMIT_TYPE_ORDER`, `type CommitType`
-  - `normalizeType(t: string): CommitType`
-  - `commitTypeColor(t: string): string` (a `var(--chart-type-*)`)
-  - `commitTypeBg(t: string): string` (a `bg-chart-type-*` class)
-  - `foldTypes(list: Array<Record<string, unknown>>): Record<CommitType, number>`
-- Produces, from `@/components/charts/hatch`:
-  - `interface Hatch { id: string; fill: string; defs: ReactElement }`
-  - `useHatch(colorVar: string): Hatch`
-  - `HatchSwatch({ colorVar, size? }): JSX.Element`
+- Consumes: token names from Task 1.
+- Produces:
+  - **From `@/lib/report/timeline`:** `weekKeyForDate(d: Date): string`. The signature is unchanged; it now returns the Monday of the containing UTC week.
+  - **From `@/components/charts/chart-format`:**
+    - `type MetricKind = 'count' | 'ratio'`
+    - `toNum(v: unknown): number`
+    - `mondayOf(date: Date): string`, the UTC calendar Monday as `YYYY-MM-DD`
+    - `buildWeekDomain(cutoff: Date, today: Date): string[]`
+    - `recentWeekDomain(now?: Date, days?: number): string[]`
+    - `indexByWeek<T extends { week: string }>(data: T[]): Map<string, T>`
+    - `interface WeekPoint<T> { week: string; value: number | null; hasData: boolean; row?: T }`
+    - `interface FillOptions<T> { value: (row: T) => unknown; kind: MetricKind; isDefined?: (row: T) => boolean }`
+    - `fillWeeks<T extends { week: string }>(weeks: string[], data: T[], opts: FillOptions<T>): WeekPoint<T>[]`
+    - `formatWeek(iso: string): string`
+    - `formatValue(v: number | null | undefined, opts?: { suffix?: string; decimals?: number }): string`
+    - `formatCompact(v: number): string`
+    - `isTopOfStack(row: Record<string, unknown>, keys: readonly string[], key: string): boolean`
+  - **From `@/components/charts/commit-types`:**
+    - `COMMIT_TYPE_ORDER`, `type CommitType`
+    - `normalizeType(t: string): CommitType`
+    - `commitTypeColor(t: string): string`, a mark `var(--chart-type-*)`
+    - `commitTypeBg(t: string): string`, a mark `bg-chart-type-*` class for bar segments
+    - `commitTypeBadge(t: string): { bg: string; text: string }`, the `bg-chart-badge-*-bg` and `text-chart-badge-*-text` classes
+    - `foldTypes(list: Array<Record<string, unknown>>): Record<CommitType, number>`
+    - `typeEntriesFrom(list: Array<Record<string, unknown>>): [CommitType, number][]`, non-zero entries sorted by count descending, with unknown types folded into `other`
+  - **From `@/components/charts/hatch`:**
+    - `interface Hatch { id: string; fill: string; defs: ReactElement }`
+    - `useHatch(colorVar: string): Hatch`
+    - `HatchSwatch({ colorVar, size? })`
 
-**Semantics that later tasks rely on (spec Decision 10, plus Review Focus 1):**
-- **`fillWeeks` with `kind: 'count'`:** a week with no rows is `0`, and several rows in one week are summed.
-- **`fillWeeks` with `kind: 'ratio'`:** a week with no usable row is `null`. A row is unusable if `isDefined(row)` is false or its value is `null`/`undefined`. Several usable rows in one week are averaged, weighted by `weight(row)`. With no weights, or all weights zero, it is a plain mean. `hasData` is true only when a usable row exists.
-- **Snapping:** keys are snapped with `snapWeekKey` before grouping, so a Tuesday or Sunday key lands in its Monday's week. Rows outside the domain (older than the 90-day cutoff) are dropped, as today's `d.week >= cutoffStr` filter does.
-- **Dates are UTC.** `buildWeekDomain` and `formatWeek` work on UTC calendar dates, so every chart on a page and every test machine agree.
+**Semantics that later tasks rely on:**
+- **Week keys are exact UTC Mondays** on both sides (spec Decision 10, amended), so `fillWeeks` matches keys exactly. No client-side snapping or merging is needed.
+  - A key that isn't in the domain is ignored, for example a week older than the 90-day cutoff.
+  - The server emits one row per key, because `aggregateWeekly` groups by key.
+- **Count metrics (`kind: 'count'`):**
+  - A week with no row is `0`.
+  - A present week whose value is `null`/`undefined`, or fails `isDefined`, is also `0`.
+- **Ratio metrics (`kind: 'ratio'`):**
+  - A week with no row, a `null`/`undefined` value, or a failing `isDefined` is `null`.
+  - `hasData` is true only when the week has a usable value.
 
-`COMMIT_TYPE_ORDER` is a stacking order, so `commit-types.ts` returns the order, the color var and the badge class. Unknown types map to `other` for color. In the stacked chart, `foldTypes` also folds their counts into `other`. Today's stacked chart drops unknown types from the stack entirely.
+**How the time-zone test works.** Setting `process.env.TZ` inside a Jest test does **not** change `Date`'s time zone. I checked this on this machine, in Jest 30 with Node 24.16. After assigning `'Asia/Tokyo'` inside a test, `new Date('2026-09-22T01:00:00Z').getHours()` still returned the machine's New York hour, 21. Jest hands the test a copy of `process.env`, and Node only resets its time-zone cache when the real one changes. So the regression test spawns a child `tsx` process with `TZ=America/New_York` in its environment. That child does run in New York time. I confirmed the unfixed code there returns `2026-09-22` (Tuesday) for a Monday-21:00 commit, while a `TZ=UTC` child returns `2026-09-21`. The test does not set or restore `process.env.TZ` itself, because an in-process assignment would have no effect.
 
-- [ ] **Step 1: Write the failing `chart-format` test**
+- [ ] **Step 1: Write the failing week-key test**
+
+Create `src/lib/__tests__/unit/week-key-utc.test.ts`:
+
+```ts
+// GLOOK-58 Decision 10: weekKeyForDate keys by the containing UTC week, whatever the server's
+// time zone. Assigning process.env.TZ inside a Jest test does not change Date's zone (Jest gives
+// the test a copy of process.env, and Node resets its zone cache only on the real one), so the
+// time-zone case runs in a child process that starts with TZ set.
+import { execFileSync } from 'child_process';
+import path from 'path';
+import { weekKeyForDate } from '@/lib/report/timeline';
+
+const root = path.join(__dirname, '../../../..');
+// Monday 2026-09-21 21:00 in New York (EDT, UTC-4) is Tuesday 2026-09-22 01:00 UTC.
+const MONDAY_9PM_NEW_YORK = '2026-09-22T01:00:00Z';
+
+function keyUnderTz(tz: string, iso: string): string {
+  const script = `import { weekKeyForDate } from './src/lib/report/timeline'; console.log(weekKeyForDate(new Date('${iso}')));`;
+  return execFileSync(path.join(root, 'node_modules/.bin/tsx'), ['-e', script], {
+    cwd: root,
+    env: { ...process.env, TZ: tz },
+    encoding: 'utf8',
+  }).trim();
+}
+
+it('a Monday-21:00 commit under TZ=America/New_York keys to that UTC week, not the next day', () => {
+  expect(keyUnderTz('America/New_York', MONDAY_9PM_NEW_YORK)).toBe('2026-09-21');
+}, 30_000);
+
+it('the same instant keys identically in every server time zone', () => {
+  expect(keyUnderTz('Asia/Tokyo', MONDAY_9PM_NEW_YORK)).toBe('2026-09-21');
+  expect(keyUnderTz('UTC', MONDAY_9PM_NEW_YORK)).toBe('2026-09-21');
+}, 30_000);
+
+it('keys a UTC Monday, midweek day and Sunday to that UTC Monday (in-process)', () => {
+  expect(weekKeyForDate(new Date('2026-09-21T00:00:00Z'))).toBe('2026-09-21');
+  expect(weekKeyForDate(new Date('2026-09-24T12:00:00Z'))).toBe('2026-09-21');
+  expect(weekKeyForDate(new Date('2026-09-27T23:59:59Z'))).toBe('2026-09-21');
+});
+```
+
+- [ ] **Step 2: Write the failing `chart-format` test**
 
 Create `src/lib/__tests__/unit/chart-format.test.ts`:
 
 ```ts
 import {
-  buildWeekDomain, fillWeeks, formatCompact, formatValue, formatWeek, groupByWeek, isTopOfStack,
-  mondayOf, recentWeekDomain, snapWeekKey, toNum,
+  buildWeekDomain, fillWeeks, formatCompact, formatValue, formatWeek, indexByWeek, isTopOfStack,
+  mondayOf, recentWeekDomain, toNum,
 } from '@/components/charts/chart-format';
 
 const utc = (iso: string) => new Date(`${iso}T12:00:00Z`);
@@ -1157,11 +1321,12 @@ describe('toNum', () => {
   });
 });
 
-describe('week domain', () => {
+describe('week domain (UTC)', () => {
   it('mondayOf returns the Monday of the containing UTC week', () => {
     expect(mondayOf(utc('2026-09-25'))).toBe('2026-09-21'); // Friday
     expect(mondayOf(utc('2026-09-21'))).toBe('2026-09-21'); // Monday
     expect(mondayOf(utc('2026-09-27'))).toBe('2026-09-21'); // Sunday belongs to the week before
+    expect(mondayOf(new Date('2026-09-27T23:59:59Z'))).toBe('2026-09-21');
   });
 
   it('buildWeekDomain lists every Monday from the cutoff week to the current week, 7 days apart', () => {
@@ -1179,19 +1344,6 @@ describe('week domain', () => {
     const now = utc('2026-09-25');
     expect(recentWeekDomain(now)).toEqual(recentWeekDomain(now));
     expect(recentWeekDomain(now)).toEqual(buildWeekDomain(new Date(now.getTime() - 90 * 86_400_000), now));
-  });
-});
-
-describe('snapWeekKey (weekKeyForDate can emit a key one day either side of Monday)', () => {
-  it('keeps Mondays, pulls a Tuesday back and pushes a Sunday forward', () => {
-    expect(snapWeekKey('2026-09-21')).toBe('2026-09-21');
-    expect(snapWeekKey('2026-09-22')).toBe('2026-09-21');
-    expect(snapWeekKey('2026-09-20')).toBe('2026-09-21');
-  });
-  it('rejects malformed and impossible dates', () => {
-    expect(snapWeekKey('garbage')).toBeNull();
-    expect(snapWeekKey('2026-13-01')).toBeNull();
-    expect(snapWeekKey('2026-02-30')).toBeNull();
   });
 });
 
@@ -1216,24 +1368,19 @@ describe('fillWeeks', () => {
     expect(pts[0].hasData).toBe(false);
   });
 
-  it('an off-Monday key still lands in its week instead of becoming a false zero', () => {
-    const pts = fillWeeks(weeks, [{ week: '2026-09-15', n: 6 }], { value: r => r.n, kind: 'count' });
-    expect(pts.map(p => p.value)).toEqual([0, 6, 0]);
+  it('an undefined ratio value (an optional field) is a gap, not a 0', () => {
+    const pts = fillWeeks(weeks, [{ week: '2026-09-14' } as { week: string; v?: number }], { value: r => r.v, kind: 'ratio' });
+    expect(pts[1].value).toBeNull();
   });
 
-  it('a week split across two keys is summed for counts and weight-averaged for ratios', () => {
-    const data = [
-      { week: '2026-09-14', n: 2, pct: 50, commits: 2 },
-      { week: '2026-09-15', n: 6, pct: 100, commits: 6 },
-    ];
-    expect(fillWeeks(weeks, data, { value: r => r.n, kind: 'count' })[1].value).toBe(8);
-    expect(fillWeeks(weeks, data, { value: r => r.pct, kind: 'ratio', weight: r => r.commits })[1].value).toBeCloseTo(87.5);
-    expect(fillWeeks(weeks, data, { value: r => r.pct, kind: 'ratio' })[1].value).toBe(75);
-  });
-
-  it('string numerics are converted, and rows older than the domain are dropped', () => {
+  it('string numerics are converted, and rows outside the domain are ignored', () => {
     const data = [{ week: '2026-08-31', n: '9' }, { week: '2026-09-21', n: '3' }];
     expect(fillWeeks(weeks, data, { value: r => r.n, kind: 'count' }).map(p => p.value)).toEqual([0, 0, 3]);
+  });
+
+  it('data entirely outside the domain (an old report) yields no week with data', () => {
+    const pts = fillWeeks(weeks, [{ week: '2025-01-06', n: 5 }], { value: r => r.n, kind: 'count' });
+    expect(pts.some(p => p.hasData)).toBe(false);
   });
 
   it('two metrics filled from the same domain produce identical week sequences (syncId matches by index)', () => {
@@ -1244,10 +1391,10 @@ describe('fillWeeks', () => {
     expect(b).toEqual(weeks);
   });
 
-  it('groupByWeek skips invalid keys and keeps every domain week', () => {
-    const g = groupByWeek(weeks, [{ week: 'nope' }, { week: '2026-09-07' }]);
-    expect([...g.keys()]).toEqual(weeks);
-    expect(g.get('2026-09-07')).toHaveLength(1);
+  it('indexByWeek looks rows up by exact key', () => {
+    const idx = indexByWeek([{ week: '2026-09-07', n: 1 }]);
+    expect(idx.get('2026-09-07')?.n).toBe(1);
+    expect(idx.get('2026-09-08')).toBeUndefined();
   });
 });
 
@@ -1279,7 +1426,7 @@ describe('isTopOfStack', () => {
 });
 ```
 
-- [ ] **Step 2: Write the failing `commit-types` test**
+- [ ] **Step 3: Write the failing `commit-types` test**
 
 Create `src/lib/__tests__/unit/commit-types.test.ts`:
 
@@ -1287,24 +1434,32 @@ Create `src/lib/__tests__/unit/commit-types.test.ts`:
 import fs from 'fs';
 import path from 'path';
 import {
-  COMMIT_TYPE_ORDER, commitTypeBg, commitTypeColor, foldTypes, normalizeType,
+  COMMIT_TYPE_ORDER, commitTypeBadge, commitTypeBg, commitTypeColor, foldTypes, normalizeType, typeEntriesFrom,
 } from '@/components/charts/commit-types';
 
 it('stacks types in the spec order', () => {
   expect([...COMMIT_TYPE_ORDER]).toEqual(['feature', 'bug', 'refactor', 'infra', 'docs', 'test', 'other', 'in_flight']);
 });
 
-it('maps each type to its own token and badge class', () => {
+it('maps each type to its own mark token and mark background class', () => {
   expect(commitTypeColor('feature')).toBe('var(--chart-type-feature)');
   expect(commitTypeColor('in_flight')).toBe('var(--chart-type-in-flight)');
   expect(commitTypeBg('bug')).toBe('bg-chart-type-bug');
   expect(commitTypeBg('in_flight')).toBe('bg-chart-type-in-flight');
 });
 
-it('maps unknown types to other', () => {
+it('every type returns a badge fill and a badge text colour, separate from the mark colour', () => {
+  for (const t of COMMIT_TYPE_ORDER) {
+    const slug = t === 'in_flight' ? 'in-flight' : t;
+    expect(commitTypeBadge(t)).toEqual({ bg: `bg-chart-badge-${slug}-bg`, text: `text-chart-badge-${slug}-text` });
+  }
+});
+
+it('maps unknown types to other, for marks and badges alike', () => {
   expect(normalizeType('chore')).toBe('other');
   expect(commitTypeColor('chore')).toBe('var(--chart-type-other)');
   expect(commitTypeBg('')).toBe('bg-chart-type-other');
+  expect(commitTypeBadge('chore')).toEqual(commitTypeBadge('other'));
 });
 
 it('foldTypes sums across weeks, folds unknown types into other, and tolerates string counts', () => {
@@ -1315,8 +1470,13 @@ it('foldTypes sums across weeks, folds unknown types into other, and tolerates s
   expect(folded.bug).toBe(0);
 });
 
+it('typeEntriesFrom gives one row per non-zero type, largest first, with unknown types in a single other row', () => {
+  expect(typeEntriesFrom([{ feature: 2, chore: 1, other: 1 }, { bug: 3 }])).toEqual([['bug', 3], ['feature', 2], ['other', 2]]);
+  expect(typeEntriesFrom([])).toEqual([]);
+});
+
 // The palette gate could move a hue in the charts while a page kept an old copy of the map.
-it('no report page keeps its own commit-type colour map', () => {
+it.skip('no report page keeps its own commit-type colour map', () => {
   const files = [
     'src/app/report/[id]/org/page.tsx',
     'src/app/report/[id]/dev/[login]/page.tsx',
@@ -1329,9 +1489,9 @@ it('no report page keeps its own commit-type colour map', () => {
 });
 ```
 
-The last test fails until Tasks 5 and 6 remove the three maps. That is intended. Mark it with `it.skip` in this task, and un-skip it in Task 6, Step 5. Write it as shown, then change `it(` to `it.skip(` on that one test before running.
+The last test stays skipped until Task 7, Step 1 un-skips it, after Tasks 5 and 7 have removed the three maps.
 
-- [ ] **Step 3: Write the failing hatch test**
+- [ ] **Step 4: Write the failing hatch test**
 
 Create `src/lib/__tests__/unit/chart-hatch.test.tsx`:
 
@@ -1378,19 +1538,41 @@ it('HatchSwatch is a self-contained hatched square for HTML legends', () => {
 });
 ```
 
-- [ ] **Step 4: Run the tests and confirm they fail**
+- [ ] **Step 5: Run the tests and confirm they fail**
 
-Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest src/lib/__tests__/unit/chart-format.test.ts src/lib/__tests__/unit/commit-types.test.ts src/lib/__tests__/unit/chart-hatch.test.tsx'`
+Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest src/lib/__tests__/unit/week-key-utc.test.ts src/lib/__tests__/unit/chart-format.test.ts src/lib/__tests__/unit/commit-types.test.ts src/lib/__tests__/unit/chart-hatch.test.tsx'`
 
-Expected: FAIL with `Cannot find module` for all three.
+Expected results:
+- `week-key-utc`: the New York test FAILS with `Expected: "2026-09-21"`, `Received: "2026-09-22"`, and the Tokyo case fails too. The in-process test may pass or fail, depending on this machine's zone.
+- The other three files fail with `Cannot find module`.
 
-- [ ] **Step 5: Implement `chart-format.ts`**
+- [ ] **Step 6: Fix `weekKeyForDate`**
+
+In `src/lib/report/timeline.ts`, replace the comment and function at lines 20-28:
+
+```ts
+// ISO date string for the Monday of the UTC week containing `d`. Used by both the shipped-commit
+// aggregator below and the in-flight overlay in `org.ts`, so the two paths can't drift on what
+// counts as the same week. GLOOK-58: UTC throughout. The old local-time arithmetic formatted with
+// toISOString(), so on a server west of UTC a Monday-evening commit got a Tuesday key and one week
+// arrived as two buckets. No week keys are persisted (timelines are computed per request), so this
+// needs no migration.
+export function weekKeyForDate(d: Date): string {
+  const day = d.getUTCDay();
+  const monday = new Date(d);
+  monday.setUTCDate(d.getUTCDate() - ((day + 6) % 7));
+  return monday.toISOString().split('T')[0];
+}
+```
+
+- [ ] **Step 7: Implement `chart-format.ts`**
 
 Create `src/components/charts/chart-format.ts`:
 
 ```ts
 // GLOOK-58: pure helpers shared by every chart. Numbers from DECIMAL/REAL columns can arrive as
-// strings, so every value goes through toNum(). Week handling is UTC calendar dates throughout.
+// strings, so every value goes through toNum(). Weeks are UTC calendar weeks, matching the
+// server's weekKeyForDate(), so keys match exactly.
 
 export type MetricKind = 'count' | 'ratio';
 
@@ -1417,24 +1599,11 @@ function utcDay(iso: string): number | null {
   return isoOf(t) === iso ? t : null; // rejects 2026-13-01, 2026-02-30
 }
 
-/** Monday of the UTC week containing `date`, as YYYY-MM-DD. */
+/** Monday of the UTC week containing `date`, as YYYY-MM-DD. Same rule as weekKeyForDate(). */
 export function mondayOf(date: Date): string {
   const t = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
   const dow = new Date(t).getUTCDay();
   return isoOf(t - ((dow + 6) % 7) * DAY_MS);
-}
-
-/**
- * Nearest Monday to a server week key. weekKeyForDate() (src/lib/report/timeline.ts) sets the
- * local-time Monday but keeps the commit's time of day and formats in UTC, so a key can land a
- * day either side of Monday. Matching exactly would turn those weeks into false zeros.
- */
-export function snapWeekKey(key: string): string | null {
-  const t = utcDay(key);
-  if (t === null) return null;
-  const dow = new Date(t).getUTCDay(); // 0 = Sunday
-  const shift = dow === 0 ? 1 : dow <= 4 ? 1 - dow : 8 - dow;
-  return isoOf(t + shift * DAY_MS);
 }
 
 /** Every Monday from the cutoff's week to today's week, inclusive. */
@@ -1451,51 +1620,36 @@ export function recentWeekDomain(now: Date = new Date(), days = 90): string[] {
   return buildWeekDomain(new Date(now.getTime() - days * DAY_MS), now);
 }
 
-/** Rows grouped by snapped week. Every domain week is present; rows outside the domain or with invalid keys are dropped. */
-export function groupByWeek<T extends { week: string }>(weeks: string[], data: T[]): Map<string, T[]> {
-  const groups = new Map<string, T[]>(weeks.map(w => [w, [] as T[]]));
-  for (const row of data) {
-    const key = snapWeekKey(row.week);
-    if (key === null) continue;
-    groups.get(key)?.push(row);
-  }
-  return groups;
+/** Rows keyed by their exact week. aggregateWeekly emits one row per key, so there are no collisions. */
+export function indexByWeek<T extends { week: string }>(data: T[]): Map<string, T> {
+  return new Map(data.map(r => [r.week, r]));
 }
 
 export interface WeekPoint<T> {
   week: string;
   value: number | null;
   hasData: boolean;
-  rows: T[];
+  row?: T;
 }
 
 export interface FillOptions<T> {
   value: (row: T) => unknown;
   kind: MetricKind;
   isDefined?: (row: T) => boolean;
-  weight?: (row: T) => number;
 }
 
 /**
- * One point per domain week. kind 'count': a missing week is 0 and split weeks sum.
- * kind 'ratio': a week with no usable row is null (a gap); split weeks take a weighted mean.
+ * One point per domain week. kind 'count': a missing or undefined week is 0.
+ * kind 'ratio': a missing or undefined week is null (a gap). Rows outside the domain are ignored.
  */
 export function fillWeeks<T extends { week: string }>(weeks: string[], data: T[], opts: FillOptions<T>): WeekPoint<T>[] {
-  const groups = groupByWeek(weeks, data);
+  const byWeek = indexByWeek(data);
   return weeks.map(week => {
-    const rows = groups.get(week) ?? [];
-    if (opts.kind === 'count') {
-      const usable = opts.isDefined ? rows.filter(opts.isDefined) : rows;
-      return { week, rows, hasData: rows.length > 0, value: usable.reduce((s, r) => s + toNum(opts.value(r)), 0) };
-    }
-    const usable = rows.filter(r => (opts.isDefined ? opts.isDefined(r) : true) && opts.value(r) != null);
-    if (usable.length === 0) return { week, rows, hasData: false, value: null };
-    const weights = usable.map(r => Math.max(0, opts.weight ? toNum(opts.weight(r)) : 1));
-    const totalWeight = weights.reduce((a, b) => a + b, 0);
-    const value = totalWeight > 0
-      ? usable.reduce((s, r, i) => s + toNum(opts.value(r)) * weights[i], 0) / totalWeight
-      : usable.reduce((s, r) => s + toNum(opts.value(r)), 0) / usable.length;
-    return { week, rows, hasData: true, value };
+    const row = byWeek.get(week);
+    const raw = row ? opts.value(row) : undefined;
+    const defined = !!row && raw != null && (opts.isDefined ? opts.isDefined(row) : true);
+    if (opts.kind === 'count') return { week, row, hasData: !!row, value: defined ? toNum(raw) : 0 };
+    return { week, row, hasData: defined, value: defined ? toNum(raw) : null };
   });
 }
 
@@ -1524,14 +1678,16 @@ export function isTopOfStack(row: Record<string, unknown>, keys: readonly string
 }
 ```
 
-- [ ] **Step 6: Implement `commit-types.ts`**
+- [ ] **Step 8: Implement `commit-types.ts`**
 
 Create `src/components/charts/commit-types.ts`:
 
 ```ts
 // GLOOK-58: the one commit-type map. Replaces TYPE_HEX/TYPE_COLORS (org page), TYPE_COLORS/
 // TYPE_TEXT_COLORS (dev page) and TYPE_COLORS (team dev-table), so a palette change reaches every
-// surface at once. Class names are written out in full so Tailwind's content scan finds them.
+// surface at once. Marks (bars, wedges, swatches) and badges (text on a fill) use separate tokens:
+// a mark only needs 3:1 against the card, a badge's text needs 4.5:1 against its own fill.
+// Class names are written out in full so Tailwind's content scan finds them.
 import { toNum } from './chart-format';
 
 export const COMMIT_TYPE_ORDER = ['feature', 'bug', 'refactor', 'infra', 'docs', 'test', 'other', 'in_flight'] as const;
@@ -1559,16 +1715,34 @@ const BG: Record<CommitType, string> = {
   in_flight: 'bg-chart-type-in-flight',
 };
 
+const BADGE: Record<CommitType, { bg: string; text: string }> = {
+  feature: { bg: 'bg-chart-badge-feature-bg', text: 'text-chart-badge-feature-text' },
+  bug: { bg: 'bg-chart-badge-bug-bg', text: 'text-chart-badge-bug-text' },
+  refactor: { bg: 'bg-chart-badge-refactor-bg', text: 'text-chart-badge-refactor-text' },
+  infra: { bg: 'bg-chart-badge-infra-bg', text: 'text-chart-badge-infra-text' },
+  docs: { bg: 'bg-chart-badge-docs-bg', text: 'text-chart-badge-docs-text' },
+  test: { bg: 'bg-chart-badge-test-bg', text: 'text-chart-badge-test-text' },
+  other: { bg: 'bg-chart-badge-other-bg', text: 'text-chart-badge-other-text' },
+  in_flight: { bg: 'bg-chart-badge-in-flight-bg', text: 'text-chart-badge-in-flight-text' },
+};
+
 export function normalizeType(t: string): CommitType {
   return (COMMIT_TYPE_ORDER as readonly string[]).includes(t) ? (t as CommitType) : 'other';
 }
 
+/** Mark colour (bars, wedges, lines, swatches). */
 export function commitTypeColor(t: string): string {
   return COLOR[normalizeType(t)];
 }
 
+/** Mark colour as a background class, for HTML bar segments. */
 export function commitTypeBg(t: string): string {
   return BG[normalizeType(t)];
+}
+
+/** Badge fill and text classes (text on a coloured fill, 4.5:1). */
+export function commitTypeBadge(t: string): { bg: string; text: string } {
+  return BADGE[normalizeType(t)];
 }
 
 /** Sum type counts across rows; unknown types count as other. */
@@ -1579,9 +1753,18 @@ export function foldTypes(list: Array<Record<string, unknown>>): Record<CommitTy
   }
   return out;
 }
+
+/** Folded, non-zero [type, count] rows, largest first (ties keep COMMIT_TYPE_ORDER). */
+export function typeEntriesFrom(list: Array<Record<string, unknown>>): [CommitType, number][] {
+  const folded = foldTypes(list);
+  return COMMIT_TYPE_ORDER
+    .filter(t => folded[t] > 0)
+    .map(t => [t, folded[t]] as [CommitType, number])
+    .sort((a, b) => b[1] - a[1]);
+}
 ```
 
-- [ ] **Step 7: Implement `hatch.tsx`**
+- [ ] **Step 9: Implement `hatch.tsx`**
 
 Create `src/components/charts/hatch.tsx`:
 
@@ -1627,18 +1810,27 @@ export function HatchSwatch({ colorVar, size = 10 }: { colorVar: string; size?: 
 }
 ```
 
-- [ ] **Step 8: Run the tests and confirm they pass**
+- [ ] **Step 10: Run the new tests and the existing timeline suites**
 
-Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest src/lib/__tests__/unit/chart-format.test.ts src/lib/__tests__/unit/commit-types.test.ts src/lib/__tests__/unit/chart-hatch.test.tsx'`
+Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest src/lib/__tests__/unit/week-key-utc.test.ts src/lib/__tests__/unit/chart-format.test.ts src/lib/__tests__/unit/commit-types.test.ts src/lib/__tests__/unit/chart-hatch.test.tsx src/lib/__tests__/unit/timeline.test.ts src/lib/__tests__/unit/report-timeline.test.ts'`
 
-Expected: PASS. The skipped test is reported as skipped. If `rect.style.fill` reads `''` in jsdom, cssstyle 4.6 dropped the `var()`. In that case assert `rect.getAttribute('style')` contains `fill: var(--chart-surface)` instead, and note it in the commit body.
+Expected: PASS, with one test skipped. The two existing timeline suites use commit times at 10:00Z, so their expected week keys don't change.
 
-- [ ] **Step 9: Commit**
+- If `rect.style.fill` reads `''` in jsdom, cssstyle 4.6 dropped the `var()`. In that case, assert that `rect.getAttribute('style')` contains `fill: var(--chart-surface)`.
+- If the child-process test fails with `ENOENT` for `node_modules/.bin/tsx`, run `npm ls tsx`. tsx is a devDependency (`^4.21.0`) and is required here.
+
+- [ ] **Step 11: Full suite**
+
+Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest --maxWorkers=3'`
+
+Expected: all suites pass. The report, org and dev integration suites must stay green with UTC keys.
+
+- [ ] **Step 12: Commit**
 
 ```bash
-git add src/components/charts/chart-format.ts src/components/charts/commit-types.ts src/components/charts/hatch.tsx src/lib/__tests__/unit/chart-format.test.ts src/lib/__tests__/unit/commit-types.test.ts src/lib/__tests__/unit/chart-hatch.test.tsx
+git add src/lib/report/timeline.ts src/components/charts/chart-format.ts src/components/charts/commit-types.ts src/components/charts/hatch.tsx src/lib/__tests__/unit/week-key-utc.test.ts src/lib/__tests__/unit/chart-format.test.ts src/lib/__tests__/unit/commit-types.test.ts src/lib/__tests__/unit/chart-hatch.test.tsx
 git commit -F - <<'EOF'
-GLOOK-58: shared chart helpers, commit-type map and hatch pattern
+GLOOK-58: UTC week keys, shared chart helpers, commit-type map and hatch pattern
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 EOF
@@ -1651,36 +1843,33 @@ EOF
 **Files:**
 - Create: `src/components/charts/timeline-chart.tsx`
 - Modify: `src/app/report/[id]/org/page.tsx`
-  - Imports: lines 3-9.
-  - Replace the timeline grid at lines 248-278.
-  - Delete the local `TimelineChart` at lines 784-922.
+  - the imports
+  - the timeline grid (lines 248-278)
+  - delete the local `TimelineChart` (lines 784-922)
 - Modify: `src/app/report/[id]/dev/[login]/page.tsx`
-  - Imports: lines 3-8.
-  - Replace the timeline grid at lines 310-357.
-  - Delete the local `TimelineChart` at lines 668-842.
+  - the imports
+  - the timeline grid (lines 310-357)
+  - delete the local `TimelineChart` (lines 668-842)
 - Test: `src/lib/__tests__/unit/timeline-chart.test.tsx`
 
 **Interfaces:**
 - Consumes:
-  - From chart-format: `fillWeeks`, `formatCompact`, `formatValue`, `formatWeek`, `toNum`, `MetricKind`, `recentWeekDomain`.
+  - `fillWeeks`, `formatCompact`, `formatValue`, `formatWeek`, `toNum`, `MetricKind` and `recentWeekDomain` from chart-format.
   - `useHatch` from hatch.
-  - `ChartContainer`, `ChartTooltip`, `CHART_TOOLTIP_CLASS` from chart.
+  - `ChartContainer`, `ChartTooltip` and `CHART_TOOLTIP_CLASS` from chart.
 - Produces, from `@/components/charts/timeline-chart`:
-  - `interface TimelineRow { week: string; commits?: unknown }`
+  - `interface TimelineRow { week: string }`
   - `interface TimelinePoint { week: string; value: number | null; shipped: number | null; inFlight: number | null }`
-  - `interface TimelineChartProps<T extends TimelineRow>` with fields: `data`, `weeks`, `valueKey?`, `computeValue?`, `kind`, `isDefined?`, `label`, `suffix?`, `decimals?`, `inFlightValue?`, `syncId`.
-  - `TimelineChart<T extends TimelineRow>(props: TimelineChartProps<T>)`
-  - `TimelineTooltip(props)`, the tooltip body, exported for testing.
+  - `interface TimelineChartProps<T extends TimelineRow>`, with `data`, `weeks`, `valueKey?`, `computeValue?`, `kind`, `isDefined?`, `label`, `suffix?`, `decimals?`, `inFlightValue?` and `syncId`
+  - `TimelineChart<T extends TimelineRow>(props)`
+  - `TimelineTooltip(props)`, exported for testing
 
 **Behavior (spec Charts → TimelineChart, Decisions 7, 9, 10):**
-- **Bars are placed by date on the page's shared `weeks`.**
-- **Header:**
-  - "Latest" is the last week with data, and "change" is its difference from the previous week with data.
-  - The change keeps today's green/red color. It adds a `+` or `−` sign, so direction isn't shown by color alone.
-- **In-flight is a portion of the week's total,** as in today's org code, where shipped is `barH - inFlightH`. `inFlight` is clamped to `[0, value]`, so the stack never goes negative (Review Focus 5). The shipped segment gets the 4px rounded top only when that week has no in-flight segment above it.
-- **Colors:** bars use `var(--accent)`. The in-flight segment uses an accent hatch, whose `<defs>` render only when `inFlightValue` is passed.
-- **Empty state:** "No data in the last 90 days" when no week in the domain has data.
-- **Ratio weeks** are weighted by `commits` when a week arrives split across two keys.
+- **Placement:** bars are placed by date on the page's shared `weeks`.
+- **Header:** shows the last week with data, and the change from the previous week with data. The change keeps today's green and red, and adds a `+` or `−` sign.
+- **In-flight:** it is a portion of the week's total, clamped to `[0, value]`. The shipped segment gets the 4px rounded top only when no in-flight segment sits above it.
+- **Colors:** bars use `var(--accent)`. The in-flight segment uses an accent hatch, whose `<defs>` render only when `inFlightValue` is set.
+- **Empty state:** "No data in the last 90 days". This covers an old report whose weeks fall outside the domain (Review Focus 1).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1739,12 +1928,6 @@ it('string DECIMAL values render as numbers in the header', () => {
   expect(screen.getByTestId('timeline-latest').textContent).toBe('2.5');
 });
 
-it('a Tuesday-keyed row still draws in its Monday week', () => {
-  const data: Row[] = [{ week: '2026-09-15', commits: 4, prs: 0 }];
-  const { container } = render(<TimelineChart data={data} weeks={weeks} valueKey="commits" kind="count" label="C" syncId="t" />);
-  expect(rects(container)).toHaveLength(1);
-});
-
 it('the hatch appears only with inFlightValue, and the in-flight segment uses it', () => {
   const data: Row[] = [{ week: '2026-09-14', commits: 5, prs: 0, types: { feature: 3, in_flight: 2 } }];
   const plain = render(<TimelineChart data={data} weeks={weeks} valueKey="commits" kind="count" label="C" syncId="t" />);
@@ -1787,6 +1970,13 @@ it('shows an explicit empty state when no week has data', () => {
   expect(screen.getByText('No data in the last 90 days')).toBeTruthy();
 });
 
+it('shows the empty state, not a blank card, for an old report whose weeks are all outside the domain', () => {
+  const data: Row[] = [{ week: '2025-01-06', commits: 7, prs: 1 }];
+  const { container } = render(<TimelineChart data={data} weeks={weeks} valueKey="commits" kind="count" label="Commits / Week" syncId="t" />);
+  expect(screen.getByText('No data in the last 90 days')).toBeTruthy();
+  expect(container.querySelector('svg.recharts-surface')).toBeNull();
+});
+
 it('the tooltip shows the week, the value, and the shipped / in-flight split when present', () => {
   const row = { week: '2026-09-21', value: 5, shipped: 3, inFlight: 2 };
   const { container } = render(<TimelineTooltip active payload={[{ payload: row }] as never} split />);
@@ -1822,12 +2012,11 @@ Create `src/components/charts/timeline-chart.tsx`:
 import { Bar, BarChart, CartesianGrid, Rectangle, XAxis, YAxis, type BarShapeProps, type RectangleProps } from 'recharts';
 import type { TooltipContentProps, TooltipValueType } from 'recharts';
 import { ChartContainer, ChartTooltip, CHART_TOOLTIP_CLASS } from './chart';
-import { fillWeeks, formatCompact, formatValue, formatWeek, toNum, type MetricKind } from './chart-format';
+import { fillWeeks, formatCompact, formatValue, formatWeek, type MetricKind } from './chart-format';
 import { useHatch } from './hatch';
 
 export interface TimelineRow {
   week: string;
-  commits?: unknown;
 }
 
 export interface TimelinePoint {
@@ -1889,7 +2078,7 @@ export function TimelineChart<T extends TimelineRow>({
 }: TimelineChartProps<T>) {
   const hatch = useHatch('var(--accent)');
   const read = (row: T): unknown => (computeValue ? computeValue(row) : valueKey ? row[valueKey] : undefined);
-  const points = fillWeeks(weeks, data, { value: read, kind, isDefined, weight: r => toNum(r.commits) });
+  const points = fillWeeks(weeks, data, { value: read, kind, isDefined });
   const inFlight = inFlightValue ? fillWeeks(weeks, data, { value: inFlightValue, kind: 'count' }) : null;
 
   const rows: TimelinePoint[] = points.map((p, i) => {
@@ -1947,27 +2136,25 @@ export function TimelineChart<T extends TimelineRow>({
 
 Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest src/lib/__tests__/unit/timeline-chart.test.tsx'`
 
-Expected: PASS, 12 tests.
-
-**Verification.** If the hatch test sees the in-flight rectangle before the shipped one, Recharts rendered the Bars in a different DOM order. Change the assertion to compare sorted arrays, because the user-visible fact is that both fills are present. Do not reorder the Bars.
+Expected: PASS, 12 tests. If the hatch test sees the in-flight rectangle before the shipped one, Recharts rendered the Bars in a different DOM order. In that case, compare sorted arrays instead; don't reorder the Bars.
 
 - [ ] **Step 5: Wire the org page**
 
-In `src/app/report/[id]/org/page.tsx`, add these imports after line 9 (the `./spend-tab` import):
+In `src/app/report/[id]/org/page.tsx`, add these imports after the `./spend-tab` import:
 
 ```tsx
 import { TimelineChart } from '@/components/charts/timeline-chart';
 import { recentWeekDomain, toNum } from '@/components/charts/chart-format';
 ```
 
-Directly after `const totalTyped = …` (line 98), add:
+Directly after `const totalTyped = …`, add:
 
 ```tsx
   // One week domain per render, shared by every chart below so hover sync (syncId) lines up.
   const weeks = recentWeekDomain(new Date());
 ```
 
-Replace the timeline grid (lines 248-278, from `{/* Timeline Charts */}` through the closing `)}` of that block) with:
+Replace the timeline grid block, from `{/* Timeline Charts */}` through its closing `)}`, with:
 
 ```tsx
       {/* Timeline Charts */}
@@ -2012,27 +2199,27 @@ Replace the timeline grid (lines 248-278, from `{/* Timeline Charts */}` through
       )}
 ```
 
-`<LinesChangedChart data={timeline} />` still refers to the page's local component. Task 5 replaces it.
+`<LinesChangedChart data={timeline} />` still refers to the page's local component; Task 5 replaces it.
 
-Delete the local `TimelineChart` function and its preceding comment, lines 784-922 (`// Reusable timeline chart (same as developer detail page)` through the final `}`). Keep `useState`: `JiraIssuesPopover`, `StackedTypesChart`, `LinesChangedChart` and `PieChart` still use it.
+Then delete the local `TimelineChart` function and the comment above it, `// Reusable timeline chart (same as developer detail page)`. Keep the `useState` import.
 
 - [ ] **Step 6: Wire the dev page**
 
-In `src/app/report/[id]/dev/[login]/page.tsx`, add these imports after line 8 (the `./usage-card` import):
+In `src/app/report/[id]/dev/[login]/page.tsx`, add these imports after the `./usage-card` import:
 
 ```tsx
 import { TimelineChart } from '@/components/charts/timeline-chart';
 import { recentWeekDomain, toNum } from '@/components/charts/chart-format';
 ```
 
-Directly after `const totalTyped = …` (line 166), add:
+Directly after `const totalTyped = …`, add:
 
 ```tsx
   // One week domain per render, shared by every chart below so hover sync (syncId) lines up.
   const weeks = recentWeekDomain(new Date());
 ```
 
-Replace the timeline grid (lines 310-357, `{/* Timeline Charts */}` through its closing `)}`) with:
+Replace the timeline grid block, from `{/* Timeline Charts */}` through its closing `)}`, with:
 
 ```tsx
       {/* Timeline Charts */}
@@ -2076,11 +2263,11 @@ Replace the timeline grid (lines 310-357, `{/* Timeline Charts */}` through its 
       )}
 ```
 
-Delete the local `TimelineChart` function, lines 668-842 (`function TimelineChart({` through the final `}` of the file). Keep `useState`: `expandedSha` and `expandedIssueKey` use it.
+Then delete the local `TimelineChart` function, from `function TimelineChart({` through the end of the file. Keep the `useState` import.
 
-`avgComplexity` gets no `isDefined`. Its payload has no denominator, so a present week that reports 0 is drawn as 0 (spec Decision 10, and Risks).
+`avgComplexity` deliberately gets no `isDefined`. Its payload has no denominator, so a present week that reports 0 is drawn as 0 (spec Decision 10 and Risks).
 
-- [ ] **Step 7: Run the new test and the full suite**
+- [ ] **Step 7: Run the full suite**
 
 Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest --maxWorkers=3'`
 
@@ -2088,14 +2275,14 @@ Expected: all suites pass.
 
 - [ ] **Step 8: Early browser check that `var()` resolves in Recharts presentation attributes**
 
-Every Recharts mark in this plan passes its color as a presentation attribute: `fill="var(--accent)"` or `stroke="var(--chart-…)"`. shadcn's charts rely on this working. However, a comment from GLOOK-43 in the old `trend-chart.tsx` says presentation attributes "don't reliably resolve var()". Check it now, before three more tasks build on it.
+Every Recharts mark in this plan passes its color as a presentation attribute, for example `fill="var(--accent)"`. shadcn relies on that working, but a GLOOK-43 comment in the old `trend-chart.tsx` says attributes "don't reliably resolve var()". Check it before later tasks build on it.
 
-1. Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npm run seed:reset'`
-2. Start `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npm run dev:mock'` in the background.
+1. Reset the seed data: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npm run seed:reset'`
+2. Start the mock server in the background: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npm run dev:mock'`.
 3. Open `/reports`, then the newest report's `/report/<id>/org`.
 4. Check the timeline bars:
    - **Accent-colored (amber in Amber Glow):** the assumption holds. Stop the server and continue.
-   - **Black:** the attribute did not resolve. Stop and report it before Task 5. The fallback is a custom `shape` that passes the color through `style={{ fill }}`. That changes every chart task, so it needs sign-off first.
+   - **Black:** the attribute didn't resolve. Stop and report before Task 5. The fallback is a custom `shape` that passes the color through `style={{ fill }}`. That changes every chart task, so it needs sign-off first.
 
 - [ ] **Step 9: Commit**
 
@@ -2117,42 +2304,55 @@ EOF
 - Create: `src/components/charts/lines-changed-chart.tsx`
 - Create: `src/components/charts/commit-type-donut.tsx`
 - Modify: `src/app/report/[id]/org/page.tsx`
-  - Delete `TYPE_COLORS`/`TYPE_HEX` at lines 11-31.
-  - Replace the donut card at lines 193-197.
-  - Replace `<LinesChangedChart data={timeline} />` and the `StackedTypesChart` line.
-  - Delete the local `StackedTypesChart`, `LinesChangedChart` and `PieChart` (the three functions between `JiraIssuesPopover` and the end of the file).
+  - Delete `TYPE_COLORS`/`TYPE_HEX` (lines 11-31).
+  - Fold `orgTypes`/`typeEntries`/`totalTyped` through `typeEntriesFrom` (lines 88-98).
+  - Replace the donut card, the `<LinesChangedChart>` line and the `StackedTypesChart` line.
+  - Delete the local `StackedTypesChart`, `LinesChangedChart` and `PieChart`.
 - Test: `src/lib/__tests__/unit/stacked-types-chart.test.tsx`, `src/lib/__tests__/unit/lines-changed-chart.test.tsx`, `src/lib/__tests__/unit/commit-type-donut.test.tsx`
 
 **Interfaces:**
 - Consumes:
-  - From chart-format: `groupByWeek`, `isTopOfStack`, `toNum`, `formatWeek`, `formatCompact`, `formatValue`.
-  - From commit-types: `COMMIT_TYPE_ORDER`, `commitTypeColor`, `foldTypes`, `CommitType`.
+  - `indexByWeek`, `isTopOfStack`, `toNum`, `formatWeek`, `formatCompact` and `formatValue` from chart-format.
+  - `COMMIT_TYPE_ORDER`, `commitTypeColor`, `foldTypes`, `typeEntriesFrom` and `CommitType` from commit-types.
   - `useHatch` and `HatchSwatch` from hatch.
-  - `ChartContainer`, `ChartTooltip`, `CHART_TOOLTIP_CLASS` from chart.
+  - `ChartContainer`, `ChartTooltip` and `CHART_TOOLTIP_CLASS` from chart.
 - Produces:
   - `StackedTypesChart({ data, weeks }: { data: Array<{ week: string; types?: Record<string, unknown> }>; weeks: string[] })`
-  - `LinesChangedChart({ data, weeks, syncId }: { data: LinesWeek[]; weeks: string[]; syncId?: string })`, where `LinesWeek` has `week` plus optional `linesP95Added`, `linesP95Removed`, `inFlightLinesP95Added`, `inFlightLinesP95Removed` (all `unknown`)
+  - `StackedTypesTooltip(props: Partial<TooltipContentProps<TooltipValueType, string | number>>)`, the tooltip body; it lists the week total and the non-zero types
+  - `interface LinesWeek { week: string; linesP95Added?: unknown; linesP95Removed?: unknown; inFlightLinesP95Added?: unknown; inFlightLinesP95Removed?: unknown }`
+  - `LinesChangedChart({ data, weeks, syncId }: { data: LinesWeek[]; weeks: string[]; syncId?: string })`
+  - `LinesTooltip(props: Partial<TooltipContentProps<TooltipValueType, string | number>>)`, the tooltip body
   - `CommitTypeDonut({ entries, total }: { entries: [string, number][]; total: number | string })`
 
 **Behavior:**
-- **LinesChangedChart (Decision 12).**
-  - Shipped `linesP95*` and in-flight `inFlightLinesP95*` are **added together**, unlike the timeline's in-flight, which is a portion. This keeps today's four-layer semantics.
-  - Added values go above zero and removed values are negated below zero, in one `stackOffset="sign"` stack.
+- **LinesChangedChart (Decision 12):**
+  - Shipped `linesP95*` and in-flight `inFlightLinesP95*` values are **additive** layers.
+  - Added lines sit above zero. Removed lines are negated and sit below, in one `stackOffset="sign"` stack.
   - Both in-flight layers use one hatch in `--chart-type-in-flight`.
-  - A `ReferenceLine y={0}` draws the baseline in `var(--chart-axis)`.
-  - It joins `syncId="org-timeline"`, because it sits in the org grid.
-- **StackedTypesChart.**
-  - Unknown types fold into `other`; today they are dropped from the stack.
-  - The legend lists only the types present, in `COMMIT_TYPE_ORDER`, with a hatched swatch for `in_flight`.
-  - The tooltip lists the non-zero types and the total.
-- **CommitTypeDonut (Decision 13).**
+  - The zero baseline is `ReferenceLine y={0}` in `var(--chart-axis)`, and the chart joins `syncId="org-timeline"`.
+- **StackedTypesChart:**
+  - Unknown types fold into `other`.
+  - The legend lists only the types present, in `COMMIT_TYPE_ORDER`, with a hatched `in_flight` swatch.
+- **CommitTypeDonut (Decision 13):**
   - The legend always shows count and %.
-  - The center shows the total at rest. Hovering a slice or legend row shows that type's count, a swatch with its name, and its %, and dims the other slices to 0.3.
-  - The center text uses `text-chart-tooltip-text` and `text-chart-axis` only, never an inline color.
+  - The center shows the total at rest. Hovering a legend row shows that type's count, swatch, name and %, and dims the other slices.
+  - Center text uses chrome tokens only.
   - The `in_flight` wedge and swatch are hatched.
-  - A total of 0 renders "No categorized commits".
-  - The chart sits in a `max-w-[320px]` wrapper with `aspect-square`. The spec says `<ResponsiveContainer aspect={1}>`. `ChartContainer` owns the `ResponsiveContainer` and fills a square div, which gives the same 1:1 result.
-  - Hover uses Pie's `onMouseEnter` plus state. Recharts 3 removed `activeIndex`. Rows carry `fill` and `opacity`, because Pie reads `fill` from each data entry (`es6/polar/Pie.js`, around line 379) and spreads the entry into the sector props. `Cell` is not used; it is deprecated in 3.10.
+  - A total of 0 shows "No categorized commits".
+  - It uses `ChartContainer className="aspect-square"` inside a `max-w-[320px]` wrapper. This gives the same 1:1 shape as the spec's `ResponsiveContainer aspect={1}`, because `ChartContainer` owns the container.
+  - Rows carry `fill` and `opacity`. Pie reads `fill` from each data entry and spreads the entry into the sector's props.
+  - `Cell` isn't used, because it is deprecated in 3.10.
+- **Folding (spec CommitTypeDonut).** The page builds `entries` and `total` with `typeEntriesFrom`, never a raw `Object.entries(week.types)`, so an unknown type joins the single `other` row.
+
+**Every `.types` read, per the review loop's grep.** Command: `grep -nE "\.types\b|type_breakdown" src/app/report/[id]/org/page.tsx src/app/report/[id]/dev/[login]/page.tsx src/app/report/[id]/team/dev-table.tsx`
+
+| Site | What it reads | Action |
+|---|---|---|
+| `org/page.tsx:93` | The donut totals | Folded in this task |
+| `org/page.tsx:258` | `d.types?.in_flight` | Reads a known key, not a type list; no fold needed |
+| `org/page.tsx:421-428` | The old `StackedTypesChart` | Deleted in this task; the new chart folds |
+| `dev/[login]/page.tsx:165` | `type_breakdown` | Folded in Task 7 |
+| `team/dev-table.tsx` `TypeBreakdown` | `breakdown` | Folded in Task 7 |
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2204,6 +2404,11 @@ it('shows an explicit empty state when no week has commits', () => {
   expect(screen.getByText('No commits in the last 90 days')).toBeTruthy();
 });
 
+it('shows the empty state for an old report whose weeks are all outside the domain', () => {
+  render(<StackedTypesChart data={[{ week: '2025-01-06', types: { feature: 4 } }]} weeks={weeks} />);
+  expect(screen.getByText('No commits in the last 90 days')).toBeTruthy();
+});
+
 it('the tooltip lists the week total and only the non-zero types', () => {
   const row = { week: '2026-09-14', total: 4, feature: 3, bug: 0, refactor: 0, infra: 0, docs: 0, test: 0, other: 0, in_flight: 1 };
   const { container } = render(<StackedTypesTooltip active payload={[{ payload: row }] as never} />);
@@ -2220,7 +2425,7 @@ Create `src/lib/__tests__/unit/lines-changed-chart.test.tsx`:
 /** @jest-environment jsdom */
 import React from 'react';
 import { render, screen } from '@testing-library/react';
-import { LinesChangedChart } from '@/components/charts/lines-changed-chart';
+import { LinesChangedChart, LinesTooltip } from '@/components/charts/lines-changed-chart';
 import { fixChartSize } from '../setup/chart-size';
 
 fixChartSize();
@@ -2276,6 +2481,21 @@ it('shows an explicit empty state when every week is zero', () => {
   render(<LinesChangedChart data={[{ week: '2026-09-14', linesP95Added: 0, linesP95Removed: '0' }]} weeks={weeks} />);
   expect(screen.getByText('No line changes in the last 90 days')).toBeTruthy();
 });
+
+it('shows the empty state for an old report whose weeks are all outside the domain', () => {
+  render(<LinesChangedChart data={[{ week: '2025-01-06', linesP95Added: 90, linesP95Removed: 10 }]} weeks={weeks} />);
+  expect(screen.getByText('No line changes in the last 90 days')).toBeTruthy();
+});
+
+it('the tooltip shows added, removed, in-flight and total for the week', () => {
+  const row = { week: '2026-09-14', added: 50, inFlightAdded: 30, removed: -20, inFlightRemoved: -10 };
+  const { container } = render(<LinesTooltip active payload={[{ payload: row }] as never} />);
+  expect(container.textContent).toContain('+50 added');
+  expect(container.textContent).toContain('+30 added in flight');
+  expect(container.textContent).toContain('−20 removed');
+  expect(container.textContent).toContain('−10 removed in flight');
+  expect(container.textContent).toContain('50 total');
+});
 ```
 
 Create `src/lib/__tests__/unit/commit-type-donut.test.tsx`:
@@ -2285,6 +2505,7 @@ Create `src/lib/__tests__/unit/commit-type-donut.test.tsx`:
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { CommitTypeDonut } from '@/components/charts/commit-type-donut';
+import { typeEntriesFrom } from '@/components/charts/commit-types';
 import { fixChartSize } from '../setup/chart-size';
 
 fixChartSize(320, 320);
@@ -2318,12 +2539,6 @@ it('hovering a legend row moves that type into the centre, in chrome text, and d
   expect(center().textContent).toBe('10commits');
 });
 
-it('hovering a slice also moves its figures into the centre', () => {
-  const { container } = render(<CommitTypeDonut entries={entries} total={10} />);
-  fireEvent.mouseEnter(container.querySelectorAll('.recharts-pie-sector')[0]);
-  expect(center().textContent).toBe('6feature60%');
-});
-
 it('fills the in_flight wedge and its legend swatch with a hatch pattern', () => {
   const { container } = render(<CommitTypeDonut entries={entries} total={10} />);
   const sectors = Array.from(container.querySelectorAll('.recharts-pie-sector path'));
@@ -2332,6 +2547,16 @@ it('fills the in_flight wedge and its legend swatch with a hatch pattern', () =>
   expect(hatchFill).toMatch(/^url\(#hatch-/);
   expect(container.querySelector(`pattern#${hatchFill.slice(5, -1)}`)).not.toBeNull();
   expect(screen.getByTestId('donut-legend-in_flight').querySelector('pattern')).not.toBeNull();
+});
+
+it('an unknown type folds into a single "other" row with a single wedge', () => {
+  const folded = typeEntriesFrom([{ feature: 2, chore: 1, other: 1 }]);
+  const { container } = render(<CommitTypeDonut entries={folded} total={4} />);
+  expect(screen.queryByTestId('donut-legend-chore')).toBeNull();
+  expect(screen.getByTestId('donut-legend-other').textContent).toContain('2 (50%)');
+  const otherWedges = Array.from(container.querySelectorAll('.recharts-pie-sector path'))
+    .filter(p => p.getAttribute('fill') === 'var(--chart-type-other)');
+  expect(otherWedges).toHaveLength(1);
 });
 
 it('a total of 0 (or "0") renders the empty state instead of a chart', () => {
@@ -2359,7 +2584,7 @@ Create `src/components/charts/stacked-types-chart.tsx`:
 import { Bar, BarChart, CartesianGrid, Rectangle, XAxis, YAxis, type BarShapeProps, type RectangleProps } from 'recharts';
 import type { TooltipContentProps, TooltipValueType } from 'recharts';
 import { ChartContainer, ChartTooltip, CHART_TOOLTIP_CLASS } from './chart';
-import { formatCompact, formatWeek, groupByWeek, isTopOfStack } from './chart-format';
+import { formatCompact, formatWeek, indexByWeek, isTopOfStack } from './chart-format';
 import { COMMIT_TYPE_ORDER, commitTypeColor, foldTypes, type CommitType } from './commit-types';
 import { HatchSwatch, useHatch } from './hatch';
 
@@ -2388,9 +2613,9 @@ export function StackedTypesTooltip({ active, payload }: Partial<TooltipContentP
 
 export function StackedTypesChart({ data, weeks }: { data: TypesWeek[]; weeks: string[] }) {
   const hatch = useHatch(commitTypeColor('in_flight'));
-  const groups = groupByWeek(weeks, data);
+  const byWeek = indexByWeek(data);
   const rows: StackRow[] = weeks.map(week => {
-    const folded = foldTypes((groups.get(week) ?? []).map(r => r.types ?? {}));
+    const folded = foldTypes([byWeek.get(week)?.types ?? {}]);
     const total = COMMIT_TYPE_ORDER.reduce((s, t) => s + folded[t], 0);
     return { week, total, ...folded };
   });
@@ -2440,7 +2665,7 @@ export function StackedTypesChart({ data, weeks }: { data: TypesWeek[]; weeks: s
 }
 ```
 
-The legend swatch is an `<i>`, not a `<span>`. That keeps the legend test's `span.text-chart-axis` query to the labeled entries.
+The legend swatch is an `<i>`, so the legend test's `span.text-chart-axis` query reaches only the labeled entries.
 
 - [ ] **Step 4: Implement `LinesChangedChart`**
 
@@ -2455,7 +2680,7 @@ Create `src/components/charts/lines-changed-chart.tsx`:
 import { Bar, BarChart, CartesianGrid, Rectangle, ReferenceLine, XAxis, YAxis, type BarShapeProps, type RectangleProps } from 'recharts';
 import type { TooltipContentProps, TooltipValueType } from 'recharts';
 import { ChartContainer, ChartTooltip, CHART_TOOLTIP_CLASS } from './chart';
-import { formatCompact, formatValue, formatWeek, groupByWeek, toNum } from './chart-format';
+import { formatCompact, formatValue, formatWeek, indexByWeek, toNum } from './chart-format';
 import { commitTypeColor } from './commit-types';
 import { HatchSwatch, useHatch } from './hatch';
 
@@ -2508,16 +2733,15 @@ function removedShape(props: BarShapeProps) {
 
 export function LinesChangedChart({ data, weeks, syncId }: { data: LinesWeek[]; weeks: string[]; syncId?: string }) {
   const hatch = useHatch(commitTypeColor('in_flight'));
-  const groups = groupByWeek(weeks, data);
+  const byWeek = indexByWeek(data);
   const rows: LinesRow[] = weeks.map(week => {
-    const g = groups.get(week) ?? [];
-    const sum = (k: keyof LinesWeek) => g.reduce((s, r) => s + toNum(r[k]), 0);
+    const r = byWeek.get(week);
     return {
       week,
-      added: sum('linesP95Added'),
-      inFlightAdded: sum('inFlightLinesP95Added'),
-      removed: -sum('linesP95Removed'),
-      inFlightRemoved: -sum('inFlightLinesP95Removed'),
+      added: toNum(r?.linesP95Added),
+      inFlightAdded: toNum(r?.inFlightLinesP95Added),
+      removed: -toNum(r?.linesP95Removed),
+      inFlightRemoved: -toNum(r?.inFlightLinesP95Removed),
     };
   });
   const hasAny = rows.some(r => r.added || r.inFlightAdded || r.removed || r.inFlightRemoved);
@@ -2573,7 +2797,8 @@ Create `src/components/charts/commit-type-donut.tsx`:
 
 // GLOOK-58 Decision 13: the legend always shows count and %, the centre shows the total at rest
 // and the hovered type's figures on hover. Centre text is chrome text; type identity comes from a
-// swatch beside it, never from coloured text.
+// swatch beside it, never from coloured text. Callers pass entries built with typeEntriesFrom(),
+// so unknown types are already folded into `other`.
 import { useState, type ReactElement } from 'react';
 import { Pie, PieChart } from 'recharts';
 import { ChartContainer } from './chart';
@@ -2665,27 +2890,53 @@ Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin
 
 Expected: PASS.
 
-**Verification. Each item below is behavior read from source but not yet observed in jsdom.**
+These points are read from the Recharts source but haven't yet been observed in jsdom. Check each if its test fails:
+- **Rectangle `y`/`height` attributes.** The "draws removed lines below the zero baseline" test reads the `y` and `height` attributes of `path.recharts-rectangle`. Recharts writes them only while the rectangle isn't animating. If they're missing, confirm `isAnimationActive={false}` on every `Bar`.
+- **Removed bars above zero.** If removed bars render above zero, the negative-stack fix (upstream issue 6802, fixed by PR 6806 on 2025-12-19) has regressed. Stop and report it. Two `stackId`s are **not** an acceptable fallback (spec Risks).
+- **Donut dimming.** This relies on Pie spreading each entry's fields into the sector path. If `opacity` is missing from the paths while the center and legend still behave, move the dimming to a `className: 'opacity-30'` on the dimmed entries. Recharts appends `entry.className` to the sector, so assert on the class instead.
 
-- **"draws removed lines below the zero baseline".** It relies on `path.recharts-rectangle` carrying `y` and `height` attributes. Recharts writes them only when the rectangle is not animating. If they are missing, confirm `isAnimationActive={false}` on every `Bar`.
-  - If the test shows removed bars **above** zero, the negative stack regressed (upstream issue 6802, fixed by PR 6806 on 2025-12-19, before 3.10.1). Stop and report it. Two `stackId`s are **not** an acceptable fallback (spec Risks).
-- **The donut dimming assertion (`opacity` `0.3`/`1`/`0.3`).** It relies on Pie spreading data-entry fields into the sector path. If `opacity` is absent from the paths but the center and legend behave, move the dimming to a `className` on each entry (`className: hover … ? 'opacity-30' : ''`). Recharts appends `entry.className` to the sector. Assert the class instead.
-- **"hovering a slice".** It relies on Pie's `onMouseEnter` firing from a React `mouseenter` on `.recharts-pie-sector`. If Recharts routes this event only through its internal store in jsdom, delete that one test and record in the commit body that slice hover is covered by the screenshot pass. The legend-hover test stays.
+- [ ] **Step 7: Try the slice-hover test (keep it only if it passes)**
 
-- [ ] **Step 7: Wire the org page and delete the old charts and color maps**
+Append this test to `commit-type-donut.test.tsx` and run the file again:
+
+```tsx
+it('hovering a slice also moves its figures into the centre', () => {
+  const { container } = render(<CommitTypeDonut entries={entries} total={10} />);
+  fireEvent.mouseEnter(container.querySelectorAll('.recharts-pie-sector')[0]);
+  expect(center().textContent).toBe('6feature60%');
+});
+```
+
+- **If it passes:** keep it.
+- **If it fails:** remove it before committing. Recharts 3 wires the sector's `onMouseEnter` through its own interaction store, and a synthetic `mouseenter` on the `<g>` may not reach `Pie`'s `onMouseEnter` in jsdom. The **fallback** is Task 11's screenshot checklist, item 6, which checks slice hover in a real browser. Say in the commit body which way it went.
+
+The required center-label test is the legend-row hover test in Step 1. It needs nothing from Recharts' event wiring.
+
+- [ ] **Step 8: Wire the org page and delete the old charts and color maps**
 
 In `src/app/report/[id]/org/page.tsx`:
 
-1. Delete lines 11-31 (`const TYPE_COLORS …` and `const TYPE_HEX …`).
-2. Add these imports next to the ones Task 4 added:
+1. **Delete** `const TYPE_COLORS …` and `const TYPE_HEX …` (lines 11-31).
+2. **Add** these imports next to the ones from Task 4:
 
 ```tsx
 import { StackedTypesChart } from '@/components/charts/stacked-types-chart';
 import { LinesChangedChart } from '@/components/charts/lines-changed-chart';
 import { CommitTypeDonut } from '@/components/charts/commit-type-donut';
+import { typeEntriesFrom } from '@/components/charts/commit-types';
 ```
 
-3. Replace the donut card (the block starting `{/* Type Breakdown — Pie Chart */}`):
+3. **Replace the type-breakdown computation** (the comment starting `// Type breakdown — sum across all timeline weeks`, then `const orgTypes …`, the `for` loop, `const typeEntries …` and `const totalTyped …`) with:
+
+```tsx
+  // Type breakdown — folded across all timeline weeks, so an unrecognized type joins `other`
+  // instead of becoming a second, identically coloured wedge. timeline already carries the
+  // per-commit in_flight override (applied server-side in getOrgReport).
+  const typeEntries = typeEntriesFrom(timeline.map(w => w.types ?? {}));
+  const totalTyped = typeEntries.reduce((s, [, c]) => s + c, 0);
+```
+
+4. **Replace the donut card** (the block starting `{/* Type Breakdown — Pie Chart */}`) with:
 
 ```tsx
         {/* Type Breakdown — Donut */}
@@ -2695,28 +2946,27 @@ import { CommitTypeDonut } from '@/components/charts/commit-type-donut';
         </div>
 ```
 
-4. In the timeline grid, replace `<LinesChangedChart data={timeline} />` with:
+5. **In the timeline grid,** replace `<LinesChangedChart data={timeline} />` with:
 
 ```tsx
             <LinesChangedChart data={timeline} weeks={weeks} syncId="org-timeline" />
 ```
 
-5. Replace `{timeline.length >= 2 && <StackedTypesChart data={timeline} />}` with:
+6. **Replace** `{timeline.length >= 2 && <StackedTypesChart data={timeline} />}` with:
 
 ```tsx
       {timeline.length >= 2 && <StackedTypesChart data={timeline} weeks={weeks} />}
 ```
 
-6. Delete the local functions `StackedTypesChart`, `LinesChangedChart` and `PieChart`. That is everything from `function StackedTypesChart({ data }: { data: WeeklyData[] }) {` to the end of the file (after Task 4, `PieChart` is the last function).
-7. Keep `useState` (used by `JiraIssuesPopover`). Keep the `WeeklyData` interface (typed data for the charts).
+7. **Delete** the local functions `StackedTypesChart`, `LinesChangedChart` and `PieChart`, from `function StackedTypesChart({ data }: { data: WeeklyData[] }) {` to the end of the file. Keep `useState` and the `WeeklyData` interface.
 
-- [ ] **Step 8: Run the full suite**
+- [ ] **Step 9: Run the full suite**
 
 Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest --maxWorkers=3'`
 
 Expected: all suites pass.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
 git add src/components/charts/stacked-types-chart.tsx src/components/charts/lines-changed-chart.tsx src/components/charts/commit-type-donut.tsx src/lib/__tests__/unit/stacked-types-chart.test.tsx src/lib/__tests__/unit/lines-changed-chart.test.tsx src/lib/__tests__/unit/commit-type-donut.test.tsx "src/app/report/[id]/org/page.tsx"
@@ -2729,109 +2979,276 @@ EOF
 
 ---
 
-### Task 6: Dev page and team dev-table read `commit-types.ts`
+### Task 6: `SpendImpactScatter` on the spend tab
 
 **Files:**
-- Modify: `src/app/report/[id]/dev/[login]/page.tsx`
-  - Delete `TYPE_COLORS`/`TYPE_TEXT_COLORS` at lines 10-18. `TYPE_TEXT_COLORS` is unused today.
-  - Update the three `TYPE_COLORS[...]` uses: the type bar (~line 272), the legend swatch (~line 282) and the commit-row badge (~line 499).
-- Modify: `src/app/report/[id]/team/dev-table.tsx`
-  - Delete `TYPE_COLORS` at lines 27-35.
-  - Update the badge at ~line 322.
-- Modify: `src/app/globals.css`
-  - The light-mode "Preserve white text on colored backgrounds" rule (~lines 158-175).
-  - The print "Keep badges colored" rule (~lines 403-409).
-- Modify: `src/lib/__tests__/unit/commit-types.test.ts` (un-skip the page-map test)
+- Create: `src/components/charts/spend-impact-scatter.tsx`
+- Modify: `src/app/report/[id]/org/spend-tab.tsx`
+  - the imports (lines 3-5)
+  - delete `maxImpact`/`maxCost` (lines 204-205)
+  - replace the scatter block (lines 518-561)
+- Test: `src/lib/__tests__/unit/spend-impact-scatter.test.tsx`
 
 **Interfaces:**
-- Consumes: `commitTypeBg(t: string): string` from `@/components/charts/commit-types`.
-- Produces: nothing new.
+- Consumes:
+  - `toNum` and `formatCompact` from chart-format.
+  - `ChartContainer`, `ChartTooltip` and `CHART_TOOLTIP_CLASS` from chart.
+  - `--chart-scatter-typical`, `--chart-scatter-outlier` and `--chart-axis` from Task 1.
+- Produces, from `@/components/charts/spend-impact-scatter`:
+  - `interface ScatterPoint { login: string; impact: number; cost: number; outlier: boolean }`. `cost` is in cents, as `cc_total_cost` is.
+  - `SpendImpactScatter({ points, medianImpact, medianCost, onSelect }: { points: ScatterPoint[]; medianImpact: number; medianCost: number; onSelect: (login: string) => void })`
+  - `SpendImpactTooltip(props)`, the tooltip body
 
-**Why the CSS edits are needed.** Two existing rules would otherwise break the badges.
-- **Light mode:** `[data-theme-mode="light"] .text-white` turns white text dark (`#111827 !important`) unless the element carries one of the whitelisted background classes (`.bg-blue-500.text-white` and so on). The badges move from `bg-blue-500` to `bg-chart-type-feature`, so without this edit their labels would turn dark on dark-ish fills.
-- **Print:** the print block forces `print-color-adjust: exact` only for the old class names.
+**Behavior (spec Charts → SpendImpactScatter):**
+- **Axes:** a `ScatterChart` with numeric axes, impact on x and dollars on y.
+- **Median lines:** `ReferenceLine x={medianImpact}` and `ReferenceLine y={medianCost}`. They share the dots' axes, so the quadrant boundaries sit in the dots' scale. Today they don't (`:527-528` vs `:537-538`).
+- **Series:** two `Scatter` series, `typical` (circle) and `outlier` (triangle), in the scatter tokens. An HTML legend shows the shape swatches.
+- **Kept from today:** the four quadrant labels, the tooltip (login, spend, impact) and click-to-navigate.
+- **Empty state:** "No developer has spend in this period".
+- **Unchanged in `spend-tab.tsx`:** the `isOutlier` rule (`:191-195`, cost per impact point > 2× `medianCPI`) and the median computations. The component gets the flag per point.
 
-- [ ] **Step 1: Un-skip the page-map guard and confirm it fails**
+**Routing.** `SpendTab` receives `router` as a prop (`spend-tab.tsx:134-137`) rather than calling `useRouter()`. The existing `spend-model-mix.test.tsx` passes `router: { push: jest.fn() }`. So the click test renders `SpendTab` with a `push` mock, following the same convention. No `next/navigation` mock is needed.
 
-In `src/lib/__tests__/unit/commit-types.test.ts`, change `it.skip('no report page keeps its own commit-type colour map'` back to `it('no report page keeps its own commit-type colour map'`.
+- [ ] **Step 1: Write the failing test**
 
-Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest src/lib/__tests__/unit/commit-types.test.ts'`
-
-Expected: FAIL. `offenders` lists the dev page and `team/dev-table.tsx`; the org page's maps are already gone after Task 5.
-
-- [ ] **Step 2: Update the dev page**
-
-In `src/app/report/[id]/dev/[login]/page.tsx`:
-- Delete lines 10-18 (`const TYPE_COLORS …` and `const TYPE_TEXT_COLORS …`).
-- Add the import `import { commitTypeBg } from '@/components/charts/commit-types';` next to the Task 4 imports.
-- Make these three replacements:
-
-```tsx
-                  className={`${commitTypeBg(type)} h-full`}
-```
-
-(was ``className={`${TYPE_COLORS[type] || 'bg-gray-600'} h-full`}``)
+Create `src/lib/__tests__/unit/spend-impact-scatter.test.tsx`:
 
 ```tsx
-                <span className={`w-2.5 h-2.5 rounded-sm ${commitTypeBg(type)}`} />
+/** @jest-environment jsdom */
+import React from 'react';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { SpendImpactScatter, type ScatterPoint } from '@/components/charts/spend-impact-scatter';
+import { SpendTab } from '@/app/report/[id]/org/spend-tab';
+import { fixChartSize } from '../setup/chart-size';
+
+fixChartSize(640, 320);
+
+const points: ScatterPoint[] = [
+  { login: 'dev-a', impact: 2, cost: 100, outlier: false },
+  { login: 'dev-b', impact: 5, cost: 500, outlier: false },
+  { login: 'dev-c', impact: 8, cost: 900, outlier: false },
+  { login: 'dev-d', impact: 1, cost: 800, outlier: true },
+];
+
+const symbolsOf = (c: HTMLElement, series: 'typical' | 'outlier') =>
+  Array.from(c.querySelectorAll(`.recharts-scatter.scatter-${series} path.recharts-symbols`));
+const centre = (p: Element) => {
+  const m = /translate\(([-\d.]+),\s*([-\d.]+)\)/.exec(p.getAttribute('transform') ?? '');
+  return { cx: Number(m![1]), cy: Number(m![2]) };
+};
+
+it('a developer at exactly the median impact and cost sits on both reference lines', () => {
+  const { container } = render(<SpendImpactScatter points={points} medianImpact={5} medianCost={500} onSelect={() => {}} />);
+  const lines = Array.from(container.querySelectorAll('.recharts-reference-line line'));
+  const vertical = lines.find(l => l.getAttribute('x1') === l.getAttribute('x2'))!;
+  const horizontal = lines.find(l => l.getAttribute('y1') === l.getAttribute('y2'))!;
+  const atMedian = centre(symbolsOf(container, 'typical')[1]); // dev-b
+  expect(atMedian.cx).toBeCloseTo(Number(vertical.getAttribute('x1')), 1);
+  expect(atMedian.cy).toBeCloseTo(Number(horizontal.getAttribute('y1')), 1);
+});
+
+it('outliers use the triangle marker and the outlier colour; typical developers use circles', () => {
+  const { container } = render(<SpendImpactScatter points={points} medianImpact={5} medianCost={500} onSelect={() => {}} />);
+  const outliers = symbolsOf(container, 'outlier');
+  const typical = symbolsOf(container, 'typical');
+  expect(outliers).toHaveLength(1);
+  expect(typical).toHaveLength(3);
+  // d3's circle symbol is drawn with arcs; its triangle is straight segments only.
+  expect(outliers[0].getAttribute('d')).not.toMatch(/A/);
+  typical.forEach(p => expect(p.getAttribute('d')).toMatch(/A/));
+  expect(outliers[0].getAttribute('fill')).toBe('var(--chart-scatter-outlier)');
+  typical.forEach(p => expect(p.getAttribute('fill')).toBe('var(--chart-scatter-typical)'));
+  expect(screen.getByText('Typical')).toBeTruthy();
+  expect(screen.getByText(/Outlier/)).toBeTruthy();
+});
+
+it('string cost and impact values still place a dot', () => {
+  const stringy = [{ login: 'dev-s', impact: '4.5' as unknown as number, cost: '300' as unknown as number, outlier: false }];
+  const { container } = render(<SpendImpactScatter points={stringy} medianImpact={4.5} medianCost={300} onSelect={() => {}} />);
+  const { cx, cy } = centre(symbolsOf(container, 'typical')[0]);
+  expect(Number.isFinite(cx) && Number.isFinite(cy)).toBe(true);
+});
+
+it('shows an explicit empty state when no developer has spend', () => {
+  render(<SpendImpactScatter points={[]} medianImpact={0} medianCost={0} onSelect={() => {}} />);
+  expect(screen.getByText('No developer has spend in this period')).toBeTruthy();
+});
+
+it('clicking a dot on the spend tab navigates to that developer', () => {
+  const push = jest.fn();
+  const developers = [
+    { github_login: 'alice', cc_total_cost: 600, cc_requests: 10, impact_score: 5 },
+    { github_login: 'bob', cc_total_cost: 400, cc_requests: 40, impact_score: 4 },
+  ] as never[];
+  const { container } = render(
+    <SpendTab developers={developers} reportId="r1" router={{ push } as never} report={{ id: 'r1', org: 'acme', period_days: 14 } as never}
+      spendWindow={null} modelUsage={[]} skillsUsage={[]} />,
+  );
+  const first = container.querySelector('.recharts-scatter.scatter-typical .recharts-scatter-symbol')!; // withSpend is sorted by cost: alice first
+  fireEvent.click(first);
+  expect(push).toHaveBeenCalledWith('/report/r1/dev/alice');
+});
 ```
 
-(was ``<span className={`w-2.5 h-2.5 rounded-sm ${TYPE_COLORS[type] || 'bg-gray-600'}`} />``)
+- [ ] **Step 2: Run the test and confirm it fails**
+
+Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest src/lib/__tests__/unit/spend-impact-scatter.test.tsx'`
+
+Expected: FAIL with `Cannot find module '@/components/charts/spend-impact-scatter'`.
+
+- [ ] **Step 3: Implement `SpendImpactScatter`**
+
+Create `src/components/charts/spend-impact-scatter.tsx`:
 
 ```tsx
-                        <span className={`inline-block px-1.5 py-0.5 rounded text-xs text-white ${commitTypeBg(c.type)}`}>
+'use client';
+
+// GLOOK-58: Spend vs Impact as a Recharts ScatterChart. The median reference lines share the dots'
+// axes, so the quadrant boundaries are drawn in the same scale as the dots (the old <div> plot
+// scaled dots by x*92+4 but the lines by x*100, which put the quadrants in the wrong place).
+// Outliers differ by shape (triangle) as well as colour, so they never depend on colour alone.
+import { CartesianGrid, ReferenceLine, Scatter, ScatterChart, XAxis, YAxis } from 'recharts';
+import type { TooltipContentProps, TooltipValueType } from 'recharts';
+import { ChartContainer, ChartTooltip, CHART_TOOLTIP_CLASS } from './chart';
+import { formatCompact, toNum } from './chart-format';
+
+export interface ScatterPoint {
+  login: string;
+  impact: number;
+  /** Cents, as cc_total_cost. */
+  cost: number;
+  outlier: boolean;
+}
+
+const TYPICAL = 'var(--chart-scatter-typical)';
+const OUTLIER = 'var(--chart-scatter-outlier)';
+const dollars = (cents: number) => `$${(toNum(cents) / 100).toFixed(2)}`;
+const axisDollars = (cents: number) => `$${formatCompact(toNum(cents) / 100)}`;
+
+export function SpendImpactTooltip({ active, payload }: Partial<TooltipContentProps<TooltipValueType, string | number>>) {
+  const p = payload?.[0]?.payload as ScatterPoint | undefined;
+  if (!active || !p) return null;
+  return (
+    <div className={CHART_TOOLTIP_CLASS}>
+      <div className="font-medium">@{p.login}</div>
+      <div className="font-mono tabular-nums">{dollars(p.cost)} · {p.impact.toFixed(1)} impact</div>
+      {p.outlier && <div>Cost per impact point over 2× the median</div>}
+    </div>
+  );
+}
+
+export function SpendImpactScatter({ points, medianImpact, medianCost, onSelect }: {
+  points: ScatterPoint[];
+  medianImpact: number;
+  medianCost: number;
+  onSelect: (login: string) => void;
+}) {
+  if (points.length === 0) {
+    return <p className="text-xs text-chart-axis py-8 text-center">No developer has spend in this period</p>;
+  }
+  const clean = points.map(p => ({ ...p, impact: toNum(p.impact), cost: toNum(p.cost) }));
+  const typical = clean.filter(p => !p.outlier);
+  const outliers = clean.filter(p => p.outlier);
+  const select = (item: unknown) => {
+    const login = (item as { payload?: ScatterPoint } | undefined)?.payload?.login;
+    if (login) onSelect(login);
+  };
+
+  return (
+    <div>
+      <div className="relative">
+        <ChartContainer config={{}} className="aspect-auto h-[320px] w-full">
+          <ScatterChart margin={{ top: 20, right: 16, bottom: 4, left: 4 }}>
+            <CartesianGrid vertical={false} />
+            <XAxis type="number" dataKey="impact" name="Impact" domain={[0, 'auto']} tickLine={false} axisLine={false} />
+            <YAxis type="number" dataKey="cost" name="Spend" domain={[0, 'auto']} tickLine={false} axisLine={false} width={56} tickFormatter={axisDollars} />
+            <ReferenceLine x={toNum(medianImpact)} stroke="var(--chart-axis)" strokeDasharray="4 4" />
+            <ReferenceLine y={toNum(medianCost)} stroke="var(--chart-axis)" strokeDasharray="4 4" />
+            <ChartTooltip cursor={false} content={<SpendImpactTooltip />} />
+            <Scatter name="typical" className="scatter-typical cursor-pointer" data={typical} fill={TYPICAL} shape="circle"
+              isAnimationActive={false} onClick={select} />
+            <Scatter name="outlier" className="scatter-outlier cursor-pointer" data={outliers} fill={OUTLIER} shape="triangle"
+              isAnimationActive={false} onClick={select} />
+          </ScatterChart>
+        </ChartContainer>
+        <div className="pointer-events-none absolute top-1 left-16 text-[10px] text-chart-axis">High Spend / Low Impact</div>
+        <div className="pointer-events-none absolute top-1 right-4 text-[10px] text-chart-axis">High Spend / High Impact</div>
+        <div className="pointer-events-none absolute bottom-8 left-16 text-[10px] text-chart-axis">Low Spend / Low Impact</div>
+        <div className="pointer-events-none absolute bottom-8 right-4 text-[10px] text-chart-axis">Low Spend / High Impact</div>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-3 mt-2 text-[11px] text-chart-axis">
+        <span>Impact score → · Spend ↑ · dashed lines are the medians</span>
+        <span className="flex items-center gap-4">
+          <span className="flex items-center gap-1.5">
+            <svg width={10} height={10} viewBox="0 0 10 10" aria-hidden="true"><circle cx={5} cy={5} r={4} style={{ fill: TYPICAL }} /></svg>
+            <span>Typical</span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <svg width={10} height={10} viewBox="0 0 10 10" aria-hidden="true"><path d="M5 1 L9 9 L1 9 Z" style={{ fill: OUTLIER }} /></svg>
+            <span>Outlier (cost per impact point over 2× the median)</span>
+          </span>
+        </span>
+      </div>
+    </div>
+  );
+}
 ```
 
-(was the same line with `${TYPE_COLORS[c.type] || 'bg-gray-600'}`)
+- [ ] **Step 4: Wire the spend tab**
 
-- [ ] **Step 3: Update the team dev-table**
+In `src/app/report/[id]/org/spend-tab.tsx`:
 
-In `src/app/report/[id]/team/dev-table.tsx`:
-- Delete lines 27-35 (`const TYPE_COLORS …`).
-- Add `import { commitTypeBg } from '@/components/charts/commit-types';` after line 6 (the `url-state` import).
-- Replace the badge class line in `TypeBreakdown`:
+1. Add these imports after the `RunMetadata` type import:
 
 ```tsx
-          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs text-white ${commitTypeBg(type)}`}
+import { SpendImpactScatter } from '@/components/charts/spend-impact-scatter';
+import { toNum } from '@/components/charts/chart-format';
 ```
 
-- [ ] **Step 4: Keep badge text white in light mode and badges colored in print**
+2. Delete the two lines `const maxImpact = …` and `const maxCost = …`. After step 3, nothing uses them; confirm with `grep -n "maxImpact\|maxCost"` on the file, which should show no hits.
+3. Replace the scatter block, from `{/* Spend vs Impact Scatter Plot */}` through the closing `</div>` of that card (the one before the tab's final `</div>`), with:
 
-In `src/app/globals.css`, in the rule headed `/* Preserve white text on colored backgrounds (buttons, badges, etc.) */`, add these selectors before the final `[data-theme-mode="light"] .bg-gray-600.text-white {` line. Each gets a trailing comma, as the existing lines do:
-
-```css
-[data-theme-mode="light"] .bg-chart-type-feature.text-white,
-[data-theme-mode="light"] .bg-chart-type-bug.text-white,
-[data-theme-mode="light"] .bg-chart-type-refactor.text-white,
-[data-theme-mode="light"] .bg-chart-type-infra.text-white,
-[data-theme-mode="light"] .bg-chart-type-docs.text-white,
-[data-theme-mode="light"] .bg-chart-type-test.text-white,
-[data-theme-mode="light"] .bg-chart-type-other.text-white,
-[data-theme-mode="light"] .bg-chart-type-in-flight.text-white,
+```tsx
+      {/* Spend vs Impact Scatter Plot */}
+      <div className="bg-gray-900 rounded-xl p-5">
+        <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-4">Spend vs Impact</p>
+        <SpendImpactScatter
+          points={withSpend.map(dev => ({
+            login: dev.github_login,
+            impact: toNum(dev.impact_score),
+            cost: toNum(dev.cc_total_cost),
+            outlier: isOutlier(dev),
+          }))}
+          medianImpact={medianImpact}
+          medianCost={medianCost}
+          onSelect={login => router.push(`/report/${reportId}/dev/${login}`)}
+        />
+      </div>
 ```
 
-In the print block's `/* Keep badges colored */` rule, extend the selector list so it reads:
+- [ ] **Step 5: Run the scatter test and the existing spend-tab suite**
 
-```css
-  .bg-blue-500, .bg-blue-600, .bg-blue-700,
-  .bg-red-500, .bg-green-500, .bg-purple-500,
-  .bg-yellow-500, .bg-gray-500, .bg-gray-600, .bg-gray-700,
-  .bg-chart-type-feature, .bg-chart-type-bug, .bg-chart-type-refactor, .bg-chart-type-infra,
-  .bg-chart-type-docs, .bg-chart-type-test, .bg-chart-type-other, .bg-chart-type-in-flight {
-```
+Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest src/lib/__tests__/unit/spend-impact-scatter.test.tsx src/lib/__tests__/unit/spend-model-mix.test.tsx'`
 
-- [ ] **Step 5: Run the guard and the full suite**
+Expected: PASS.
+
+These points are read from the Recharts source but haven't yet been observed in jsdom. Check each if its test fails:
+- **Symbol position.** `Symbols` renders a `path.recharts-symbols` whose position is a `transform="translate(cx, cy)"` (`es6/shape/Symbols.js`). If `centre()` finds no transform, log one symbol's attributes and read `cx`/`cy` from wherever they appear.
+- **Series className.** If `.recharts-scatter.scatter-typical` matches nothing, the series `className` isn't reaching the layer. Select series by fill instead: circles have fill `var(--chart-scatter-typical)`.
+- **Click handler argument.** Recharts wires `Scatter`'s `onClick` through `useMouseClickItemDispatch`. If `push` isn't called, log the handler's first argument. It should carry `payload.login`. If the handler never fires from `fireEvent.click` on `.recharts-scatter-symbol`, try the inner `path.recharts-symbols`. If neither works, report it before committing; click-to-navigate is a kept behavior.
+
+- [ ] **Step 6: Run the full suite**
 
 Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest --maxWorkers=3'`
 
-Expected: all suites pass, including the un-skipped `no report page keeps its own commit-type colour map`.
+Expected: all suites pass.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add "src/app/report/[id]/dev/[login]/page.tsx" "src/app/report/[id]/team/dev-table.tsx" src/app/globals.css src/lib/__tests__/unit/commit-types.test.ts
+git add src/components/charts/spend-impact-scatter.tsx src/lib/__tests__/unit/spend-impact-scatter.test.tsx "src/app/report/[id]/org/spend-tab.tsx"
 git commit -F - <<'EOF'
-GLOOK-58: dev page and team table type badges read the shared commit-type map
+GLOOK-58: Spend vs Impact as a Recharts scatter with medians in the dots' scale
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 EOF
@@ -2839,35 +3256,212 @@ EOF
 
 ---
 
-### Task 7: `TrendChart` rewrite, `assignTeamColors`, and the `colorByTeam` caller
+### Task 7: Dev page and team dev-table use the shared commit-type map
+
+**Files:**
+- Modify: `src/app/report/[id]/dev/[login]/page.tsx`
+  - Delete `TYPE_COLORS`/`TYPE_TEXT_COLORS` (lines 10-18).
+  - Fold `typeEntries` (line 165).
+  - Update the Commit Types segmented bar and its legend (lines 262-288).
+  - Update the commit-row type badge (~line 499).
+- Modify: `src/app/report/[id]/team/dev-table.tsx`
+  - Delete `TYPE_COLORS` (lines 27-35).
+  - Fold and badge `TypeBreakdown` (lines 315-329).
+- Modify: `src/app/globals.css`, the print `/* Keep badges colored */` rule
+- Modify: `src/lib/__tests__/unit/commit-types.test.ts` (un-skip the page-map test)
+- Test: `src/lib/__tests__/unit/dev-type-badges.test.tsx`
+
+**Interfaces:**
+- Consumes: `commitTypeBg`, `commitTypeBadge` and `typeEntriesFrom` from `@/components/charts/commit-types`.
+- Produces: nothing new.
+
+**Behavior (amended spec Decisions 1 and 14):**
+- **Segmented bar:** the dev page's Commit Types bar keeps its HTML `<div>`s. Its **segments** use the mark classes (`commitTypeBg`).
+- **Legend and badges:** the count legend under that bar, the commit-row badges and the team table's badges all use `commitTypeBadge`. That is a separate fill/text pair with 4.5:1 text, so none of them combines a mark color with `text-white` any more.
+- **Folding:** the dev page's `typeEntries` and the team `TypeBreakdown` are folded with `typeEntriesFrom`, so unknown types join `other`.
+
+**CSS rules:**
+- **Light mode needs no new rule.** The old breakage came from `[data-theme-mode="light"] .text-white` turning white badge text dark. Badges no longer use `text-white`; their text color comes from `--chart-badge-*-text`, which the light block redefines.
+- **Print needs one change.** The print block forces `print-color-adjust: exact` only for listed classes, so the new mark and badge background classes are added to that list.
+
+- [ ] **Step 1: Un-skip the page-map guard and write the badge test**
+
+In `src/lib/__tests__/unit/commit-types.test.ts`, change `it.skip('no report page keeps its own commit-type colour map'` back to `it('no report page keeps its own commit-type colour map'`.
+
+Create `src/lib/__tests__/unit/dev-type-badges.test.tsx`. It renders the team `DevTable`, which is exported from a non-page module, and checks the badge classes a user would see:
+
+```tsx
+/** @jest-environment jsdom */
+import React from 'react';
+import { render } from '@testing-library/react';
+
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),
+  useSearchParams: () => new URLSearchParams(),
+  usePathname: () => '/report/r1/team/core',
+}));
+
+import DevTable from '@/app/report/[id]/team/dev-table';
+
+const dev = {
+  github_login: 'dev-a', github_name: 'Dev A', avatar_url: '', total_prs: 1, total_commits: 4,
+  lines_added: 10, lines_removed: 2, avg_complexity: 3, impact_score: 5, pr_percentage: 50, ai_percentage: 0,
+  type_breakdown: { feature: 2, chore: 1, other: 1 }, active_repos: [],
+};
+
+const renderTable = () => render(<DevTable developers={[dev] as never} reportId="r1" org="acme" filterLogins={new Set()} />);
+
+it('team type badges use the badge fill and badge text classes, never a mark colour with text-white', () => {
+  const { container } = renderTable();
+  const badges = Array.from(container.querySelectorAll('span.rounded.text-xs')).filter(s => /^(feature|other)/.test(s.textContent ?? ''));
+  expect(badges.map(b => b.textContent?.split(' ')[0])).toEqual(['feature', 'other']);
+  const feature = badges[0].className;
+  expect(feature).toContain('bg-chart-badge-feature-bg');
+  expect(feature).toContain('text-chart-badge-feature-text');
+  expect(feature).not.toContain('text-white');
+});
+
+it('an unknown type folds into the single other badge', () => {
+  const { container } = renderTable();
+  const other = Array.from(container.querySelectorAll('span.rounded.text-xs')).find(s => s.textContent?.startsWith('other'))!;
+  expect(other.textContent).toBe('other 2');
+  expect(container.textContent).not.toContain('chore');
+});
+```
+
+`DevTable` is the default export. Its props are `developers`, `reportId`, `org` and `filterLogins` (`dev-table.tsx:44-53`); an empty `filterLogins` shows every developer. It reads `useRouter` directly, and `usePathname` and `useSearchParams` through `useUrlState`, which is why those three hooks are mocked. If a type badge renders only inside an expanded row, expand that row first with `fireEvent.click` on the developer row. Keep the assertions unchanged.
+
+Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest src/lib/__tests__/unit/commit-types.test.ts src/lib/__tests__/unit/dev-type-badges.test.tsx'`
+
+Expected: FAIL. In `commit-types.test.ts`, `offenders` lists the dev page and `team/dev-table.tsx`. The badge test sees `bg-purple-500`-style classes and a separate `chore` badge.
+
+- [ ] **Step 2: Update the dev page**
+
+In `src/app/report/[id]/dev/[login]/page.tsx`:
+- Delete `const TYPE_COLORS …` and `const TYPE_TEXT_COLORS …`. `TYPE_TEXT_COLORS` is unused today.
+- Add `import { commitTypeBadge, commitTypeBg, typeEntriesFrom } from '@/components/charts/commit-types';` next to the Task 4 imports.
+- Replace `const typeEntries = Object.entries(dev.type_breakdown || {}).sort((a, b) => b[1] - a[1]);` with:
+
+```tsx
+  const typeEntries = typeEntriesFrom([dev.type_breakdown ?? {}]);
+```
+
+- Replace the Commit Types card body, from `{totalTyped > 0 && (` through the legend's closing `</div>`, with:
+
+```tsx
+          {totalTyped > 0 && (
+            <div className="h-4 rounded-full overflow-hidden flex mb-3">
+              {typeEntries.map(([type, count]) => (
+                <div
+                  key={type}
+                  className={`${commitTypeBg(type)} h-full`}
+                  style={{ width: `${(count / totalTyped) * 100}%` }}
+                  title={`${type}: ${count}`}
+                />
+              ))}
+            </div>
+          )}
+          <div className="flex flex-wrap gap-2">
+            {typeEntries.map(([type, count]) => {
+              const badge = commitTypeBadge(type);
+              return (
+                <span key={type} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs ${badge.bg} ${badge.text}`}>
+                  {type} <span className="opacity-80">{count} ({Math.round((count / totalTyped) * 100)}%)</span>
+                </span>
+              );
+            })}
+          </div>
+```
+
+- Replace the commit-row badge (the `<span className={`inline-block px-1.5 py-0.5 rounded text-xs text-white ${TYPE_COLORS[c.type] || 'bg-gray-600'}`}>` line) with:
+
+```tsx
+                        <span className={`inline-block px-1.5 py-0.5 rounded text-xs ${commitTypeBadge(c.type).bg} ${commitTypeBadge(c.type).text}`}>
+```
+
+- [ ] **Step 3: Update the team dev-table**
+
+In `src/app/report/[id]/team/dev-table.tsx`:
+- Delete `const TYPE_COLORS …`.
+- Add `import { commitTypeBadge, typeEntriesFrom } from '@/components/charts/commit-types';` after the `url-state` import.
+- Replace the `TypeBreakdown` function with:
+
+```tsx
+function TypeBreakdown({ breakdown }: { breakdown: Record<string, number> }) {
+  const entries = typeEntriesFrom([breakdown ?? {}]);
+  return (
+    <div className="flex flex-wrap gap-1">
+      {entries.map(([type, count]) => {
+        const badge = commitTypeBadge(type);
+        return (
+          <span key={type} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs ${badge.bg} ${badge.text}`}>
+            {type} <span className="opacity-75">{count}</span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+```
+
+- [ ] **Step 4: Keep marks and badges colored in print**
+
+In `src/app/globals.css`, in the print block's `/* Keep badges colored */` rule, extend the selector list so it reads:
+
+```css
+  .bg-blue-500, .bg-blue-600, .bg-blue-700,
+  .bg-red-500, .bg-green-500, .bg-purple-500,
+  .bg-yellow-500, .bg-gray-500, .bg-gray-600, .bg-gray-700,
+  .bg-chart-type-feature, .bg-chart-type-bug, .bg-chart-type-refactor, .bg-chart-type-infra,
+  .bg-chart-type-docs, .bg-chart-type-test, .bg-chart-type-other, .bg-chart-type-in-flight,
+  .bg-chart-badge-feature-bg, .bg-chart-badge-bug-bg, .bg-chart-badge-refactor-bg, .bg-chart-badge-infra-bg,
+  .bg-chart-badge-docs-bg, .bg-chart-badge-test-bg, .bg-chart-badge-other-bg, .bg-chart-badge-in-flight-bg {
+```
+
+- [ ] **Step 5: Run the tests and the full suite**
+
+Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest --maxWorkers=3'`
+
+Expected: all suites pass, including the un-skipped page-map guard and `dev-type-badges.test.tsx`.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add "src/app/report/[id]/dev/[login]/page.tsx" "src/app/report/[id]/team/dev-table.tsx" src/app/globals.css src/lib/__tests__/unit/commit-types.test.ts src/lib/__tests__/unit/dev-type-badges.test.tsx
+git commit -F - <<'EOF'
+GLOOK-58: dev page and team table read the shared commit-type marks and badges
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+EOF
+```
+
+---
+
+### Task 8: `TrendChart` rewrite, `assignTeamColors`, and the `colorByTeam` caller
 
 **Files:**
 - Create: `src/app/vulnerabilities/team-colors.ts`
 - Rewrite: `src/app/vulnerabilities/trend-chart.tsx`
-- Modify: `src/app/vulnerabilities/vulnerabilities-content.tsx`
-  - Import at line 9.
-  - The `TrendChart` render at line 203.
+- Modify: `src/app/vulnerabilities/vulnerabilities-content.tsx`, the import at line 9 and the `TrendChart` render at line 203
 - Rewrite: `src/lib/__tests__/unit/vuln-trend-chart.test.tsx`
-- Create: `src/lib/__tests__/unit/vuln-team-colors.test.ts`, `src/lib/__tests__/unit/vuln-content-trend-colors.test.tsx`
+- Create: `src/lib/__tests__/unit/vuln-team-colors.test.ts` and `src/lib/__tests__/unit/vuln-content-trend-colors.test.tsx`
 
 **Interfaces:**
 - Consumes:
   - `TrendSeries` (`{ team: string; points: Array<{ date: string; open: number }> }`) from `@/lib/vulnerabilities/aggregate`.
-  - `ChartContainer`, `ChartTooltip`, `ChartTooltipContent`, `ChartConfig`.
-  - `formatWeek`, `toNum`.
+  - `ChartContainer`, `ChartTooltip`, `ChartTooltipContent` and `ChartConfig` from chart.
+  - `formatWeek` and `toNum` from chart-format.
 - Produces:
   - `assignTeamColors(series: TrendSeries[]): Record<string, string>`
   - `OTHER_TEAM_COLOR = 'var(--vuln-series-other)'`
-  - `TrendChart({ series, colorByTeam }: { series: TrendSeries[]; colorByTeam: Record<string, string> })` (default export, unchanged path)
+  - `TrendChart({ series, colorByTeam }: { series: TrendSeries[]; colorByTeam: Record<string, string> })`, the default export at the unchanged path
 
-**Decision 11 semantics.**
-- Colors follow the team name, not the team's rank. `assignTeamColors` picks the 12 teams with the most open alerts, measured at each team's latest point, with ties broken by name. It sorts those 12 by name and gives them `var(--vuln-series-1..12)`. The rest get `OTHER_TEAM_COLOR`.
-- The caller builds the map from the **unfiltered** `trend.series` and passes it with the (possibly filtered) series. `assignTeamColors` takes the series rather than bare names, because the more-than-12 fallback needs the open counts.
-- **Legend:** the swatch is colored and the text uses chrome color (`text-chart-axis`). Today the legend text itself is series-colored, which breaks the spec's text rule.
-- **Lines:**
-  - Each line uses a function `dataKey`, so a team named `team.alpha` is not read as a nested path (Review Focus 4).
-  - `connectNulls` keeps today's behavior: consecutive measurements of one team join even across dates where only other teams have points.
-- **Test change.** The old test asserted that colors sit on `style`, not on a presentation attribute. Recharts emits `stroke` as an attribute. The screenshot pass (Task 10) is the check that `var()` resolves in the browser.
+**Decision 11 semantics:**
+- **Color by name, not rank.** Colors follow the team name. `assignTeamColors` picks the 12 teams with the most open alerts at each team's latest point, breaking ties by name. It sorts those 12 by name and gives them `var(--vuln-series-1..12)`. The rest get `OTHER_TEAM_COLOR`.
+- **Build from the unfiltered series.** The caller builds the map from the **unfiltered** `trend.series`.
+- **Why the function takes series, not names.** The spec writes `assignTeamColors(teamNames)`, but its own fallback for more than 12 teams needs each team's open count. So the function takes the series.
+- **Legend:** the swatch is colored and the text uses the chrome color.
+- **Lines:** each line uses a function `dataKey` (Review Focus 4). `connectNulls` keeps today's behavior, joining a team's consecutive measurements.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2965,7 +3559,7 @@ it('a team keeps its colour after the page filters the chart down to it', () => 
   expect(colors.TeamB).not.toBe('var(--vuln-series-1)');
 });
 
-it('draws a line for a team whose name contains a dot (no nested-path lookup)', () => {
+it('draws a line for a team whose name contains a dot (no lodash-path dataKey lookup)', () => {
   const { container } = render(<TrendChart series={series.filter(s => s.team === 'team.alpha')} colorByTeam={colors} />);
   const path = container.querySelector('path.recharts-line-curve');
   expect(path).not.toBeNull();
@@ -3081,7 +3675,7 @@ it('passes the filtered series with colours computed from every team', () => {
 
 Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest src/lib/__tests__/unit/vuln-team-colors.test.ts src/lib/__tests__/unit/vuln-trend-chart.test.tsx src/lib/__tests__/unit/vuln-content-trend-colors.test.tsx'`
 
-Expected: FAIL. `team-colors` is not found; the trend chart finds no `path.recharts-line-curve`; the caller test sees `colorByTeam` as `undefined`.
+Expected: FAIL. `team-colors` is not found, the trend chart has no `path.recharts-line-curve`, and the caller test sees `colorByTeam` as `undefined`.
 
 - [ ] **Step 3: Implement `assignTeamColors`**
 
@@ -3152,8 +3746,8 @@ export default function TrendChart({ series, colorByTeam }: { series: TrendSerie
   const latest = (s: TrendSeries) => toNum(s.points[s.points.length - 1]?.open);
   const ranked = [...series].sort((a, b) => latest(b) - latest(a) || a.team.localeCompare(b.team));
   const colorOf = (team: string) => colorByTeam[team] ?? OTHER_TEAM_COLOR;
-  // Labels only: a colour here would make ChartStyle emit --color-<team name> custom properties,
-  // and team names can contain spaces.
+  // Labels only: a colour here would make ChartStyle emit a --color-<team name> custom property
+  // per team, keyed by arbitrary text.
   const config: ChartConfig = Object.fromEntries(series.map(s => [s.team, { label: s.team }]));
   const opacity = (team: string) => (hover === null || hover === team ? 1 : 0.15);
 
@@ -3204,27 +3798,23 @@ export default function TrendChart({ series, colorByTeam }: { series: TrendSerie
 
 - [ ] **Step 5: Pass `colorByTeam` from the caller**
 
-In `src/app/vulnerabilities/vulnerabilities-content.tsx`, add this after line 9 (`import TrendChart from './trend-chart';`):
+In `src/app/vulnerabilities/vulnerabilities-content.tsx`, add this line after `import TrendChart from './trend-chart';`:
 
 ```tsx
 import { assignTeamColors } from './team-colors';
 ```
 
-Replace the `TrendChart` render at line 203:
+Then replace the `TrendChart` render with:
 
 ```tsx
             ? <div className={trendStale ? 'opacity-60' : undefined}><TrendChart series={team ? trend.series.filter((x: any) => x.team === team) : trend.series} colorByTeam={assignTeamColors(trend.series)} /></div>
 ```
 
-`assignTeamColors(trend.series)` reads the unfiltered array, so the map is built before the team filter is applied to the prop.
-
 - [ ] **Step 6: Run the three tests and the existing vuln suites**
 
 Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest src/lib/__tests__/unit/vuln-team-colors.test.ts src/lib/__tests__/unit/vuln-trend-chart.test.tsx src/lib/__tests__/unit/vuln-content-trend-colors.test.tsx src/lib/__tests__/unit/vuln-trend-colors-css.test.ts src/lib/__tests__/unit/vuln-series-contrast.test.ts'`
 
-Expected: PASS.
-
-**Verification.** If `swatch.style.background` reads `''` in jsdom (cssstyle rejecting `var()` in the `background` shorthand), switch the swatch and the assertion to `backgroundColor`.
+Expected: PASS. If `swatch.style.background` reads `''` in jsdom, switch both the swatch and its assertion to `backgroundColor`.
 
 - [ ] **Step 7: Run the full suite**
 
@@ -3245,28 +3835,23 @@ EOF
 
 ---
 
-### Task 8: `ProgressRing` rewrite
+### Task 9: `ProgressRing` rewrite
 
 **Files:**
-- Rewrite: `src/app/projects/progress-ring.tsx`. `EpicRingStats`, `ProgressRingProps` and the `ProgressRing` export are unchanged, so `projects-content.tsx:916-920` needs no edit.
+- Rewrite: `src/app/projects/progress-ring.tsx`. The exports `EpicRingStats`, `ProgressRingProps` and `ProgressRing` keep their names and signatures, so `projects-content.tsx:916-920` needs no edit.
 - Rewrite: `src/lib/__tests__/unit/progress-ring.test.tsx`
 
 **Interfaces:**
 - Consumes: `toNum` from `@/components/charts/chart-format`.
-- Produces:
-  - `EpicRingStats`, `ProgressRingProps` (unchanged)
-  - `ProgressRing(props)` (unchanged signature)
-  - new: `ringGeometry(stats: EpicRingStats, maxVolume: number, avgCommitsPerJira: number): { px: number; stroke: number; jiraPct: number; commitPct: number }`
+- Produces: `EpicRingStats`, `ProgressRingProps` and `ProgressRing(props)`, all unchanged, plus a new `ringGeometry(stats: EpicRingStats, maxVolume: number, avgCommitsPerJira: number): { px: number; stroke: number; jiraPct: number; commitPct: number }`.
 
-**Behavior (spec Charts → ProgressRing).**
-- **Chart:** a fixed-size `RadialBarChart`, `width = height = px`, with no responsive container.
-- **Angles:** `startAngle={90}` and `endAngle={-270}`, so each ring starts at the top and fills clockwise. `<PolarAngleAxis type="number" domain={[0, 100]} tick={false} />` fixes the scale to 0-100%.
+**Behavior (spec Charts → ProgressRing and Every chart):**
+- **Chart:** a fixed-size `RadialBarChart` with `startAngle={90}`, `endAngle={-270}` and `<PolarAngleAxis type="number" domain={[0, 100]} tick={false} />`.
 - **Tracks:** each ring's track is its `background` in `var(--chart-track)`.
-- **Geometry:** it keeps the old 48-unit geometry, scaled by `px / 48`.
-  - The radial band runs from `13 - stroke/2` to `20 + stroke/2`, with `barSize = stroke`.
-  - Recharts places the first data entry innermost, so data is `[commits, jira]`, which puts Jira outside.
-  - `ringGeometry` keeps the old `Math.log` size (22-48px), the inverse stroke (`max(3, 8 - sizePct*5)`) and the `maxVolume = 0` guard.
-- **Tooltip:** the colored text spans (`text-amber-400`/`text-emerald-400`) become chrome text with a small swatch in the ring token. `text-amber-400` has no light-mode override today, so it would sit at about 2:1 on the light tooltip background.
+- **Geometry:** the old 48-unit geometry, scaled by `px / 48`.
+- **Ring order:** the data is `[commits, jira]`. The first entry draws innermost, so Jira is the outer ring.
+- **Empty state:** ProgressRing is the spec's exception to the empty-state rule. At 0% it draws both tracks and no arc, and no path may contain `NaN`.
+- **Tooltip:** the tooltip's colored text spans become chrome text with ring-token swatches.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -3354,6 +3939,16 @@ describe('ProgressRing render', () => {
     const { container } = render(<ProgressRing stats={s} maxVolume={MAX_VOLUME} avgCommitsPerJira={1} />);
     expect(arc(sector(container, '--chart-ring-jira')!)!.largeArc).toBe(true);
   });
+
+  it('with every value at 0: both tracks draw, no arc draws, and no path contains NaN', () => {
+    const zero = stats({ totalJiras: 0, resolvedJiras: 0, remainingJiras: 0 });
+    const { container } = render(<ProgressRing stats={zero} maxVolume={0} avgCommitsPerJira={0} />);
+    expect(container.querySelectorAll('.recharts-radial-bar-background-sector')).toHaveLength(2);
+    expect(sector(container, '--chart-ring-jira')).toBeUndefined();
+    expect(sector(container, '--chart-ring-commits')).toBeUndefined();
+    Array.from(container.querySelectorAll('path')).forEach(p => expect(p.getAttribute('d') ?? '').not.toContain('NaN'));
+    expect(container.querySelector('span.font-bold')?.textContent).toBe('0');
+  });
 });
 ```
 
@@ -3372,7 +3967,7 @@ Replace the whole of `src/app/projects/progress-ring.tsx` with:
 
 // GLOOK-58: a fixed-size Recharts RadialBarChart. The angle domain is pinned to 0-100: without it
 // RadialBar scales to the largest value in its data, so at 40% Jira / 20% commits the 40% ring
-// would draw as a full circle.
+// would draw as a full circle. At 0% the ring is its own empty state: both tracks, no arc.
 import { PolarAngleAxis, RadialBar, RadialBarChart } from 'recharts';
 import { toNum } from '@/components/charts/chart-format';
 
@@ -3484,10 +4079,11 @@ Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin
 
 Expected: PASS.
 
-**Verification (behavior read from source, not yet observed).**
-- **Ring order.** The test expects the first data entry to be innermost. If "Jira outer" fails with Jira's radius smaller, swap the two `data` entries and keep the test as written.
-- **Arc parsing.** The `arc()` regex assumes Recharts' sector path format `M x,y A r,r,0,large,sweep,x,y` (`es6/shape/Sector.js:54`). If it returns `null`, log one sector's `d` and adjust the regex, not the assertion.
-- **Sector class.** If `.recharts-radial-bar-sectors path` finds nothing, the data sectors may carry the `recharts-radial-bar-sector` class on a wrapping `<g>`. Query `.recharts-radial-bar-sector path` instead.
+These points are read from the Recharts source but haven't yet been observed in jsdom. Check each if its test fails:
+- **Ring order.** If the test finds Jira's radius smaller than commits', swap the two `data` entries. Leave the test as it is.
+- **Arc path format.** If `arc()` returns `null`, log one sector's `d` and adjust the regex to match. The expected shape is `M x,y A r,r,0,large,sweep,x,y` (`es6/shape/Sector.js:54`).
+- **Sector selector.** If `.recharts-radial-bar-sectors path` matches nothing, query `.recharts-radial-bar-sector path` instead.
+- **Zero-value test.** If a zero-angle sector is rendered with a real `d`, check that `sector(...)` finds no path. Recharts' `Sector` returns null when start angle equals end angle. If it doesn't, assert that the path's arc spans 0° instead of asserting that it's absent.
 
 - [ ] **Step 5: Run the full suite**
 
@@ -3508,26 +4104,26 @@ EOF
 
 ---
 
-### Task 9: Non-chart bars move to tokens (colors only)
+### Task 10: Non-chart bars move to tokens (colors only)
 
 **Files:**
-- Modify: `src/components/ProjectsCard.tsx`
-  - `SEGMENT_COLORS` at lines 6-10.
-  - The legend swatches at lines 196-204.
-  - The volume-bar track at line 252 and the segments at lines 257-259.
-  - The "Other" row track at line 426 and its segments at lines 431-433.
-- Modify: `src/app/reports/page.tsx`. The sync progress track at line 466.
-- Modify: `src/app/reports/vulnerability-syncs-tab.tsx`. The progress track at line 132.
+- Modify: `src/components/ProjectsCard.tsx`:
+  - `SEGMENT_COLORS` (lines 6-10)
+  - the legend swatches (lines 196-204)
+  - the tracks (lines 252 and 426)
+  - the segments (lines 257-259 and 431-433)
+- Modify: `src/app/reports/page.tsx`, the sync progress track (line 466)
+- Modify: `src/app/reports/vulnerability-syncs-tab.tsx`, the progress track (line 132)
 - Test: `src/lib/__tests__/unit/projects-card-volume.test.tsx`
 
 **Interfaces:**
-- Consumes: `--chart-volume-prs`, `--chart-volume-jiras`, `--chart-volume-commits` and `--chart-track` from Task 1; the Tailwind class `bg-chart-track`.
+- Consumes: `--chart-volume-*`, `--chart-track` and `bg-chart-track` from Task 1.
 - Produces: nothing new.
 
-**Scope (spec Non-goals).** These stay `<div>`s. Only their colors move.
-- **`ProjectsCard`.** Its segments and swatches use `var(--chart-volume-*)`, its tracks use `var(--chart-track)`, and each segment uses `backgroundColor`, not the `background` shorthand. Today's white-alpha `commits` segment and track are invisible on a light card.
-- **The two sync progress bars.** Only their `bg-gray-800` tracks become `bg-chart-track`. Their fills (`bg-indigo-500`, `bg-red-500`, `bg-orange-500`) encode run status, and the spec defines no status tokens, so they stay. See the spec gaps in the plan's hand-off report.
-- **Out of scope.** The row container styles at line 406 (`rgba(255,255,255,0.01)` background and `0.06` border) are card chrome, not the bar, and stay as they are.
+**Scope (spec Non-goals and Decision 1).** Everything here stays a `<div>`; only colors change.
+- **`ProjectsCard`:** segments and swatches use `var(--chart-volume-*)`, set with `backgroundColor`. Tracks use `var(--chart-track)`.
+- **The two sync bars:** only the track moves, to `bg-chart-track`. The status fills (indigo running, red failed, orange stopped/warning) stay.
+- **Out of scope:** the `ProjectsCard` row container at line 406 (`rgba` background and border). It's card chrome, not part of the bar.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -3560,17 +4156,17 @@ it('legend swatches use the same tokens as the segments', () => {
 });
 ```
 
-If `ProjectsCard` with only `projects` renders its collapsed header instead of the body, pass `expanded` as well: `render(<ProjectsCard projects={[project]} expanded />)`. Read `ProjectsCardProps` (lines 62-86) before running.
+Before running, read `ProjectsCardProps` (lines 62-86). If rendering `ProjectsCard` with only `projects` shows a collapsed header instead of the body, pass `expanded` as well.
 
 - [ ] **Step 2: Run the test and confirm it fails**
 
 Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest src/lib/__tests__/unit/projects-card-volume.test.tsx'`
 
-Expected: FAIL. The track reads `''` because it uses the `background` shorthand with an `rgba` value, and the segments read hex, `rgba` or `''`.
+Expected: FAIL. The track reads `''`, because it uses the `background` shorthand with an `rgba` value. The segments read hex values, `rgba` values or `''`.
 
 - [ ] **Step 3: Update `ProjectsCard`**
 
-Replace lines 5-10:
+Replace lines 5-10 with:
 
 ```tsx
 // Segment colors used in both the legend swatches and the bar segments. GLOOK-58: chart tokens,
@@ -3583,11 +4179,10 @@ const SEGMENT_COLORS = {
 const TRACK_COLOR = 'var(--chart-track)';
 ```
 
-In the legend (lines 196-204), change each swatch's `style={{ background: … }}` to `style={{ backgroundColor: … }}`. The commits swatch becomes `style={{ backgroundColor: SEGMENT_COLORS.commits }}`, replacing `'rgba(255,255,255,0.18)'`.
-
-In the project-row bar (line 252) and the "Other" bar (line 426), change `style={{ background: 'rgba(255,255,255,0.05)' }}` to `style={{ backgroundColor: TRACK_COLOR }}`.
-
-In both bars' segments (lines 257-259 and 431-433), change `background:` to `backgroundColor:`, for example:
+Then make these replacements:
+- **Legend (lines 196-204):** change each swatch's `style={{ background: … }}` to `style={{ backgroundColor: … }}`. The commits swatch becomes `style={{ backgroundColor: SEGMENT_COLORS.commits }}`, replacing `'rgba(255,255,255,0.18)'`.
+- **Both tracks (lines 252 and 426):** change `style={{ background: 'rgba(255,255,255,0.05)' }}` to `style={{ backgroundColor: TRACK_COLOR }}`.
+- **Both bars' segments:** change `background:` to `backgroundColor:`, for example:
 
 ```tsx
                       <div style={{ flex: p.estimated_prs, backgroundColor: SEGMENT_COLORS.prs }} />
@@ -3597,27 +4192,25 @@ In both bars' segments (lines 257-259 and 431-433), change `background:` to `bac
 
 - [ ] **Step 4: Update the two sync progress tracks**
 
-In `src/app/reports/page.tsx` line 466, and in `src/app/reports/vulnerability-syncs-tab.tsx` line 132, change:
+In both `src/app/reports/page.tsx` and `src/app/reports/vulnerability-syncs-tab.tsx`, change:
 
 ```tsx
-                  <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+<div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
 ```
 
 to:
 
 ```tsx
-                  <div className="h-1.5 bg-chart-track rounded-full overflow-hidden">
+<div className="h-1.5 bg-chart-track rounded-full overflow-hidden">
 ```
 
 Keep each file's existing indentation.
 
-- [ ] **Step 5: Run the test, the tokens guard, and the full suite**
+- [ ] **Step 5: Run the full suite**
 
 Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest --maxWorkers=3'`
 
-Expected: all suites pass. `chart-tokens-css.test.ts` confirms every `var(--chart-volume-*)` in `ProjectsCard.tsx` is defined. `vuln-syncs-tab*.test.tsx` still pass; neither asserts on the track class.
-
-**Verification.** If `style.backgroundColor` reads `''` for a `var()` value in jsdom (cssstyle 4.6), assert on `getAttribute('style')` containing `background-color: var(--chart-…)` instead.
+Expected: all suites pass. If `style.backgroundColor` reads `''` for a `var()` value, assert on `getAttribute('style')` containing `background-color: var(--chart-…)` instead.
 
 - [ ] **Step 6: Commit**
 
@@ -3632,13 +4225,13 @@ EOF
 
 ---
 
-### Task 10: Literal-color guard, full verification, build, screenshot pass
+### Task 11: Literal-color guard, full verification, build, screenshot pass
 
 **Files:**
 - Create: `src/lib/__tests__/unit/chart-no-literal-colors.test.ts` (spec guard test 1)
 
 **Interfaces:**
-- Consumes: every chart module from Tasks 2-8.
+- Consumes: every chart module from Tasks 2-9.
 - Produces: nothing.
 
 - [ ] **Step 1: Write guard test 1**
@@ -3708,6 +4301,7 @@ it('scans every chart module', () => {
     'src/components/charts/commit-types.ts',
     'src/components/charts/hatch.tsx',
     'src/components/charts/lines-changed-chart.tsx',
+    'src/components/charts/spend-impact-scatter.tsx',
     'src/components/charts/stacked-types-chart.tsx',
     'src/components/charts/timeline-chart.tsx',
   ]);
@@ -3725,36 +4319,34 @@ it('no chart module contains a literal colour', () => {
 
 Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest src/lib/__tests__/unit/chart-no-literal-colors.test.ts'`
 
-Expected: PASS. If it flags something, fix the chart module: replace the literal with a token, or reword a comment that contains `#` followed by hex digits. Do not add an exemption to the guard.
+Expected: PASS. If the guard flags a module, fix the module itself: replace the literal with a token, or reword a comment that contains `#` followed by hex digits. Do not add an exemption to the guard.
 
 - [ ] **Step 3: Full suite**
 
 Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest --maxWorkers=3'`
 
-Expected: 0 failed. Suites are the 169 baseline plus the new ones:
-- `chart-tokens-css`
-- `chart-contrast`
-- `cn`
-- `chart-wrapper`
-- `chart-format`
-- `commit-types`
-- `chart-hatch`
-- `timeline-chart`
-- `stacked-types-chart`
-- `lines-changed-chart`
-- `commit-type-donut`
-- `vuln-team-colors`
-- `vuln-content-trend-colors`
-- `projects-card-volume`
-- `chart-no-literal-colors`
+Expected: 0 failed, 188 suites. That's the 169 baseline plus 19 new suites:
 
-That is 15 new suites, 184 in total. `vuln-trend-chart` and `progress-ring` were rewritten in place, so they add none. Record the actual suite and test counts in the commit body.
+| Task | New suites |
+|---|---|
+| 1 | `chart-tokens-css`, `chart-contrast` |
+| 2 | `cn`, `chart-wrapper` |
+| 3 | `week-key-utc`, `chart-format`, `commit-types`, `chart-hatch` |
+| 4 | `timeline-chart` |
+| 5 | `stacked-types-chart`, `lines-changed-chart`, `commit-type-donut` |
+| 6 | `spend-impact-scatter` |
+| 7 | `dev-type-badges` |
+| 8 | `vuln-team-colors`, `vuln-content-trend-colors` |
+| 10 | `projects-card-volume` |
+| 11 | `chart-no-literal-colors` |
 
-- [ ] **Step 4: Type-check and build**
+Task 8 also rewrites `vuln-trend-chart` and Task 9 rewrites `progress-ring`; both are existing suites, so they don't add to the count. Record the actual suite and test counts in the commit body.
+
+- [ ] **Step 4: Build**
 
 Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npm run build'`
 
-Expected: the build succeeds. A failure mentioning a `page.tsx` export means a helper leaked into a page file. Move it to `src/components/charts/`.
+Expected: the build succeeds. If it fails with an error about a `page.tsx` export, a helper has leaked into a page file. Move it to `src/components/charts/`.
 
 - [ ] **Step 5: Clear the build cache before running dev** (CLAUDE.md: `next build` artifacts conflict with `next dev`)
 
@@ -3768,44 +4360,48 @@ Then start the server in the background (Bash `run_in_background: true`):
 
 `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npm run dev:mock'`
 
-Wait until `http://localhost:3000/api/health` returns `{"status":"ok",…}`. Check it with `curl -s http://localhost:3000/api/health`.
+Wait until `curl -s http://localhost:3000/api/health` returns `{"status":"ok",…}`.
 
 - [ ] **Step 7: Screenshot pass**
 
-Open `http://localhost:3000/reports` and take the newest completed report's id. Screenshot these four pages in **Amber Glow** (dark) and again in **Daylight Blue** (light). Switch themes with the app's theme picker, or run `localStorage.setItem('glooker-theme', 'daylight-blue')` in the page console and reload.
-- `/report/<id>/org`
-- `/report/<id>/dev/<login>`. Pick a developer from the org report's team table.
-- `/vulnerabilities`
-- `/projects`
+1. Open `http://localhost:3000/reports` and note the id of the newest completed report.
+2. Screenshot every page below in **Amber Glow** (dark), then again in **Daylight Blue** (light). To switch themes, use the app's theme picker, or run `localStorage.setItem('glooker-theme', 'daylight-blue')` in the console and reload.
 
-Check each screenshot against this list, and record pass or fail per item and page:
+**Charts:** check every item on every page where the chart appears.
 
-1. **Colors resolve.**
-   - No chart mark is black. A black bar or line means a `var()` in a presentation attribute did not resolve.
-   - No chart internal stays dark inside a light card: grid, axis text, tooltip, ring tracks.
-2. **Legibility and layout.**
-   - Axis labels don't collide or clip.
-   - Y-axis numbers are readable.
-   - Tooltips don't overflow their card. Hover at least one bar per chart and the donut.
-3. **The hatch is legible on narrow bars.**
-   - On the org Commits / Week timeline and on Lines Changed at the default card width, the in-flight segments show visible diagonal stripes.
-   - Resize to about 390px wide and check again.
-4. **The diverging chart.**
-   - Removed lines sit below a visible zero line.
-   - Rounded corners face away from zero on both sides. If the removed side's corners face zero, swap `BOTTOM` to `[4, 4, 0, 0]` in `lines-changed-chart.tsx`, re-run its test, and re-check.
-5. **Hover sync.** Hovering one org timeline moves the cursor on every chart in the grid. Do the same check on the dev page.
-6. **The donut.**
-   - Every legend row shows count and %.
-   - Hovering a slice and hovering a legend row both update the center and dim the other slices.
-   - The in_flight wedge and its swatch are hatched.
-7. **TrendChart.**
-   - Team colors match between lines and legend swatches.
-   - Filtering to one team keeps that team's color.
-   - Hovering fades the other lines.
-8. **ProgressRing.** Rings start at the top and fill clockwise, Jira is outside, tracks are visible in light mode, and the smallest (22px) ring is still legible.
-9. **ProjectsCard volume bar** (team report page, `/report/<id>/team/<team>`). The commits segment and the track are visible in light mode.
+1. **Colors resolve.** No mark is black. No chart internal stays dark inside a light card: grid, axis text, tooltip, ring tracks, scatter median lines.
+2. **Legibility.** No axis label collides or clips. Y-axis numbers are readable. Tooltips don't overflow the card; hover at least one mark per chart.
+3. **Hatch on narrow bars.** On the org Commits / Week timeline and on Lines Changed, in-flight segments show visible stripes at the default card width. Check again at about 390px wide.
+4. **Diverging chart.** Removed lines sit below a visible zero line. Rounded corners face away from zero on both sides. If the removed-side corners face zero, set `BOTTOM` to `[4, 4, 0, 0]` in `lines-changed-chart.tsx`, re-run its test, and re-check.
+5. **Hover sync.** Hovering one org timeline moves the cursor on every chart in the org grid. Check the same on the dev page.
+6. **Donut.** Legend rows show count and %. Hovering a **slice** and hovering a **legend row** both update the center and dim the other slices. This is the fallback check if Task 5, Step 7's slice test was not kept. The in_flight wedge and swatch are hatched.
+7. **Spend vs Impact scatter** (org page → Spend tab). Median lines cross where median dots sit. Outliers are triangles in the outlier color, not red. The legend shows both shapes. Clicking a dot opens that developer's page. Quadrant labels don't cover dots badly.
+8. **TrendChart** (`/vulnerabilities`). Line colors match the legend swatches. Filtering to one team keeps that team's color. Hovering fades the other lines.
+9. **ProgressRing** (`/projects`). Rings start at the top and fill clockwise, with Jira on the outside. Tracks are visible in light mode. The 22px ring is legible, and a 0% ring shows both tracks.
 
-Fix any failure in the owning chart module, re-run that module's test and the full suite, and re-shoot the affected page. Stop the dev server when done.
+**Inline data bars and badges (spec Decision 1).** These are screenshot-only. Each gets a colors-only fix **only if** it is broken in a light theme:
+
+| Page | What to check |
+|---|---|
+| Org page → Spend tab | Top-20% bar (`spend-tab.tsx:279-291`), Model Mix bar (`:300-345`), Impact threshold badges in the leaderboard (`:500`) |
+| Dev page `/report/<id>/dev/<login>` | Commit Types segmented bar and its badge legend; commit-row type badges; Active Repos bars; the p50/p95 marker bar (`dev/[login]/page.tsx:214-240`); `usage-card.tsx` model cost bars (`:68`); Complexity/Impact/PR%/AI% threshold badges |
+| Org page, Impact tab | Top Repos bars; the ProjectsCard is not here |
+| Team page `/report/<id>/team/<team>` | Team table type badges; threshold badges; `ProjectsCard` volume bar (commits segment and track visible in light mode) |
+| Home page `/` | The explainer bars in `llm-findings.tsx:257-360` |
+| `/reports` | Report progress bars: the track token and the status fills |
+| `/reports` vulnerability syncs tab | Sync progress bars |
+| `/vulnerabilities` | Severity badges |
+| `/projects` | Jira status dots |
+
+**How to fix a broken item.** Keep the fix to colors and follow the file's own convention:
+- For Tailwind classes that lack a light variant, add a `[data-theme-mode="light"]` override in `globals.css`.
+- For inline colors, use an existing token.
+
+Commit each fix separately, with a `GLOOK-58: ` message that names the item and page. List every fix in the final commit body.
+
+**For any failure in a chart module:** fix it in the owning module, re-run that module's test and the full suite, and re-shoot the page.
+
+3. Stop the dev server when you're done.
 
 - [ ] **Step 8: Commit**
 
@@ -3814,11 +4410,12 @@ git add src/lib/__tests__/unit/chart-no-literal-colors.test.ts
 git commit -F - <<'EOF'
 GLOOK-58: guard against literal colours in chart modules
 
-Full suite: <N> suites / <M> tests green. Build green. Screenshot pass (Amber Glow,
-Daylight Blue; org, dev, vulnerabilities, projects) checked against the spec list.
+Full suite: <N> suites / <M> tests green. Build green. Screenshot pass (Amber Glow, Daylight Blue;
+org incl. spend tab, dev, team, home, reports, vulnerabilities, projects) checked against the
+chart list and the inline-bar/badge table. Light-mode fixes: <list, or "none needed">.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 EOF
 ```
 
-Replace `<N>` and `<M>` with the counts from Step 3 before committing. If Step 7 needed fixes, commit them before this step, with their own `GLOOK-58: ` messages, listing each file explicitly.
+Before committing, replace `<N>` and `<M>` with the counts from Step 3, and replace `<list …>` with the fixes from Step 7.
