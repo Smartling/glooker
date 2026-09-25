@@ -2,12 +2,14 @@
 import { useState, useMemo } from 'react';
 import type { TeamProject } from '@/lib/team-pulse/types';
 
-// Segment colors used in both the legend swatches and the bar segments.
+// Segment colors used in both the legend swatches and the bar segments. GLOOK-58: chart tokens,
+// so the bar reads in light mode too (the old white-alpha commits segment was invisible there).
 const SEGMENT_COLORS = {
-  prs:     '#06B6D4',
-  jiras:   '#A855F7',
-  commits: 'rgba(255,255,255,0.10)',
+  prs:     'var(--chart-volume-prs)',
+  jiras:   'var(--chart-volume-jiras)',
+  commits: 'var(--chart-volume-commits)',
 } as const;
+const TRACK_COLOR = 'var(--chart-track)';
 
 export interface JiraDetail {
   key: string;
@@ -193,15 +195,15 @@ function ProjectsBody({
       {/* Legend */}
       <div className="flex gap-3 text-[10px] text-gray-600 pl-6">
         <span className="flex items-center gap-1">
-          <span aria-hidden="true" className="inline-block w-2 h-2 rounded-[2px]" style={{ background: SEGMENT_COLORS.prs }} />PRs
+          <span aria-hidden="true" className="inline-block w-2 h-2 rounded-[2px]" style={{ backgroundColor: SEGMENT_COLORS.prs }} />PRs
         </span>
         {hasJira && (
           <span className="flex items-center gap-1">
-            <span aria-hidden="true" className="inline-block w-2 h-2 rounded-[2px]" style={{ background: SEGMENT_COLORS.jiras }} />Jiras
+            <span aria-hidden="true" className="inline-block w-2 h-2 rounded-[2px]" style={{ backgroundColor: SEGMENT_COLORS.jiras }} />Jiras
           </span>
         )}
         <span className="flex items-center gap-1">
-          <span aria-hidden="true" className="inline-block w-2 h-2 rounded-[2px]" style={{ background: 'rgba(255,255,255,0.18)' }} />Commits
+          <span aria-hidden="true" className="inline-block w-2 h-2 rounded-[2px]" style={{ backgroundColor: SEGMENT_COLORS.commits }} />Commits
         </span>
       </div>
 
@@ -249,14 +251,14 @@ function ProjectsBody({
                 <div className="pl-6 mb-1.5">
                   <div
                     className="h-[5px] rounded-sm overflow-hidden"
-                    style={{ background: 'rgba(255,255,255,0.05)' }}
+                    style={{ backgroundColor: TRACK_COLOR }}
                     role="img"
                     aria-label={`Volume: ${p.estimated_prs} PRs, ${p.jira_count} Jiras, ${p.estimated_commits} commits`}
                   >
                     <div className="h-full flex" style={{ width: `${barPct}%` }}>
-                      <div style={{ flex: p.estimated_prs, background: SEGMENT_COLORS.prs }} />
-                      <div style={{ flex: p.jira_count, background: SEGMENT_COLORS.jiras }} />
-                      <div style={{ flex: p.estimated_commits, background: SEGMENT_COLORS.commits }} />
+                      <div style={{ flex: p.estimated_prs, backgroundColor: SEGMENT_COLORS.prs }} />
+                      <div style={{ flex: p.jira_count, backgroundColor: SEGMENT_COLORS.jiras }} />
+                      <div style={{ flex: p.estimated_commits, backgroundColor: SEGMENT_COLORS.commits }} />
                     </div>
                   </div>
                 </div>
@@ -423,14 +425,14 @@ function ProjectsBody({
                 <div className="pl-6 mb-1.5">
                   <div
                     className="h-[5px] rounded-sm overflow-hidden"
-                    style={{ background: 'rgba(255,255,255,0.05)' }}
+                    style={{ backgroundColor: TRACK_COLOR }}
                     role="img"
                     aria-label={`Other: ${other.prs} PRs, ${other.jiras} Jiras not attributed to a named project`}
                   >
                     <div className="h-full flex" style={{ width: `${otherBarPct}%` }}>
-                      <div style={{ flex: other.prs,   background: SEGMENT_COLORS.prs }} />
-                      <div style={{ flex: other.jiras, background: SEGMENT_COLORS.jiras }} />
-                      <div style={{ flex: other.commits, background: SEGMENT_COLORS.commits }} />
+                      <div style={{ flex: other.prs,   backgroundColor: SEGMENT_COLORS.prs }} />
+                      <div style={{ flex: other.jiras, backgroundColor: SEGMENT_COLORS.jiras }} />
+                      <div style={{ flex: other.commits, backgroundColor: SEGMENT_COLORS.commits }} />
                     </div>
                   </div>
                 </div>
