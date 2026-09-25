@@ -79,3 +79,26 @@ it('hovering a slice also moves its figures into the centre', () => {
   fireEvent.mouseEnter(container.querySelectorAll('.recharts-pie-sector')[0]);
   expect(center().textContent).toBe('6feature60%');
 });
+
+it('GLOOK-58 final review, fix round 2: the first sector (feature) starts at 12 o\'clock and sweeps clockwise', () => {
+  const { container } = render(<CommitTypeDonut entries={entries} total={10} />);
+  const first = container.querySelector('.recharts-pie-sector path')!;
+  const cx = Number(first.getAttribute('cx'));
+  const cy = Number(first.getAttribute('cy'));
+  const d = first.getAttribute('d')!;
+
+  // The path's opening "M x,y" is the outer edge's start point. Recharts' Sector always starts an
+  // arc at its own startAngle, so this is where the wedge begins drawing: at 12 o'clock, that's
+  // directly above the centre (same x, smaller y — SVG's y axis points down).
+  const start = /^M\s*([\d.]+),([\d.]+)/.exec(d)!;
+  const [startX, startY] = [Number(start[1]), Number(start[2])];
+  expect(startX).toBeCloseTo(cx, 0);
+  expect(startY).toBeLessThan(cy);
+
+  // The first "A" (arc) command draws the outer edge from that start point. Its sweep-flag (the
+  // 5th number: rx,ry,x-rotation,large-arc-flag,SWEEP-FLAG,x,y) is 1 for a clockwise sweep in
+  // SVG's y-down coordinate system, and 0 for counter-clockwise — this is what startAngle={90}
+  // endAngle={-270} actually changes, independent of how large any one slice is.
+  const arc = /A\s*[\d.]+,[\d.]+,\d+,\s*[01],\s*([01]),/.exec(d)!;
+  expect(arc[1]).toBe('1');
+});

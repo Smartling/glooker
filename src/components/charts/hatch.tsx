@@ -18,8 +18,9 @@ const TILE = 6;
  * review; confirmed by reading node_modules/recharts/es6/cartesian/Bar.js). This reads the row's
  * own value for `key` by index instead, floored to a legible 4px only when it isn't zero, so a
  * real in-flight segment always shows at least one visible stripe and a zero-in-flight week draws
- * no hatch rect at all. Shared by TimelineChart, StackedTypesChart and LinesChangedChart, each of
- * which called this identically three times before.
+ * no hatch rect at all. Shared by TimelineChart, StackedTypesChart and LinesChangedChart, across
+ * four call sites (LinesChangedChart has two: inFlightAdded and inFlightRemoved) that called this
+ * identically before.
  */
 export function inFlightFloor<T>(rows: T[], key: keyof T): (value: unknown, index: number) => number {
   return (_, i) => (toNum(rows[i]?.[key]) !== 0 ? 4 : 0);
