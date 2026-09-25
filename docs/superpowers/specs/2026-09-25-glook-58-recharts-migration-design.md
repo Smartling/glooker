@@ -26,7 +26,7 @@ Glooker has no charting library. Every chart is hand-built inline SVG or a Tailw
 ## Non-goals
 
 - API or data-shape changes. Charts consume the existing `timeline`, `TrendSeries[]` and `EpicRingStats` shapes.
-- Migrating non-chart bars. The `ProjectsCard` volume bar (`src/components/ProjectsCard.tsx:208-262`, `~406-435`) and the sync progress bars (`src/app/reports/page.tsx:451-479`, `src/app/reports/vulnerability-syncs-tab.tsx:124-139`) stay as `<div>`s. Only their colors move to tokens.
+- Migrating non-chart bars. The `ProjectsCard` volume bar (`src/components/ProjectsCard.tsx:208-262`, `~406-435`), the sync progress bars (`src/app/reports/page.tsx:451-479`, `src/app/reports/vulnerability-syncs-tab.tsx:124-139`) and the other inline data bars listed in Decision 1 stay as `<div>`s. Only the `ProjectsCard` colors and the sync tracks move to tokens. The rest change only if the screenshot pass shows them broken.
 - Mobile layout redesign beyond what responsive containers give for free.
 - Click-to-select series, chart export, or table views.
 - Moving to Tailwind v4 or adopting shadcn/ui beyond the one wrapper file.
@@ -53,8 +53,18 @@ Libraries evaluated on 2026-09-25 against GitHub, npm and official docs:
 
 ## Decisions
 
-1. **Single library.** Every chart that encodes data uses Recharts, including `TrendChart` and `ProgressRing`. UI chrome (progress bars, the inline volume bar) stays HTML.
-2. **Recharts `^3.10`, with `clsx` and `tailwind-merge@^2.6`.** tailwind-merge 3.x supports Tailwind v4 only. Its README says: "if you use Tailwind v3, use tailwind-merge v2.6.0".
+1. **Single library.** Every chart that encodes data uses Recharts, including `TrendChart`, `ProgressRing` and the Spend vs Impact scatter.
+   - UI chrome (progress bars) and inline data bars in table or card rows stay HTML. That covers the `ProjectsCard` volume bar, the spend tab's top-20% and model-mix bars, the `usage-card.tsx` model cost bars, the Top/Active Repos bars and the dev page's p50/p95 marker bar.
+   - Those inline bars are included in the screenshot pass. They get a colors-only fix **only if** the screenshots show them broken in a light theme.
+   - **Exception: the dev page's "Commit Types" segmented bar** (`dev/[login]/page.tsx:262-288`) must change, because its `TYPE_COLORS` map is removed. Its segments take the commit-type **mark** tokens, and its count legend takes `commitTypeBadge`.
+   - **Not charts, out of scope** (a full inventory on 2026-09-25 found no others):
+     - The static explainer bars in `llm-findings.tsx:257-360`.
+     - The threshold-colored Complexity/Impact/PR%/AI% badges on the org, dev, team and spend pages.
+     - The vulnerability severity badges and the Jira status dots.
+
+     They're covered only by the screenshot pass.
+   - The sync progress bars keep their status fills (indigo running, red failed, orange warning) and move only their track to `--chart-track`.
+2. **Recharts `^3.10`, with `clsx`, `tailwind-merge@^2.6` and `react-is@^19`.** Recharts imports `isFragment` from `react-is` as a peer dependency, and the installed 18.3.1 doesn't recognize React 19 fragments. tailwind-merge 3.x supports Tailwind v4 only. Its README says: "if you use Tailwind v3, use tailwind-merge v2.6.0".
 3. **Port shadcn's Tailwind-v3 `new-york` `chart.tsx`, not `new-york-v4`.** The v4 variant uses `outline-hidden` and `border-(--color-border)`, which are v4-only syntax. The v3 variant pins recharts 2.15.4, so the port applies Recharts 3 type changes, such as `TooltipProps` → `TooltipContentProps` ([migration guide](https://github.com/recharts/recharts/wiki/3.0-migration-guide)).
 4. **`THEMES = { dark: "", light: '[data-theme-mode="light"]' }`.** The app's unscoped styles are dark, and light is the override. Renaming shadcn's `.dark` key directly would invert every chart. `applyTheme()` (`src/app/themes.ts:93-104`) sets `data-theme-mode` on `<html>`. There is no system mode.
 5. **No literal colors in chart code.** Every fill, stroke and text color comes from a CSS variable, defined under `:root` (dark) and `[data-theme-mode="light"]` (light).
@@ -69,6 +79,12 @@ Libraries evaluated on 2026-09-25 against GitHub, npm and official docs:
       - `avgComplexity` and `avgImpact` expose no denominator, so a present week reporting `0` is drawn as 0. See [Risks](#risks).
 
     Every chart on a page shares the same week array, which is what makes `syncId` work. Recharts' default `syncMethod="index"` matches on array index.
+
+    **Week keys are computed in UTC, on both server and client.** `weekKeyForDate` (`timeline.ts:23-28`) currently does its day arithmetic in the server's local time zone but formats with `toISOString()`. On a server west of UTC, a Monday-evening commit therefore gets a Tuesday key, and one real week arrives as two buckets. This design fixes it at the source:
+    - `weekKeyForDate` switches to `getUTCDay`/`setUTCDate`.
+    - The client helpers (`buildWeekDomain`, the cutoff, "today") use `Date.UTC`/`getUTCDay` as well.
+
+    No week keys are persisted anywhere: timelines are computed per request, and `summary.ts` caches only summary text. So the fix needs no data migration. On a non-UTC server, weeks become UTC Mondays.
 11. **`TrendChart` colors follow the team, not its rank.** The caller, `vulnerabilities-content.tsx`, builds `colorByTeam = assignTeamColors(teamNames)` from the **unfiltered** `trend.series`. It must do this before applying the team filter at `:202-203`, and it passes the map in as a prop. `assignTeamColors` sorts the names and gives each team a fixed slot in the existing `--vuln-series-1..12` palette. A team then keeps its color across syncs and when the filter narrows the chart. The only requirement from the product owner is that teams get distinct colors. This replaces GLOOK-43's rank-based assignment.
     **Assumption:** there are at most 12 teams with alerts. If there are more, the 12 teams with the most open alerts (ties broken by name) are chosen. Those 12 are then sorted by name into slots 1..12. The rest use `--vuln-series-other`, and the legend names them all. In this fallback, a team entering or leaving the top 12 can shift other teams' slots.
 12. **Diverging lines-changed chart.** Lines added go above zero and lines removed go below, in a single stack with `stackOffset="sign"`. Removed values are negated. The in-flight part of each is hatched. A `ReferenceLine y={0}` draws the zero baseline in full `--chart-axis`, because on this chart the baseline carries meaning and isn't just a recessive gridline. Today all four layers stack upward.
@@ -84,9 +100,9 @@ Libraries evaluated on 2026-09-25 against GitHub, npm and official docs:
     - **Chrome tokens:**
       - `--chart-axis` meets 4.5:1 text contrast against the card surface.
       - `--chart-tooltip-text` meets 4.5:1 against `--chart-tooltip-bg`.
-      - `--chart-grid` and `--chart-tooltip-border` meet 3:1 against their own backgrounds.
-
-      Each is checked in both modes.
+      - Each is checked in both modes.
+      - `--chart-grid` and `--chart-tooltip-border` are **exempt**. They're decorative, and WCAG 1.4.11 doesn't apply to them. Holding the grid to 3:1 would force a prominent gray line, against the "recessive grid" mark spec. An earlier revision of this spec required it; that was an error.
+    - **Text-bearing badges.** Commit-type badges on the dev and team pages carry text on a colored fill. That's a different contrast requirement from a chart mark, so they don't reuse the mark tokens. `commit-types.ts` exports a separate badge treatment per type, in the same hue family: `commitTypeBadge(type) → { bg, text }`. Every type's badge text meets 4.5:1 against its badge fill, for all 8 types in both modes. This matters because the gate lightens `other` for marks: white text on the lightened gray would fall to about 2.5:1.
 
 ## Architecture
 
@@ -115,6 +131,8 @@ Libraries evaluated on 2026-09-25 against GitHub, npm and official docs:
 - **`src/app/vulnerabilities/vulnerabilities-content.tsx`.** Builds `colorByTeam` from the unfiltered series (Decision 11).
 - **`src/app/report/[id]/team/dev-table.tsx`.** Its type badges read `commit-types.ts`.
 - **Non-chart bars, colors only.** `src/components/ProjectsCard.tsx`, `src/app/reports/page.tsx` and `src/app/reports/vulnerability-syncs-tab.tsx`.
+- **`src/app/report/[id]/org/spend-tab.tsx`.** The scatter moves out to `spend-impact-scatter.tsx`.
+- **`src/lib/report/timeline.ts`.** `weekKeyForDate` switches to UTC (Decision 10).
 - **Config and dependencies.**
   - `src/app/globals.css` (tokens) and `tailwind.config.ts` (`chart.*` colors).
   - `jest.config.ts` (`setupFiles`).
@@ -133,6 +151,8 @@ Each token is defined under `:root` (dark) and redefined under `[data-theme-mode
 - **Chrome:** `--chart-grid`, `--chart-axis`, `--chart-cursor`, `--chart-tooltip-bg`, `--chart-tooltip-border`, `--chart-tooltip-text`, `--chart-track`, `--chart-surface`. `--chart-surface` is used for the 2px gap between segments.
 - **Commit types:** `--chart-type-feature`, `-bug`, `-refactor`, `-infra`, `-docs`, `-test`, `-other`, `-in-flight`.
 - **Lines:** `--chart-lines-added`, `--chart-lines-removed`.
+- **Scatter:** `--chart-scatter-typical`, `--chart-scatter-outlier`.
+- **Volume bar** (`ProjectsCard`): `--chart-volume-prs`, `--chart-volume-jiras`, `--chart-volume-commits`. Today's white-alpha commits segment is invisible in light mode.
 - **Ring:** `--chart-ring-jira`, `--chart-ring-commits`.
 - **Reused unchanged:** `--vuln-series-1..12`, `--vuln-series-other`, `--accent`.
 
@@ -198,6 +218,7 @@ Each chart instance gets its own pattern ID from React `useId()`. A page shows u
 **`CommitTypeDonut`** (org)
 
 - **Keeps:** `entries` and `total` computed on the page. In-flight is already merged into `types` on the server (`org/page.tsx:88-90`).
+- **Folds unknown types:** the page computes `entries` and `total` from `foldTypes(...)`, not a raw `Object.entries(week.types)` (`org/page.tsx:91-98`). An unrecognized type then joins `other`, instead of becoming a second, identically colored "other" wedge. The same rule applies to every place that reads `.types` on the org, dev and team pages.
 - **Behavior:** Decision 13.
 - **Changes:**
   - `<ResponsiveContainer aspect={1}>` inside a `max-w-[320px]` wrapper replaces `min(320px, 50cqw)`.
@@ -222,16 +243,27 @@ Each chart instance gets its own pattern ID from React `useId()`. A page shows u
   - Jira on the outer ring, commits on the inner ring, and `devCount` in the center.
   - No divide-by-zero when `maxVolume = 0`.
 
+**`SpendImpactScatter`** (org spend tab, replaces the `<div>`-positioned plot at `src/app/report/[id]/org/spend-tab.tsx:518-561`)
+
+- **Form:** a `ScatterChart` with impact score on the x-axis and dollars on the y-axis, both with real tick values. It lives in `src/components/charts/spend-impact-scatter.tsx`.
+- **Quadrants:** `ReferenceLine`s at the median impact and median cost, drawn in the **same scale as the dots**. Today the dots use `impact/max × 92 + 4` and `cost/max × 88 + 6` (`:537-538`), while the median lines use the raw ratio × 100 (`:527-528`). That puts the quadrant boundaries in the wrong place. The four quadrant labels stay, in the corners.
+- **Two series with a legend:** "typical" and "outlier". Outliers use a different marker shape (a triangle) as well as a different color, so they don't depend on color alone. Neither color is the commit-type bug red. The tokens are `--chart-scatter-typical` and `--chart-scatter-outlier`, validated with the fixed palettes.
+- **Keeps:**
+  - The `isOutlier` rule (`:191-195`): cost per impact point more than 2× the median.
+  - Clicking a dot navigates to `/report/[id]/dev/[login]`.
+  - The tooltip: login, spend and impact.
+- **Changes:** an empty state when no developer has spend, and `toNum()` on cost and impact.
+
 ### Every chart
 
-- An explicit empty state.
+- An explicit empty state. **Exception:** `ProgressRing`, whose 0% state (both tracks drawn, no arc) is its empty state. It must render without `NaN` when every value is 0.
 - Every numeric value passes through `toNum()`, because `DECIMAL`/`REAL` columns may arrive as strings (CLAUDE.md gotcha).
 - Charts never throw. `NaN` renders as 0.
 
 ## Testing
 
 Tests go in `src/lib/__tests__/unit/` (Jest `roots` is `src/lib`) and use the `/** @jest-environment jsdom */` docblock.
-- **Sizing.** The global `ResizeObserver` stub (see [Architecture](#new-modules)) keeps responsive containers from failing. Chart tests also pass a fixed size, either through `ResponsiveContainer`'s `initialDimension`, which is confirmed to exist in Recharts 3, or an explicit `width`/`height`.
+- **Sizing.** The global `ResizeObserver` stub (see [Architecture](#new-modules)) keeps responsive containers from failing. Chart tests also need a non-zero size. `ResponsiveContainer`'s `initialDimension` is **not** enough in jsdom. In 3.10.1 the container measures itself with `getBoundingClientRect()` on mount, and the 0×0 result overwrites `initialDimension`. So a test helper, `fixChartSize()`, stubs `getBoundingClientRect` for chart tests. Fixed-size charts such as `ProgressRing` pass an explicit `width`/`height` instead.
 - **Text layout.** jsdom has no SVG text layout: `getBoundingClientRect` and `getComputedTextLength` return 0. So tests assert on **data, props, fills and ARIA labels**. They never assert on tick counts, tick positions or label placement. Those are left to the screenshot pass.
 
 **Behavior tests:**
@@ -243,7 +275,10 @@ Tests go in `src/lib/__tests__/unit/` (Jest `roots` is `src/lib`) and use the `/
 | `CommitTypeDonut` | The legend shows count and % with no hover; a total of 0 shows the empty state; hovering changes the center label, which stays chrome-colored; the `in_flight` wedge uses a pattern fill |
 | `LinesChangedChart` | Removed lines render below the zero baseline, and the zero reference line is present |
 | `TrendChart` | Colors are distinct; a team keeps its color after filtering and after a rank swap (tested through `assignTeamColors` and the caller) |
-| `ProgressRing` | The existing size, stroke and zero-volume guarantees, rewritten against the new markup; the angle domain is fixed at 0-100, so 40% doesn't draw as a full ring |
+| `ProgressRing` | The existing size, stroke and zero-volume guarantees, rewritten against the new markup; the angle domain is fixed at 0-100, so 40% doesn't draw as a full ring; with every value at 0, both tracks draw and no path contains `NaN` |
+| `SpendImpactScatter` | A developer at exactly the median impact and median cost sits on both reference lines; outliers use the triangle marker and the outlier series; clicking a dot navigates to that developer; no developer with spend shows the empty state |
+| `weekKeyForDate` | A Monday-21:00 commit under `TZ=America/New_York` keys to that Monday, not Tuesday (the test sets and restores `process.env.TZ`) |
+| `commitTypeBadge` | Every type returns a badge fill and text color; an unknown type returns `other`'s |
 
 **Guard tests:**
 
@@ -254,7 +289,8 @@ Tests go in `src/lib/__tests__/unit/` (Jest `roots` is `src/lib`) and use the `/
    - The ring colors at 3:1 against `--chart-track`.
    - All ten theme accents at 3:1 against their own mode's surface.
    - `--chart-axis` at 4.5:1 against the card, and `--chart-tooltip-text` at 4.5:1 against `--chart-tooltip-bg`.
-   - `--chart-grid` and `--chart-tooltip-border` at 3:1.
+   - Badge text at 4.5:1 against its badge fill, for all 8 commit types in both modes.
+   - `--chart-grid` and `--chart-tooltip-border` are exempt (Decision 14).
 
    Colorblind separation is checked by the dataviz validator during the palette task, and its output is recorded in [Palette](#palette).
 
@@ -264,7 +300,7 @@ Tests go in `src/lib/__tests__/unit/` (Jest `roots` is `src/lib`) and use the `/
 
 - The full Jest suite passes.
 - `npm run build` passes, which catches extra `page.tsx` exports.
-- The mock-mode app (`npm run dev:mock`) is screenshotted on the org, dev, vulnerabilities and projects pages. That's done in one dark theme (Amber Glow) and one light theme (Daylight Blue). The screenshots are checked for:
+- The mock-mode app (`npm run dev:mock`) is screenshotted on the org page (including its spend tab), the dev, team, home, reports, vulnerabilities and projects pages. That covers every chart and every inline data bar in Decision 1. That's done in one dark theme (Amber Glow) and one light theme (Daylight Blue). The screenshots are checked for:
   - Label collisions, clipping and legibility.
   - Whether the hatch is legible on narrow bars.
 
