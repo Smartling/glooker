@@ -5,6 +5,7 @@
 // Each instance gets its own id from useId(): a page shows several charts in one document-wide
 // id space, so a static id would make the accent and in-flight patterns collide.
 import { useId, type ReactElement } from 'react';
+import { cssIdent } from './chart';
 
 const TILE = 6;
 
@@ -15,7 +16,7 @@ export interface Hatch {
 }
 
 export function useHatch(colorVar: string): Hatch {
-  const id = `hatch-${useId().replace(/[^A-Za-z0-9_-]/g, '')}`;
+  const id = `hatch-${cssIdent(useId())}`;
   const defs = (
     <defs>
       <pattern id={id} width={TILE} height={TILE} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">

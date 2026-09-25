@@ -19,7 +19,8 @@ const INITIAL_DIMENSION = { width: 320, height: 200 } as const;
 // ChartStyle writes ids, keys and colours into a raw <style> element, so each one is constrained
 // before interpolation: ids and keys to CSS-identifier characters, colours to an allowlist that
 // excludes < > ; { } and quotes. A colour outside the allowlist is dropped, never thrown on.
-const cssIdent = (value: string) => value.replace(/[^A-Za-z0-9_-]/g, '');
+// Exported so other chart modules (e.g. hatch.tsx) share this one sanitizer instead of a copy.
+export const cssIdent = (value: string) => value.replace(/[^A-Za-z0-9_-]/g, '');
 const SAFE_COLOR = /^[#a-zA-Z0-9(),.\s%-]+$/;
 type TooltipNameType = number | string;
 
