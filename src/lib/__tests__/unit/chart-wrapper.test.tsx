@@ -36,6 +36,31 @@ it('ChartStyle scopes dark to the unprefixed selector and light to [data-theme-m
   expect(css).not.toContain('.dark');
 });
 
+it('ChartStyle drops unsafe colours and strips unsafe characters from the id and keys', () => {
+  const { container } = render(
+    <ChartStyle
+      id={'x"]{}</style><script>y</script>'}
+      config={{
+        evil: { color: 'red;}</style><script>x</script>' },
+        'k}</style><b>': { color: 'var(--chart-type-bug)' },
+        bug: { color: 'var(--chart-type-bug)' },
+      }}
+    />,
+  );
+  const styles = container.querySelectorAll('style');
+  expect(styles).toHaveLength(1);
+  expect(container.querySelector('script')).toBeNull();
+  const css = styles[0].innerHTML;
+  expect(css).not.toContain('<');
+  expect(css).not.toContain('</style>');
+  expect(css).not.toContain('--color-evil');
+  // Only the two theme blocks close; no injected brace survives.
+  expect(css.match(/\}/g)).toHaveLength(2);
+  expect(css).toContain('[data-chart=xstylescriptyscript] {');
+  expect(css).toContain('  --color-kstyleb: var(--chart-type-bug);');
+  expect(css).toContain('  --color-bug: var(--chart-type-bug);');
+});
+
 it('the tooltip shows the configured label and a zero value, on chrome tokens', () => {
   const payload = [{ name: 'commits', dataKey: 'commits', value: 0, color: 'var(--accent)', payload: {}, graphicalItemId: 'bar-commits' }];
   const { container } = render(

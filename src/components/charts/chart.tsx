@@ -15,6 +15,12 @@ import { cn } from '@/lib/cn';
 const THEMES = { dark: '', light: '[data-theme-mode="light"]' } as const;
 
 const INITIAL_DIMENSION = { width: 320, height: 200 } as const;
+
+// ChartStyle writes ids, keys and colours into a raw <style> element, so each one is constrained
+// before interpolation: ids and keys to CSS-identifier characters, colours to an allowlist that
+// excludes < > ; { } and quotes. A colour outside the allowlist is dropped, never thrown on.
+const cssIdent = (value: string) => value.replace(/[^A-Za-z0-9_-]/g, '');
+const SAFE_COLOR = /^[#a-zA-Z0-9(),.\s%-]+$/;
 type TooltipNameType = number | string;
 
 export type ChartConfig = Record<
@@ -57,7 +63,7 @@ function ChartContainer({
   initialDimension?: { width: number; height: number };
 }) {
   const uniqueId = React.useId();
-  const chartId = `chart-${(id ?? uniqueId).replace(/[^A-Za-z0-9_-]/g, '')}`;
+  const chartId = `chart-${cssIdent(id ?? uniqueId)}`;
 
   return (
     <ChartContext.Provider value={{ config }}>
@@ -92,11 +98,12 @@ const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
         __html: Object.entries(THEMES)
           .map(
             ([theme, prefix]) => `
-${prefix} [data-chart=${id}] {
+${prefix} [data-chart=${cssIdent(id)}] {
 ${colorConfig
   .map(([key, itemConfig]) => {
     const color = itemConfig.theme?.[theme as keyof typeof itemConfig.theme] ?? itemConfig.color;
-    return color ? `  --color-${key}: ${color};` : null;
+    const name = cssIdent(key);
+    return name && color && SAFE_COLOR.test(color) ? `  --color-${name}: ${color};` : null;
   })
   .join('\n')}
 }
