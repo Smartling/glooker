@@ -25,7 +25,7 @@ Glooker has no charting library. Every chart is hand-built inline SVG or a Tailw
 
 ## Non-goals
 
-- API or data-shape changes. Charts consume the existing `timeline`, `TrendSeries[]` and `EpicRingStats` shapes.
+- API or data-shape changes, with one exception. Charts consume the existing `timeline`, `TrendSeries[]` and `EpicRingStats` shapes. The exception is Decision 15: the org and dev report responses each gain an additive `coveredWeeks` field.
 - Migrating non-chart bars. The `ProjectsCard` volume bar (`src/components/ProjectsCard.tsx:208-262`, `~406-435`), the sync progress bars (`src/app/reports/page.tsx:451-479`, `src/app/reports/vulnerability-syncs-tab.tsx:124-139`) and the other inline data bars listed in Decision 1 stay as `<div>`s. Only the `ProjectsCard` colors and the sync tracks move to tokens. The rest change only if the screenshot pass shows them broken.
 - Mobile layout redesign beyond what responsive containers give for free.
 - Click-to-select series, chart export, or table views.
@@ -73,7 +73,7 @@ Libraries evaluated on 2026-09-25 against GitHub, npm and official docs:
 8. **Multi-series charts use fixed semantic colors.** This covers commit types, lines added and removed, and the two `ProgressRing` arcs. Each has a dark step and a light step. Bug stays red and feature stays blue in every theme.
 9. **In-flight is always hatched.** This holds in every chart that shows it: the single-metric timelines, `StackedTypesChart`, `LinesChangedChart`, and the donut's `in_flight` wedge and legend swatch. In multi-series charts the hatch uses the in-flight token color, and in single-metric timelines it uses the accent. The pattern is a second visual cue, so in-flight is never shown by color alone. The mechanics are in [Hatch](#hatch).
 10. **Bars are placed by date, and the fill depends on the metric kind.** `aggregateWeekly` (`src/lib/report/timeline.ts:135`) emits **only weeks that have commits**. Its ratios come back as `0` when the denominator is zero, for example `avgLinesPerPr` at `:142`. `buildWeekDomain` returns every Monday-anchored week from the 90-day cutoff to the current week. `TimelineChart` then fills it according to a `kind` prop:
-    - **`kind: 'count'`** covers commits, PRs, lines changed and in-flight commits. A week absent from `data` is a real zero, so it is filled with `0`.
+    - **`kind: 'count'`** covers commits, PRs, lines changed and in-flight commits. A week absent from `data` is a real zero **only if some report measured it**. It is filled with `0` when the week is in `coveredWeeks` (Decision 15) and with `null`, a gap, when it isn't. *(Amended 2026-09-25. An earlier revision filled every absent week with `0`, which drew unmeasured weeks as false zeros.)*
     - **`kind: 'ratio'`** covers `avgLinesPerPr`, `avgImpact`, `avgComplexity` and `aiPercent`. A week absent from `data` has no defined value, so it is filled with `null` and renders as a gap.
       - For `avgLinesPerPr`, a present week with `prs === 0` is also `null`, via an optional `isDefined(d)` prop. The payload carries `prs`, so this needs no API change.
       - `avgComplexity` and `avgImpact` expose no denominator, so a present week reporting `0` is drawn as 0. See [Risks](#risks).
@@ -103,6 +103,41 @@ Libraries evaluated on 2026-09-25 against GitHub, npm and official docs:
       - Each is checked in both modes.
       - `--chart-grid` and `--chart-tooltip-border` are **exempt**. They're decorative, and WCAG 1.4.11 doesn't apply to them. Holding the grid to 3:1 would force a prominent gray line, against the "recessive grid" mark spec. An earlier revision of this spec required it; that was an error.
     - **Text-bearing badges.** Commit-type badges on the dev and team pages carry text on a colored fill. That's a different contrast requirement from a chart mark, so they don't reuse the mark tokens. `commit-types.ts` exports a separate badge treatment per type, in the same hue family: `commitTypeBadge(type) → { bg, text }`. Every type's badge text meets 4.5:1 against its badge fill, for all 8 types in both modes. This matters because the gate lightens `other` for marks: white text on the lightened gray would fall to about 2.5:1.
+15. **The report timelines show only measured weeks, in the report's own era.** *(Added 2026-09-25, approved by the product owner.)*
+
+    **Background.** The org and dev timelines are a history across reports:
+    - `org.ts:56-68` merges `commit_analyses` from **every** report run for the org, deduplicated by SHA. `dev.ts:85-99` does the same per developer.
+    - Each report fetched commits only for its own period, `[created_at − period_days, created_at]` (`report-runner.ts:44`).
+    - So the history is continuous only where report periods touch. A week between two report periods was never measured.
+
+    Two problems follow:
+    - **False zeros.** Introduced by Decision 10's count fill. A count chart draws an unmeasured week as `0`, and a ratio chart beside it draws the same week as a gap.
+    - **The window ends at today, not at the report.** This predates the branch. A report older than 90 days shows none of its own era.
+
+    **The fix has three parts.**
+    1. **Coverage from the server.**
+       - `getOrgReport` and the dev report service each add a `coveredWeeks: string[]` field to their response.
+       - It lists the UTC Monday keys (`weekKeyForDate`) of every week that overlaps the period `[created_at − period_days × 1 day, created_at]` of any report for the org. That's the same report set the timeline already reads, with no status filter. It keeps the existing SQL scope: the org, and all its reports.
+       - A partly covered week counts as covered.
+       - The field is additive; no existing field changes.
+    2. **Filling on the client.** `fillWeeks` takes an optional `covered: ReadonlySet<string>`. For `kind: 'count'`:
+       - A week present in `data` shows its value.
+       - An absent week in `covered` shows `0`.
+       - Any other week shows `null`.
+
+       Ratio kinds are unchanged: absent weeks are always `null`.
+       - When `covered` is omitted, `fillWeeks` keeps its current behavior, so existing tests and non-page callers aren't affected.
+       - Every page-grid chart (`TimelineChart`, `LinesChangedChart`, `StackedTypesChart`) takes an optional `coveredWeeks` prop, and each page passes the same array to all of them.
+       - A week that has data always counts as measured, even if it's outside `coveredWeeks`. For example, an in-flight commit that predates every report period still shows.
+       - In the timeline tooltip, an unmeasured week reads "Not measured" instead of a value.
+    3. **The window's anchor.**
+       - Both pages compute `weeks = recentWeekDomain(new Date(report.completed_at ?? report.created_at))` instead of `new Date()`. The window is the 90 days ending at this report's own week.
+       - `completed_at` is `null` only while a report is pending or running, so `created_at` is the fallback.
+       - The cross-report history still appears inside that window, `avgImpact` included. `avgImpact` is still merged only into weeks that have commits (`org.ts:102-105`).
+
+    **What it costs.**
+    - Viewing a report from July no longer shows commits that later reports gathered in September. The pages show "the 90 days up to this report" by design.
+    - The "Download PDF" print of a historical report now matches its era.
 
 ## Architecture
 
@@ -127,6 +162,8 @@ Libraries evaluated on 2026-09-25 against GitHub, npm and official docs:
 - `src/app/projects/progress-ring.tsx`.
 
 ### Other files touched
+
+- **Decision 15:** `src/lib/report/org.ts` and `src/lib/report/dev.ts` (the `coveredWeeks` computation, sharing one helper in `timeline.ts`); their TypeScript response types; and the org and dev pages' `weeks` anchor.
 
 - **`src/app/vulnerabilities/vulnerabilities-content.tsx`.** Builds `colorByTeam` from the unfiltered series (Decision 11).
 - **`src/app/report/[id]/team/dev-table.tsx`.** Its type badges read `commit-types.ts`.
@@ -529,6 +566,7 @@ Tests go in `src/lib/__tests__/unit/` (Jest `roots` is `src/lib`) and use the `/
 
 | Subject | Asserts |
 |---|---|
+| Coverage (Decision 15) | Server: a report with `period_days=14` whose `created_at` is a Wednesday covers exactly the three Monday keys its period touches; two reports with a gap between them leave the gap's weeks out; overlapping periods don't duplicate keys; keys are UTC. Client: an absent count week in `covered` is `0`, one outside it is `null`, and a present week is always its value; ratio kinds ignore `covered`; with no `covered`, the old behavior holds. Pages: the domain ends at `completed_at`'s week, or `created_at`'s while it's `null`. The tooltip says "Not measured" for an unmeasured week |
 | `chart-format` | Weeks are Monday-anchored; for `kind: 'count'` a missing week is `0`, and for `kind: 'ratio'` a missing week is `null`; `isDefined` returning false gives `null`; every chart on a page gets an identical week array; `toNum("12.50") === 12.5`; the formatter respects `suffix` and `decimals` |
 | `TimelineChart` | One bar per week that has a value, and gaps for `null`; the header shows the latest value and change; the hatch appears only with `inFlightValue`; bars use `var(--accent)`; two instances get different pattern IDs |
 | `CommitTypeDonut` | The legend shows count and % with no hover; a total of 0 shows the empty state; hovering changes the center label, which stays chrome-colored; the `in_flight` wedge uses a pattern fill |
