@@ -74,8 +74,8 @@ it('POST sync: admin only, 202 / 409, records who triggered it', async () => {
   expect((await sync(req('/api/vulnerabilities/sync', { method: 'POST' }))).status).toBe(409);
 });
 
-it('GET syncs/:id/progress: 400s on a non-integer id, never reaching the query layer', async () => {
-  const res = await progressReq('abc');
+it.each(['abc', '1e3', '12abc', '-1', '0x1f', '1.5', ''])('GET syncs/:id/progress: 400s on id %p (digits only), never reaching the query layer', async (id) => {
+  const res = await progressReq(id);
   expect(res.status).toBe(400);
   expect(getSyncProgressView).not.toHaveBeenCalled();
 });

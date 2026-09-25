@@ -3,6 +3,7 @@
 import React from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { SWRConfig } from 'swr';
+import SWRProvider from '@/lib/swr-provider';
 import VulnerabilitySyncsTab from '@/app/reports/vulnerability-syncs-tab';
 
 const schedule = { cron: '0 6 * * *', tz: 'America/New_York', next_run: '2026-09-23T10:00:00Z' };
@@ -110,8 +111,69 @@ it('a running card is not clickable, and shows the step, the x / y repos counter
   expect(screen.getByText('[10:00:05] sync failed: boom')).toBeTruthy();
   // not clickable while running: no chevron, and clicking the header does nothing
   fireEvent.click(screen.getByText('running'));
-  expect(screen.queryByText('Dashboard')).toBeNull();
+  expect(screen.queryByText(/Dashboard/)).toBeNull();
+  expect(screen.queryByText('Alerts')).toBeNull();
 });
+
+// The next two mount the real app-wide SWRProvider (errorRetryCount: 1, as in production): under a
+// bare SWRConfig (library default errorRetryCount: 5) the old code recovered too, so these would
+// prove nothing there. Only the cache is isolated per test.
+const wrapApp = (ui: React.ReactNode) => <SWRProvider><SWRConfig value={{ provider: () => new Map() }}>{ui}</SWRConfig></SWRProvider>;
+
+it('the progress poll survives consecutive errors: two 500s, then it keeps polling until the run finishes', async () => {
+  let progressCalls = 0;
+  (global as any).fetch = jest.fn((url: string) => {
+    if (/\/syncs\/4\/progress/.test(url)) {
+      progressCalls++;
+      if (progressCalls <= 2) return Promise.resolve({ ok: false, status: 500, json: async () => ({ error: 'boom' }) });
+      const body = progressCalls === 3
+        ? { status: 'running', step: '[5/10] Checking Dependabot status', done: 5, total: 10, logs: [] }
+        : { status: 'succeeded', step: 'Done', done: 0, total: 0, logs: [] };
+      return Promise.resolve({ ok: true, status: 200, json: async () => body });
+    }
+    return Promise.resolve({ ok: true, status: 200, json: async () => listBody([runningSync], true) });
+  });
+  render(wrapApp(<VulnerabilitySyncsTab canAct={false} />));
+  await waitFor(() => expect(screen.getByText('[5/10] Checking Dependabot status')).toBeTruthy(), { timeout: 6000 });
+  await waitFor(() => expect(screen.getByText('Done')).toBeTruthy(), { timeout: 4000 });
+}, 15000);
+
+it('retention survives a tab switch: a run seen running keeps its progress block after the tab unmounts and remounts', async () => {
+  let finished = false;
+  (global as any).fetch = jest.fn((url: string) => {
+    if (/\/syncs\/4\/progress/.test(url)) {
+      const body = finished
+        ? { status: 'succeeded', step: 'Done', done: 0, total: 0, logs: [] }
+        : { status: 'running', step: 'Fetching alerts…', done: 0, total: 0, logs: [] };
+      return Promise.resolve({ ok: true, status: 200, json: async () => body });
+    }
+    const row = finished ? { ...runningSync, status: 'succeeded', finishedAt: '2026-09-23T09:05:00Z' } : runningSync;
+    return Promise.resolve({ ok: true, status: 200, json: async () => listBody([row], !finished) });
+  });
+  const observed = new Set<number>(); // what ReportsTabs owns and passes in
+  const first = render(wrap(<VulnerabilitySyncsTab canAct={false} observedRunning={observed} />));
+  await waitFor(() => screen.getByText('Fetching alerts…'));
+  first.unmount(); // user switches to the Reports tab
+  finished = true;
+  render(wrap(<VulnerabilitySyncsTab canAct={false} observedRunning={observed} />)); // and back
+  await waitFor(() => screen.getByText('succeeded'));
+  expect(await screen.findByText('Done')).toBeTruthy();
+});
+
+it('a 404 from the progress route stops that card polling (a non-transient 4xx is not retried)', async () => {
+  let progressCalls = 0;
+  (global as any).fetch = jest.fn((url: string) => {
+    if (/\/syncs\/4\/progress/.test(url)) {
+      progressCalls++;
+      return Promise.resolve({ ok: false, status: 404, json: async () => ({ error: 'not found' }) });
+    }
+    return Promise.resolve({ ok: true, status: 200, json: async () => listBody([runningSync], true) });
+  });
+  render(wrapApp(<VulnerabilitySyncsTab canAct={false} />));
+  await waitFor(() => expect(progressCalls).toBe(1));
+  await new Promise(r => setTimeout(r, 3500));
+  expect(progressCalls).toBe(1);
+}, 15000);
 
 it('when the progress poll reports the run finished: the bar fills to 100%, polling stops, and the list refetches exactly once', async () => {
   let finished = false;

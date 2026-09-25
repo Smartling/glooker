@@ -11,6 +11,7 @@ import { insertRunningSync, runSync } from '@/lib/vulnerabilities/sync';
 import { getGitHubProvider } from '@/lib/github';
 import { startSync, isSyncRunning, initVulnerabilityScheduler } from '@/lib/vulnerabilities/scheduler';
 import { getSyncSchedule, isVulnerabilitiesEnabled } from '@/lib/vulnerabilities/config';
+import { getSyncProgress } from '@/lib/vulnerabilities/progress';
 
 const prior = { ...process.env };
 afterEach(() => { process.env = { ...prior }; delete (globalThis as any).__glooker_vuln_sync_running; });
@@ -48,6 +49,19 @@ it('a synchronous getGitHubProvider throw clears the running flag, marks the syn
   const failCall = (db.execute as jest.Mock).mock.calls.find(([, params]) => Array.isArray(params) && params.includes(11));
   expect(failCall).toBeTruthy();
   expect(failCall![1]).toEqual(expect.arrayContaining([11]));
+  // the progress store must agree with the row, not keep claiming `running`
+  expect(getSyncProgress(11)).toMatchObject({ status: 'failed', step: 'Failed' });
+});
+
+it('an unexpected runSync rejection marks the progress failed (its own failure write could not)', async () => {
+  process.env.VULNERABILITIES_ORG = 'o';
+  jest.spyOn(console, 'error').mockImplementation(() => {});
+  (runSync as jest.Mock).mockImplementationOnce(() => Promise.reject(new Error('db down')));
+  expect(await startSync('manual', 'a@x')).toEqual({ status: 'started', syncId: 11 });
+  await new Promise(r => setImmediate(r));
+  expect(getSyncProgress(11)).toMatchObject({ status: 'failed', step: 'Failed' });
+  expect(isSyncRunning()).toBe(false);
+  (console.error as jest.Mock).mockRestore();
 });
 
 it('defaults the schedule to 06:00 America/New_York', () => {

@@ -1,4 +1,5 @@
 'use client';
+import { useRef } from 'react';
 import useSWR from 'swr';
 import { useUrlState } from '@/lib/url-state';
 import { useAuth } from '../auth-context';
@@ -14,6 +15,9 @@ export default function ReportsTabs({ reports }: { reports: React.ReactNode }) {
   const { canAct } = useAuth();
   const { data: config } = useSWR<LlmConfig>('/api/llm-config');
   const [tab, setTab] = useUrlState<(typeof TABS)[number]>({ key: 'tab', type: 'enum', values: TABS, default: 'reports', history: 'replace' });
+  // Sync ids seen running this page session. Owned here, not by the syncs tab, because the syncs tab
+  // unmounts while Reports is shown, and retention must survive a tab switch like the Reports tab's.
+  const observedRunning = useRef<Set<number>>(new Set());
   if (!config?.vulnerabilities?.enabled) return <>{reports}</>;
   const cls = (on: boolean) => `pb-2 text-sm font-medium ${on ? 'text-white border-b-2 border-indigo-500 -mb-px' : 'text-gray-500 hover:text-gray-300'}`;
   return (
@@ -22,7 +26,7 @@ export default function ReportsTabs({ reports }: { reports: React.ReactNode }) {
         <button className={cls(tab === 'reports')} onClick={() => setTab('reports')}>Reports</button>
         <button className={cls(tab === 'syncs')} onClick={() => setTab('syncs')}>Vulnerability syncs</button>
       </div>
-      {tab === 'syncs' ? <VulnerabilitySyncsTab canAct={canAct} /> : reports}
+      {tab === 'syncs' ? <VulnerabilitySyncsTab canAct={canAct} observedRunning={observedRunning.current} /> : reports}
     </>
   );
 }

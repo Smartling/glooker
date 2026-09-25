@@ -11,8 +11,9 @@ async function getHandler(
 ) {
   if (!isVulnerabilitiesEnabled()) return notFound();
   const { id } = await params;
-  const syncId = Number(id);
-  if (!Number.isInteger(syncId)) return NextResponse.json({ error: 'invalid id' }, { status: 400 });
+  // Digits only: Number() alone would accept '1e3', ' 12' or '0x1f' as ids.
+  const syncId = /^\d{1,15}$/.test(id) ? Number(id) : NaN;
+  if (!Number.isSafeInteger(syncId)) return NextResponse.json({ error: 'invalid id' }, { status: 400 });
 
   try {
     const progress = await getSyncProgressView(syncId);

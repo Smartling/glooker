@@ -3,7 +3,7 @@ import db from '../db/index';
 import { getGitHubProvider } from '../github';
 import { insertRunningSync, runSync } from './sync';
 import { getVulnerabilitiesOrg, getSyncSchedule } from './config';
-import { initSyncProgress } from './progress';
+import { initSyncProgress, updateSyncProgress } from './progress';
 import { toIsoSecond } from './time';
 import type { TriggerKind } from './types';
 
@@ -57,10 +57,16 @@ export async function startSync(trigger: TriggerKind, triggeredBy: string | null
   try {
     const source = getGitHubProvider();
     void runSync(syncId, org, source)
-      .catch(err => console.error('[vuln-sync] unexpected failure:', err))
+      .catch(err => {
+        console.error('[vuln-sync] unexpected failure:', err);
+        // Reachable when runSync's own failure write throws (e.g. the DB is down): the row can't be
+        // updated either, but the in-memory progress must not keep claiming `running`.
+        updateSyncProgress(syncId, { status: 'failed', step: 'Failed' });
+      })
       .finally(() => { g.__glooker_vuln_sync_running = false; });
   } catch (err) {
     g.__glooker_vuln_sync_running = false;
+    updateSyncProgress(syncId, { status: 'failed', step: 'Failed' });
     const message = err instanceof Error ? err.message : String(err);
     try {
       await db.execute(`UPDATE vulnerability_syncs SET status = 'failed', finished_at = ?, issues = ? WHERE id = ?`,
