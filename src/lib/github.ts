@@ -1,4 +1,10 @@
 import { Octokit } from '@octokit/rest';
+import type {
+  VulnerabilitySource, FetchedAlert, FetchedRepo, RepoAlertStatus, OnDataNotice,
+  RawPropertyRow, FetchedPropertiesResult, PropertyKeys,
+} from './vulnerabilities/types';
+import { toIsoSecond } from './vulnerabilities/time';
+import { mapPropertyRows } from './vulnerabilities/properties';
 
 export interface CommitData {
   sha:           string;
@@ -88,7 +94,7 @@ export interface UserActivity {
   prsUnverified?: string;
 }
 
-export interface GitHubProvider {
+export interface GitHubProvider extends VulnerabilitySource {
   listOrgMembers(org: string, log?: (msg: string) => void): Promise<OrgMember[]>;
   fetchUserActivity(org: string, user: string, since: Date, log?: (msg: string) => void): Promise<UserActivity>;
   listOrgs(): Promise<Array<{ login: string; avatar_url: string }>>;
@@ -1294,6 +1300,191 @@ export async function isShaInMergedPR(
   }
 }
 
+// ---------- Vulnerability tracking (GLOOK-43) ----------
+
+/** GitHub's exact message for archived repos. */
+export const ARCHIVED_ALERTS_MESSAGE = 'Dependabot alerts are not available for archived repositories.';
+
+/** GitHub's exact message when a repo has Dependabot alerts turned off. Pinned the same way as
+ * ARCHIVED_ALERTS_MESSAGE: exact match, not a substring — a repo with Dependabot off is
+ * unmeasured but this is not a sync issue. */
+export const DEPENDABOT_OFF_MESSAGE = 'Dependabot alerts are disabled for this repository.';
+
+/**
+ * GLOOK-43: a hung GitHub request (no response, no error — the connection just never
+ * completes) has no rate-limit header and no HTTP status, so withRetry's classification never
+ * fires and the request waits forever, keeping the in-process sync flag set (scheduler.ts) until
+ * the process restarts. Every vulnerability-module `kit.request` call passes this as its abort
+ * signal so a hung request eventually fails visibly instead of wedging the sync. Scoped to this
+ * module only — the shared Octokit instance and every report-path call are untouched.
+ *
+ * GLOOK-43: `AbortSignal.timeout` rejects the underlying `fetch` with a
+ * `TimeoutError`, not `AbortError` — `AbortError` is the name reserved for a signal aborted by an
+ * explicit `controller.abort()` call. `@octokit/request`'s fetch wrapper (dist-src/fetch-wrapper.js)
+ * only special-cases the literal name `AbortError` (rethrowing that error as-is with
+ * `error.status = 500` added); a `TimeoutError` falls through to the wrapper's generic branch,
+ * which instead wraps it in a `RequestError` with `status: 500`. Either way withRetry classifies
+ * the failure as a transient 5xx and retries it (up to 3 attempts) rather than as a rate limit or
+ * a network error — that's fine per the design: a final timeout still fails the run visibly, just
+ * after a shallow retry budget like any other transient failure.
+ */
+export const VULN_GITHUB_TIMEOUT_MS = 60_000;
+
+function nextLink(headers: Record<string, any> | undefined): string | null {
+  const link = headers?.link as string | undefined;
+  const m = link?.match(/<([^>]+)>;\s*rel="next"/);
+  return m ? m[1] : null;
+}
+
+/**
+ * Manual Link-header pager: every page is its own withRetry call, so a rate limit retries
+ * one page, not the whole sweep. Do NOT replace with one withRetry around paginate.iterator.
+ *
+ * Maps each page as it arrives (GLOOK-43) instead of collecting every raw page
+ * and mapping afterwards — a raw org-scale Dependabot alert page is sizeable per 100 alerts, so
+ * collecting them all for a full sweep would hold every raw page in memory that was thrown
+ * away a moment later by the callers' own .map().
+ */
+async function fetchAllPages<T, R>(
+  route: string, params: Record<string, unknown>, map: (raw: T) => R, log?: (m: string) => void,
+): Promise<R[]> {
+  const kit: any = getOctokit();
+  const out: R[] = [];
+  let page = 1;
+  // The signal is created inside each withRetry attempt (not once, outside), so a retry after a
+  // timeout gets a fresh VULN_GITHUB_TIMEOUT_MS window instead of an already-aborted one.
+  let res: any = await withRetry(() => kit.request(route, { ...params, request: { signal: AbortSignal.timeout(VULN_GITHUB_TIMEOUT_MS) } }), log);
+  out.push(...(res.data as T[]).map(map));
+  let next = nextLink(res.headers);
+  while (next) {
+    const url = next;
+    res = await withRetry(() => kit.request(`GET ${url}`, { request: { signal: AbortSignal.timeout(VULN_GITHUB_TIMEOUT_MS) } }), log);
+    out.push(...(res.data as T[]).map(map));
+    page++;
+    // GLOOK-43: a full sweep can run for minutes with no output, so the syncs
+    // tab showed a fixed "running · fetching alerts" label the whole time. Log every 20 pages
+    // (never the full URL with query parameters, just the route
+    // template) so an operator watching the server console can tell the sync is actually
+    // making progress.
+    if (page % 20 === 0) log?.(`${route}: page ${page}, ${out.length} items`);
+    next = nextLink(res.headers);
+  }
+  return out;
+}
+
+const isoOrNull = (v: unknown): string | null => (v ? toIsoSecond(String(v)) : null);
+
+/**
+ * Truncates a string to its column's limit, so a legitimately long GitHub value (a deep monorepo
+ * manifest path, a verbose dismissed_reason) can't blow up a MySQL strict-mode INSERT (GLOOK-43).
+ * `summary` is TEXT and is never passed through this. `onClip` lets the caller count
+ * how many fields were clipped across a whole page/sweep without module-level mutable state.
+ */
+function clip<T extends string | null>(s: T, n: number, onClip: () => void): T {
+  if (s !== null && s.length > n) { onClip(); return s.slice(0, n) as T; }
+  return s;
+}
+
+/**
+ * Replaces every code point above U+FFFF (a surrogate pair in UTF-16 — an emoji, most
+ * supplementary-plane CJK, etc.) with U+FFFD (GLOOK-43).
+ *
+ * Dev's MySQL database is utf8mb3 (charsets are never pinned — see the root CLAUDE.md), which
+ * rejects a 4-byte UTF-8 character in any TEXT/VARCHAR column with `ERROR 1366 Incorrect string
+ * value`, rolling back the whole write transaction and so the entire daily sync. Applied BEFORE
+ * `clip()` everywhere both run, so `clip`'s `slice()` can never land mid-surrogate-pair either —
+ * once bmpOnly has run, there are no pairs left to split.
+ */
+export function bmpOnly<T extends string | null>(s: T, onSanitize: () => void = () => {}): T {
+  if (s === null) return s;
+  const out = (s as string).replace(/[\u{10000}-\u{10FFFF}]/gu, '�');
+  if (out !== s) onSanitize();
+  return out as T;
+}
+
+function mapAlert(a: any, onClip: () => void = () => {}, onSanitize: () => void = () => {}): FetchedAlert {
+  const adv = a.security_advisory ?? {};
+  const b = <T extends string | null>(v: T): T => bmpOnly(v, onSanitize);
+  return {
+    repoId: Number(a.repository.id), repoFullName: b(a.repository.full_name), number: Number(a.number),
+    htmlUrl: clip(b(a.html_url), 500, onClip), state: a.state, severity: adv.severity,
+    ghsaId: clip(b(adv.ghsa_id ?? null), 64, onClip), cveId: clip(b(adv.cve_id ?? null), 64, onClip), summary: b(adv.summary ?? null),
+    cvssScore: adv.cvss?.score ?? null, epssPercentage: adv.epss?.percentage ?? null,
+    advisoryWithdrawnAt: isoOrNull(adv.withdrawn_at),
+    packageName: clip(b(a.dependency?.package?.name ?? null), 255, onClip),
+    ecosystem: clip(b(a.dependency?.package?.ecosystem ?? null), 64, onClip),
+    manifestPath: clip(b(a.dependency?.manifest_path ?? null), 500, onClip),
+    relationship: clip(b(a.dependency?.relationship ?? null), 32, onClip),
+    scope: clip(b(a.dependency?.scope ?? null), 32, onClip),
+    firstPatchedVersion: clip(b(a.security_vulnerability?.first_patched_version?.identifier ?? null), 128, onClip),
+    createdAt: toIsoSecond(a.created_at), updatedAt: isoOrNull(a.updated_at),
+    fixedAt: isoOrNull(a.fixed_at), dismissedAt: isoOrNull(a.dismissed_at),
+    autoDismissedAt: isoOrNull(a.auto_dismissed_at), dismissedReason: clip(b(a.dismissed_reason ?? null), 64, onClip),
+  };
+}
+
+export async function listOrgDependabotAlerts(org: string, log?: (m: string) => void, onDataNotice?: OnDataNotice): Promise<FetchedAlert[]> {
+  let clippedFields = 0, sanitizedFields = 0;
+  const alerts = await fetchAllPages<any, FetchedAlert>('GET /orgs/{org}/dependabot/alerts', {
+    org, severity: 'critical,high', state: 'open,fixed,dismissed,auto_dismissed', per_page: 100,
+  }, (raw) => mapAlert(raw, () => { clippedFields++; }, () => { sanitizedFields++; }), log);
+  if (sanitizedFields > 0) { log?.(`listOrgDependabotAlerts: replaced 4-byte characters in ${sanitizedFields} field(s)`); onDataNotice?.('sanitized', sanitizedFields); }
+  if (clippedFields > 0) { log?.(`listOrgDependabotAlerts: clipped ${clippedFields} field(s) exceeding their column limits`); onDataNotice?.('clipped', clippedFields); }
+  // Belt-and-suspenders: the request already asks GitHub to filter to critical/high, but keep out
+  // anything that slips through with a different severity rather than trust that server-side filter
+  // silently (severities are critical/high only — see global-constraints).
+  const kept = alerts.filter(a => a.severity === 'critical' || a.severity === 'high');
+  const skipped = alerts.length - kept.length;
+  if (skipped > 0) log?.(`listOrgDependabotAlerts: skipped ${skipped} alert(s) with a severity outside critical/high`);
+  return kept;
+}
+
+export async function listOrgReposForVulns(org: string, log?: (m: string) => void, onDataNotice?: OnDataNotice): Promise<FetchedRepo[]> {
+  let sanitizedFields = 0;
+  const onSanitize = () => { sanitizedFields++; };
+  const repos = await fetchAllPages<any, FetchedRepo>('GET /orgs/{org}/repos', { org, type: 'all', per_page: 100 },
+    r => ({ repoId: Number(r.id), fullName: bmpOnly(r.full_name, onSanitize), archived: Boolean(r.archived) }), log);
+  if (sanitizedFields > 0) { log?.(`listOrgReposForVulns: replaced 4-byte characters in ${sanitizedFields} field(s)`); onDataNotice?.('sanitized', sanitizedFields); }
+  return repos;
+}
+
+export async function listOrgRepoProperties(
+  org: string, keys: PropertyKeys, log?: (m: string) => void, onDataNotice?: OnDataNotice,
+): Promise<FetchedPropertiesResult> {
+  let sanitizedFields = 0;
+  const onSanitize = () => { sanitizedFields++; };
+  const raw = await fetchAllPages<any, RawPropertyRow>('GET /orgs/{org}/properties/values', { org, per_page: 100 }, r => ({
+    repoId: Number(r.repository_id),
+    fullName: bmpOnly(r.repository_full_name, onSanitize),
+    properties: (r.properties ?? []).map((x: any) => ({
+      property_name: x.property_name,
+      value: typeof x.value === 'string' ? bmpOnly(x.value, onSanitize) : x.value,
+    })),
+  }), log);
+  if (sanitizedFields > 0) { log?.(`listOrgRepoProperties: replaced 4-byte characters in ${sanitizedFields} field(s)`); onDataNotice?.('sanitized', sanitizedFields); }
+  return mapPropertyRows(raw, keys);
+}
+
+function errMessage(err: any): string {
+  return err?.response?.data?.message ?? (err instanceof Error ? err.message : String(err));
+}
+
+export async function getRepoDependabotStatus(fullName: string, log?: (m: string) => void): Promise<RepoAlertStatus> {
+  const [owner, repo] = fullName.split('/');
+  try {
+    await withRetry(() => (getOctokit() as any).request('GET /repos/{owner}/{repo}/dependabot/alerts', {
+      owner, repo, per_page: 1, request: { signal: AbortSignal.timeout(VULN_GITHUB_TIMEOUT_MS) },
+    }), log);
+    return { status: 'ok' };
+  } catch (err: any) {
+    const status = err?.status ?? err?.response?.status;
+    const message = errMessage(err);
+    if (status === 403 && message === ARCHIVED_ALERTS_MESSAGE) return { status: 'archived' };
+    if (status === 403 && message === DEPENDABOT_OFF_MESSAGE) return { status: 'dependabot-off', detail: message };
+    return { status: 'error', detail: `HTTP ${status ?? '?'}: ${message}` };
+  }
+}
+
 // ---------- Provider factory ----------
 
 let cachedProvider: GitHubProvider | null = null;
@@ -1319,6 +1510,10 @@ export function getGitHubProvider(): GitHubProvider {
     fetchPullRequestCommits,
     compareBranchCommits,
     isShaInMergedPR,
+    listOrgReposForVulns,
+    listOrgRepoProperties,
+    listOrgDependabotAlerts,
+    getRepoDependabotStatus,
   };
   return cachedProvider;
 }

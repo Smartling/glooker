@@ -45,6 +45,9 @@ async function main() {
   await seed('cc_skills_usage', data.seedCcSkillsUsage);
   await seed('cc_model_usage', data.seedCcModelUsage);
 
+  const { seedVulnerabilities } = await import('./seed-vulnerabilities');
+  await seedVulnerabilities(db);
+
   console.log('\nDone! Run `npm run dev:mock` to start the app with mock providers.');
 }
 

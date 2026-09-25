@@ -21,6 +21,7 @@ export default function NavBar() {
   const { data: config } = useSWR('/api/llm-config');
   const latestReport = config?.latestReport ?? null;
   const projectsEnabled = Boolean(config?.jira?.enabled && config?.jira?.projectsJql);
+  const vulnerabilitiesEnabled = Boolean(config?.vulnerabilities?.enabled);
 
   const isReportPage = pathname.match(/^\/report\/[^/]+\//);
   const isDevDetail = pathname.match(/^\/report\/[^/]+\/dev\//);
@@ -80,6 +81,12 @@ export default function NavBar() {
         {projectsEnabled && (
           <Link href="/projects" className={navItemClass(pathname.startsWith('/projects'))}>
             Projects
+          </Link>
+        )}
+
+        {vulnerabilitiesEnabled && (
+          <Link href="/vulnerabilities" className={navItemClass(pathname.startsWith('/vulnerabilities'))}>
+            Vulnerabilities
           </Link>
         )}
 

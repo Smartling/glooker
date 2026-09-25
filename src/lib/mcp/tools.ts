@@ -11,6 +11,9 @@ import { getReportHighlights } from '@/lib/report-highlights';
 import { getDevSummary } from '@/lib/report/summary';
 import { getTeamPulse } from '@/lib/team-pulse';
 import type { Requester } from '@/lib/cost-visibility';
+import { getSummary as getVulnSummary, getTrend as getVulnTrend, getAlerts as getVulnAlerts, getCoverage as getVulnCoverage, REASON_DISABLED as VULN_REASON_DISABLED } from '@/lib/vulnerabilities/queries';
+import { parseVulnFilters } from '@/lib/vulnerabilities/filters';
+import { isVulnerabilitiesEnabled } from '@/lib/vulnerabilities/config';
 
 export interface McpTool {
   name: string;
@@ -49,6 +52,34 @@ async function getDeveloperSummaryTool(args: { login: string; report_id?: string
   const r = await resolveReportId(args.report_id);
   if ('error' in r) return r;
   return getDevSummary(r.id, args.login);
+}
+
+// ── GLOOK-43 vulnerability tools ──
+const VULN_COMMON = 'Counts are Dependabot alerts, not CVEs: one CVE in five manifests is five alerts. '
+  + 'Always check `available` (false means the feature is off or no sync has succeeded yet — say so, never report zeros) '
+  + 'and `sync.stale` (true means the data is over 36h old — tell the user the date of `sync.last_successful_at`). '
+  + 'Every data response carries config_errors; non-empty means results may be incomplete. ';
+const VULN_FILTER_PROPS = {
+  codebase: { type: 'string', enum: ['backend', 'frontend', 'shared', 'other', 'all'], description: 'Page group: backend, frontend, shared, other or all (default backend); which codebase-type values count in each is set by the deployment.' },
+  team: { type: 'string', description: "The repo's team custom property value, or 'Unassigned'. Unknown values return an error listing known teams." },
+  repo: { type: 'string', description: 'org/name' },
+  severity: { type: 'string', enum: ['critical', 'high'] },
+};
+
+// MCP speaks snake_case; the HTTP API (consumed only by the UI) stays camelCase — a deliberate split (spec: MCP).
+// Keys only, recursively. Values (team names, repo names) are never rewritten.
+const snakeKey = (k: string) => k.replace(/[A-Z]/g, c => `_${c.toLowerCase()}`);
+function toSnake(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(toSnake);
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [snakeKey(k), toSnake(x)]));
+  return v;
+}
+
+async function vulnCall(args: Record<string, unknown>, run: (f: any) => Promise<any>) {
+  if (!isVulnerabilitiesEnabled()) return { available: false, reason: VULN_REASON_DISABLED };
+  const parsed = parseVulnFilters(args ?? {});
+  if (!parsed.ok) return { error: parsed.error };
+  return toSnake(await run(parsed.value));
 }
 
 export const MCP_TOOLS: McpTool[] = [
@@ -208,6 +239,50 @@ export const MCP_TOOLS: McpTool[] = [
       until: { type: 'string', description: 'ISO date upper bound' },
     }, required: ['metric'] },
     handler: (a) => getMetricTimeseries(a),
+  },
+  {
+    name: 'list_vulnerabilities',
+    description: VULN_COMMON + 'Lists critical/high Dependabot alerts with SLA fields (due_date, days_remaining — negative means overdue, sla_policy_id), age, state, dismissed_reason and a link. Use for "our new CVEs" (created_since) and "what is due" (due_before / overdue). Returns total_count and truncated. The response also includes `repos` (per-repo counts under the current filters, ignoring `repo`) to help pick a `repo` filter.',
+    inputSchema: { type: 'object', properties: {
+      ...VULN_FILTER_PROPS,
+      state: { type: 'string', enum: ['open', 'resolved', 'all'], description: 'default open' },
+      overdue: { type: 'boolean' },
+      due_soon: { type: 'boolean', description: 'Open with a due date 0-7 days out. An overdue alert does not count as due soon.' },
+      due_before: { type: 'string', description: 'YYYY-MM-DD' },
+      created_since: { type: 'string', description: 'YYYY-MM-DD' },
+      resolved_since: { type: 'string', description: 'YYYY-MM-DD' },
+      dependency_scope: { type: 'string', enum: ['runtime', 'development', 'unknown'] },
+      cve: { type: 'string' }, ghsa: { type: 'string' },
+      package: { type: 'string', description: 'echoed as applied_filters.package_name' },
+      limit: { type: 'number', description: 'default 100, max 500' },
+    } },
+    handler: (a) => vulnCall(a, f => getVulnAlerts(f)),
+  },
+  {
+    name: 'get_vulnerability_summary',
+    description: VULN_COMMON + 'Per-team pivot: open, resolved since the start date (resolved_count_start_date), dismissed, % closed (null when nothing to close), overdue, due in 7 days, unmeasured_repos; plus the delta since a baseline (new / resolved / reopened / other, which always reconcile) and the SLA policy in effect. '
+      + '`resolved` includes `carried_resolved` from imported CSV history for archived repos with no alert data in Glooker. '
+      + '`sla_policy_invalid` true means the SLA policy configuration is invalid and no SLA applies (so `sla_status` \'none\' does not mean "no policy"); `resolved_count_start_date` null means all time; when `resolved_count_invalid` is true, `resolved` and `pct_closed` are null.',
+    inputSchema: { type: 'object', properties: {
+      codebase: VULN_FILTER_PROPS.codebase, team: VULN_FILTER_PROPS.team,
+      baseline: { type: 'string', description: "last (previous sync), 7d, 30d or YYYY-MM-DD. Default last." },
+    } },
+    handler: (a) => vulnCall(a, f => getVulnSummary(f)),
+  },
+  {
+    name: 'get_vulnerability_trend',
+    description: VULN_COMMON + 'Open-count per team per day from measured snapshots only (no reconstructed history). High and non-Backend views start at the first sync.',
+    inputSchema: { type: 'object', properties: {
+      codebase: VULN_FILTER_PROPS.codebase, team: VULN_FILTER_PROPS.team, severity: VULN_FILTER_PROPS.severity,
+      since: { type: 'string', description: 'YYYY-MM-DD' },
+    } },
+    handler: (a) => vulnCall(a, f => getVulnTrend(f)),
+  },
+  {
+    name: 'get_vulnerability_coverage',
+    description: VULN_COMMON + 'Repos with open alerts that need tagging (missing tier, codebase-type or team property), repos outside the configured tracking scope, and in-scope repos whose Dependabot status is unmeasured.',
+    inputSchema: { type: 'object', properties: { team: VULN_FILTER_PROPS.team } },
+    handler: (a) => vulnCall(a, f => getVulnCoverage(f)),
   },
 ];
 

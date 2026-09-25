@@ -1,5 +1,6 @@
 import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, promptTag, samplingParams } from '@/lib/llm-provider';
 import { loadPrompt } from '@/lib/prompt-loader';
+import { isVulnerabilitiesEnabled, getVulnerabilitiesOrg } from '@/lib/vulnerabilities/config';
 
 export interface AppConfig {
   provider: string;
@@ -34,6 +35,7 @@ export interface AppConfig {
     projectsJql: string | null;
     missing: string[];
   };
+  vulnerabilities: { enabled: boolean; org: string | null };
 }
 
 export interface LLMConnectionResult {
@@ -117,6 +119,8 @@ export function getAppConfig(): AppConfig {
     projectsJql: process.env.JIRA_PROJECTS_JQL || null,
     missing: jiraMissing,
   };
+
+  config.vulnerabilities = { enabled: isVulnerabilitiesEnabled(), org: getVulnerabilitiesOrg() };
 
   return config;
 }

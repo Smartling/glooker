@@ -155,6 +155,97 @@ CREATE TABLE IF NOT EXISTS jira_projects (
   UNIQUE KEY uq_org_project (org, project_key)
 );
 
+-- GLOOK-43: vulnerability tracking. Instants are VARCHAR(20) ISO strings (see spec: Timestamps).
+CREATE TABLE IF NOT EXISTS vulnerability_repos (
+  repo_id                  BIGINT       NOT NULL PRIMARY KEY,
+  org                      VARCHAR(255) NOT NULL,
+  full_name                VARCHAR(255) NOT NULL,
+  team                     VARCHAR(255) NULL,
+  service_tier             VARCHAR(255) NULL,
+  codebase_type            VARCHAR(255) NULL,
+  archived                 TINYINT      NOT NULL DEFAULT 0,
+  dependabot_status        VARCHAR(16)  NOT NULL DEFAULT 'ok',
+  dependabot_status_detail TEXT         NULL,
+  first_seen_at            VARCHAR(20)  NOT NULL,
+  last_seen_at             VARCHAR(20)  NOT NULL,
+  KEY idx_vuln_repos_org (org)
+);
+
+CREATE TABLE IF NOT EXISTS vulnerability_alerts (
+  repo_id               BIGINT        NOT NULL,
+  number                INT           NOT NULL,
+  org                   VARCHAR(255)  NOT NULL,
+  html_url              VARCHAR(500)  NOT NULL,
+  state                 VARCHAR(16)   NOT NULL,
+  severity              VARCHAR(16)   NOT NULL,
+  severity_changed_at   VARCHAR(20)   NULL,
+  ghsa_id               VARCHAR(64)   NULL,
+  cve_id                VARCHAR(64)   NULL,
+  summary               TEXT          NULL,
+  cvss_score            DECIMAL(3,1)  NULL,
+  epss_percentage       DECIMAL(7,5)  NULL,
+  advisory_withdrawn_at VARCHAR(20)   NULL,
+  package_name          VARCHAR(255)  NULL,
+  ecosystem             VARCHAR(64)   NULL,
+  manifest_path         VARCHAR(500)  NULL,
+  relationship          VARCHAR(32)   NULL,
+  scope                 VARCHAR(32)   NULL,
+  first_patched_version VARCHAR(128)  NULL,
+  created_at            VARCHAR(20)   NOT NULL,
+  gh_updated_at         VARCHAR(20)   NULL,
+  fixed_at              VARCHAR(20)   NULL,
+  dismissed_at          VARCHAR(20)   NULL,
+  auto_dismissed_at     VARCHAR(20)   NULL,
+  dismissed_reason      VARCHAR(64)   NULL,
+  reopened_count        INT           NOT NULL DEFAULT 0,
+  last_reopened_at      VARCHAR(20)   NULL,
+  missing_since         VARCHAR(20)   NULL,
+  withheld_since        VARCHAR(20)   NULL,
+  first_seen_sync_id    INT           NOT NULL,
+  last_seen_sync_id     INT           NOT NULL,
+  PRIMARY KEY (repo_id, number),
+  KEY idx_vuln_alerts_org (org)
+);
+
+CREATE TABLE IF NOT EXISTS vulnerability_syncs (
+  id             INT AUTO_INCREMENT PRIMARY KEY,
+  org            VARCHAR(255) NOT NULL,
+  trigger_kind   VARCHAR(16)  NOT NULL,
+  triggered_by   VARCHAR(255) NULL,
+  status         VARCHAR(16)  NOT NULL,
+  started_at     VARCHAR(20)  NOT NULL,
+  finished_at    VARCHAR(20)  NULL,
+  alerts_fetched INT          NULL,
+  repos_checked  INT          NULL,
+  new_count      INT          NULL,
+  resolved_count INT          NULL,
+  reopened_count INT          NULL,
+  missing_count  INT          NULL,
+  issues         TEXT         NULL,
+  KEY idx_vuln_syncs_org (org)
+);
+
+CREATE TABLE IF NOT EXISTS vulnerability_repo_snapshots (
+  id                            INT AUTO_INCREMENT PRIMARY KEY,
+  org                           VARCHAR(255) NOT NULL,
+  source                        VARCHAR(16)  NOT NULL,
+  sync_id                       INT          NULL,
+  source_file                   VARCHAR(255) NULL,
+  taken_on                      VARCHAR(10)  NOT NULL,
+  measured_at                   VARCHAR(20)  NOT NULL,
+  repo_id                       BIGINT       NOT NULL,
+  full_name                     VARCHAR(255) NOT NULL,
+  team_at_time                  VARCHAR(255) NULL,
+  service_tier_at_time          VARCHAR(255) NULL,
+  codebase_type_at_time         VARCHAR(255) NULL,
+  archived                      TINYINT      NOT NULL DEFAULT 0,
+  open_critical                 INT          NOT NULL,
+  open_high                     INT          NULL,
+  resolved_critical_since_start INT          NOT NULL,
+  resolved_high_since_start     INT          NULL,
+  KEY idx_vuln_snap_org_taken (org, taken_on)
+);
+
 CREATE TABLE IF NOT EXISTS release_notes (
   id              INT AUTO_INCREMENT PRIMARY KEY,
   latest_commit_sha VARCHAR(40) NOT NULL,

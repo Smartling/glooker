@@ -117,6 +117,26 @@ export const MOCK_DEVELOPERS: MockDeveloper[] = [
   { githubLogin: 'hank-mock', githubName: 'Hank Russo', avatarUrl: 'https://avatars.githubusercontent.com/u/8?v=4', jiraEmail: 'hank@mockorg.dev', jiraAccountId: 'jira-hank-008', team: 'Data' },
 ];
 
+// GLOOK-43: repos for vulnerability mock data. `team` is the repo custom property — a string, not a teams row.
+export interface MockVulnRepo {
+  repoId: number; name: string; team: string | null; serviceTier: string | null; codebaseType: string | null;
+  archived: boolean; statusCheck?: 'error' | 'dependabot-off';
+}
+export const MOCK_VULN_REPOS: MockVulnRepo[] = [
+  { repoId: 9001, name: 'api-service',     team: 'Platform', serviceTier: 'production',      codebaseType: 'backend',        archived: false },
+  { repoId: 9002, name: 'billing-service', team: 'Growth',   serviceTier: 'production',      codebaseType: 'api',            archived: false },
+  { repoId: 9003, name: 'web-app',         team: 'Frontend', serviceTier: 'production',      codebaseType: 'frontend',       archived: false },
+  { repoId: 9004, name: 'shared-lib',      team: 'Platform', serviceTier: 'production',      codebaseType: 'shared',         archived: false },
+  { repoId: 9005, name: 'legacy-billing',  team: 'Growth',   serviceTier: 'production',      codebaseType: 'backend',        archived: true },
+  { repoId: 9006, name: 'untagged-tool',   team: null,       serviceTier: null,              codebaseType: null,             archived: false },
+  { repoId: 9007, name: 'research-bench',  team: 'Research', serviceTier: 'non-production',  codebaseType: 'backend',        archived: false },
+  { repoId: 9008, name: 'flaky-service',   team: 'Research', serviceTier: 'production',      codebaseType: 'backend',        archived: false, statusCheck: 'error' },
+  { repoId: 9009, name: 'orphan-service',  team: null,       serviceTier: 'production',      codebaseType: 'backend',        archived: false },
+  // GLOOK-43: a repo with Dependabot alerts turned off — unmeasured like
+  // flaky-service, but must never show up as a sync issue or make a run partial.
+  { repoId: 9010, name: 'silent-service',  team: 'Platform', serviceTier: 'production',      codebaseType: 'backend',        archived: false, statusCheck: 'dependabot-off' },
+];
+
 export interface MockTeam {
   id: string;
   name: string;

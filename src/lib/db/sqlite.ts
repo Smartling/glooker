@@ -163,6 +163,96 @@ CREATE TABLE IF NOT EXISTS jira_projects (
   UNIQUE (org, project_key)
 );
 
+CREATE TABLE IF NOT EXISTS vulnerability_repos (
+  repo_id                  INTEGER NOT NULL PRIMARY KEY,
+  org                      TEXT    NOT NULL,
+  full_name                TEXT    NOT NULL,
+  team                     TEXT,
+  service_tier             TEXT,
+  codebase_type            TEXT,
+  archived                 INTEGER NOT NULL DEFAULT 0,
+  dependabot_status        TEXT    NOT NULL DEFAULT 'ok',
+  dependabot_status_detail TEXT,
+  first_seen_at            TEXT    NOT NULL,
+  last_seen_at             TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_vuln_repos_org ON vulnerability_repos (org);
+
+CREATE TABLE IF NOT EXISTS vulnerability_alerts (
+  repo_id               INTEGER NOT NULL,
+  number                INTEGER NOT NULL,
+  org                   TEXT    NOT NULL,
+  html_url              TEXT    NOT NULL,
+  state                 TEXT    NOT NULL,
+  severity              TEXT    NOT NULL,
+  severity_changed_at   TEXT,
+  ghsa_id               TEXT,
+  cve_id                TEXT,
+  summary               TEXT,
+  cvss_score            REAL,
+  epss_percentage       REAL,
+  advisory_withdrawn_at TEXT,
+  package_name          TEXT,
+  ecosystem             TEXT,
+  manifest_path         TEXT,
+  relationship          TEXT,
+  scope                 TEXT,
+  first_patched_version TEXT,
+  created_at            TEXT    NOT NULL,
+  gh_updated_at         TEXT,
+  fixed_at              TEXT,
+  dismissed_at          TEXT,
+  auto_dismissed_at     TEXT,
+  dismissed_reason      TEXT,
+  reopened_count        INTEGER NOT NULL DEFAULT 0,
+  last_reopened_at      TEXT,
+  missing_since         TEXT,
+  withheld_since        TEXT,
+  first_seen_sync_id    INTEGER NOT NULL,
+  last_seen_sync_id     INTEGER NOT NULL,
+  PRIMARY KEY (repo_id, number)
+);
+CREATE INDEX IF NOT EXISTS idx_vuln_alerts_org ON vulnerability_alerts (org);
+
+CREATE TABLE IF NOT EXISTS vulnerability_syncs (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  org            TEXT    NOT NULL,
+  trigger_kind   TEXT    NOT NULL,
+  triggered_by   TEXT,
+  status         TEXT    NOT NULL,
+  started_at     TEXT    NOT NULL,
+  finished_at    TEXT,
+  alerts_fetched INTEGER,
+  repos_checked  INTEGER,
+  new_count      INTEGER,
+  resolved_count INTEGER,
+  reopened_count INTEGER,
+  missing_count  INTEGER,
+  issues         TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_vuln_syncs_org ON vulnerability_syncs (org);
+
+CREATE TABLE IF NOT EXISTS vulnerability_repo_snapshots (
+  id                            INTEGER PRIMARY KEY AUTOINCREMENT,
+  org                           TEXT    NOT NULL,
+  source                        TEXT    NOT NULL,
+  sync_id                       INTEGER,
+  source_file                   TEXT,
+  taken_on                      TEXT    NOT NULL,
+  measured_at                   TEXT    NOT NULL,
+  repo_id                       INTEGER NOT NULL,
+  full_name                     TEXT    NOT NULL,
+  team_at_time                  TEXT,
+  service_tier_at_time          TEXT,
+  codebase_type_at_time         TEXT,
+  archived                      INTEGER NOT NULL DEFAULT 0,
+  open_critical                 INTEGER NOT NULL,
+  open_high                     INTEGER,
+  resolved_critical_since_start INTEGER NOT NULL,
+  resolved_high_since_start     INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_vuln_snap_org_taken ON vulnerability_repo_snapshots (org, taken_on);
+
 CREATE TABLE IF NOT EXISTS epic_summaries (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   epic_key        TEXT    NOT NULL,
@@ -332,6 +422,8 @@ export function createSQLiteDB(): DB {
     db.exec(`INSERT OR IGNORE INTO report_skip_allowlist (github_login, reason, added_by)
              VALUES ('oshpak', 'Private GitHub profile; not in org-visible members for non-mutual permissions', 'seed')`);
   } catch (_) {}
+  // GLOOK-43 Wave A / A1: completeness-guard recovery column (see sync.ts writePhase).
+  try { db.exec('ALTER TABLE vulnerability_alerts ADD COLUMN withheld_since TEXT'); } catch (_) {}
 
   const dbApi: DB = {
     execute: <T = any>(sql: string, params?: any[]): Promise<[T[], any]> => {
@@ -493,6 +585,8 @@ export function translateSQL(sql: string): string {
       unmerged_prs: 'report_id, repo, pr_number',
       unmerged_commits: 'report_id, repo, commit_sha',
       report_skip_allowlist: 'github_login',
+      vulnerability_repos: 'repo_id',
+      vulnerability_alerts: 'repo_id, number',
     };
     const conflict = conflictCols[table] || 'id';
 
