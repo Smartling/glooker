@@ -378,9 +378,25 @@ Expected: FAIL. The tokens test lists all 41 required tokens as missing. The con
 
 The validator lives at `/private/tmp/claude-501/bundled-skills/2.1.282/27f946b5296782145e05ad642766e802/dataviz/scripts/validate_palette.js`. If that path is gone, find it with `ls /private/tmp/claude-501/bundled-skills` and use the `dataviz/scripts/validate_palette.js` under the newest version directory.
 
-**Starting values:**
+**What the gate checks, per palette.** Every palette gets the same three checks (spec Decision 14):
+1. **Colorblind separation:** `CVD separation` ΔE ≥ 8.
+   - **Exception for in-flight pairs.** A pair that includes the in-flight color may sit in the validator's `[WARN]` band (ΔE 6-8), because in-flight is always hatched, which is secondary encoding.
+   - Every other pair needs `[PASS]`.
+2. **Normal-vision floor:** `Normal-vision floor` must read `[PASS]` (ΔE ≥ 15) for **every** pair, in-flight included. Nothing excuses a failure here.
+3. **3:1 contrast:** gated by `chart-contrast.test.ts`. The validator's `Contrast vs surface` line is recorded only.
 
-| Palette (listed in stack/adjacency order) | Dark (surface `#111827`) | Light (surface `#ffffff`) |
+**Which pairs count as neighbours.** The validator reports only the *worst* pair, so an in-flight pair in the 6-8 band would hide a weak non-in-flight pair. Each palette that includes in-flight therefore gets three runs:
+1. **The full order:** the normal-vision floor is gated here.
+2. **The order with in-flight removed:** every remaining pair is gated at colorblind ΔE ≥ 8.
+3. **Each in-flight pair in isolation:** checks the 6-8 allowance and the normal-vision floor.
+
+The pairs that touch are:
+- **Commit types:** neighbours in `COMMIT_TYPE_ORDER`. The stacked chart, the donut (spec Decision 13, amended: the donut follows the same fixed order, not a sort by count) and the dev page's segmented bar all use that order. `other` and `in_flight` are **always** neighbours.
+- **Lines:** all three colors touch each other. Added and removed meet at the zero line, and the in-flight hatch sits against both. So use `--pairs all`, and gate every run.
+
+**Starting values, and the pairs already known to fail.** The review loop and I ran these starting values through the validator.
+
+| Palette (order) | Dark (surface `#111827`) | Light (surface `#ffffff`) |
 |---|---|---|
 | Commit types (feature, bug, refactor, infra, docs, test, other, in_flight) | `#3B82F6,#EF4444,#A855F7,#EAB308,#6B7280,#22C55E,#9CA3AF,#06B6D4` | `#2563EB,#DC2626,#9333EA,#A16207,#6B7280,#15803D,#4B5563,#0E7490` |
 | Lines (added, in-flight, removed) | `#10B981,#06B6D4,#EF4444` | `#047857,#0E7490,#DC2626` |
@@ -388,29 +404,56 @@ The validator lives at `/private/tmp/claude-501/bundled-skills/2.1.282/27f946b52
 | Scatter (typical, outlier) | `#60A5FA,#FB923C` | `#2563EB,#C2410C` |
 | Volume (prs, jiras) | `#06B6D4,#A855F7` | `#0E7490,#9333EA` |
 
-**Where the starting values come from:**
-- **Dark commit types:** today's `TYPE_HEX` (`org/page.tsx:22-31`), with one change. `other` moves from `#4B5563` to `#9CA3AF`, because `#4B5563` measures 2.35:1 on `#111827`.
-- **Scatter:** replaces today's `bg-blue-400`/`bg-red-400`. The outlier color moves off red, because red must not collide with the bug type.
+The dark commit types come from today's `TYPE_HEX` (`org/page.tsx:22-31`), with `other` lifted off `#4B5563`, which is 2.35:1 on `#111827`. The scatter outlier moves off red so it can't be mistaken for the bug type.
 
-**Commands.** Run each one separately. Commit types, dark, adjacent pairs:
+Known failures:
 
-`env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'node /private/tmp/claude-501/bundled-skills/2.1.282/27f946b5296782145e05ad642766e802/dataviz/scripts/validate_palette.js "#3B82F6,#EF4444,#A855F7,#EAB308,#6B7280,#22C55E,#9CA3AF,#06B6D4" --mode dark --surface "#111827"'`
+| Palette | Mode | Failing pair | Measured ΔE | Result |
+|---|---|---|---|---|
+| Commit types | Dark | `other #9CA3AF` / `in_flight #06B6D4` | colorblind 5.6, normal 11.3 | Both fail |
+| Commit types | Light | `other #4B5563` / `in_flight #0E7490` | normal 10.4 (colorblind 8.1) | Normal-vision fails |
+| Commit types | Light | `infra #A16207` / `docs #6B7280` | normal 14.3 | Normal-vision fails |
+| Lines | Dark | `added #10B981` / `in-flight #06B6D4` | normal 12.5 | Normal-vision fails |
+| Lines | Light | `added #047857` / `in-flight #0E7490` | normal 9.7 | Normal-vision fails |
 
-Commit types, dark, all pairs. Record this run but don't gate on it. It's here because the donut sorts slices by count, so any two types can end up adjacent.
+**So both modes must re-step, starting from these verified candidates:**
+- **Commit types, dark:** `other → #D1D5DB`. The full order passes the gated checks: the worst pair is `other`/`in_flight` at colorblind 12.5 and normal 19.7, and all eight clear 3:1. The review loop verified this, and I re-ran it.
+- **Commit types, light:** `docs → #4B5563`, `other → #374151`, `in_flight → #0891B2`.
+  - The full order passes the gated checks: worst colorblind 12.2 and worst normal 16.8, both on `test`/`docs`. All eight clear 3:1.
+  - In isolation, `other`/`in_flight` measures colorblind 23.6 and normal 25.2.
+  - This changes the light in-flight color, so the light **lines** palette must use `#0891B2` too.
+  - **Lightness heuristic:** these candidates separate the two grays by lightness. When re-stepping in light mode, try shades within the gray and cyan families first. Only if no pair within those families passes, pick a new in-flight hue, and record why in the spec's Palette section.
+- **Lines:** no passing candidate yet. Re-step `added` first, since in-flight is shared with the commit types. Two probes:
+  - **Dark `#84CC16,#06B6D4,#EF4444` (lime added):** passes all pairs. Colorblind worst 12.7, normal worst 23.5.
+  - **Light `#4D7C0F,#0891B2,#DC2626`:** fails. `added`/`removed` is at colorblind 6.1, and that pair has no in-flight exception.
 
-`env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'node /private/tmp/claude-501/bundled-skills/2.1.282/27f946b5296782145e05ad642766e802/dataviz/scripts/validate_palette.js "#3B82F6,#EF4444,#A855F7,#EAB308,#6B7280,#22C55E,#9CA3AF,#06B6D4" --mode dark --surface "#111827" --pairs all'`
+  Keep added in the green family where you can. If lime is the only passing green, record it in the Palette section.
 
-Commit types, light, adjacent pairs and then all pairs:
+**Commands.** Run each one separately, and substitute the current candidate hexes each time. Every run below is gated.
 
-`env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'node /private/tmp/claude-501/bundled-skills/2.1.282/27f946b5296782145e05ad642766e802/dataviz/scripts/validate_palette.js "#2563EB,#DC2626,#9333EA,#A16207,#6B7280,#15803D,#4B5563,#0E7490" --mode light --surface "#ffffff"'`
+Commit types, full order (dark, then light):
 
-`env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'node /private/tmp/claude-501/bundled-skills/2.1.282/27f946b5296782145e05ad642766e802/dataviz/scripts/validate_palette.js "#2563EB,#DC2626,#9333EA,#A16207,#6B7280,#15803D,#4B5563,#0E7490" --mode light --surface "#ffffff" --pairs all'`
+`env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'node /private/tmp/claude-501/bundled-skills/2.1.282/27f946b5296782145e05ad642766e802/dataviz/scripts/validate_palette.js "#3B82F6,#EF4444,#A855F7,#EAB308,#6B7280,#22C55E,#D1D5DB,#06B6D4" --mode dark --surface "#111827"'`
 
-Lines, both modes, all pairs:
+`env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'node /private/tmp/claude-501/bundled-skills/2.1.282/27f946b5296782145e05ad642766e802/dataviz/scripts/validate_palette.js "#2563EB,#DC2626,#9333EA,#A16207,#4B5563,#15803D,#374151,#0891B2" --mode light --surface "#ffffff"'`
+
+Commit types without in-flight, which gates the non-in-flight neighbours at ΔE ≥ 8:
+
+`env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'node /private/tmp/claude-501/bundled-skills/2.1.282/27f946b5296782145e05ad642766e802/dataviz/scripts/validate_palette.js "#3B82F6,#EF4444,#A855F7,#EAB308,#6B7280,#22C55E,#D1D5DB" --mode dark --surface "#111827"'`
+
+`env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'node /private/tmp/claude-501/bundled-skills/2.1.282/27f946b5296782145e05ad642766e802/dataviz/scripts/validate_palette.js "#2563EB,#DC2626,#9333EA,#A16207,#4B5563,#15803D,#374151" --mode light --surface "#ffffff"'`
+
+The `other`/`in_flight` pair in isolation:
+
+`env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'node /private/tmp/claude-501/bundled-skills/2.1.282/27f946b5296782145e05ad642766e802/dataviz/scripts/validate_palette.js "#D1D5DB,#06B6D4" --mode dark --surface "#111827"'`
+
+`env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'node /private/tmp/claude-501/bundled-skills/2.1.282/27f946b5296782145e05ad642766e802/dataviz/scripts/validate_palette.js "#374151,#0891B2" --mode light --surface "#ffffff"'`
+
+Lines, all pairs. For the in-flight exception, confirm which pair the reported worst belongs to. Then re-run `added,removed` alone and require ΔE ≥ 8 there:
 
 `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'node /private/tmp/claude-501/bundled-skills/2.1.282/27f946b5296782145e05ad642766e802/dataviz/scripts/validate_palette.js "#10B981,#06B6D4,#EF4444" --mode dark --surface "#111827" --pairs all'`
 
-`env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'node /private/tmp/claude-501/bundled-skills/2.1.282/27f946b5296782145e05ad642766e802/dataviz/scripts/validate_palette.js "#047857,#0E7490,#DC2626" --mode light --surface "#ffffff" --pairs all'`
+`env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'node /private/tmp/claude-501/bundled-skills/2.1.282/27f946b5296782145e05ad642766e802/dataviz/scripts/validate_palette.js "#047857,#0891B2,#DC2626" --mode light --surface "#ffffff" --pairs all'`
 
 Ring, both modes:
 
@@ -430,21 +473,15 @@ Volume, both modes:
 
 `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'node /private/tmp/claude-501/bundled-skills/2.1.282/27f946b5296782145e05ad642766e802/dataviz/scripts/validate_palette.js "#0E7490,#9333EA" --mode light --surface "#ffffff"'`
 
-**Acceptance: gate on exactly the checks spec Decision 14 names.** In each **adjacent** run (the default, with no `--pairs all`):
-1. `CVD separation` must read `[PASS]`, which means ΔE ≥ 8. The validator's `[WARN]` band (6-8) counts as a failure, because the spec's floor is 8.
-2. `Normal-vision floor` must read `[PASS]`.
-3. 3:1 contrast is gated by `chart-contrast.test.ts`, not by the validator's `Contrast vs surface` line. Record that line, but treat the Jest test as authoritative.
-
 **Recorded, not gated:**
-- `Lightness band` and `Chroma floor`. `docs` and `other` are grays by design, so they always fail the chroma floor. Expect the validator to exit 1 on the commit-type palettes, and don't loop on it.
-- All `--pairs all` runs.
+- The `Lightness band` and `Chroma floor` checks. `docs` and `other` are grays by design, so they always fail the chroma floor, and the validator exits 1 because of those two lines. Read the gated lines, not the exit code.
 - The badge tokens. They carry text and are gated only by the 4.5:1 badge test.
 
 **Snapping rule when a gated check fails:**
-1. Move the failing color one Tailwind shade within its hue family: lighter in dark mode (500→400), darker in light mode (600→700).
-2. If the pair is still too close, change the other member of the pair instead.
+1. Move the failing color one Tailwind shade within its hue family, separating by lightness first. In dark mode move lighter, in light mode darker.
+2. If the pair is still too close, change the other member instead.
 3. Keep feature blue and bug red in both modes (Decision 8).
-4. Re-run until the gated checks pass.
+4. Re-run the full-order, without-in-flight and in-isolation runs for every palette that shares the color you changed. For example, in-flight appears in both the commit types and the lines.
 
 Save each final command's full output. It goes into the spec in Step 8.
 
@@ -471,7 +508,7 @@ Add this at the end of the `:root` block, after `--vuln-series-other` and before
   --chart-type-infra: #eab308;
   --chart-type-docs: #6b7280;
   --chart-type-test: #22c55e;
-  --chart-type-other: #9ca3af;
+  --chart-type-other: #d1d5db;
   --chart-type-in-flight: #06b6d4;
   --chart-lines-added: #10b981;
   --chart-lines-removed: #ef4444;
@@ -519,10 +556,10 @@ Add this at the end of the bare `[data-theme-mode="light"]` block, after `--vuln
   --chart-type-bug: #dc2626;
   --chart-type-refactor: #9333ea;
   --chart-type-infra: #a16207;
-  --chart-type-docs: #6b7280;
+  --chart-type-docs: #4b5563;
   --chart-type-test: #15803d;
-  --chart-type-other: #4b5563;
-  --chart-type-in-flight: #0e7490;
+  --chart-type-other: #374151;
+  --chart-type-in-flight: #0891b2;
   --chart-lines-added: #047857;
   --chart-lines-removed: #dc2626;
   --chart-ring-jira: #b45309;
@@ -611,8 +648,9 @@ Expected: PASS. If a contrast line fails, snap that token as in Step 4, one Tail
 In the spec, replace the placeholder paragraph under `### Palette` (the one beginning *"Filled in by the first implementation task"*) with four things:
 1. **A token table.** One row per `--chart-*` token, with columns for the token, its dark hex, its light hex, and what it colors.
 2. **A moves list.** Every value that moved from its starting hex, with the reason. For example: "`--chart-type-other` dark `#4B5563` → `#9CA3AF`: 2.35:1 on `#111827`".
-3. **The full validator output** for every run in Step 4, in fenced code blocks labeled by palette, mode and pairs. Label the adjacent runs "gated" and the `--pairs all` runs "recorded, not gated".
-4. **One sentence on what is not gated:** the lightness band, the chroma floor (grays fail it by design), all-pairs separation, the grid and tooltip border (exempt), and volume `commits` (exempt).
+3. **The full validator output** for every run in Step 4, in fenced code blocks labeled by palette, mode and run: full order, without in-flight, or in isolation. Note every in-flight pair that uses the colorblind 6-8 allowance.
+4. **The reason for any hue change,** for example a new in-flight hue or a non-green added color, if one was needed.
+5. **One sentence on what is not gated:** the lightness band, the chroma floor (grays fail it by design), the grid and tooltip border (exempt), and volume `commits` (exempt).
 
 - [ ] **Step 9: Run the full suite**
 
@@ -1232,7 +1270,7 @@ EOF
     - `commitTypeBg(t: string): string`, a mark `bg-chart-type-*` class for bar segments
     - `commitTypeBadge(t: string): { bg: string; text: string }`, the `bg-chart-badge-*-bg` and `text-chart-badge-*-text` classes
     - `foldTypes(list: Array<Record<string, unknown>>): Record<CommitType, number>`
-    - `typeEntriesFrom(list: Array<Record<string, unknown>>): [CommitType, number][]`, non-zero entries sorted by count descending, with unknown types folded into `other`
+    - `typeEntriesFrom(list: Array<Record<string, unknown>>): [CommitType, number][]`, the non-zero entries in fixed `COMMIT_TYPE_ORDER`, never sorted by count (spec Decision 13), with unknown types folded into `other`. The donut, the dev page's segmented bar and legend, and the team badges all use it, so every neighbouring pair they show is one the palette gate checked.
   - **From `@/components/charts/hatch`:**
     - `interface Hatch { id: string; fill: string; defs: ReactElement }`
     - `useHatch(colorVar: string): Hatch`
@@ -1470,8 +1508,10 @@ it('foldTypes sums across weeks, folds unknown types into other, and tolerates s
   expect(folded.bug).toBe(0);
 });
 
-it('typeEntriesFrom gives one row per non-zero type, largest first, with unknown types in a single other row', () => {
-  expect(typeEntriesFrom([{ feature: 2, chore: 1, other: 1 }, { bug: 3 }])).toEqual([['bug', 3], ['feature', 2], ['other', 2]]);
+it('typeEntriesFrom gives one row per non-zero type in fixed COMMIT_TYPE_ORDER, not by count, with unknown types in a single other row', () => {
+  expect(typeEntriesFrom([{ feature: 2, chore: 1, other: 1 }, { bug: 3 }, { in_flight: 9 }])).toEqual([
+    ['feature', 2], ['bug', 3], ['other', 2], ['in_flight', 9],
+  ]);
   expect(typeEntriesFrom([])).toEqual([]);
 });
 
@@ -1754,13 +1794,16 @@ export function foldTypes(list: Array<Record<string, unknown>>): Record<CommitTy
   return out;
 }
 
-/** Folded, non-zero [type, count] rows, largest first (ties keep COMMIT_TYPE_ORDER). */
+/**
+ * Folded, non-zero [type, count] rows in fixed COMMIT_TYPE_ORDER (spec Decision 13). Never sorted by
+ * count: the palette gate validates neighbours in this order, so any other order could put two
+ * unchecked colours side by side (other and in_flight are always neighbours here).
+ */
 export function typeEntriesFrom(list: Array<Record<string, unknown>>): [CommitType, number][] {
   const folded = foldTypes(list);
   return COMMIT_TYPE_ORDER
     .filter(t => folded[t] > 0)
-    .map(t => [t, folded[t]] as [CommitType, number])
-    .sort((a, b) => b[1] - a[1]);
+    .map(t => [t, folded[t]] as [CommitType, number]);
 }
 ```
 
@@ -1851,6 +1894,7 @@ EOF
   - the timeline grid (lines 310-357)
   - delete the local `TimelineChart` (lines 668-842)
 - Test: `src/lib/__tests__/unit/timeline-chart.test.tsx`
+- Modify (Step 8, when the seed precondition fails): `scripts/seed-data.ts` (date anchor, `seedUnmergedCommits`) and `scripts/seed.ts` (one `seed('unmerged_commits', …)` line)
 
 **Interfaces:**
 - Consumes:
@@ -2273,18 +2317,137 @@ Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin
 
 Expected: all suites pass.
 
-- [ ] **Step 8: Early browser check that `var()` resolves in Recharts presentation attributes**
+- [ ] **Step 8: Make the seed data exercise the charts (precondition for Step 9 and for Task 11's screenshot pass)**
+
+The spec requires seeded in-flight commits and at least one scatter outlier. I checked the current seed on 2026-09-25 by importing `scripts/seed-data.ts` with `tsx`:
+
+| Check | Result |
+|---|---|
+| **Outlier** | Present. In both completed reports, `frank-mock` exceeds 2× `medianCPI`, which is 15521 cents per impact point. No change needed. |
+| **Timeline dates** | Out of range. `daysAgo()` counts from a fixed anchor, `2026-04-01T00:00:00Z`, so every seeded `committed_at` falls between 2026-03-18 and 2026-03-31. That is more than 90 days before today. Every seeded timeline, stacked-types and lines chart would therefore show its empty state, so neither Step 9 below nor Task 11's screenshot pass could check anything. |
+| **In-flight commits** | None. `scripts/seed.ts` never inserts `unmerged_commits`, which is the table the org page's in-flight overlay reads (`src/lib/report/org.ts:108-176`). |
+
+Re-check before editing, because the seed may have changed since. Write this file to your scratchpad as `seed-check.ts`, replacing `<scratchpad>` with the scratchpad path:
+
+```ts
+import * as data from '/Users/maes/Documents/1macmount/code/glooker/.claude/worktrees/GLOOK-58-recharts/scripts/seed-data';
+const byReport = new Map<string, any[]>();
+for (const d of data.seedDeveloperStats) byReport.set(d.report_id, [...(byReport.get(d.report_id) ?? []), d]);
+for (const [rid, devs] of byReport) {
+  const withSpend = devs.filter(d => Number(d.cc_total_cost ?? 0) > 0);
+  const cpi = withSpend.filter(d => Number(d.impact_score) > 0).map(d => Number(d.cc_total_cost) / Number(d.impact_score)).sort((a, b) => a - b);
+  const medianCPI = cpi[Math.floor(cpi.length / 2)] ?? 0;
+  const outliers = withSpend.filter(d => Number(d.impact_score) > 0 && Number(d.cc_total_cost) / Number(d.impact_score) > 2 * medianCPI);
+  console.log(rid, 'outliers:', outliers.map(d => d.github_login).join(',') || 'NONE');
+}
+const dates = data.seedCommitAnalyses.map((c: any) => String(c.committed_at)).sort();
+console.log('commit dates', dates[0], '..', dates[dates.length - 1]);
+console.log('unmerged commits exported:', 'seedUnmergedCommits' in data ? (data as any).seedUnmergedCommits.length : 'none');
+```
+
+Run it: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx tsx <scratchpad>/seed-check.ts'`
+
+**If the dates are old or no in-flight rows are seeded (expected),** extend the seed. CLAUDE.md requires `scripts/seed-data.ts` to cover new page data needs. Inserting a new table also needs one line in `scripts/seed.ts`.
+
+There are two ways to bring the dates into range:
+- **Minimal (recommended): move the anchor to today's UTC midnight.** It is one helper change, every seeded surface moves into the window together, and values stay deterministic within a day.
+- **Alternative: add a second, recent set of `commit_analyses` rows.** This keeps the fixed anchor, but duplicates about 60 rows and leaves the report headers dated March.
+
+Go with the minimal option unless a test pins seeded dates. In that case, stop and report it.
+
+1. In `scripts/seed-data.ts`, replace the two date helpers (`daysAgo` and `dateDaysAgo`, lines 18-30) with:
+
+```ts
+/**
+ * GLOOK-58: seeded dates count back from today's UTC midnight (was a fixed 2026-04-01), so seeded
+ * activity falls inside the charts' 90-day window. Values are deterministic within a day.
+ */
+const SEED_ANCHOR = (() => {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+})();
+
+/** ISO timestamp N days before SEED_ANCHOR */
+function daysAgo(n: number): string {
+  const anchor = new Date(SEED_ANCHOR);
+  anchor.setUTCDate(anchor.getUTCDate() - n);
+  return anchor.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
+}
+
+/** YYYY-MM-DD date N days before SEED_ANCHOR (for cc_period columns) */
+function dateDaysAgo(n: number): string {
+  const anchor = new Date(SEED_ANCHOR);
+  anchor.setUTCDate(anchor.getUTCDate() - n);
+  return anchor.toISOString().slice(0, 10);
+}
+```
+
+2. In `scripts/seed-data.ts`, add a new section after section 13 (`seedUnmergedPrs`):
+
+```ts
+// ---------------------------------------------------------------------------
+// 13b. seedUnmergedCommits (GLOOK-58: in-flight overlay rows, so the org charts show the hatch)
+// ---------------------------------------------------------------------------
+// One in-flight commit two days ago sits next to that week's full shipped total (a SHORT hatched
+// segment); five in-flight commits nine days ago give a taller one. The two dates are exactly 7
+// days apart, so they always fall in different UTC weeks.
+
+const IN_FLIGHT_PLAN: Array<{ days: number; count: number }> = [
+  { days: 2, count: 1 },
+  { days: 9, count: 5 },
+];
+
+export const seedUnmergedCommits: Record<string, any>[] = [];
+for (const { days, count } of IN_FLIGHT_PLAN) {
+  for (let i = 0; i < count; i++) {
+    const dev = MOCK_DEVELOPERS[i % MOCK_DEVELOPERS.length];
+    seedUnmergedCommits.push({
+      report_id: R1,
+      github_login: dev.githubLogin,
+      repo: 'data-pipeline',
+      branch: `feature/in-flight-${days}-${i + 1}`,
+      pr_number: null,
+      commit_sha: fakeSha(`in-flight-${days}-${i}`),
+      commit_message: `wip: in-flight change ${i + 1}`,
+      lines_added: 40 + i * 10,
+      lines_removed: 10 + i * 5,
+      committed_at: daysAgo(days),
+    });
+  }
+}
+```
+
+3. In `scripts/seed.ts`, add this line after `await seed('unmerged_prs', data.seedUnmergedPrs);`:
+
+```ts
+  await seed('unmerged_commits', data.seedUnmergedCommits);
+```
+
+4. Re-run the check script. Expected: an outlier is still listed, the commit dates fall within the last 14 days, and 6 unmerged commits are exported.
+5. Run the full suite, which includes `cc-breakdown-mock.test.ts` (it imports `seed-data.ts`): `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest --maxWorkers=3'`. Expected: all green. If a test pins seeded dates, stop and report it rather than editing that test.
+6. Commit:
+
+```bash
+git add scripts/seed-data.ts scripts/seed.ts
+git commit -F - <<'EOF'
+GLOOK-58: seed data inside the 90-day chart window, with in-flight commits
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+EOF
+```
+
+- [ ] **Step 9: Early browser check that `var()` resolves in Recharts presentation attributes**
 
 Every Recharts mark in this plan passes its color as a presentation attribute, for example `fill="var(--accent)"`. shadcn relies on that working, but a GLOOK-43 comment in the old `trend-chart.tsx` says attributes "don't reliably resolve var()". Check it before later tasks build on it.
 
 1. Reset the seed data: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npm run seed:reset'`
-2. Start the mock server in the background: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npm run dev:mock'`.
+2. Start the mock server in the background: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npm run dev:mock'`. If port 3000 is taken (`curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/health` prints anything but `000`), use `sh -c 'npm run dev:mock -- -p 3001'` instead. Also run `rm -rf .next` first if a `next build` ran since the last dev server.
 3. Open `/reports`, then the newest report's `/report/<id>/org`.
 4. Check the timeline bars:
    - **Accent-colored (amber in Amber Glow):** the assumption holds. Stop the server and continue.
    - **Black:** the attribute didn't resolve. Stop and report before Task 5. The fallback is a custom `shape` that passes the color through `style={{ fill }}`. That changes every chart task, so it needs sign-off first.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
 git add src/components/charts/timeline-chart.tsx src/lib/__tests__/unit/timeline-chart.test.tsx "src/app/report/[id]/org/page.tsx" "src/app/report/[id]/dev/[login]/page.tsx"
@@ -2334,6 +2497,7 @@ EOF
   - Unknown types fold into `other`.
   - The legend lists only the types present, in `COMMIT_TYPE_ORDER`, with a hatched `in_flight` swatch.
 - **CommitTypeDonut (Decision 13):**
+  - Slices and legend rows follow the fixed `COMMIT_TYPE_ORDER`, not a sort by count. The component renders `entries` in the order it receives them. The page passes `typeEntriesFrom(...)`, which returns that fixed order.
   - The legend always shows count and %.
   - The center shows the total at rest. Hovering a legend row shows that type's count, swatch, name and %, and dims the other slices.
   - Center text uses chrome tokens only.
@@ -2512,6 +2676,16 @@ fixChartSize(320, 320);
 
 const entries: [string, number][] = [['feature', 6], ['bug', 3], ['in_flight', 1]];
 const center = () => screen.getByTestId('donut-center');
+
+it('orders slices and legend rows by COMMIT_TYPE_ORDER, not by count', () => {
+  const byOrder = typeEntriesFrom([{ in_flight: 9, feature: 1, other: 5, bug: 3 }]);
+  const { container } = render(<CommitTypeDonut entries={byOrder} total={18} />);
+  const legend = Array.from(container.querySelectorAll('[data-testid^="donut-legend-"]')).map(e => e.getAttribute('data-testid'));
+  expect(legend).toEqual(['donut-legend-feature', 'donut-legend-bug', 'donut-legend-other', 'donut-legend-in_flight']);
+  const fills = Array.from(container.querySelectorAll('.recharts-pie-sector path')).map(p => p.getAttribute('fill'));
+  expect(fills.slice(0, 3)).toEqual(['var(--chart-type-feature)', 'var(--chart-type-bug)', 'var(--chart-type-other)']);
+  expect(fills[3]).toMatch(/^url\(#hatch-/);
+});
 
 it('shows every type with count and % without any hover', () => {
   render(<CommitTypeDonut entries={entries} total={10} />);
@@ -2908,7 +3082,7 @@ it('hovering a slice also moves its figures into the centre', () => {
 ```
 
 - **If it passes:** keep it.
-- **If it fails:** remove it before committing. Recharts 3 wires the sector's `onMouseEnter` through its own interaction store, and a synthetic `mouseenter` on the `<g>` may not reach `Pie`'s `onMouseEnter` in jsdom. The **fallback** is Task 11's screenshot checklist, item 6, which checks slice hover in a real browser. Say in the commit body which way it went.
+- **If it fails:** remove it before committing. Recharts 3 wires the sector's `onMouseEnter` through its own interaction store, and a synthetic `mouseenter` on the `<g>` may not reach `Pie`'s `onMouseEnter` in jsdom. The **fallback** is Task 11's screenshot checklist, item 7 (Donut), which checks slice hover in a real browser. Say in the commit body which way it went.
 
 The required center-label test is the legend-row hover test in Step 1. It needs nothing from Recharts' event wiring.
 
@@ -3235,6 +3409,9 @@ Expected: PASS.
 These points are read from the Recharts source but haven't yet been observed in jsdom. Check each if its test fails:
 - **Symbol position.** `Symbols` renders a `path.recharts-symbols` whose position is a `transform="translate(cx, cy)"` (`es6/shape/Symbols.js`). If `centre()` finds no transform, log one symbol's attributes and read `cx`/`cy` from wherever they appear.
 - **Series className.** If `.recharts-scatter.scatter-typical` matches nothing, the series `className` isn't reaching the layer. Select series by fill instead: circles have fill `var(--chart-scatter-typical)`.
+- **The triangle shape.** If `shape="triangle"` throws, fails to type-check, or renders no `path.recharts-symbols` for the outlier series, check the exact symbol literal the installed version accepts.
+  - In 3.10.1 the union is declared in `node_modules/recharts/types/util/types.d.ts`: `export type SymbolType = 'circle' | 'cross' | 'diamond' | 'square' | 'star' | 'triangle' | 'wye'`. It is not in `types/shape/Symbols.d.ts`, which only imports it.
+  - If the literal is right but nothing renders, pass a render prop instead: `shape={(p: { cx?: number; cy?: number; fill?: string }) => <Symbols cx={p.cx} cy={p.cy} type="triangle" size={64} fill={p.fill} />}`. `Symbols` is exported from `recharts`. Keep the triangle test unchanged.
 - **Click handler argument.** Recharts wires `Scatter`'s `onClick` through `useMouseClickItemDispatch`. If `push` isn't called, log the handler's first argument. It should carry `payload.login`. If the handler never fires from `fireEvent.click` on `.recharts-scatter-symbol`, try the inner `path.recharts-symbols`. If neither works, report it before committing; click-to-navigate is a kept behavior.
 
 - [ ] **Step 6: Run the full suite**
@@ -3279,6 +3456,7 @@ EOF
 - **Segmented bar:** the dev page's Commit Types bar keeps its HTML `<div>`s. Its **segments** use the mark classes (`commitTypeBg`).
 - **Legend and badges:** the count legend under that bar, the commit-row badges and the team table's badges all use `commitTypeBadge`. That is a separate fill/text pair with 4.5:1 text, so none of them combines a mark color with `text-white` any more.
 - **Folding:** the dev page's `typeEntries` and the team `TypeBreakdown` are folded with `typeEntriesFrom`, so unknown types join `other`.
+- **Order:** they now show types in the fixed `COMMIT_TYPE_ORDER`, where today they sort by count. On the segmented bar that order is required, because adjacent segments must be pairs the palette gate checked. The team badges follow the same order for consistency.
 
 **CSS rules:**
 - **Light mode needs no new rule.** The old breakage came from `[data-theme-mode="light"] .text-white` turning white badge text dark. Badges no longer use `text-white`; their text color comes from `--chart-badge-*-text`, which the light block redefines.
@@ -4083,6 +4261,9 @@ These points are read from the Recharts source but haven't yet been observed in 
 - **Ring order.** If the test finds Jira's radius smaller than commits', swap the two `data` entries. Leave the test as it is.
 - **Arc path format.** If `arc()` returns `null`, log one sector's `d` and adjust the regex to match. The expected shape is `M x,y A r,r,0,large,sweep,x,y` (`es6/shape/Sector.js:54`).
 - **Sector selector.** If `.recharts-radial-bar-sectors path` matches nothing, query `.recharts-radial-bar-sector path` instead.
+- **Both rings in one color.** This means `RadialBar` isn't applying each row's `fill`, so `sector(container, '--chart-ring-jira')` finds nothing. There are two fallbacks. Use the first one that makes the "Jira outer, commits inner" and angle-domain tests pass. Keep the tests as written.
+  1. A `shape` render prop that reads the row's color: `shape={(p: SectorProps & { payload?: { fill?: string } }) => <Sector {...p} fill={p.payload?.fill} />}`. `Sector` and `SectorProps` are exported from `recharts`.
+  2. Two separate `RadialBar` elements, each with its own `fill` and a `dataKey` picking its own field: `data={[{ commits: commitPct * 100, jira: jiraPct * 100 }]}`, then `<RadialBar dataKey="commits" fill="var(--chart-ring-commits)" … />` and `<RadialBar dataKey="jira" fill="var(--chart-ring-jira)" … />`. Re-check the ring order afterwards: each `RadialBar` gets its own band, and the first one declared is innermost.
 - **Zero-value test.** If a zero-angle sector is rendered with a real `d`, check that `sector(...)` finds no path. Recharts' `Sector` returns null when start angle equals end angle. If it doesn't, assert that the path's arc spans 0° instead of asserting that it's absent.
 
 - [ ] **Step 5: Run the full suite**
@@ -4321,11 +4502,15 @@ Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin
 
 Expected: PASS. If the guard flags a module, fix the module itself: replace the literal with a token, or reword a comment that contains `#` followed by hex digits. Do not add an exemption to the guard.
 
-- [ ] **Step 3: Full suite**
+- [ ] **Step 3: Confirm the seed still exercises the charts**
+
+Task 4, Step 8 moved the seed dates into the 90-day window and seeded in-flight commits. If `scripts/seed-data.ts` or `scripts/seed.ts` has changed since, repeat that step's check script before continuing. Step 7 below re-confirms the data through the API once the server is up.
+
+- [ ] **Step 4: Full suite (sanity check)**
 
 Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest --maxWorkers=3'`
 
-Expected: 0 failed, 188 suites. That's the 169 baseline plus 19 new suites:
+Expected: 0 failed, and **about 187 suites**: the 169 baseline plus the 18 new test files below. This count is a sanity check, not a hard gate. What must hold is that every file in the table appears in the run:
 
 | Task | New suites |
 |---|---|
@@ -4340,52 +4525,73 @@ Expected: 0 failed, 188 suites. That's the 169 baseline plus 19 new suites:
 | 10 | `projects-card-volume` |
 | 11 | `chart-no-literal-colors` |
 
-Task 8 also rewrites `vuln-trend-chart` and Task 9 rewrites `progress-ring`; both are existing suites, so they don't add to the count. Record the actual suite and test counts in the commit body.
+Task 8 rewrites `vuln-trend-chart` and Task 9 rewrites `progress-ring`; both are existing suites, so they don't add to the count. Record the actual suite and test counts in the commit body.
 
-- [ ] **Step 4: Build**
+- [ ] **Step 5: Build**
 
 Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npm run build'`
 
-Expected: the build succeeds. If it fails with an error about a `page.tsx` export, a helper has leaked into a page file. Move it to `src/components/charts/`.
+Expected: the build succeeds. If it fails on a `page.tsx` export, a helper has leaked into a page file. Move it to `src/components/charts/`.
 
-- [ ] **Step 5: Clear the build cache before running dev** (CLAUDE.md: `next build` artifacts conflict with `next dev`)
+- [ ] **Step 6: Clear the build cache before running dev** (CLAUDE.md: `next build` artifacts conflict with `next dev`)
 
 Run: `rm -rf /Users/maes/Documents/1macmount/code/glooker/.claude/worktrees/GLOOK-58-recharts/.next`
 
-- [ ] **Step 6: Seed and start the mock-mode app**
+Don't skip this step, even if you are only switching ports.
+
+- [ ] **Step 7: Seed and start the mock-mode app**
 
 Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npm run seed:reset'`
 
-Then start the server in the background (Bash `run_in_background: true`):
+**Pick the port.** The user's main checkout may already be serving port 3000. Check with `curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/health`:
+- If it prints `000`, port 3000 is free. Use `PORT=3000` below.
+- If it prints anything else, port 3000 is taken. Use 3001.
 
-`env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npm run dev:mock'`
+Start the server in the background (Bash `run_in_background: true`) with one of these:
+- **Port 3000 free:** `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npm run dev:mock'`
+- **Port 3000 taken:** `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npm run dev:mock -- -p 3001'`. `dev:mock` ends in `next dev`, so `-p 3001` is passed through to it.
 
-Wait until `curl -s http://localhost:3000/api/health` returns `{"status":"ok",…}`.
+Wait until `curl -s http://localhost:<port>/api/health` returns `{"status":"ok",…}`. Use the same port in every URL below.
 
-- [ ] **Step 7: Screenshot pass**
+**Confirm the seeded data reached the page.** Run `curl -s http://localhost:<port>/api/report/00000000-0000-4000-a000-000000000001/org`. In the output, `timeline` must contain weeks from the last 90 days, and at least two weeks must carry `types.in_flight`: one with 1 in-flight against a larger `commits`, and one with 5. If they don't, return to Task 4, Step 8.
 
-1. Open `http://localhost:3000/reports` and note the id of the newest completed report.
-2. Screenshot every page below in **Amber Glow** (dark), then again in **Daylight Blue** (light). To switch themes, use the app's theme picker, or run `localStorage.setItem('glooker-theme', 'daylight-blue')` in the console and reload.
+- [ ] **Step 8: Screenshot pass**
+
+1. Open `http://localhost:<port>/reports` and note the newest completed report's id. The seeded one is `00000000-0000-4000-a000-000000000001`.
+2. Screenshot every page below in three themes:
+   - **Amber Glow**, dark.
+   - **Daylight Blue**, light, with a white page background.
+   - **Fresh Mint**, light, whose page background is `#F0FDF4`. It shows translucent surfaces against a themed background.
+
+   Switch themes with the app's theme picker, or run `localStorage.setItem('glooker-theme', 'daylight-blue')` (or `'fresh-mint'`, `'amber-glow'`) in the console and reload.
 
 **Charts:** check every item on every page where the chart appears.
 
-1. **Colors resolve.** No mark is black. No chart internal stays dark inside a light card: grid, axis text, tooltip, ring tracks, scatter median lines.
+1. **Colors resolve.** No mark is black. No chart internal stays dark inside a light card: grid, axis text, tooltip, ring tracks, scatter median lines. In Fresh Mint, check that chart cards and tooltips don't pick up the mint body background where they should be the card surface.
 2. **Legibility.** No axis label collides or clips. Y-axis numbers are readable. Tooltips don't overflow the card; hover at least one mark per chart.
 3. **Hatch on narrow bars.** On the org Commits / Week timeline and on Lines Changed, in-flight segments show visible stripes at the default card width. Check again at about 390px wide.
-4. **Diverging chart.** Removed lines sit below a visible zero line. Rounded corners face away from zero on both sides. If the removed-side corners face zero, set `BOTTOM` to `[4, 4, 0, 0]` in `lines-changed-chart.tsx`, re-run its test, and re-check.
-5. **Hover sync.** Hovering one org timeline moves the cursor on every chart in the org grid. Check the same on the dev page.
-6. **Donut.** Legend rows show count and %. Hovering a **slice** and hovering a **legend row** both update the center and dim the other slices. This is the fallback check if Task 5, Step 7's slice test was not kept. The in_flight wedge and swatch are hatched.
-7. **Spend vs Impact scatter** (org page → Spend tab). Median lines cross where median dots sit. Outliers are triangles in the outlier color, not red. The legend shows both shapes. Clicking a dot opens that developer's page. Quadrant labels don't cover dots badly.
-8. **TrendChart** (`/vulnerabilities`). Line colors match the legend swatches. Filtering to one team keeps that team's color. Hovering fades the other lines.
-9. **ProgressRing** (`/projects`). Rings start at the top and fill clockwise, with Jira on the outside. Tracks are visible in light mode. The 22px ring is legible, and a 0% ring shows both tracks.
+4. **Hatch on a short segment.** The seeded week with 1 in-flight commit against a full weekly total gives a **short** hatched segment on the org Commits / Week chart. At the default size it must still read as texture: at least one visible stripe, not a flat cyan or accent sliver.
+   - **If it reads as a flat sliver,** add `minPointSize={4}` to the in-flight `Bar` in `timeline-chart.tsx`, re-run that test, and re-check.
+   - **If it still fails,** report it. Recharts notes that `minPointSize` is not always respected in stacks, so the pattern tile or the minimum height may need a design call.
+5. **Diverging chart.** Removed lines sit below a visible zero line. Rounded corners face away from zero on both sides. If the removed-side corners face zero, set `BOTTOM` to `[4, 4, 0, 0]` in `lines-changed-chart.tsx`, re-run its test, and re-check.
+6. **Hover sync.** Hovering one org timeline moves the cursor on every chart in the org grid. Check the same on the dev page.
+7. **Donut.** Slices and legend rows are in `COMMIT_TYPE_ORDER` (feature, bug, refactor, infra, docs, test, other, in_flight), not by size. Legend rows show count and %. Hovering a **slice** and hovering a **legend row** both update the center and dim the other slices. This is the fallback check if Task 5, Step 7's slice test was not kept. The in_flight wedge and swatch are hatched.
+8. **Spend vs Impact scatter** (org page → Spend tab).
+   - Median lines cross where median dots sit.
+   - The seeded outlier (`frank-mock`) is drawn as a **triangle** in the outlier color, not red. It is clearly distinct from the circles at normal zoom.
+   - The legend shows both shapes.
+   - Clicking a dot opens that developer's page.
+   - Quadrant labels don't badly cover the dots.
+9. **TrendChart** (`/vulnerabilities`). Line colors match the legend swatches. Filtering to one team keeps that team's color. Hovering fades the other lines.
+10. **ProgressRing** (`/projects`). Rings start at the top and fill clockwise, with Jira on the outside. Tracks are visible in light mode. The 22px ring is legible, and a 0% ring shows both tracks.
 
-**Inline data bars and badges (spec Decision 1).** These are screenshot-only. Each gets a colors-only fix **only if** it is broken in a light theme:
+**Inline data bars and badges (spec Decision 1).** These are screenshot-only. Each gets a colors-only fix **only if** it is broken in a light theme (Daylight Blue or Fresh Mint):
 
 | Page | What to check |
 |---|---|
 | Org page → Spend tab | Top-20% bar (`spend-tab.tsx:279-291`), Model Mix bar (`:300-345`), Impact threshold badges in the leaderboard (`:500`) |
 | Dev page `/report/<id>/dev/<login>` | Commit Types segmented bar and its badge legend; commit-row type badges; Active Repos bars; the p50/p95 marker bar (`dev/[login]/page.tsx:214-240`); `usage-card.tsx` model cost bars (`:68`); Complexity/Impact/PR%/AI% threshold badges |
-| Org page, Impact tab | Top Repos bars; the ProjectsCard is not here |
+| Org page, Impact tab | Top Repos bars; the In-flight Work KPI cards (now non-zero from the seed) |
 | Team page `/report/<id>/team/<team>` | Team table type badges; threshold badges; `ProjectsCard` volume bar (commits segment and track visible in light mode) |
 | Home page `/` | The explainer bars in `llm-findings.tsx:257-360` |
 | `/reports` | Report progress bars: the track token and the status fills |
@@ -4403,14 +4609,14 @@ Commit each fix separately, with a `GLOOK-58: ` message that names the item and 
 
 3. Stop the dev server when you're done.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add src/lib/__tests__/unit/chart-no-literal-colors.test.ts
 git commit -F - <<'EOF'
 GLOOK-58: guard against literal colours in chart modules
 
-Full suite: <N> suites / <M> tests green. Build green. Screenshot pass (Amber Glow, Daylight Blue;
+Full suite: <N> suites / <M> tests green. Build green. Screenshot pass (Amber Glow, Daylight Blue, Fresh Mint;
 org incl. spend tab, dev, team, home, reports, vulnerabilities, projects) checked against the
 chart list and the inline-bar/badge table. Light-mode fixes: <list, or "none needed">.
 
@@ -4418,4 +4624,4 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 EOF
 ```
 
-Before committing, replace `<N>` and `<M>` with the counts from Step 3, and replace `<list …>` with the fixes from Step 7.
+Before committing, replace `<N>` and `<M>` with the counts from Step 4, and replace `<list …>` with the fixes from Step 8.
