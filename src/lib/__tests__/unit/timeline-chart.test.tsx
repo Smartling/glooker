@@ -113,3 +113,35 @@ it('the tooltip omits the split when the week has no in-flight work', () => {
   expect(container.textContent).toContain('5%');
   expect(container.textContent).not.toContain('In flight');
 });
+
+it('ratio: when the latest domain week fails isDefined, the header uses the last week that has data', () => {
+  const data: Row[] = [
+    { week: '2026-09-07', commits: 2, prs: 1, avg: 40 },
+    { week: '2026-09-14', commits: 2, prs: 2, avg: 80 },
+    { week: '2026-09-21', commits: 2, prs: 0, avg: 0 },
+  ];
+  render(<TimelineChart data={data} weeks={weeks} valueKey="avg" kind="ratio" isDefined={d => d.prs > 0} label="Avg" suffix=" lines" syncId="t" />);
+  const latest = screen.getByTestId('timeline-latest').textContent;
+  const change = screen.getByTestId('timeline-change').textContent;
+  expect(latest).toBe('80 lines');
+  expect(change).toBe('+40 lines');
+  for (const t of [latest, change]) {
+    expect(t).not.toBe('');
+    expect(t).not.toContain('NaN');
+  }
+});
+
+it('a negative in-flight value clamps to 0: no hatched segment, shipped bar identical to a chart without in-flight', () => {
+  const data: Row[] = [{ week: '2026-09-14', commits: 5, prs: 0, types: { in_flight: -3 } }];
+  const plain = render(<TimelineChart data={data} weeks={weeks} valueKey="commits" kind="count" label="C" syncId="t" />);
+  const plainD = rects(plain.container).map(r => r.getAttribute('d'));
+  plain.unmount();
+
+  const { container } = render(
+    <TimelineChart data={data} weeks={weeks} valueKey="commits" kind="count" label="C" syncId="t" inFlightValue={d => d.types?.in_flight ?? 0} />,
+  );
+  const drawn = rects(container);
+  expect(drawn.map(r => r.getAttribute('fill'))).toEqual(['var(--accent)']);
+  // Same geometry (height and rounded top) as the plain chart, so shipped is still the full 5.
+  expect(drawn.map(r => r.getAttribute('d'))).toEqual(plainD);
+});
