@@ -27,8 +27,14 @@ export function CommitTypeDonut({ entries, total }: { entries: [string, number][
   const hovered = hover === null ? undefined : data.find(d => d.type === hover);
 
   return (
-    <div className="flex items-center justify-center gap-6 h-full w-full">
-      <div className="relative w-full max-w-[320px] shrink-0">
+    <div className="flex flex-wrap items-center justify-center gap-6 h-full w-full">
+      {/* GLOOK-58 final review: flex-1 lets the donut shrink with the card at narrow widths (a
+          fixed shrink-0 clipped it at ~390px). A flex item's default min-width is its content
+          size, which blocks shrinking below that; min-w-[160px] replaces that default with an
+          explicit floor, so the donut shrinks freely down to 160px and never below (aspect-square
+          + Recharts needs a measurable width). flex-wrap on the row above drops the legend below
+          when both can't fit side by side, instead of overflowing. */}
+      <div className="relative min-w-[160px] flex-1 max-w-[320px]">
         <ChartContainer config={{}} className="aspect-square w-full">
           <PieChart>
             {hatch.defs}
@@ -40,6 +46,8 @@ export function CommitTypeDonut({ entries, total }: { entries: [string, number][
               outerRadius="96%"
               stroke="var(--chart-surface)"
               strokeWidth={2}
+              startAngle={90}
+              endAngle={-270}
               isAnimationActive={false}
               onMouseEnter={d => {
                 // Guard: an event with no resolvable type must not dim every slice while the
@@ -69,7 +77,7 @@ export function CommitTypeDonut({ entries, total }: { entries: [string, number][
           )}
         </div>
       </div>
-      <div className="flex flex-col justify-center gap-1.5">
+      <div className="flex shrink-0 flex-col justify-center gap-1.5">
         {data.map(d => (
           <div
             key={d.type}

@@ -40,9 +40,15 @@ describe('week domain (UTC)', () => {
     }
   });
 
-  it('recentWeekDomain gives every chart on a page an identical week array', () => {
+  // GLOOK-58 final review: this used to also assert recentWeekDomain(now) equals
+  // recentWeekDomain(now) — comparing the pure function's output with itself, which can't fail and
+  // proves nothing. That equality is a tautology at the pure-function level; the real, renderable
+  // promise this pure function makes ("every chart on a page gets an identical week array") is
+  // checked against real chart output in chart-domain-alignment.test.tsx instead. What's left
+  // here is the one thing that's actually specific to recentWeekDomain: its default 90-day window
+  // matches an equivalent explicit buildWeekDomain call.
+  it("recentWeekDomain's default 90-day window matches an equivalent buildWeekDomain call", () => {
     const now = utc('2026-09-25');
-    expect(recentWeekDomain(now)).toEqual(recentWeekDomain(now));
     expect(recentWeekDomain(now)).toEqual(buildWeekDomain(new Date(now.getTime() - 90 * 86_400_000), now));
   });
 });

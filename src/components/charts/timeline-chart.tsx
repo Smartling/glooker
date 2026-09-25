@@ -6,8 +6,8 @@
 import { Bar, BarChart, CartesianGrid, Rectangle, XAxis, YAxis, type BarShapeProps, type RectangleProps } from 'recharts';
 import type { TooltipContentProps, TooltipValueType } from 'recharts';
 import { ChartContainer, ChartTooltip, CHART_TOOLTIP_CLASS } from './chart';
-import { fillWeeks, formatCompact, formatValue, formatWeek, toNum, type MetricKind } from './chart-format';
-import { useHatch } from './hatch';
+import { fillWeeks, formatCompact, formatValue, formatWeek, type MetricKind } from './chart-format';
+import { inFlightFloor, useHatch } from './hatch';
 
 export interface TimelineRow {
   week: string;
@@ -115,12 +115,8 @@ export function TimelineChart<T extends TimelineRow>({
             <Bar dataKey="shipped" stackId="timeline" fill="var(--accent)" stroke="var(--chart-surface)" strokeWidth={2}
               shape={shippedShape} isAnimationActive={false} />
             {inFlightValue && (
-              // minPointSize's own `value` argument is the cumulative top of this layer's slice in
-              // the stack (shipped + inFlight), not inFlight's own delta, so a shipped-only week
-              // would also read as "non-zero" and get a floor it doesn't need. Read the row's own
-              // inFlight by index instead.
               <Bar dataKey="inFlight" stackId="timeline" fill={hatch.fill} stroke="var(--chart-surface)" strokeWidth={2}
-                radius={[4, 4, 0, 0]} minPointSize={(_, i) => (toNum(rows[i]?.inFlight) !== 0 ? 4 : 0)} isAnimationActive={false} />
+                radius={[4, 4, 0, 0]} minPointSize={inFlightFloor(rows, 'inFlight')} isAnimationActive={false} />
             )}
           </BarChart>
         </ChartContainer>

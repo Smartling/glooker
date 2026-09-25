@@ -6,8 +6,24 @@
 // id space, so a static id would make the accent and in-flight patterns collide.
 import { useId, type ReactElement } from 'react';
 import { cssIdent } from './chart';
+import { toNum } from './chart-format';
 
 const TILE = 6;
+
+/**
+ * A Bar's `minPointSize` callback receives `value[1]`, the cumulative top of THIS Bar's slice in
+ * a stack (e.g. shipped + inFlight), not the series' own delta — so on a shipped-only week that
+ * cumulative top is still non-zero, and a naive `minPointSize={v => v !== 0 ? 4 : 0}` would floor
+ * the hatch on every week regardless of whether it actually has in-flight work (GLOOK-58 final
+ * review; confirmed by reading node_modules/recharts/es6/cartesian/Bar.js). This reads the row's
+ * own value for `key` by index instead, floored to a legible 4px only when it isn't zero, so a
+ * real in-flight segment always shows at least one visible stripe and a zero-in-flight week draws
+ * no hatch rect at all. Shared by TimelineChart, StackedTypesChart and LinesChangedChart, each of
+ * which called this identically three times before.
+ */
+export function inFlightFloor<T>(rows: T[], key: keyof T): (value: unknown, index: number) => number {
+  return (_, i) => (toNum(rows[i]?.[key]) !== 0 ? 4 : 0);
+}
 
 export interface Hatch {
   id: string;

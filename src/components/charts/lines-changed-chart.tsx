@@ -8,7 +8,7 @@ import type { TooltipContentProps, TooltipValueType } from 'recharts';
 import { ChartContainer, ChartTooltip, CHART_TOOLTIP_CLASS } from './chart';
 import { formatCompact, formatValue, formatWeek, indexByWeek, toNum } from './chart-format';
 import { commitTypeColor } from './commit-types';
-import { TypeSwatch, useHatch } from './hatch';
+import { inFlightFloor, TypeSwatch, useHatch } from './hatch';
 
 export interface LinesWeek {
   week: string;
@@ -103,13 +103,9 @@ export function LinesChangedChart({ data, weeks, syncId }: { data: LinesWeek[]; 
             <ChartTooltip content={<LinesTooltip />} />
             <ReferenceLine y={0} stroke="var(--chart-axis)" strokeWidth={1} ifOverflow="extendDomain" />
             <Bar dataKey="added" stackId="lines" fill={ADDED} stroke="var(--chart-surface)" strokeWidth={2} shape={addedShape} isAnimationActive={false} />
-            {/* minPointSize's `value` argument is this layer's cumulative stack top (added +
-                inFlightAdded, or the removed-side equivalent), not the in-flight delta on its own,
-                so it can't tell a zero in-flight week from a non-zero one once added/removed is
-                stacked underneath. Read the row's own inFlight value by index instead. */}
-            <Bar dataKey="inFlightAdded" stackId="lines" fill={hatch.fill} stroke="var(--chart-surface)" strokeWidth={2} radius={TOP} minPointSize={(_, i) => (toNum(rows[i]?.inFlightAdded) !== 0 ? 4 : 0)} isAnimationActive={false} />
+            <Bar dataKey="inFlightAdded" stackId="lines" fill={hatch.fill} stroke="var(--chart-surface)" strokeWidth={2} radius={TOP} minPointSize={inFlightFloor(rows, 'inFlightAdded')} isAnimationActive={false} />
             <Bar dataKey="removed" stackId="lines" fill={REMOVED} stroke="var(--chart-surface)" strokeWidth={2} shape={removedShape} isAnimationActive={false} />
-            <Bar dataKey="inFlightRemoved" stackId="lines" fill={hatch.fill} stroke="var(--chart-surface)" strokeWidth={2} radius={BOTTOM} minPointSize={(_, i) => (toNum(rows[i]?.inFlightRemoved) !== 0 ? 4 : 0)} isAnimationActive={false} />
+            <Bar dataKey="inFlightRemoved" stackId="lines" fill={hatch.fill} stroke="var(--chart-surface)" strokeWidth={2} radius={BOTTOM} minPointSize={inFlightFloor(rows, 'inFlightRemoved')} isAnimationActive={false} />
           </BarChart>
         </ChartContainer>
       )}
