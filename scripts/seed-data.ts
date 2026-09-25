@@ -15,17 +15,26 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** ISO timestamp N days ago from a fixed anchor (2026-04-01T00:00:00Z) */
+/**
+ * GLOOK-58: seeded dates count back from today's UTC midnight (was a fixed 2026-04-01), so seeded
+ * activity falls inside the charts' 90-day window. Values are deterministic within a day.
+ */
+const SEED_ANCHOR = (() => {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+})();
+
+/** ISO timestamp N days before SEED_ANCHOR */
 function daysAgo(n: number): string {
-  const anchor = new Date('2026-04-01T00:00:00Z');
-  anchor.setDate(anchor.getDate() - n);
+  const anchor = new Date(SEED_ANCHOR);
+  anchor.setUTCDate(anchor.getUTCDate() - n);
   return anchor.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
 }
 
-/** YYYY-MM-DD date N days ago from the same anchor (for cc_period columns) */
+/** YYYY-MM-DD date N days before SEED_ANCHOR (for cc_period columns) */
 function dateDaysAgo(n: number): string {
-  const anchor = new Date('2026-04-01T00:00:00Z');
-  anchor.setDate(anchor.getDate() - n);
+  const anchor = new Date(SEED_ANCHOR);
+  anchor.setUTCDate(anchor.getUTCDate() - n);
   return anchor.toISOString().slice(0, 10);
 }
 
@@ -471,6 +480,37 @@ for (const rid of completedReportIds) {
         pr_updated_at: pr.updatedAt,
       });
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 13b. seedUnmergedCommits (GLOOK-58: in-flight overlay rows, so the org charts show the hatch)
+// ---------------------------------------------------------------------------
+// One in-flight commit two days ago sits next to that week's full shipped total (a SHORT hatched
+// segment); five in-flight commits nine days ago give a taller one. The two dates are exactly 7
+// days apart, so they always fall in different UTC weeks.
+
+const IN_FLIGHT_PLAN: Array<{ days: number; count: number }> = [
+  { days: 2, count: 1 },
+  { days: 9, count: 5 },
+];
+
+export const seedUnmergedCommits: Record<string, any>[] = [];
+for (const { days, count } of IN_FLIGHT_PLAN) {
+  for (let i = 0; i < count; i++) {
+    const dev = MOCK_DEVELOPERS[i % MOCK_DEVELOPERS.length];
+    seedUnmergedCommits.push({
+      report_id: R1,
+      github_login: dev.githubLogin,
+      repo: 'data-pipeline',
+      branch: `feature/in-flight-${days}-${i + 1}`,
+      pr_number: null,
+      commit_sha: fakeSha(`in-flight-${days}-${i}`),
+      commit_message: `wip: in-flight change ${i + 1}`,
+      lines_added: 40 + i * 10,
+      lines_removed: 10 + i * 5,
+      committed_at: daysAgo(days),
+    });
   }
 }
 
