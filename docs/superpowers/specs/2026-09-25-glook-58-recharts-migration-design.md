@@ -281,7 +281,7 @@ Palette (dark, surface #111827, categorical): 3 slots
   [PASS] Normal-vision floor    worst all-pairs #06B6D4↔#84CC16 ΔE 23.5 (normal)
   [PASS] Contrast vs surface    all 3 >= 3:1
 ```
-The worst-CVD pair here is `added`/`removed` (no in-flight exception, and it clears 8 anyway at 12.7). The tritan 7.7 belongs to a different pair; see the isolation run below, which confirms it's `added`/`in-flight` and within the allowed 6-8 band.
+The worst-CVD pair here is `added`/`removed` (no in-flight exception, and it clears 8 anyway at 12.7). The tritan 7.7 belongs to a different pair; see the `added`/`in-flight` isolation run below, which confirms it and that it's within the allowed 6-8 band.
 
 Lines, light, all pairs (added, in-flight, removed):
 ```
@@ -292,7 +292,7 @@ Palette (light, surface #ffffff, categorical): 3 slots
   [PASS] Normal-vision floor    worst all-pairs #0891B2↔#65A30D ΔE 21.1 (normal)
   [PASS] Contrast vs surface    all 3 >= 3:1
 ```
-The tritan 6.0 belongs to `added`/`in-flight` (`#65A30D`/`#0891B2`), confirmed by the isolation run below — that pair includes in-flight, so 6.0 is within the allowed 6-8 band. The `added`/`removed` pair (no exception) is 13.3, well clear.
+The tritan 6.0 belongs to `added`/`in-flight` (`#65A30D`/`#0891B2`), confirmed by the `added`/`in-flight` isolation run below — that pair includes in-flight, so 6.0 is within the allowed 6-8 band. The `added`/`removed` pair (no exception) is 13.3, well clear.
 
 Lines, `added`/`removed` alone (the pair with no in-flight exception), dark:
 ```
@@ -311,6 +311,46 @@ Palette (light, surface #ffffff, categorical): 2 slots
   [PASS] Chroma floor           all 2 >= 0.1
   [PASS] CVD separation         worst adjacent #B91C1C↔#65A30D ΔE 13.3 (deutan) · tritan 29.4
   [PASS] Normal-vision floor    worst adjacent #B91C1C↔#65A30D ΔE 32.2 (normal)
+  [PASS] Contrast vs surface    all 2 >= 3:1
+```
+
+Lines, `added`/`in-flight` in isolation, dark (confirms the full-order run's tritan 7.7 belongs to this pair, within the allowed 6-8 band):
+```
+Palette (dark, surface #111827, categorical): 2 slots
+  [FAIL] Lightness band         outside band: [["#84CC16",0.768],["#06B6D4",0.715]]
+  [PASS] Chroma floor           all 2 >= 0.1
+  [PASS] CVD separation         worst adjacent #06B6D4↔#84CC16 ΔE 22.3 (protan) · tritan 7.7
+  [PASS] Normal-vision floor    worst adjacent #06B6D4↔#84CC16 ΔE 23.5 (normal)
+  [PASS] Contrast vs surface    all 2 >= 3:1
+```
+
+Lines, `removed`/`in-flight` in isolation, dark (clears every check with no allowance needed):
+```
+Palette (dark, surface #111827, categorical): 2 slots
+  [FAIL] Lightness band         outside band: [["#06B6D4",0.715]]
+  [PASS] Chroma floor           all 2 >= 0.1
+  [PASS] CVD separation         worst adjacent #06B6D4↔#EF4444 ΔE 19.3 (deutan) · tritan 39.2
+  [PASS] Normal-vision floor    worst adjacent #06B6D4↔#EF4444 ΔE 34.1 (normal)
+  [PASS] Contrast vs surface    all 2 >= 3:1
+```
+
+Lines, `added`/`in-flight` in isolation, light (confirms the full-order run's tritan 6.0 belongs to this pair, within the allowed 6-8 band):
+```
+Palette (light, surface #ffffff, categorical): 2 slots
+  [PASS] Lightness band         all 2 inside L 0.43–0.77
+  [PASS] Chroma floor           all 2 >= 0.1
+  [PASS] CVD separation         worst adjacent #0891B2↔#65A30D ΔE 20.0 (protan) · tritan 6.0
+  [PASS] Normal-vision floor    worst adjacent #0891B2↔#65A30D ΔE 21.1 (normal)
+  [PASS] Contrast vs surface    all 2 >= 3:1
+```
+
+Lines, `removed`/`in-flight` in isolation, light (clears every check with no allowance needed):
+```
+Palette (light, surface #ffffff, categorical): 2 slots
+  [PASS] Lightness band         all 2 inside L 0.43–0.77
+  [PASS] Chroma floor           all 2 >= 0.1
+  [PASS] CVD separation         worst adjacent #0891B2↔#B91C1C ΔE 19.9 (deutan) · tritan 33.5
+  [PASS] Normal-vision floor    worst adjacent #0891B2↔#B91C1C ΔE 31.7 (normal)
   [PASS] Contrast vs surface    all 2 >= 3:1
 ```
 
