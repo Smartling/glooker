@@ -113,6 +113,43 @@ it('a running card is not clickable, and shows the step, the x / y repos counter
   expect(screen.queryByText('Dashboard')).toBeNull();
 });
 
+it('when the progress poll reports the run finished: the bar fills to 100%, polling stops, and the list refetches exactly once', async () => {
+  let finished = false;
+  let listCalls = 0;
+  let progressCalls = 0;
+  (global as any).fetch = jest.fn((url: string) => {
+    if (/\/api\/vulnerabilities\/syncs\/4\/progress/.test(url)) {
+      progressCalls++;
+      const body = finished
+        ? { status: 'succeeded', step: 'Done', done: 0, total: 0, logs: ['[10:05:00] sync 4 succeeded'] }
+        : { status: 'running', step: '[3/10] Checking Dependabot status', done: 3, total: 10, logs: ['[10:00:00] fetching alerts'] };
+      return Promise.resolve({ ok: true, status: 200, json: async () => body });
+    }
+    listCalls++;
+    const row = finished ? { ...runningSync, status: 'succeeded', finishedAt: '2026-09-23T09:05:00Z', newCount: 1, resolvedCount: 0, reopenedCount: 0, missingCount: 0 } : runningSync;
+    return Promise.resolve({ ok: true, status: 200, json: async () => listBody([row], !finished) });
+  });
+  const { container } = render(wrap(<VulnerabilitySyncsTab canAct={false} />));
+  await waitFor(() => screen.getByText('[3/10] Checking Dependabot status'));
+  const bar = () => container.querySelector('[style*="width"]') as HTMLElement;
+  expect(bar().style.width).toBe('30%');
+
+  const listBefore = listCalls;
+  finished = true;
+  // the card's own 1.5s progress poll picks up the finished state, keeps the block (page-session
+  // retention), fills the bar, and triggers one list refetch, which flips the chip to succeeded
+  await waitFor(() => expect(screen.getByText('Done')).toBeTruthy(), { timeout: 4000 });
+  expect(bar().style.width).toBe('100%');
+  await waitFor(() => expect(screen.getByText('succeeded')).toBeTruthy(), { timeout: 4000 });
+  expect(listCalls).toBe(listBefore + 1);
+
+  // polling has stopped: no further progress requests or list refetches in the next ~2 poll periods
+  const progressAfter = progressCalls;
+  await new Promise(r => setTimeout(r, 3200));
+  expect(progressCalls).toBe(progressAfter);
+  expect(listCalls).toBe(listBefore + 1);
+}, 15000);
+
 it('hides Sync now from viewers and shows it to admins', async () => {
   (global as any).fetch = mockFetchFor([succeededFirst]);
   const { rerender } = render(wrap(<VulnerabilitySyncsTab canAct={false} />));
