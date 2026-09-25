@@ -42,6 +42,15 @@ describe('ringGeometry (size and stroke guarantees)', () => {
     const g = ringGeometry(stats({ totalJiras: '10' as unknown as number, resolvedJiras: '4' as unknown as number }), MAX_VOLUME, 1);
     expect(g.jiraPct).toBeCloseTo(0.4);
   });
+  it('clamps jiraPct to 1 when resolvedJiras exceeds totalJiras (bad data)', () => {
+    // Unreachable via real data today (resolvedJiras is a subset of totalJiras), but an
+    // unclamped value over 1 would widen the shared 0-100 PolarAngleAxis domain and silently
+    // shrink every other ring sharing it. Asserted directly on the geometry, not just through
+    // the render: RadialBar's default allowDataOverflow clips an out-of-domain value visually,
+    // so a render-only assertion wouldn't catch a missing clamp here.
+    const g = ringGeometry(stats({ totalJiras: 4, resolvedJiras: 6 }), MAX_VOLUME, 1);
+    expect(g.jiraPct).toBe(1);
+  });
 });
 
 describe('ProgressRing render', () => {
@@ -88,5 +97,33 @@ describe('ProgressRing render', () => {
     expect(sector(container, '--chart-ring-commits')).toBeUndefined();
     Array.from(container.querySelectorAll('path')).forEach(p => expect(p.getAttribute('d') ?? '').not.toContain('NaN'));
     expect(container.querySelector('span.font-bold')?.textContent).toBe('0');
+  });
+
+  it('clamps a jiraPct over 1 (bad data) so the Jira ring draws full and the commits ring keeps its own half arc', () => {
+    // resolvedJiras > totalJiras is unreachable via real data today, but ringGeometry must not
+    // hand RadialBar a value over 100 — that would widen the shared 0-100 domain and shrink
+    // every other ring sharing it, including the correctly-computed commits ring below.
+    const s = stats({ totalJiras: 4, resolvedJiras: 6, commitCount: 2 }); // Jira 150% raw, commits 50%
+    const { container } = render(<ProgressRing stats={s} maxVolume={MAX_VOLUME} avgCommitsPerJira={1} />);
+    const jira = arc(sector(container, '--chart-ring-jira')!);
+    const commits = arc(sector(container, '--chart-ring-commits')!);
+    expect(jira).not.toBeNull();
+    expect(commits).not.toBeNull();
+    expect(jira!.largeArc).toBe(true); // clamped to 100%, draws (nearly) full
+    expect(commits!.largeArc).toBe(false); // its own 50% is unaffected, still a half arc
+    expect(jira!.r).toBeGreaterThan(commits!.r); // Jira still outer, commits still inner
+    Array.from(container.querySelectorAll('path')).forEach(p => expect(p.getAttribute('d') ?? '').not.toContain('NaN'));
+  });
+});
+
+describe('ProgressRing accessibility', () => {
+  it('leaves the ring out of the tab order and exposes an accessible name on the wrapper', () => {
+    const s = stats({ totalJiras: 5, resolvedJiras: 3, commitCount: 2, devCount: 2 });
+    const { container } = render(<ProgressRing stats={s} maxVolume={MAX_VOLUME} avgCommitsPerJira={1} />);
+    const svg = container.querySelector('svg.recharts-surface')!;
+    expect(svg.getAttribute('tabindex')).not.toBe('0');
+    const wrapper = container.querySelector('[role="img"]');
+    expect(wrapper).not.toBeNull();
+    expect(wrapper!.getAttribute('aria-label')).toBe('Jira 3/5 closed, commits 40% of expected, 2 devs');
   });
 });

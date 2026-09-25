@@ -44,7 +44,10 @@ export function ringGeometry(stats: EpicRingStats, maxVolume: number, avgCommits
   const volume = Math.log(commits + total + 1);
   const sizePct = maxV > 0 ? volume / maxV : 0;
   const px = Math.max(22, Math.round(sizePct * 48));
-  const jiraPct = total > 0 ? resolved / total : 0;
+  // Clamped like commitPct: resolvedJiras is a subset of totalJiras today, so this can't exceed 1
+  // in practice, but an unclamped value over 1 would widen the shared PolarAngleAxis domain and
+  // silently shrink the commits ring.
+  const jiraPct = total > 0 ? Math.min(1, resolved / total) : 0;
   const expectedCommits = total * toNum(avgCommitsPerJira);
   const commitPct = expectedCommits > 0 ? Math.min(1, commits / expectedCommits) : 0;
   // Stroke width scales inversely with size for readability.
@@ -69,8 +72,13 @@ export function ProgressRing({ stats, maxVolume, avgCommitsPerJira }: ProgressRi
   const linesPerDev = devCount > 0 ? totalLines / devCount : 0;
   const isAiSpeed = linesPerDev >= 20000;
 
+  // The tooltip is plain HTML hover, not a Recharts tooltip, so the chart itself has no keyboard
+  // interaction to offer. accessibilityLayer defaults to true on Recharts polar charts, which
+  // would make every ring on the Projects page (one per epic row) a tab stop that does nothing.
+  const ariaLabel = `Jira ${toNum(stats.resolvedJiras)}/${toNum(stats.totalJiras)} closed, commits ${commitPctDisplay}% of expected, ${devCount} dev${devCount !== 1 ? 's' : ''}`;
+
   return (
-    <div className="relative group" style={{ width: px, height: px }}>
+    <div className="relative group" style={{ width: px, height: px }} role="img" aria-label={ariaLabel}>
       <RadialBarChart
         width={px}
         height={px}
@@ -81,6 +89,7 @@ export function ProgressRing({ stats, maxVolume, avgCommitsPerJira }: ProgressRi
         startAngle={90}
         endAngle={-270}
         margin={{ top: 0, right: 0, bottom: 0, left: 0 }}
+        accessibilityLayer={false}
       >
         <PolarAngleAxis type="number" domain={[0, 100]} tick={false} axisLine={false} />
         <RadialBar dataKey="value" background={{ fill: 'var(--chart-track)' }} isAnimationActive={false} />
