@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { SpendImpactScatter, type ScatterPoint } from '@/components/charts/spend-impact-scatter';
+import { SpendImpactScatter, SpendImpactTooltip, type ScatterPoint } from '@/components/charts/spend-impact-scatter';
 import { SpendTab } from '@/app/report/[id]/org/spend-tab';
 import { fixChartSize } from '../setup/chart-size';
 
@@ -56,6 +56,19 @@ it('string cost and impact values still place a dot', () => {
 it('shows an explicit empty state when no developer has spend', () => {
   render(<SpendImpactScatter points={[]} medianImpact={0} medianCost={0} onSelect={() => {}} />);
   expect(screen.getByText('No developer has spend in this period')).toBeTruthy();
+});
+
+it('the tooltip renders a string impact/cost payload without throwing, and shows the outlier line', () => {
+  render(
+    <SpendImpactTooltip
+      active
+      payload={[{ payload: { login: 'dev-s', impact: '4.5', cost: '300', outlier: true }, graphicalItemId: 'x' } as never]}
+    />,
+  );
+  expect(screen.getByText('@dev-s')).toBeTruthy();
+  expect(screen.getByText(/\$3\.00/)).toBeTruthy();
+  expect(screen.getByText(/4\.5 impact/)).toBeTruthy();
+  expect(screen.getByText('Cost per impact point over 2× the median')).toBeTruthy();
 });
 
 it('clicking a dot on the spend tab navigates to that developer', () => {

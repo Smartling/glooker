@@ -28,7 +28,7 @@ export function SpendImpactTooltip({ active, payload }: Partial<TooltipContentPr
   return (
     <div className={CHART_TOOLTIP_CLASS}>
       <div className="font-medium">@{p.login}</div>
-      <div className="font-mono tabular-nums">{dollars(p.cost)} · {p.impact.toFixed(1)} impact</div>
+      <div className="font-mono tabular-nums">{dollars(p.cost)} · {toNum(p.impact).toFixed(1)} impact</div>
       {p.outlier && <div>Cost per impact point over 2× the median</div>}
     </div>
   );
