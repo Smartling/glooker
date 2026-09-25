@@ -1,6 +1,6 @@
 // GLOOK-58 Decision 11: trend colours follow the team, not its rank, so a team keeps its colour
 // across syncs and when the page filter narrows the chart. Build the map from the UNFILTERED
-// series. Assumption (spec): at most 12 teams have alerts; beyond that, the 12 with the most open
+// series. Spec Decision 11: at most 12 teams have alerts; beyond that, the 12 with the most open
 // alerts (latest point, ties by name) get slots 1..12 in name order and the rest share "other".
 // In that fallback a team entering or leaving the top 12 can shift other teams' slots.
 import type { TrendSeries } from '@/lib/vulnerabilities/aggregate';

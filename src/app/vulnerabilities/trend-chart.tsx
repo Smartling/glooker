@@ -57,7 +57,7 @@ export default function TrendChart({ series, colorByTeam }: { series: TrendSerie
               strokeWidth={2}
               strokeOpacity={opacity(s.team)}
               dot={{ r: 2, fill: colorOf(s.team), strokeWidth: 0, fillOpacity: opacity(s.team) }}
-              activeDot={{ r: 4 }}
+              activeDot={{ r: 4, fill: colorOf(s.team), strokeWidth: 0, fillOpacity: opacity(s.team) }}
               connectNulls
               isAnimationActive={false}
               onMouseEnter={() => setHover(s.team)}
