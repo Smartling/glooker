@@ -7,6 +7,7 @@ import { CODEBASE_GROUPS, CODEBASE_LABELS } from '@/lib/vulnerabilities/codebase
 import type { CodebaseGroup } from '@/lib/vulnerabilities/types';
 import TeamPivot from './team-pivot';
 import TrendChart from './trend-chart';
+import { assignTeamColors } from './team-colors';
 import { AlertsPanel, alertFilterQuery, type AlertListUiFilters } from './alerts-table';
 import CoveragePanel from './coverage-panel';
 import PolicyPanel from './policy-panel';
@@ -200,7 +201,7 @@ export default function VulnerabilitiesContent() {
           const err = panelError(trendError, 'trend');
           if (err) return <p className="text-xs text-red-400">{err}</p>;
           return trend?.series
-            ? <div className={trendStale ? 'opacity-60' : undefined}><TrendChart series={team ? trend.series.filter((x: any) => x.team === team) : trend.series} /></div>
+            ? <div className={trendStale ? 'opacity-60' : undefined}><TrendChart series={team ? trend.series.filter((x: any) => x.team === team) : trend.series} colorByTeam={assignTeamColors(trend.series)} /></div>
             : <p className="text-xs text-gray-500">Loading…</p>;
         })()}
       </div>
