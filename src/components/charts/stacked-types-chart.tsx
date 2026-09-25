@@ -4,7 +4,7 @@ import { type ReactElement } from 'react';
 import { Bar, BarChart, CartesianGrid, Rectangle, XAxis, YAxis, type BarShapeProps, type RectangleProps } from 'recharts';
 import type { TooltipContentProps, TooltipValueType } from 'recharts';
 import { ChartContainer, ChartTooltip, CHART_TOOLTIP_CLASS } from './chart';
-import { formatCompact, formatWeek, indexByWeek, isTopOfStack } from './chart-format';
+import { formatCompact, formatWeek, indexByWeek, isTopOfStack, toNum } from './chart-format';
 import { COMMIT_TYPE_ORDER, commitTypeColor, foldTypes, type CommitType } from './commit-types';
 import { TypeSwatch, useHatch } from './hatch';
 
@@ -80,8 +80,12 @@ export function StackedTypesChart({ data, weeks }: { data: TypesWeek[]; weeks: s
             <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={36} tickFormatter={formatCompact} />
             <ChartTooltip content={<StackedTypesTooltip />} />
             {present.map(t => (
+              // minPointSize's `value` argument is this layer's cumulative stack top, not t's own
+              // delta, so it can't tell a zero in_flight week from a non-zero one once another type
+              // is stacked underneath. Read the row's own value for t by index instead.
               <Bar key={t} dataKey={t} name={t} stackId="types" fill={fillFor(t)} stroke="var(--chart-surface)" strokeWidth={2}
-                shape={typeShapes[t]} isAnimationActive={false} />
+                shape={typeShapes[t]} minPointSize={t === 'in_flight' ? ((_, i) => (toNum(rows[i]?.[t]) !== 0 ? 4 : 0)) : undefined}
+                isAnimationActive={false} />
             ))}
           </BarChart>
         </ChartContainer>

@@ -24,6 +24,20 @@ it('draws one segment per non-zero type per week, in type tokens, with in-flight
   expect(container.querySelector(`pattern#${hatched[0]!.slice(5, -1)}`)).not.toBeNull();
 });
 
+it('GLOOK-58 fix round 1: a short in_flight segment still gets a legible floor, but a zero-in_flight week stays hatch-free', () => {
+  const data = [
+    { week: '2026-09-07', types: { feature: 200, in_flight: 1 } },
+    { week: '2026-09-14', types: { feature: 11 } },
+  ];
+  const { container } = render(<StackedTypesChart data={data} weeks={weeks} />);
+  const hatched = rects(container).filter(r => (r.getAttribute('fill') ?? '').startsWith('url(#hatch-'));
+  // Exactly one hatch rect: the 1-in_flight week's, floored to a legible height. The other week
+  // has no in_flight at all, even though its own feature value (11) is well above zero — proof
+  // minPointSize is reading this row's own in_flight value, not the stack's cumulative top.
+  expect(hatched).toHaveLength(1);
+  expect(Number(hatched[0].getAttribute('height'))).toBeGreaterThanOrEqual(4);
+});
+
 it('the legend lists the types present, in stacking order, in chrome text', () => {
   const data = [{ week: '2026-09-07', types: { test: 1, feature: 2 } }];
   const { container } = render(<StackedTypesChart data={data} weeks={weeks} />);

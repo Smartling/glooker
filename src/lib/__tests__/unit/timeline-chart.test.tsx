@@ -131,6 +131,23 @@ it('ratio: when the latest domain week fails isDefined, the header uses the last
   }
 });
 
+it('GLOOK-58 fix round 1: a short in-flight segment still gets a legible floor, but a zero-in-flight week stays hatch-free', () => {
+  const data: Row[] = [
+    { week: '2026-09-14', commits: 200, prs: 0, types: { in_flight: 1 } },
+    { week: '2026-09-21', commits: 11, prs: 0, types: { in_flight: 0 } },
+  ];
+  const { container } = render(
+    <TimelineChart data={data} weeks={weeks} valueKey="commits" kind="count" label="C" syncId="t" inFlightValue={d => d.types?.in_flight ?? 0} />,
+  );
+  const drawn = rects(container);
+  const hatched = drawn.filter(r => (r.getAttribute('fill') ?? '').startsWith('url(#hatch-'));
+  // Exactly one hatch rect: the 1-in-flight week's, floored to a legible height. The 0-in-flight
+  // week draws no hatch rect at all, even though its own shipped value (11) is well above zero —
+  // proof minPointSize is reading this row's own in-flight value, not the stack's cumulative top.
+  expect(hatched).toHaveLength(1);
+  expect(Number(hatched[0].getAttribute('height'))).toBeGreaterThanOrEqual(4);
+});
+
 it('a negative in-flight value clamps to 0: no hatched segment, shipped bar identical to a chart without in-flight', () => {
   const data: Row[] = [{ week: '2026-09-14', commits: 5, prs: 0, types: { in_flight: -3 } }];
   const plain = render(<TimelineChart data={data} weeks={weeks} valueKey="commits" kind="count" label="C" syncId="t" />);

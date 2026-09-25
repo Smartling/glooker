@@ -41,6 +41,25 @@ it('draws removed lines below the zero baseline and added lines above it', () =>
   });
 });
 
+it('GLOOK-58 fix round 1: a short in-flight segment on either side still gets a legible floor, but a zero-in-flight week stays hatch-free', () => {
+  const data = [
+    // Added side: a large shipped total with a tiny in-flight sliver on top.
+    { week: '2026-09-07', linesP95Added: 5000, linesP95Removed: 40, inFlightLinesP95Added: 1 },
+    // Removed side: same shape, mirrored (inFlightRemoved is negative once built).
+    { week: '2026-09-14', linesP95Added: 80, linesP95Removed: 5000, inFlightLinesP95Removed: 1 },
+    // No in-flight at all, despite large shipped values on both sides.
+    { week: '2026-09-21', linesP95Added: 3000, linesP95Removed: 3000 },
+  ];
+  const { container } = render(<LinesChangedChart data={data} weeks={weeks} />);
+  const hatched = rectsWithFill(container, /^url\(#hatch-/);
+  // Exactly two hatch rects (one per in-flight week), each floored to a legible height — proof
+  // minPointSize is reading each row's own in-flight value, not the stack's cumulative top.
+  // The removed-side rect's `height` is negative (it extends downward from the baseline); its
+  // magnitude is what must be legible.
+  expect(hatched).toHaveLength(2);
+  hatched.forEach(r => expect(Math.abs(Number(r.getAttribute('height')))).toBeGreaterThanOrEqual(4));
+});
+
 it('hatches the in-flight part of each side and lists it in the legend only when present', () => {
   const data = [{ week: '2026-09-14', linesP95Added: 50, linesP95Removed: 20, inFlightLinesP95Added: 30, inFlightLinesP95Removed: 10 }];
   const { container } = render(<LinesChangedChart data={data} weeks={weeks} />);
