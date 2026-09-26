@@ -119,8 +119,14 @@ Libraries evaluated on 2026-09-25 against GitHub, npm and official docs:
     **The fix has three parts.** *(Revised after the Decision 15 review loop.)*
     1. **Coverage from the server.** Both responses gain two additive fields: `coveredWeeks: string[]` and `anchorWeek: string`. No existing field changes.
        - **Which reports count:** completed ones only (`status = 'completed'`).
-         - Their window is `[completed_at − period_days × 1 day, completed_at]`.
-         - Every run searched from `runStart − period_days` (`report-runner.ts:44`), and `runStart` is no later than `completed_at`, including for resumed runs. So this window always sits inside what was actually searched.
+         - Their window is `[completed_at − period_days × 1 day, created_at]`.
+         - Why this is always inside what was searched:
+           - Every run, resumed ones included, computes `since = runStart − period_days` (`report-runner.ts:44`).
+           - It then searches each member from `since` with **no upper bound**, at some moment at or after `runStart`.
+           - So every member's search covered `[runStart − period_days, runStart]`.
+           - `created_at ≤ runStart ≤ completed_at`, so the left edge `completed_at − period_days ≥ since`, and the right edge `created_at ≤ runStart`.
+         - The earlier right edge `completed_at` could over-claim the tail of a long run. A member searched early wasn't re-searched for commits made later in the same run. *(Corrected after the Task 12 review.)*
+         - For a normal run, this loses only the run's own duration at the left. A report resumed long after creation may get an empty window, which under-claims.
          - Failed, stopped, pending and running reports contribute no coverage. Their commits still appear, because a week with data is always measured (part 2).
        - **Org page:** every completed report for the org.
        - **Dev page:** only completed reports that have a `developer_stats` row for this login.

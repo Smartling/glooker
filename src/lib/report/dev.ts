@@ -81,12 +81,12 @@ export async function getDevReport(reportId: string, login: string) {
 
   // Timeline: all commits for this developer across ALL reports for this org,
   // deduped by commit_sha, for weekly aggregation graphs. GLOOK-58 Decision 15: status,
-  // period_days, completed_at and has_login_stats feed this developer's coverage below. Only
-  // completed reports holding a developer_stats row for this login count. They're read in this
+  // period_days, completed_at, created_at and has_login_stats feed this developer's coverage below.
+  // Only completed reports holding a developer_stats row for this login count. They're read in this
   // same query so the call order is unchanged. The login match is exact-case, like every other
   // developer_stats read in this file.
   const [allReportIds] = await db.execute(
-    `SELECT r.id, r.status, r.period_days, r.completed_at,
+    `SELECT r.id, r.status, r.period_days, r.completed_at, r.created_at,
             EXISTS(SELECT 1 FROM developer_stats ds WHERE ds.report_id = r.id AND ds.github_login = ?) AS has_login_stats
      FROM reports r WHERE r.org = ?`,
     [login, org],

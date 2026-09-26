@@ -33,52 +33,71 @@ export function weekKeyForDate(d: Date): string {
 
 const DAY_MS = 86_400_000;
 
-/** One report's searched period, ending at the instant it completed (GLOOK-58 Decision 15). */
+/** One report's searched period (GLOOK-58 Decision 15): see completedReportWindows for the edges. */
 export interface CoverageWindow {
-  end: Date;
+  completedAt: Date;
+  createdAt: Date;
   periodDays: number;
 }
 
 /**
- * GLOOK-58 Decision 15: which reports' windows count. Completed reports only, windowed on
- * completed_at: every run searched from runStart − period_days (report-runner.ts:44), and runStart is
- * no later than completed_at, resumed runs included, so [completed_at − period_days, completed_at]
- * always sits inside what was searched. The filter is on status, not on completed_at being set: a
- * failed run sets completed_at, and a resumed run is 'running' with its old completed_at still set.
+ * GLOOK-58 Decision 15: which reports' windows count, and both edges' justification. *(Corrected
+ * after the Task 12 review: the right edge was completed_at; that could over-claim a long run's
+ * tail, because a member searched early in the run is not re-searched for commits made later in
+ * that same run.)*
+ *
+ * Completed reports only. Every run, resumed ones included, computes since = runStart − period_days
+ * (report-runner.ts:44), then searches each member from since with NO upper bound, at some moment at
+ * or after runStart. So every member's search covered [runStart − period_days, runStart].
+ * created_at ≤ runStart ≤ completed_at, so:
+ * - the left edge, completed_at − period_days, is ≥ since (completed_at ≥ runStart), never claiming
+ *   earlier than what was actually searched;
+ * - the right edge, created_at, is ≤ runStart (it is set when the report row is inserted, before any
+ *   member is searched), so every member's search — even the earliest — reached back through it.
+ * A window whose edges land the wrong way round (a report resumed long after it was created)
+ * contributes nothing; see coveredWeeksFromWindows.
+ *
+ * The filter is on status, not on completed_at being set: a failed run sets completed_at, and a
+ * resumed run is 'running' with its old completed_at still set.
  *
  * Timestamps are parsed with new Date(value), exactly as getOrgReport's avg-impact bucketing does:
  * MySQL DATETIME arrives as a Date; SQLite's zone-less 'YYYY-MM-DD HH:MM:SS' (datetime('now',
- * 'localtime')) is read as local time, on the same host that wrote it. A row whose completed_at
- * doesn't parse is skipped, which is conservative.
+ * 'localtime')) is read as local time, on the same host that wrote it. A row whose completed_at or
+ * created_at doesn't parse is skipped, which is conservative.
  */
 export function completedReportWindows(
-  rows: Array<{ status?: unknown; period_days?: unknown; completed_at?: unknown }>,
+  rows: Array<{ status?: unknown; period_days?: unknown; completed_at?: unknown; created_at?: unknown }>,
 ): CoverageWindow[] {
   const out: CoverageWindow[] = [];
   for (const r of rows) {
     if (r.status !== 'completed' || r.completed_at == null) continue;
-    const end = new Date(r.completed_at as string | number | Date);
-    if (Number.isNaN(end.getTime())) continue;
-    out.push({ end, periodDays: Number(r.period_days) });
+    const completedAt = new Date(r.completed_at as string | number | Date);
+    if (Number.isNaN(completedAt.getTime())) continue;
+    const createdAt = new Date(r.created_at as string | number | Date);
+    if (Number.isNaN(createdAt.getTime())) continue;
+    out.push({ completedAt, createdAt, periodDays: Number(r.period_days) });
   }
   return out;
 }
 
 /**
  * GLOOK-58 Decision 15: the UTC Monday keys of every week all 7 of whose UTC days lie wholly inside
- * the UNION of the windows. The windows are merged as time intervals first, so two windows that
- * meet (or overlap) mid-day form one continuous interval and don't lose the day they share. The
- * union never over-claims, because every instant in it was searched. A partly covered week is left
- * out, so the edges of a real gap never claim a measured zero. A window with an invalid end, or a
- * period that isn't a positive number, is skipped. Sorted ascending, no duplicates.
+ * the UNION of the windows [completedAt − periodDays, createdAt]. The windows are merged as time
+ * intervals first, so two windows that meet (or overlap) mid-day form one continuous interval and
+ * don't lose the day they share. The union never over-claims, because every instant in it was
+ * searched. A partly covered week is left out, so the edges of a real gap never claim a measured
+ * zero. A window whose computed start is at or after its end — an invalid date, a period that isn't
+ * a positive number, or a report resumed long after it was created — contributes nothing. Sorted
+ * ascending, no duplicates.
  */
 export function coveredWeeksFromWindows(windows: CoverageWindow[]): string[] {
   const intervals: Array<[number, number]> = [];
-  for (const { end, periodDays } of windows) {
-    const endMs = end.getTime();
+  for (const { completedAt, createdAt, periodDays } of windows) {
     const period = Number(periodDays);
-    if (!Number.isFinite(endMs) || !Number.isFinite(period) || period <= 0) continue;
-    intervals.push([endMs - period * DAY_MS, endMs]);
+    const startMs = completedAt.getTime() - period * DAY_MS;
+    const endMs = createdAt.getTime();
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || startMs >= endMs) continue;
+    intervals.push([startMs, endMs]);
   }
   intervals.sort((a, b) => a[0] - b[0]);
 
