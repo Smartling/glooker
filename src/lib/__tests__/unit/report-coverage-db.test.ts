@@ -50,6 +50,18 @@ const REPORTS: Array<[string, string, number, string, string, string | null]> = 
   ['rAdj2', 'acme-adjoin', 14, 'completed', '2026-07-25T12:00:00Z', '2026-07-25T12:00:00Z'],
   // gamma: no completed report at all.
   ['rGammaFailed', 'gamma', 14, 'failed', '2026-02-01T00:00:00Z', '2026-02-20T00:00:00Z'],
+  // acme-narrow, own org so existing expectations don't move: a genuinely narrow (sub-day) gap
+  // between created_at and completed_at, through the REAL service, not just the pure helper.
+  // created Sunday 2026-03-15T20:00Z, completed Monday 2026-03-16T03:00Z (7 hours later). Window =
+  // [completed_at - 14d, created_at] = [2026-03-02T03:00Z, 2026-03-15T20:00Z] (about 13 days, not
+  // empty). Sunday Mar 15 is cut at 20:00, so it's the one day whose whole/partial status differs
+  // between the two right-edge choices. Sunday is deliberately the LAST day of its ISO week (not
+  // Monday, the first): the other 6 days of that week (Mon 9-Sat 14) are already inside the window
+  // regardless of the right edge, so completing Sunday is what completes the whole week. A version
+  // of this fixture with the roles reversed (created Monday, completed Tuesday) would NOT
+  // discriminate at the week level: Monday is the FIRST day of its week, and the other 6 days
+  // (Tue-Sun) are never reached by either right edge, so that week can never be whole either way.
+  ['rNarrow', 'acme-narrow', 14, 'completed', '2026-03-15T20:00:00Z', '2026-03-16T03:00:00Z'],
 ];
 // alice: rA (completed), rFailed (failed), rPending (pending). bob: rA and rB (both completed).
 // carol: only rFailed, so no completed report holds her row.
@@ -136,6 +148,17 @@ describe('getOrgReport coverage', () => {
     expect((await getOrgReport('rPending')).anchorWeek).toBe('2026-05-11'); // completed_at null
     expect((await getOrgReport('rRunning')).anchorWeek).toBe('2026-04-13'); // resumed; stale completed_at 2026-05-04
     expect((await getOrgReport('rFailed')).anchorWeek).toBe('2026-01-26'); // failed runs set completed_at 2026-03-02
+  });
+
+  it('a narrow (sub-day) gap between created_at and completed_at, through the real service, still excludes the week that needs the cut day', async () => {
+    // rNarrow: created Sun 2026-03-15T20:00Z, completed Mon 2026-03-16T03:00Z. Window (correct right
+    // edge, created_at) = [2026-03-02T03:00Z, 2026-03-15T20:00Z], about 13 days — not empty, unlike
+    // rB above. Mon Mar 2 is cut by the left edge (03:00) and Sun Mar 15 is cut by the right edge
+    // (20:00), so BOTH the week of Mar 2 (missing its Monday) and the week of Mar 9 (missing its
+    // Sunday) are left out. If the right edge were (wrongly) completed_at instead, Sunday Mar 15
+    // would be whole (its day ends at Mon 00:00, before completed_at's Mon 03:00), completing the
+    // week of Mar 9 — this is what the mutation check below confirms.
+    expect((await getOrgReport('rNarrow')).coveredWeeks).toEqual([]);
   });
 });
 
