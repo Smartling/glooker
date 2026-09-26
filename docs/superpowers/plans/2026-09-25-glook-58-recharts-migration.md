@@ -4631,7 +4631,10 @@ Before committing, replace `<N>` and `<M>` with the counts from Step 4, and repl
 
 ## Addendum: Decision 15, measured weeks in the report's own era (Tasks 12-13)
 
-Tasks 1-11 are implemented and reviewed. Tasks 12 and 13 implement spec **Decision 15**, the amended **Decision 10**, and the Testing table's two "Coverage" rows, as amended at commits `ed73927` and `4f8a2a5`. Read those sections before starting. `git show ed73927 4f8a2a5 -- docs/superpowers/specs/` shows exactly what changed.
+Tasks 1-11 are implemented and reviewed. Tasks 12 and 13 implement spec **Decision 15**, the amended **Decision 10**, and the Testing table's two "Coverage" rows, as amended at commits `ed73927`, `4f8a2a5` and `8fd0372`. Read those sections before starting. `git show ed73927 4f8a2a5 8fd0372 -- docs/superpowers/specs/` shows exactly what changed. Commit `8fd0372` holds the product owner's rulings:
+- Coverage takes the **union** of the counted windows before marking days.
+- `anchorWeek` depends on the report's **status**.
+- Unparseable timestamps never throw.
 
 **What the two tasks deliver:**
 - **Task 12, server:** the org and dev report responses gain `coveredWeeks: string[]` and `anchorWeek: string`.
@@ -4644,15 +4647,19 @@ Tasks 1-11 are implemented and reviewed. Tasks 12 and 13 implement spec **Decisi
 **Seed data needs no change.** Checked on 2026-09-25 against `scripts/seed-data.ts`:
 - R1 (14 days) completes 1 day ago, and R2 (30 days) completes 15 days ago. R3 is `running`.
 - Together they cover at most about 45 days, and seeded commits fall within about the last 20 days.
-- The org page's domain is 14 weeks. So its earliest weeks are always both uncovered and empty, whatever day the seed runs.
+- The org page's domain is 14 weeks. So its earliest weeks are always both uncovered and empty, whatever day the seed runs. Merging adjacent windows (the union rule) doesn't change this: the union is still at most about 45 days.
+- Re-checked with the union rule on 2026-09-25, on this America/New_York host:
+  - `coveredWeeks` is `2026-08-17, 08-24, 08-31, 09-07, 09-14`. The week of Sep 7 is now covered, because R1 and R2 meet at 04:00Z on Sep 10.
+  - The domain runs `2026-06-22 .. 2026-09-21` (14 weeks).
+  - The 8 weeks from Jun 22 to Aug 10 are uncovered and have no data.
 - No new tables or entities are introduced, so CLAUDE.md's seed rule doesn't apply. Task 13's verification step re-checks this through the live API before hovering.
 
 **Addendum review focus.** These are the input classes most likely to bite, with the test that pins each:
-1. **A timestamp that doesn't parse.** The mocked `org-model-usage.test.ts` feeds `completed_at: 'y'`, and a corrupt row can do the same. `weekKeyForDate(new Date('y'))` throws a `RangeError`, so `anchorWeekFor` falls back to today's week, and the coverage helpers skip the row. Pinned in Task 12 (`report-coverage.test.ts`).
-2. **A `running` report that carries a stale `completed_at`.** `runReport` sets `status = 'running'` on resume without clearing `completed_at`, and a failed run sets `completed_at = NOW()`. Coverage filters on status, not on `completed_at IS NOT NULL`. Pinned in Task 12 (`report-coverage-db.test.ts`, `rRunning`).
+1. **A timestamp that doesn't parse.** The mocked `org-model-usage.test.ts` feeds `completed_at: 'y'` on a `completed` row, and a corrupt row can do the same. `weekKeyForDate(new Date('y'))` throws a `RangeError`. So an unparseable anchor source falls back to the current UTC week, and the coverage helpers skip the row. Nothing throws. Pinned in Task 12 (`report-coverage.test.ts`, including that exact `'y'`/`'x'` row).
+2. **A `running` or `failed` report that carries a `completed_at`.** `runReport` sets `status = 'running'` on resume without clearing `completed_at`, and a failed run sets `completed_at = NOW()`. Both coverage and `anchorWeek` therefore key on status, never on `completed_at` being set. For any status other than `completed`, the anchor is `created_at`. Pinned in Task 12 (`report-coverage.test.ts`, and `report-coverage-db.test.ts` with `rRunning` and `rFailed`).
 3. **A week with data that no report covered.** For example, an in-flight commit older than every report period. It stays measured and shows its value. Pinned in Task 13 (`chart-format.test.ts`).
 4. **A missing or malformed `anchorWeek` on the client.** `weekDomainEndingAt` falls back to today's domain instead of throwing. Pinned in Task 13.
-5. **Two report windows that meet mid-day.** Days are marked per window, as the spec states. So the split day, and its whole week, read "Not measured". This is a deliberate under-claim. Pinned in Task 12 so that any change to it is a visible decision.
+5. **Two report windows that meet mid-day, versus a real gap of a few hours.** The windows are merged into their union first, so windows that meet leave no hole. But a gap of even a few hours still leaves the day it cuts, and that day's week, uncovered. Both are pinned in Task 12 (`report-coverage.test.ts`), so a regression either way is caught.
 
 **Superseded wording.** Plan Review Focus 1 and Tasks 4-5 quote the empty states as "No … in the last 90 days". Task 13 changes them to "No … in the 90 days before this report" (spec Decision 15, part 3). Task 13 lists the six existing assertions it updates.
 
@@ -4680,8 +4687,8 @@ Tasks 1-11 are implemented and reviewed. Tasks 12 and 13 implement spec **Decisi
 - Produces, from `@/lib/report/timeline`:
   - `interface CoverageWindow { end: Date; periodDays: number }`
   - `completedReportWindows(rows: Array<{ status?: unknown; period_days?: unknown; completed_at?: unknown }>): CoverageWindow[]`
-  - `coveredWeeksFromWindows(windows: CoverageWindow[]): string[]`, sorted ascending with no duplicates.
-  - `anchorWeekFor(completedAt: unknown, createdAt: unknown, now?: Date): string`
+  - `coveredWeeksFromWindows(windows: CoverageWindow[]): string[]`. It merges the windows into their union, then lists the weeks whose 7 UTC days lie wholly inside it, sorted ascending with no duplicates.
+  - `anchorWeekFor(status: unknown, completedAt: unknown, createdAt: unknown, now?: Date): string`. The source is `completedAt` when `status === 'completed'`, and `createdAt` otherwise. If the source is missing or doesn't parse, it returns the current UTC week.
 - Produces on the responses, additively:
   - `getOrgReport(id)` returns `{ …existing, coveredWeeks: string[], anchorWeek: string }`.
   - `getDevReport(id, login)` returns `{ …existing, coveredWeeks: string[], anchorWeek: string }`.
@@ -4691,7 +4698,7 @@ Tasks 1-11 are implemented and reviewed. Tasks 12 and 13 implement spec **Decisi
 - **MySQL** returns `DATETIME` as a JS `Date`, which `new Date()` copies.
 - **SQLite** stores `datetime('now','localtime')`, a zone-less `'YYYY-MM-DD HH:MM:SS'` string. V8 reads that as host local time. The spec's premise is that the server reads it on the same host that wrote it.
 - **ISO strings with `Z`** parse as absolute instants.
-- **An Invalid Date** (`NaN` time) is skipped for coverage. For the anchor it falls through to the next candidate.
+- **An Invalid Date** (`NaN` time) is skipped for coverage. For the anchor, the current UTC week is used instead. It does **not** fall through to the other timestamp, because the spec picks the anchor source by status.
 
 **Why the SQL is widened, not extended with a new query.** `org-unmerged-summary.test.ts` resets its mock and then supplies exactly 9 `mockResolvedValueOnce` values. A 10th `db.execute` call gets `undefined`, and its destructure throws. `report-org.test.ts` and `report-dev.test.ts` are positional too. So each service reads coverage from the `SELECT id FROM reports WHERE org = ?` query it already runs. The call count and order stay unchanged. Existing mocks return `{ id }`-only rows, which yield no coverage, and no test asserts that query's SQL text or params (checked 2026-09-25). No test asserts either whole response with `toEqual` either. The route tests mock the services.
 
@@ -4723,7 +4730,7 @@ describe('coveredWeeksFromWindows', () => {
     expect(coveredWeeksFromWindows([win('2026-03-16T03:00:00Z', 7)])).toEqual([]);
   });
 
-  it('two reports with a gap between them leave the gap weeks out', () => {
+  it('two reports with a gap of whole weeks between them leave the gap weeks out', () => {
     const weeks = coveredWeeksFromWindows([win('2026-03-02T00:00:00Z', 14), win('2026-04-06T00:00:00Z', 14)]);
     expect(weeks).toEqual(['2026-02-16', '2026-02-23', '2026-03-23', '2026-03-30']);
   });
@@ -4734,11 +4741,17 @@ describe('coveredWeeksFromWindows', () => {
     expect(weeks).toEqual(['2026-03-02', '2026-03-09', '2026-03-16']);
   });
 
-  it('marks days per window: two windows meeting mid-day leave the boundary day, and its week, unmarked', () => {
-    // Decision 15 marks the UTC days inside ANY ONE window. 2026-03-11 is split between the two
-    // windows at 12:00Z, so neither holds it whole, and the week of Mar 9 reads "Not measured".
-    // That is the spec's deliberate under-claim. Merging windows first would list it.
+  it('two windows that meet mid-day leave no hole: their union covers the shared day', () => {
+    // 2026-02-25T12:00Z → 2026-03-11T12:00Z, then 2026-03-11T12:00Z → 2026-03-25T12:00Z. Marking each
+    // window alone would lose Mar 11, and with it the week of Mar 9. The union is continuous.
     const weeks = coveredWeeksFromWindows([win('2026-03-11T12:00:00Z', 14), win('2026-03-25T12:00:00Z', 14)]);
+    expect(weeks).toEqual(['2026-03-02', '2026-03-09', '2026-03-16']);
+  });
+
+  it('a gap of a few hours is still a gap: the day it cuts, and its week, stay out', () => {
+    // First window ends 2026-03-11T10:00Z; the second starts 2026-03-11T14:00Z. Nothing searched
+    // 10:00-14:00, so Mar 11 is not whole, and the week of Mar 9 is not listed.
+    const weeks = coveredWeeksFromWindows([win('2026-03-11T10:00:00Z', 14), win('2026-03-25T14:00:00Z', 14)]);
     expect(weeks).toEqual(['2026-03-02', '2026-03-16']);
   });
 
@@ -4780,21 +4793,34 @@ describe('completedReportWindows', () => {
 });
 
 describe('anchorWeekFor', () => {
-  it("is completed_at's UTC week", () => {
-    expect(anchorWeekFor('2026-03-18T12:00:00Z', '2026-03-04T12:00:00Z')).toBe('2026-03-16');
+  const NOW = new Date('2026-09-25T12:00:00Z'); // current UTC week: 2026-09-21
+
+  it("is completed_at's UTC week for a completed report", () => {
+    expect(anchorWeekFor('completed', '2026-03-18T12:00:00Z', '2026-03-04T12:00:00Z', NOW)).toBe('2026-03-16');
   });
 
-  it("falls back to created_at's week while completed_at is null", () => {
-    expect(anchorWeekFor(null, '2026-05-13T12:00:00Z')).toBe('2026-05-11');
+  it("is created_at's week for a pending report, whose completed_at is null", () => {
+    expect(anchorWeekFor('pending', null, '2026-05-13T12:00:00Z', NOW)).toBe('2026-05-11');
+  });
+
+  it("is created_at's week for a resumed running report, ignoring its stale completed_at", () => {
+    expect(anchorWeekFor('running', '2026-05-04T00:00:00Z', '2026-04-15T12:00:00Z', NOW)).toBe('2026-04-13');
+  });
+
+  it("is created_at's week for a failed report, even though failed runs set completed_at", () => {
+    expect(anchorWeekFor('failed', '2026-03-02T00:00:00Z', '2026-01-31T00:00:00Z', NOW)).toBe('2026-01-26');
   });
 
   it("reads SQLite's zone-less local timestamp as host local time, the way getOrgReport already does", () => {
     // Noon local on Wednesday 18 March is still the 18th in UTC for any host zone within ±11h.
-    expect(anchorWeekFor('2026-03-18 12:00:00', null)).toBe('2026-03-16');
+    expect(anchorWeekFor('completed', '2026-03-18 12:00:00', null, NOW)).toBe('2026-03-16');
   });
 
-  it("falls back to today's week when neither timestamp parses, instead of throwing", () => {
-    expect(anchorWeekFor('y', 'x', new Date('2026-09-25T12:00:00Z'))).toBe('2026-09-21');
+  it('falls back to the current UTC week when the source does not parse, instead of throwing', () => {
+    // A completed report's source is completed_at: an unparseable one does NOT fall through to
+    // created_at. This is org-model-usage.test.ts's mock row (completed_at 'y', created_at 'x').
+    expect(anchorWeekFor('completed', 'y', '2026-03-04T12:00:00Z', NOW)).toBe('2026-09-21');
+    expect(anchorWeekFor('running', null, 'x', NOW)).toBe('2026-09-21');
   });
 });
 ```
@@ -4827,7 +4853,8 @@ export interface CoverageWindow {
  *
  * Timestamps are parsed with new Date(value), exactly as getOrgReport's avg-impact bucketing does:
  * MySQL DATETIME arrives as a Date; SQLite's zone-less 'YYYY-MM-DD HH:MM:SS' (datetime('now',
- * 'localtime')) is read as local time, on the same host that wrote it. Unparseable rows are skipped.
+ * 'localtime')) is read as local time, on the same host that wrote it. A row whose completed_at
+ * doesn't parse is skipped, which is conservative.
  */
 export function completedReportWindows(
   rows: Array<{ status?: unknown; period_days?: unknown; completed_at?: unknown }>,
@@ -4844,22 +4871,37 @@ export function completedReportWindows(
 
 /**
  * GLOOK-58 Decision 15: the UTC Monday keys of every week all 7 of whose UTC days lie wholly inside
- * at least one window. Coverage may under-claim but never over-claim: a partly covered week is left
- * out, so the edges of a gap never claim a measured zero. Days are marked per window, as the spec
- * states, so a day split between two windows that meet mid-day is not marked. A window with an
- * invalid end, or a period that isn't a positive number, is skipped. Sorted ascending, no duplicates.
+ * the UNION of the windows. The windows are merged as time intervals first, so two windows that
+ * meet (or overlap) mid-day form one continuous interval and don't lose the day they share. The
+ * union never over-claims, because every instant in it was searched. A partly covered week is left
+ * out, so the edges of a real gap never claim a measured zero. A window with an invalid end, or a
+ * period that isn't a positive number, is skipped. Sorted ascending, no duplicates.
  */
 export function coveredWeeksFromWindows(windows: CoverageWindow[]): string[] {
-  const days = new Set<number>(); // UTC midnights, as epoch ms
+  const intervals: Array<[number, number]> = [];
   for (const { end, periodDays } of windows) {
     const endMs = end.getTime();
     const period = Number(periodDays);
     if (!Number.isFinite(endMs) || !Number.isFinite(period) || period <= 0) continue;
-    const startMs = endMs - period * DAY_MS;
-    // The first whole day starts at the first UTC midnight at or after startMs. A day counts only
-    // if it also ends at or before endMs.
-    for (let d = Math.ceil(startMs / DAY_MS) * DAY_MS; d + DAY_MS <= endMs; d += DAY_MS) days.add(d);
+    intervals.push([endMs - period * DAY_MS, endMs]);
   }
+  intervals.sort((a, b) => a[0] - b[0]);
+
+  // Union: an interval that starts at or before the current one's end extends it.
+  const merged: Array<[number, number]> = [];
+  for (const [start, end] of intervals) {
+    const last = merged[merged.length - 1];
+    if (last && start <= last[1]) last[1] = Math.max(last[1], end);
+    else merged.push([start, end]);
+  }
+
+  // A UTC day is marked only if it lies wholly inside one merged interval: it starts at or after
+  // the interval's start and ends at or before its end.
+  const days = new Set<number>(); // UTC midnights, as epoch ms
+  for (const [start, end] of merged) {
+    for (let d = Math.ceil(start / DAY_MS) * DAY_MS; d + DAY_MS <= end; d += DAY_MS) days.add(d);
+  }
+
   const weeks = new Set<string>();
   for (const d of days) {
     const key = weekKeyForDate(new Date(d));
@@ -4872,15 +4914,16 @@ export function coveredWeeksFromWindows(windows: CoverageWindow[]): string[] {
 }
 
 /**
- * GLOOK-58 Decision 15: the week this report's charts end at, weekKeyForDate(completed_at ??
- * created_at), parsed with new Date() as above. completed_at is null while a report is pending. If
- * neither timestamp parses, today's week, the pre-Decision-15 anchor, because weekKeyForDate
- * would otherwise throw a RangeError on an Invalid Date.
+ * GLOOK-58 Decision 15: the week this report's charts end at. The source is completed_at when
+ * status is 'completed', and created_at otherwise: completed_at is not a reliable completion marker
+ * for other statuses, because failed runs set it and a resumed run keeps its old value while it
+ * runs. Parsed with new Date() as above. If the source is missing or doesn't parse, the current UTC
+ * week, so weekKeyForDate never sees an Invalid Date (it would throw a RangeError).
  */
-export function anchorWeekFor(completedAt: unknown, createdAt: unknown, now: Date = new Date()): string {
-  for (const v of [completedAt, createdAt]) {
-    if (v == null) continue;
-    const d = new Date(v as string | number | Date);
+export function anchorWeekFor(status: unknown, completedAt: unknown, createdAt: unknown, now: Date = new Date()): string {
+  const source = status === 'completed' ? completedAt : createdAt;
+  if (source != null) {
+    const d = new Date(source as string | number | Date);
     if (!Number.isNaN(d.getTime())) return weekKeyForDate(d);
   }
   return weekKeyForDate(now);
@@ -4891,7 +4934,7 @@ export function anchorWeekFor(completedAt: unknown, createdAt: unknown, now: Dat
 
 Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest src/lib/__tests__/unit/report-coverage.test.ts'`
 
-Expected: PASS, 14 tests.
+Expected: PASS, 17 tests.
 
 - [ ] **Step 5: Write the failing DB-backed service test**
 
@@ -5007,12 +5050,14 @@ describe('getOrgReport coverage', () => {
     expect(coveredWeeks.filter((w: string) => ['2026-05-18', '2026-05-25'].includes(w))).toEqual([]);
   });
 
-  it("anchorWeek is the viewed report's completed_at week", async () => {
+  it("anchorWeek is a completed report's completed_at week", async () => {
     expect((await getOrgReport('rA')).anchorWeek).toBe('2026-03-16');
   });
 
-  it("anchorWeek falls back to created_at's week while completed_at is null", async () => {
-    expect((await getOrgReport('rPending')).anchorWeek).toBe('2026-05-11');
+  it("anchorWeek is created_at's week for every other status, even with a completed_at set", async () => {
+    expect((await getOrgReport('rPending')).anchorWeek).toBe('2026-05-11'); // completed_at null
+    expect((await getOrgReport('rRunning')).anchorWeek).toBe('2026-04-13'); // resumed; stale completed_at 2026-05-04
+    expect((await getOrgReport('rFailed')).anchorWeek).toBe('2026-01-26'); // failed runs set completed_at 2026-03-02
   });
 });
 
@@ -5026,9 +5071,10 @@ describe('getDevReport coverage', () => {
     expect((await getDevReport('rA', 'bob')).coveredWeeks).toEqual(['2026-03-09', '2026-03-23', '2026-03-30']);
   });
 
-  it('anchorWeek follows the viewed report, falling back to created_at', async () => {
+  it("anchorWeek follows the viewed report's status: completed_at if completed, created_at otherwise", async () => {
     expect((await getDevReport('rA', 'alice')).anchorWeek).toBe('2026-03-16');
     expect((await getDevReport('rPending', 'alice')).anchorWeek).toBe('2026-05-11');
+    expect((await getDevReport('rFailed', 'alice')).anchorWeek).toBe('2026-01-26');
   });
 });
 ```
@@ -5088,7 +5134,7 @@ with:
   // GLOOK-58 Decision 15: the weeks some completed report of this org provably measured, and the
   // week this report's charts end at. Additive fields; nothing above changes.
   const coveredWeeks = coveredWeeksFromWindows(completedReportWindows(allReportIds));
-  const anchorWeek = anchorWeekFor(reportRows[0].completed_at, reportRows[0].created_at);
+  const anchorWeek = anchorWeekFor(reportRows[0].status, reportRows[0].completed_at, reportRows[0].created_at);
 
   return { report: reportRows[0], developers, timeline, spendWindow, unmergedSummary, modelUsage, skillsUsage, coveredWeeks, anchorWeek };
 ```
@@ -5145,7 +5191,7 @@ Then, directly above the final `return {`, add:
   const coveredWeeks = coveredWeeksFromWindows(
     completedReportWindows(allReportIds.filter((r: any) => Number(r.has_login_stats) > 0)),
   );
-  const anchorWeek = anchorWeekFor(reportRows[0].completed_at, reportRows[0].created_at);
+  const anchorWeek = anchorWeekFor(reportRows[0].status, reportRows[0].completed_at, reportRows[0].created_at);
 ```
 
 and add the two fields to the returned object, after `models: …`:
@@ -5166,14 +5212,14 @@ and add the two fields to the returned object, after `models: …`:
 Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest src/lib/__tests__/unit/report-coverage.test.ts src/lib/__tests__/unit/report-coverage-db.test.ts src/lib/__tests__/unit/report-org.test.ts src/lib/__tests__/unit/report-dev.test.ts src/lib/__tests__/unit/org-unmerged-summary.test.ts src/lib/__tests__/unit/org-model-usage.test.ts'`
 
 Expected: PASS, 6 suites.
-- `report-coverage` has 14 tests and `report-coverage-db` has 10.
+- `report-coverage` has 17 tests and `report-coverage-db` has 10.
 - `org-model-usage` is the canary for the unparseable-timestamp fallback: its mock returns `completed_at: 'y'`. If it throws `RangeError: Invalid time value`, the guard in `anchorWeekFor` or `completedReportWindows` is missing.
 
 - [ ] **Step 10: Run the full suite**
 
 Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest --maxWorkers=3'`
 
-Expected: 0 failed, **190 suites / 1829 tests**. That's the 188 / 1805 baseline plus 2 suites and 24 tests. If the counts differ, record the actual numbers in the commit body and say why.
+Expected: 0 failed, **190 suites / 1832 tests**. That's the 188 / 1805 baseline plus 2 suites and 27 tests. If the counts differ, record the actual numbers in the commit body and say why.
 
 - [ ] **Step 11: Commit**
 
@@ -5185,9 +5231,11 @@ GLOOK-58: coveredWeeks and anchorWeek on the org and dev report responses
 Decision 15, server side. Only completed reports count, windowed on
 completed_at, and a week is listed only when all 7 of its UTC days are
 covered. The dev page counts only reports with a developer_stats row for
-that login. anchorWeek is completed_at's week, or created_at's while it is
-null. Both are read from the existing reports query, so the call order is
-unchanged.
+that login. Windows are merged into their union first, so reports that
+meet mid-day leave no hole. anchorWeek is completed_at's week for a
+completed report and created_at's otherwise; an unparseable source falls
+back to the current UTC week. Both are read from the existing reports
+query, so the call order is unchanged.
 
 Full suite: <N> suites / <M> tests green.
 
@@ -5209,7 +5257,7 @@ Before committing:
 - **Tests:** they live flat in `src/lib/__tests__/unit/`, and component tests start with `/** @jest-environment jsdom */` on line 1. They check behavior, never tick positions.
   - Recharts never activates its tooltip on a synthetic jsdom mouse event. So tooltip tests render the tooltip component directly, fed rows from the chart's own exported row builder.
 - **Code:** no hex literals in chart modules, comments included. Don't write `#` followed by three or more hex digits anywhere in `src/components/charts/*`. `src/app/**/page.tsx` exports only `default`.
-- **Test baseline before this task:** 190 suites / 1829 tests (after Task 12).
+- **Test baseline before this task:** 190 suites / 1832 tests (after Task 12).
 - **Honesty:** if this task's code and its own test disagree, stop and report it. Don't pick one silently.
 - **Scope:** don't touch files that aren't listed.
 
@@ -6213,7 +6261,7 @@ Expected: PASS, 2 tests.
 
 Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest --maxWorkers=3'`
 
-Expected: 0 failed, **191 suites / 1847 tests**. That's Task 12's 190 / 1829 plus 1 suite and 18 tests: 6 in `chart-format`, 4 in `timeline-chart`, 3 in `lines-changed-chart`, 3 in `stacked-types-chart` and 2 in the wiring test. The six edited empty-state assertions are changed tests, not new ones. If the counts differ, record the actual numbers in the commit body and say why.
+Expected: 0 failed, **191 suites / 1850 tests**. That's Task 12's 190 / 1832 plus 1 suite and 18 tests: 6 in `chart-format`, 4 in `timeline-chart`, 3 in `lines-changed-chart`, 3 in `stacked-types-chart` and 2 in the wiring test. The six edited empty-state assertions are changed tests, not new ones. If the counts differ, record the actual numbers in the commit body and say why.
 
 Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npm run build'`
 
@@ -6298,11 +6346,11 @@ main();
 
    On 2026-09-25, on this America/New_York host, the expected output is:
    - `anchorWeek 2026-09-21`
-   - `coveredWeeks 2026-08-17,2026-08-24,2026-08-31,2026-09-14`
+   - `coveredWeeks 2026-08-17,2026-08-24,2026-08-31,2026-09-07,2026-09-14`
    - `domain 2026-06-22 .. 2026-09-21 (14 weeks)`
    - `slot 0 2026-06-22 Jun 22 UNMEASURED`
 
-   **Why the week of Sep 7 is missing from `coveredWeeks`.** The zone-less seed timestamps parse as local time, so R2's window ends at 04:00Z on Sep 10, and R1's starts there. Sep 10 is split between the two windows, and neither window holds it whole. This is the per-window under-claim in addendum review focus 5. It's expected, not a bug.
+   **Why the week of Sep 7 is covered.** The zone-less seed timestamps parse as local time, so R2's window ends at 04:00Z on Sep 10 and R1's starts at that same instant. Their union is continuous, so Sep 10 is whole (addendum review focus 5). If Sep 7 is missing here, the union merge is broken. Stop and report it.
 
    If `slot 0` prints `MEASURED`, stop and report. The seed would need a coverage gap, and that's a seed change needing sign-off.
 
