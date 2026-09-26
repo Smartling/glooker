@@ -4625,3 +4625,1796 @@ EOF
 ```
 
 Before committing, replace `<N>` and `<M>` with the counts from Step 4, and replace `<list …>` with the fixes from Step 8.
+
+
+---
+
+## Addendum: Decision 15, measured weeks in the report's own era (Tasks 12-13)
+
+Tasks 1-11 are implemented and reviewed. Tasks 12 and 13 implement spec **Decision 15**, the amended **Decision 10**, and the Testing table's two "Coverage" rows, as amended at commits `ed73927` and `4f8a2a5`. Read those sections before starting. `git show ed73927 4f8a2a5 -- docs/superpowers/specs/` shows exactly what changed.
+
+**What the two tasks deliver:**
+- **Task 12, server:** the org and dev report responses gain `coveredWeeks: string[]` and `anchorWeek: string`.
+  - `coveredWeeks` lists the UTC Monday keys of the weeks that some completed report provably measured, all 7 days of them.
+  - `anchorWeek` is the week the report's charts end at.
+- **Task 13, client:** every page-grid chart row carries a `measured` flag. All three tooltips read "Not measured" for an unmeasured week. Both pages build their week domain from `anchorWeek` instead of today.
+
+**Response types.** No named TypeScript response type exists for either service. `getOrgReport` and `getDevReport` return object literals, and the literal is the type. Both routes (`src/app/api/report/[id]/org/route.ts`, `…/dev/[login]/route.ts`) pass the object through `NextResponse.json` after cost stripping, which never touches the new fields. So neither route changes. The pages read the response untyped through SWR.
+
+**Seed data needs no change.** Checked on 2026-09-25 against `scripts/seed-data.ts`:
+- R1 (14 days) completes 1 day ago, and R2 (30 days) completes 15 days ago. R3 is `running`.
+- Together they cover at most about 45 days, and seeded commits fall within about the last 20 days.
+- The org page's domain is 14 weeks. So its earliest weeks are always both uncovered and empty, whatever day the seed runs.
+- No new tables or entities are introduced, so CLAUDE.md's seed rule doesn't apply. Task 13's verification step re-checks this through the live API before hovering.
+
+**Addendum review focus.** These are the input classes most likely to bite, with the test that pins each:
+1. **A timestamp that doesn't parse.** The mocked `org-model-usage.test.ts` feeds `completed_at: 'y'`, and a corrupt row can do the same. `weekKeyForDate(new Date('y'))` throws a `RangeError`, so `anchorWeekFor` falls back to today's week, and the coverage helpers skip the row. Pinned in Task 12 (`report-coverage.test.ts`).
+2. **A `running` report that carries a stale `completed_at`.** `runReport` sets `status = 'running'` on resume without clearing `completed_at`, and a failed run sets `completed_at = NOW()`. Coverage filters on status, not on `completed_at IS NOT NULL`. Pinned in Task 12 (`report-coverage-db.test.ts`, `rRunning`).
+3. **A week with data that no report covered.** For example, an in-flight commit older than every report period. It stays measured and shows its value. Pinned in Task 13 (`chart-format.test.ts`).
+4. **A missing or malformed `anchorWeek` on the client.** `weekDomainEndingAt` falls back to today's domain instead of throwing. Pinned in Task 13.
+5. **Two report windows that meet mid-day.** Days are marked per window, as the spec states. So the split day, and its whole week, read "Not measured". This is a deliberate under-claim. Pinned in Task 12 so that any change to it is a visible decision.
+
+**Superseded wording.** Plan Review Focus 1 and Tasks 4-5 quote the empty states as "No … in the last 90 days". Task 13 changes them to "No … in the 90 days before this report" (spec Decision 15, part 3). Task 13 lists the six existing assertions it updates.
+
+---
+
+### Task 12: Server coverage (`coveredWeeks`, `anchorWeek`)
+
+**Rules for this task** (restated from Global Constraints):
+- **Commands:** run every node command as `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c '<one command>'`. Put one plain command inside the quotes, with no `&&`, pipes or `$VARS`.
+- **Commits:** the message starts with `GLOOK-58: `. Use `git add` with explicit paths, never `-A` or `.`. End the message with a blank line and a `Co-Authored-By:` trailer naming **the model you are running as**, for example `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+- **Tests:** they live flat in `src/lib/__tests__/unit/` and check behavior, never tick positions.
+- **Test baseline before this task:** 188 suites / 1805 tests.
+- **Honesty:** if this task's code and its own test disagree, stop and report it. Don't pick one silently.
+- **Scope:** don't touch files that aren't listed.
+
+**Files:**
+- Modify: `src/lib/report/timeline.ts` (add the coverage helpers after `weekKeyForDate`)
+- Modify: `src/lib/report/org.ts` (the imports; step 3's `SELECT id FROM reports` query; the `return`)
+- Modify: `src/lib/report/dev.ts` (the imports; the `SELECT id FROM reports` query; the `return`)
+- Create: `src/lib/__tests__/unit/report-coverage.test.ts` (pure helpers)
+- Create: `src/lib/__tests__/unit/report-coverage-db.test.ts` (both services on a real SQLite file)
+
+**Interfaces:**
+- Consumes: `weekKeyForDate(d: Date): string` from `timeline.ts` (Task 3, UTC).
+- Produces, from `@/lib/report/timeline`:
+  - `interface CoverageWindow { end: Date; periodDays: number }`
+  - `completedReportWindows(rows: Array<{ status?: unknown; period_days?: unknown; completed_at?: unknown }>): CoverageWindow[]`
+  - `coveredWeeksFromWindows(windows: CoverageWindow[]): string[]`, sorted ascending with no duplicates.
+  - `anchorWeekFor(completedAt: unknown, createdAt: unknown, now?: Date): string`
+- Produces on the responses, additively:
+  - `getOrgReport(id)` returns `{ …existing, coveredWeeks: string[], anchorWeek: string }`.
+  - `getDevReport(id, login)` returns `{ …existing, coveredWeeks: string[], anchorWeek: string }`.
+  - Task 13 reads both fields.
+
+**How DB timestamps are parsed.** Every timestamp is parsed with `new Date(value)`, the same call `org.ts:94` already makes for `completed_at` (`weekKeyForDate(new Date(row.completed_at))`). Concretely:
+- **MySQL** returns `DATETIME` as a JS `Date`, which `new Date()` copies.
+- **SQLite** stores `datetime('now','localtime')`, a zone-less `'YYYY-MM-DD HH:MM:SS'` string. V8 reads that as host local time. The spec's premise is that the server reads it on the same host that wrote it.
+- **ISO strings with `Z`** parse as absolute instants.
+- **An Invalid Date** (`NaN` time) is skipped for coverage. For the anchor it falls through to the next candidate.
+
+**Why the SQL is widened, not extended with a new query.** `org-unmerged-summary.test.ts` resets its mock and then supplies exactly 9 `mockResolvedValueOnce` values. A 10th `db.execute` call gets `undefined`, and its destructure throws. `report-org.test.ts` and `report-dev.test.ts` are positional too. So each service reads coverage from the `SELECT id FROM reports WHERE org = ?` query it already runs. The call count and order stay unchanged. Existing mocks return `{ id }`-only rows, which yield no coverage, and no test asserts that query's SQL text or params (checked 2026-09-25). No test asserts either whole response with `toEqual` either. The route tests mock the services.
+
+- [ ] **Step 1: Write the failing pure-helper test**
+
+Create `src/lib/__tests__/unit/report-coverage.test.ts`:
+
+```ts
+// GLOOK-58 Decision 15: the pure coverage helpers in timeline.ts. Every timestamp is an absolute
+// instant (…Z), so the expected keys hold on any host time zone, CI's UTC included. The one
+// zone-less case is chosen so it gives the same answer in every zone within ±11h.
+import { anchorWeekFor, completedReportWindows, coveredWeeksFromWindows } from '@/lib/report/timeline';
+
+const win = (end: string, periodDays: number) => ({ end: new Date(end), periodDays });
+
+describe('coveredWeeksFromWindows', () => {
+  it('a 14-day window ending on a Wednesday lists only the one week all 7 of whose days it covers', () => {
+    // 2026-03-04T12:00Z → 2026-03-18T12:00Z. Whole UTC days: Thu 5 … Tue 17. The weeks of Mar 2 and
+    // Mar 16 are only partly inside, so only the week of Mar 9 is listed.
+    expect(coveredWeeksFromWindows([win('2026-03-18T12:00:00Z', 14)])).toEqual(['2026-03-09']);
+  });
+
+  it('a window ending exactly at Monday midnight covers the Sunday before it', () => {
+    expect(coveredWeeksFromWindows([win('2026-03-16T00:00:00Z', 7)])).toEqual(['2026-03-09']);
+  });
+
+  it('a window that starts mid-day leaves that day, and so its week, out', () => {
+    // 2026-03-09T03:00Z → 2026-03-16T03:00Z: Monday the 9th is only partly inside.
+    expect(coveredWeeksFromWindows([win('2026-03-16T03:00:00Z', 7)])).toEqual([]);
+  });
+
+  it('two reports with a gap between them leave the gap weeks out', () => {
+    const weeks = coveredWeeksFromWindows([win('2026-03-02T00:00:00Z', 14), win('2026-04-06T00:00:00Z', 14)]);
+    expect(weeks).toEqual(['2026-02-16', '2026-02-23', '2026-03-23', '2026-03-30']);
+  });
+
+  it('overlapping windows list each week once, in ascending order', () => {
+    // Given newest first on purpose: the output is sorted regardless of input order.
+    const weeks = coveredWeeksFromWindows([win('2026-03-23T00:00:00Z', 14), win('2026-03-16T00:00:00Z', 14)]);
+    expect(weeks).toEqual(['2026-03-02', '2026-03-09', '2026-03-16']);
+  });
+
+  it('marks days per window: two windows meeting mid-day leave the boundary day, and its week, unmarked', () => {
+    // Decision 15 marks the UTC days inside ANY ONE window. 2026-03-11 is split between the two
+    // windows at 12:00Z, so neither holds it whole, and the week of Mar 9 reads "Not measured".
+    // That is the spec's deliberate under-claim. Merging windows first would list it.
+    const weeks = coveredWeeksFromWindows([win('2026-03-11T12:00:00Z', 14), win('2026-03-25T12:00:00Z', 14)]);
+    expect(weeks).toEqual(['2026-03-02', '2026-03-16']);
+  });
+
+  it('skips a window with an unparseable end or an unusable period instead of throwing', () => {
+    const weeks = coveredWeeksFromWindows([
+      { end: new Date('y'), periodDays: 14 },
+      win('2026-03-16T00:00:00Z', 0),
+      win('2026-03-16T00:00:00Z', Number.NaN),
+      win('2026-03-16T00:00:00Z', -7),
+    ]);
+    expect(weeks).toEqual([]);
+  });
+
+  it('no windows, no weeks', () => {
+    expect(coveredWeeksFromWindows([])).toEqual([]);
+  });
+});
+
+describe('completedReportWindows', () => {
+  it('keeps completed reports only, each windowed on its completed_at', () => {
+    const windows = completedReportWindows([
+      { status: 'completed', period_days: 14, completed_at: '2026-03-18T12:00:00Z' },
+      { status: 'failed', period_days: 30, completed_at: '2026-03-02T00:00:00Z' },
+      { status: 'stopped', period_days: 14, completed_at: '2026-01-19T00:00:00Z' },
+      { status: 'running', period_days: 14, completed_at: '2026-05-04T00:00:00Z' },
+      { status: 'pending', period_days: 14, completed_at: null },
+      { status: 'completed', period_days: 14, completed_at: null },
+      { status: 'completed', period_days: 14, completed_at: 'y' },
+    ]);
+    expect(windows.map(w => [w.end.toISOString(), w.periodDays])).toEqual([['2026-03-18T12:00:00.000Z', 14]]);
+  });
+
+  it('accepts a MySQL Date and a string period_days', () => {
+    const windows = completedReportWindows([
+      { status: 'completed', period_days: '14', completed_at: new Date('2026-03-18T12:00:00Z') },
+    ]);
+    expect(windows.map(w => [w.end.toISOString(), w.periodDays])).toEqual([['2026-03-18T12:00:00.000Z', 14]]);
+  });
+});
+
+describe('anchorWeekFor', () => {
+  it("is completed_at's UTC week", () => {
+    expect(anchorWeekFor('2026-03-18T12:00:00Z', '2026-03-04T12:00:00Z')).toBe('2026-03-16');
+  });
+
+  it("falls back to created_at's week while completed_at is null", () => {
+    expect(anchorWeekFor(null, '2026-05-13T12:00:00Z')).toBe('2026-05-11');
+  });
+
+  it("reads SQLite's zone-less local timestamp as host local time, the way getOrgReport already does", () => {
+    // Noon local on Wednesday 18 March is still the 18th in UTC for any host zone within ±11h.
+    expect(anchorWeekFor('2026-03-18 12:00:00', null)).toBe('2026-03-16');
+  });
+
+  it("falls back to today's week when neither timestamp parses, instead of throwing", () => {
+    expect(anchorWeekFor('y', 'x', new Date('2026-09-25T12:00:00Z'))).toBe('2026-09-21');
+  });
+});
+```
+
+- [ ] **Step 2: Run it and confirm it fails**
+
+Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest src/lib/__tests__/unit/report-coverage.test.ts'`
+
+Expected: FAIL. The suite doesn't compile, because `@/lib/report/timeline` has no exported member `anchorWeekFor`, `completedReportWindows` or `coveredWeeksFromWindows` (TS2305).
+
+- [ ] **Step 3: Implement the helpers**
+
+In `src/lib/report/timeline.ts`, insert this directly after the closing `}` of `weekKeyForDate`:
+
+```ts
+const DAY_MS = 86_400_000;
+
+/** One report's searched period, ending at the instant it completed (GLOOK-58 Decision 15). */
+export interface CoverageWindow {
+  end: Date;
+  periodDays: number;
+}
+
+/**
+ * GLOOK-58 Decision 15: which reports' windows count. Completed reports only, windowed on
+ * completed_at: every run searched from runStart − period_days (report-runner.ts:44), and runStart is
+ * no later than completed_at, resumed runs included, so [completed_at − period_days, completed_at]
+ * always sits inside what was searched. The filter is on status, not on completed_at being set: a
+ * failed run sets completed_at, and a resumed run is 'running' with its old completed_at still set.
+ *
+ * Timestamps are parsed with new Date(value), exactly as getOrgReport's avg-impact bucketing does:
+ * MySQL DATETIME arrives as a Date; SQLite's zone-less 'YYYY-MM-DD HH:MM:SS' (datetime('now',
+ * 'localtime')) is read as local time, on the same host that wrote it. Unparseable rows are skipped.
+ */
+export function completedReportWindows(
+  rows: Array<{ status?: unknown; period_days?: unknown; completed_at?: unknown }>,
+): CoverageWindow[] {
+  const out: CoverageWindow[] = [];
+  for (const r of rows) {
+    if (r.status !== 'completed' || r.completed_at == null) continue;
+    const end = new Date(r.completed_at as string | number | Date);
+    if (Number.isNaN(end.getTime())) continue;
+    out.push({ end, periodDays: Number(r.period_days) });
+  }
+  return out;
+}
+
+/**
+ * GLOOK-58 Decision 15: the UTC Monday keys of every week all 7 of whose UTC days lie wholly inside
+ * at least one window. Coverage may under-claim but never over-claim: a partly covered week is left
+ * out, so the edges of a gap never claim a measured zero. Days are marked per window, as the spec
+ * states, so a day split between two windows that meet mid-day is not marked. A window with an
+ * invalid end, or a period that isn't a positive number, is skipped. Sorted ascending, no duplicates.
+ */
+export function coveredWeeksFromWindows(windows: CoverageWindow[]): string[] {
+  const days = new Set<number>(); // UTC midnights, as epoch ms
+  for (const { end, periodDays } of windows) {
+    const endMs = end.getTime();
+    const period = Number(periodDays);
+    if (!Number.isFinite(endMs) || !Number.isFinite(period) || period <= 0) continue;
+    const startMs = endMs - period * DAY_MS;
+    // The first whole day starts at the first UTC midnight at or after startMs. A day counts only
+    // if it also ends at or before endMs.
+    for (let d = Math.ceil(startMs / DAY_MS) * DAY_MS; d + DAY_MS <= endMs; d += DAY_MS) days.add(d);
+  }
+  const weeks = new Set<string>();
+  for (const d of days) {
+    const key = weekKeyForDate(new Date(d));
+    const monday = Date.parse(`${key}T00:00:00Z`);
+    let whole = true;
+    for (let i = 0; i < 7 && whole; i++) whole = days.has(monday + i * DAY_MS);
+    if (whole) weeks.add(key);
+  }
+  return [...weeks].sort();
+}
+
+/**
+ * GLOOK-58 Decision 15: the week this report's charts end at, weekKeyForDate(completed_at ??
+ * created_at), parsed with new Date() as above. completed_at is null while a report is pending. If
+ * neither timestamp parses, today's week, the pre-Decision-15 anchor, because weekKeyForDate
+ * would otherwise throw a RangeError on an Invalid Date.
+ */
+export function anchorWeekFor(completedAt: unknown, createdAt: unknown, now: Date = new Date()): string {
+  for (const v of [completedAt, createdAt]) {
+    if (v == null) continue;
+    const d = new Date(v as string | number | Date);
+    if (!Number.isNaN(d.getTime())) return weekKeyForDate(d);
+  }
+  return weekKeyForDate(now);
+}
+```
+
+- [ ] **Step 4: Run the pure-helper test and confirm it passes**
+
+Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest src/lib/__tests__/unit/report-coverage.test.ts'`
+
+Expected: PASS, 14 tests.
+
+- [ ] **Step 5: Write the failing DB-backed service test**
+
+This test copies the SQLite pattern from `cc-apply-breakdowns.test.ts` exactly:
+- capture `SQLITE_PATH` and `DB_TYPE`;
+- set both in `beforeAll`;
+- dynamic-import `@/lib/db` and the services;
+- restore both in `afterAll`, per CLAUDE.md.
+
+The `@octokit/rest` mock uses the factory form CLAUDE.md requires. `report-runner` and `progress-store` are mocked because `org.ts` and `dev.ts` import `./service`, which pulls in the ESM-only `p-limit` (see `org-model-usage.test.ts`).
+
+I dry-ran this harness against the current code on 2026-09-25:
+- Both services ran on the real SQLite driver.
+- The widened `EXISTS` query ran.
+- `completed_at` came back as the inserted ISO string, unchanged.
+
+Create `src/lib/__tests__/unit/report-coverage-db.test.ts`:
+
+```ts
+// GLOOK-58 Decision 15: coveredWeeks and anchorWeek through the REAL SQLite driver, so the status
+// filter, the per-login EXISTS and the timestamp parsing run against real rows, not positional
+// mocks. Env set/restore copied from cc-apply-breakdowns.test.ts. Timestamps are inserted as
+// absolute instants (…Z), so the expected keys hold on any host zone, CI's UTC included; the
+// zone-less SQLite form is pinned in report-coverage.test.ts.
+jest.mock('@octokit/rest', () => ({ Octokit: jest.fn().mockImplementation(() => ({})) }));
+// org.ts / dev.ts → ./service → @/lib/report-runner pulls in the ESM-only p-limit package.
+jest.mock('@/lib/report-runner', () => ({ runReport: jest.fn().mockResolvedValue(undefined), requestStop: jest.fn() }));
+jest.mock('@/lib/progress-store', () => ({ initProgress: jest.fn(), updateProgress: jest.fn(), getProgress: jest.fn() }));
+
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+
+let dbPath: string;
+let db: any;
+let getOrgReport: any;
+let getDevReport: any;
+
+// process.env is shared across test files in a Jest worker: restore both in afterAll, or later
+// files inherit a deleted DB path (CLAUDE.md).
+const priorSqlitePath = process.env.SQLITE_PATH;
+const priorDbType = process.env.DB_TYPE;
+
+// id, org, period_days, status, created_at, completed_at — and what each window WOULD cover.
+const REPORTS: Array<[string, string, number, string, string, string | null]> = [
+  ['rA', 'acme', 14, 'completed', '2026-03-04T12:00:00Z', '2026-03-18T12:00:00Z'], // week of Mar 9
+  // Resumed: created in January, completed in April. Windowed on completed_at: Mar 23, Mar 30.
+  // Windowed on created_at it would be the week of 2025-12-29 instead.
+  ['rB', 'acme', 14, 'completed', '2026-01-05T09:00:00Z', '2026-04-06T00:00:00Z'],
+  ['rFailed', 'acme', 30, 'failed', '2026-01-31T00:00:00Z', '2026-03-02T00:00:00Z'], // would be Feb 2-23
+  ['rStopped', 'acme', 14, 'stopped', '2026-01-05T00:00:00Z', '2026-01-19T00:00:00Z'], // would be Jan 5, 12
+  // Resumed and running again: its old completed_at is still set. Would be Apr 20, Apr 27.
+  ['rRunning', 'acme', 14, 'running', '2026-04-15T12:00:00Z', '2026-05-04T00:00:00Z'],
+  ['rPending', 'acme', 14, 'pending', '2026-05-13T12:00:00Z', null],
+  ['rOther', 'beta', 14, 'completed', '2026-05-18T00:00:00Z', '2026-06-01T00:00:00Z'], // other org: May 18, 25
+];
+// alice: rA (completed), rFailed (failed), rPending (pending). bob: rA and rB (both completed).
+const DEV_ROWS: Array<[string, string]> = [
+  ['rA', 'alice'], ['rA', 'bob'], ['rB', 'bob'], ['rFailed', 'alice'], ['rPending', 'alice'],
+];
+
+beforeAll(async () => {
+  dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'glooker-coverage-')), 'test.db');
+  process.env.SQLITE_PATH = dbPath;
+  process.env.DB_TYPE = 'sqlite';
+  db = (await import('@/lib/db')).default;
+  ({ getOrgReport } = await import('@/lib/report/org'));
+  ({ getDevReport } = await import('@/lib/report/dev'));
+  for (const r of REPORTS) {
+    await db.execute(
+      `INSERT INTO reports (id, org, period_days, status, created_at, completed_at) VALUES (?, ?, ?, ?, ?, ?)`,
+      r,
+    );
+  }
+  for (const [reportId, login] of DEV_ROWS) {
+    await db.execute(
+      `INSERT INTO developer_stats (report_id, github_login, github_name) VALUES (?, ?, ?)`,
+      [reportId, login, login],
+    );
+  }
+});
+afterAll(() => {
+  if (priorSqlitePath === undefined) delete process.env.SQLITE_PATH;
+  else process.env.SQLITE_PATH = priorSqlitePath;
+  if (priorDbType === undefined) delete process.env.DB_TYPE;
+  else process.env.DB_TYPE = priorDbType;
+  try { fs.rmSync(path.dirname(dbPath), { recursive: true, force: true }); } catch { /* already gone */ }
+});
+
+describe('getOrgReport coverage', () => {
+  it("lists exactly the fully covered weeks of this org's completed reports", async () => {
+    expect((await getOrgReport('rA')).coveredWeeks).toEqual(['2026-03-09', '2026-03-23', '2026-03-30']);
+  });
+
+  it('leaves the week between two completed reports out', async () => {
+    expect((await getOrgReport('rA')).coveredWeeks).not.toContain('2026-03-16');
+  });
+
+  it('failed, stopped, running and pending reports add nothing, even when they carry a completed_at', async () => {
+    const { coveredWeeks } = await getOrgReport('rA');
+    const fromIgnored = ['2026-01-05', '2026-01-12', '2026-02-02', '2026-02-09', '2026-02-16', '2026-02-23', '2026-04-20', '2026-04-27'];
+    expect(coveredWeeks.filter((w: string) => fromIgnored.includes(w))).toEqual([]);
+  });
+
+  it('a resumed report is windowed on completed_at, not created_at', async () => {
+    const { coveredWeeks } = await getOrgReport('rA');
+    expect(coveredWeeks).toEqual(expect.arrayContaining(['2026-03-23', '2026-03-30']));
+    expect(coveredWeeks).not.toContain('2025-12-29');
+  });
+
+  it("another org's reports add nothing", async () => {
+    const { coveredWeeks } = await getOrgReport('rA');
+    expect(coveredWeeks.filter((w: string) => ['2026-05-18', '2026-05-25'].includes(w))).toEqual([]);
+  });
+
+  it("anchorWeek is the viewed report's completed_at week", async () => {
+    expect((await getOrgReport('rA')).anchorWeek).toBe('2026-03-16');
+  });
+
+  it("anchorWeek falls back to created_at's week while completed_at is null", async () => {
+    expect((await getOrgReport('rPending')).anchorWeek).toBe('2026-05-11');
+  });
+});
+
+describe('getDevReport coverage', () => {
+  it('counts only completed reports that hold a developer_stats row for this login', async () => {
+    // alice's failed and pending reports add nothing; bob's rB is not hers.
+    expect((await getDevReport('rA', 'alice')).coveredWeeks).toEqual(['2026-03-09']);
+  });
+
+  it("a login with rows in more completed reports gets those reports' weeks too", async () => {
+    expect((await getDevReport('rA', 'bob')).coveredWeeks).toEqual(['2026-03-09', '2026-03-23', '2026-03-30']);
+  });
+
+  it('anchorWeek follows the viewed report, falling back to created_at', async () => {
+    expect((await getDevReport('rA', 'alice')).anchorWeek).toBe('2026-03-16');
+    expect((await getDevReport('rPending', 'alice')).anchorWeek).toBe('2026-05-11');
+  });
+});
+```
+
+- [ ] **Step 6: Run it and confirm it fails**
+
+Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest src/lib/__tests__/unit/report-coverage-db.test.ts'`
+
+Expected: FAIL. Every test fails on `coveredWeeks` or `anchorWeek` being `undefined`, for example `Expected: ["2026-03-09", …] Received: undefined`. None may fail inside `beforeAll`. A `beforeAll` failure is a harness problem, so stop and report it.
+
+- [ ] **Step 7: Wire `getOrgReport`**
+
+In `src/lib/report/org.ts`, change the import:
+
+```ts
+import { dedupCommitsBySha, aggregateWeekly, weekKeyForDate } from './timeline';
+```
+
+to:
+
+```ts
+import {
+  dedupCommitsBySha, aggregateWeekly, weekKeyForDate,
+  anchorWeekFor, completedReportWindows, coveredWeeksFromWindows,
+} from './timeline';
+```
+
+Replace:
+
+```ts
+  // 3. All commits across all reports for org, deduped
+  const [allReportIds] = await db.execute(
+    `SELECT id FROM reports WHERE org = ?`, [org],
+  ) as [any[], any];
+```
+
+with:
+
+```ts
+  // 3. All commits across all reports for org, deduped. status/period_days/completed_at feed the
+  // GLOOK-58 Decision 15 coverage below; they're read in this same query so the call order is
+  // unchanged (org-unmerged-summary.test.ts supplies exactly one mock per call).
+  const [allReportIds] = await db.execute(
+    `SELECT id, status, period_days, completed_at FROM reports WHERE org = ?`, [org],
+  ) as [any[], any];
+```
+
+Replace the final `return`:
+
+```ts
+  return { report: reportRows[0], developers, timeline, spendWindow, unmergedSummary, modelUsage, skillsUsage };
+```
+
+with:
+
+```ts
+  // GLOOK-58 Decision 15: the weeks some completed report of this org provably measured, and the
+  // week this report's charts end at. Additive fields; nothing above changes.
+  const coveredWeeks = coveredWeeksFromWindows(completedReportWindows(allReportIds));
+  const anchorWeek = anchorWeekFor(reportRows[0].completed_at, reportRows[0].created_at);
+
+  return { report: reportRows[0], developers, timeline, spendWindow, unmergedSummary, modelUsage, skillsUsage, coveredWeeks, anchorWeek };
+```
+
+- [ ] **Step 8: Wire `getDevReport`**
+
+In `src/lib/report/dev.ts`, change the import:
+
+```ts
+import { dedupCommitsBySha, aggregateWeekly } from './timeline';
+```
+
+to:
+
+```ts
+import { dedupCommitsBySha, aggregateWeekly, anchorWeekFor, completedReportWindows, coveredWeeksFromWindows } from './timeline';
+```
+
+Replace:
+
+```ts
+  // Timeline: all commits for this developer across ALL reports for this org,
+  // deduped by commit_sha, for weekly aggregation graphs
+  const [allReportIds] = await db.execute(
+    `SELECT id FROM reports WHERE org = ?`,
+    [org],
+  ) as [any[], any];
+```
+
+with:
+
+```ts
+  // Timeline: all commits for this developer across ALL reports for this org,
+  // deduped by commit_sha, for weekly aggregation graphs. GLOOK-58 Decision 15: status,
+  // period_days, completed_at and has_login_stats feed this developer's coverage below. Only
+  // completed reports holding a developer_stats row for this login count. They're read in this
+  // same query so the call order is unchanged. The login match is exact-case, like every other
+  // developer_stats read in this file.
+  const [allReportIds] = await db.execute(
+    `SELECT r.id, r.status, r.period_days, r.completed_at,
+            EXISTS(SELECT 1 FROM developer_stats ds WHERE ds.report_id = r.id AND ds.github_login = ?) AS has_login_stats
+     FROM reports r WHERE r.org = ?`,
+    [login, org],
+  ) as [any[], any];
+```
+
+Then, directly above the final `return {`, add:
+
+```ts
+  // GLOOK-58 Decision 15: a report counts only if it completed and holds this developer's row. A
+  // row exists only for developers with commits in that report, so an idle week reads "Not
+  // measured", never a proven 0. MySQL and SQLite both return EXISTS as 0/1; a mock row without
+  // the column gives NaN, which counts as absent.
+  const coveredWeeks = coveredWeeksFromWindows(
+    completedReportWindows(allReportIds.filter((r: any) => Number(r.has_login_stats) > 0)),
+  );
+  const anchorWeek = anchorWeekFor(reportRows[0].completed_at, reportRows[0].created_at);
+```
+
+and add the two fields to the returned object, after `models: …`:
+
+```ts
+    models: modelRows.map((r: any): DevModelUsage => ({
+      model: String(r.model),
+      cost: Number(r.cost) || 0,
+      requests: Number(r.requests) || 0,
+    })),
+    coveredWeeks,
+    anchorWeek,
+  };
+```
+
+- [ ] **Step 9: Run both new tests and the existing service suites**
+
+Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest src/lib/__tests__/unit/report-coverage.test.ts src/lib/__tests__/unit/report-coverage-db.test.ts src/lib/__tests__/unit/report-org.test.ts src/lib/__tests__/unit/report-dev.test.ts src/lib/__tests__/unit/org-unmerged-summary.test.ts src/lib/__tests__/unit/org-model-usage.test.ts'`
+
+Expected: PASS, 6 suites.
+- `report-coverage` has 14 tests and `report-coverage-db` has 10.
+- `org-model-usage` is the canary for the unparseable-timestamp fallback: its mock returns `completed_at: 'y'`. If it throws `RangeError: Invalid time value`, the guard in `anchorWeekFor` or `completedReportWindows` is missing.
+
+- [ ] **Step 10: Run the full suite**
+
+Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest --maxWorkers=3'`
+
+Expected: 0 failed, **190 suites / 1829 tests**. That's the 188 / 1805 baseline plus 2 suites and 24 tests. If the counts differ, record the actual numbers in the commit body and say why.
+
+- [ ] **Step 11: Commit**
+
+```bash
+git add src/lib/report/timeline.ts src/lib/report/org.ts src/lib/report/dev.ts src/lib/__tests__/unit/report-coverage.test.ts src/lib/__tests__/unit/report-coverage-db.test.ts
+git commit -F - <<'EOF'
+GLOOK-58: coveredWeeks and anchorWeek on the org and dev report responses
+
+Decision 15, server side. Only completed reports count, windowed on
+completed_at, and a week is listed only when all 7 of its UTC days are
+covered. The dev page counts only reports with a developer_stats row for
+that login. anchorWeek is completed_at's week, or created_at's while it is
+null. Both are read from the existing reports query, so the call order is
+unchanged.
+
+Full suite: <N> suites / <M> tests green.
+
+Co-Authored-By: Claude <Model> <noreply@anthropic.com>
+EOF
+```
+
+Before committing:
+- Replace `<N>` and `<M>` with Step 10's counts.
+- Replace `Claude <Model>` with the model you are running as.
+
+---
+
+### Task 13: Client wiring (`measured` rows, "Not measured" tooltips, the report-anchored domain)
+
+**Rules for this task** (restated from Global Constraints):
+- **Commands:** run every node command as `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c '<one command>'`. Put one plain command inside the quotes, with no `&&`, pipes or `$VARS`.
+- **Commits:** the message starts with `GLOOK-58: `. Use `git add` with explicit, quoted paths for the bracketed page paths. End the message with a blank line and a `Co-Authored-By:` trailer naming **the model you are running as**.
+- **Tests:** they live flat in `src/lib/__tests__/unit/`, and component tests start with `/** @jest-environment jsdom */` on line 1. They check behavior, never tick positions.
+  - Recharts never activates its tooltip on a synthetic jsdom mouse event. So tooltip tests render the tooltip component directly, fed rows from the chart's own exported row builder.
+- **Code:** no hex literals in chart modules, comments included. Don't write `#` followed by three or more hex digits anywhere in `src/components/charts/*`. `src/app/**/page.tsx` exports only `default`.
+- **Test baseline before this task:** 190 suites / 1829 tests (after Task 12).
+- **Honesty:** if this task's code and its own test disagree, stop and report it. Don't pick one silently.
+- **Scope:** don't touch files that aren't listed.
+
+**Files:**
+- Modify: `src/components/charts/chart-format.ts` (`WeekPoint.measured`, `FillOptions.covered`, `isMeasured`, `weekDomainEndingAt`)
+- Modify: `src/components/charts/chart.tsx` (add `NotMeasuredTooltip` after `CHART_TOOLTIP_CLASS`, and one import)
+- Replace: `src/components/charts/timeline-chart.tsx` (full new content below)
+- Replace: `src/components/charts/lines-changed-chart.tsx` (full new content below)
+- Replace: `src/components/charts/stacked-types-chart.tsx` (full new content below)
+- Modify: `src/app/report/[id]/org/page.tsx` (one import, two data reads, the `weeks` line, the timeline grid, the stacked chart line)
+- Modify: `src/app/report/[id]/dev/[login]/page.tsx` (one import, two data reads, the `weeks` line, the timeline grid)
+- Test, modify: `src/lib/__tests__/unit/chart-format.test.ts`, `timeline-chart.test.tsx`, `lines-changed-chart.test.tsx`, `stacked-types-chart.test.tsx`
+- Test, create: `src/lib/__tests__/unit/report-pages-coverage-wiring.test.tsx`
+- Unchanged, must stay green: `src/lib/__tests__/unit/chart-domain-alignment.test.tsx`
+
+**Interfaces:**
+- Consumes (Task 12): the org and dev responses' `coveredWeeks: string[]` and `anchorWeek: string`.
+- Produces, from `@/components/charts/chart-format`:
+  - `WeekPoint<T>` gains `measured: boolean`.
+  - `FillOptions<T>` gains `covered?: ReadonlySet<string>`. The spec calls this "`fillWeeks` takes an optional `covered`". It goes in the options object, not in a fourth parameter.
+  - `isMeasured(week: string, hasRow: boolean, covered?: ReadonlySet<string>): boolean`
+  - `weekDomainEndingAt(anchorWeek: string | null | undefined, days?: number): string[]`
+- Produces, from `@/components/charts/chart`: `NotMeasuredTooltip({ week }: { week: string })`.
+- Produces, from `@/components/charts/timeline-chart`:
+  - `TimelinePoint` gains `measured: boolean`.
+  - `TimelineChartProps` gains `coveredWeeks?: string[]`.
+  - New: `interface TimelineRowOptions<T>`, and `buildTimelineRows(weeks, data, opts): { points: WeekPoint<T>[]; rows: TimelinePoint[] }`, exported for tests.
+- Produces, from `@/components/charts/lines-changed-chart`:
+  - `buildLinesRows(data, weeks, covered?: ReadonlySet<string>)`. Its rows gain `measured`.
+  - `LinesChangedChart` gains `coveredWeeks?: string[]`.
+- Produces, from `@/components/charts/stacked-types-chart`:
+  - New: `buildStackRows(data, weeks, covered?: ReadonlySet<string>)`, whose rows carry `measured`. Exported for tests.
+  - `StackedTypesChart` gains `coveredWeeks?: string[]`.
+
+**Behavior (spec Decision 15, part 2 and part 3):**
+- **Row values stay numeric.** In these bar charts `0` and `null` draw the same nothing. The false zero only ever appeared in the tooltip. A `0` also survives Recharts' `filterNull`, so a real hover still reaches the tooltip.
+- **`measured`** is true when the week has a data row or is in `covered`. With no `covered`, it is true everywhere, which is today's behavior. Ratio timelines keep their `null` gaps.
+- **Tooltips.** A tooltip whose row has `measured === false` renders the week label and "Not measured", and no values. The check is `=== false`, so rows built without the field (the existing tooltip tests) keep rendering values.
+- **Empty states.** The new wording is:
+  - Timeline: "No data in the 90 days before this report".
+  - Lines: "No line changes in the 90 days before this report".
+  - Stacked: "No commits in the 90 days before this report".
+- **Pages** build one domain with `weekDomainEndingAt(data?.anchorWeek)`, and pass it and `coveredWeeks` to every page-grid chart:
+  - the org page to 7 charts (5 `TimelineChart`, `LinesChangedChart`, `StackedTypesChart`);
+  - the dev page to its 6 `TimelineChart`s.
+  - A response without `coveredWeeks` passes `[]`. Every week without data then reads "Not measured", which is the never-over-claim default.
+
+- [ ] **Step 1: Write the failing `chart-format` tests**
+
+In `src/lib/__tests__/unit/chart-format.test.ts`, change the import block at the top to:
+
+```ts
+import {
+  buildWeekDomain, fillWeeks, formatCompact, formatValue, formatWeek, indexByWeek, isTopOfStack,
+  mondayOf, recentWeekDomain, toNum, weekDomainEndingAt,
+} from '@/components/charts/chart-format';
+```
+
+Append at the end of the file:
+
+```ts
+describe('fillWeeks measured (Decision 15)', () => {
+  const weeks = ['2026-09-07', '2026-09-14', '2026-09-21'];
+
+  it('a week is measured when it has data or is covered, and not otherwise; values stay numeric', () => {
+    const pts = fillWeeks(weeks, [{ week: '2026-09-21', n: 4 }], { value: r => r.n, kind: 'count', covered: new Set(['2026-09-14']) });
+    expect(pts.map(p => p.measured)).toEqual([false, true, true]);
+    expect(pts.map(p => p.value)).toEqual([0, 0, 4]);
+  });
+
+  it('a week with data is measured even when no report covered it (in-flight older than every report)', () => {
+    const pts = fillWeeks(weeks, [{ week: '2026-09-07', n: 2 }], { value: r => r.n, kind: 'count', covered: new Set<string>() });
+    expect(pts[0].measured).toBe(true);
+    expect(pts[0].value).toBe(2);
+  });
+
+  it('with no covered set, every week counts as measured (the old behavior)', () => {
+    const pts = fillWeeks(weeks, [] as { week: string; n: number }[], { value: r => r.n, kind: 'count' });
+    expect(pts.map(p => p.measured)).toEqual([true, true, true]);
+  });
+
+  it('ratio kinds keep their null gaps; covered changes only measured', () => {
+    const pts = fillWeeks(weeks, [{ week: '2026-09-14', r: 2.5 }], { value: r => r.r, kind: 'ratio', covered: new Set(['2026-09-21']) });
+    expect(pts.map(p => p.value)).toEqual([null, 2.5, null]);
+    expect(pts.map(p => p.measured)).toEqual([false, true, true]);
+  });
+});
+
+describe('weekDomainEndingAt', () => {
+  afterEach(() => jest.useRealTimers());
+
+  it('ends at the anchor week and spans the 90 days before it', () => {
+    const weeks = weekDomainEndingAt('2026-07-06');
+    expect(weeks[weeks.length - 1]).toBe('2026-07-06');
+    expect(weeks[0]).toBe('2026-04-06');
+    expect(weeks).toEqual(recentWeekDomain(utc('2026-07-06')));
+  });
+
+  it("falls back to today's domain for a missing or malformed anchor, instead of throwing", () => {
+    jest.useFakeTimers({ now: new Date('2026-09-25T12:00:00Z') });
+    const today = recentWeekDomain(new Date());
+    expect(weekDomainEndingAt(undefined)).toEqual(today);
+    expect(weekDomainEndingAt('2026-13-01')).toEqual(today);
+    expect(weekDomainEndingAt('not a week')).toEqual(today);
+  });
+});
+```
+
+- [ ] **Step 2: Write the failing chart tests, and update the six empty-state assertions**
+
+**`src/lib/__tests__/unit/timeline-chart.test.tsx`:**
+1. Change the import `import { TimelineChart, TimelineTooltip } from '@/components/charts/timeline-chart';` to `import { buildTimelineRows, TimelineChart, TimelineTooltip } from '@/components/charts/timeline-chart';`.
+2. In the tests `shows an explicit empty state when no week has data` and `shows the empty state, not a blank card, for an old report whose weeks are all outside the domain`, change both `'No data in the last 90 days'` to `'No data in the 90 days before this report'`.
+3. Append:
+
+```tsx
+describe('Decision 15: measured weeks', () => {
+  it('buildTimelineRows marks each row measured from its data or the covered set, keeping values numeric', () => {
+    const data: Row[] = [{ week: '2026-09-21', commits: 5, prs: 2 }];
+    const { rows } = buildTimelineRows(weeks, data, { value: d => d.commits, kind: 'count', covered: new Set(['2026-09-07']) });
+    expect(rows.map(r => r.measured)).toEqual([false, true, false, true]);
+    expect(rows.map(r => r.value)).toEqual([0, 0, 0, 5]);
+  });
+
+  it('the tooltip reads "Not measured", not a value, for an unmeasured week', () => {
+    const row = { week: '2026-08-31', value: 0, shipped: 0, inFlight: 0, measured: false };
+    const { container } = render(<TimelineTooltip active payload={[{ payload: row }] as never} split />);
+    expect(container.textContent).toContain('Aug 31');
+    expect(container.textContent).toContain('Not measured');
+    expect(container.textContent).not.toContain('0');
+  });
+
+  it('the tooltip still shows a measured zero as 0', () => {
+    const row = { week: '2026-09-14', value: 0, shipped: 0, inFlight: 0, measured: true };
+    const { container } = render(<TimelineTooltip active payload={[{ payload: row }] as never} />);
+    expect(container.textContent).toContain('0');
+    expect(container.textContent).not.toContain('Not measured');
+  });
+
+  it("a real unmeasured row from the chart's own builder reaches the tooltip as \"Not measured\"", () => {
+    const data: Row[] = [{ week: '2026-09-21', commits: 5, prs: 2 }];
+    const { rows } = buildTimelineRows(weeks, data, { value: d => d.commits, kind: 'count', covered: new Set<string>() });
+    const { container } = render(<TimelineTooltip active payload={[{ payload: rows[0] }] as never} />);
+    expect(container.textContent).toContain('Not measured');
+  });
+});
+```
+
+**`src/lib/__tests__/unit/lines-changed-chart.test.tsx`:**
+1. In the tests `shows an explicit empty state when every week is zero` and `shows the empty state for an old report whose weeks are all outside the domain`, change both `'No line changes in the last 90 days'` to `'No line changes in the 90 days before this report'`.
+2. Append:
+
+```tsx
+describe('Decision 15: measured weeks', () => {
+  it('buildLinesRows marks each row measured from its data or the covered set, keeping values numeric', () => {
+    const rows = buildLinesRows([{ week: '2026-09-21', linesP95Added: 5, linesP95Removed: 1 }], weeks, new Set(['2026-09-07']));
+    expect(rows.map(r => r.measured)).toEqual([true, false, true]);
+    expect(rows.map(r => r.added)).toEqual([0, 0, 5]);
+  });
+
+  it('buildLinesRows with no covered set marks every week measured', () => {
+    expect(buildLinesRows([], weeks).map(r => r.measured)).toEqual([true, true, true]);
+  });
+
+  it('the lines tooltip reads "Not measured", not zero counts, for an unmeasured week', () => {
+    const row = buildLinesRows([], weeks, new Set<string>())[0];
+    const { container } = render(<LinesTooltip active payload={[{ payload: row }] as never} />);
+    expect(container.textContent).toContain('Sep 7');
+    expect(container.textContent).toContain('Not measured');
+    expect(container.textContent).not.toContain('added');
+    expect(container.textContent).not.toContain('total');
+  });
+});
+```
+
+**`src/lib/__tests__/unit/stacked-types-chart.test.tsx`:**
+1. Change the import `import { StackedTypesChart, StackedTypesTooltip } from '@/components/charts/stacked-types-chart';` to `import { buildStackRows, StackedTypesChart, StackedTypesTooltip } from '@/components/charts/stacked-types-chart';`.
+2. In the tests `shows an explicit empty state when no week has commits` and `shows the empty state for an old report whose weeks are all outside the domain`, change both `'No commits in the last 90 days'` to `'No commits in the 90 days before this report'`.
+3. Append:
+
+```tsx
+describe('Decision 15: measured weeks', () => {
+  it('buildStackRows marks each row measured from its data or the covered set, keeping values numeric', () => {
+    const rows = buildStackRows([{ week: '2026-09-21', types: { feature: 2 } }], weeks, new Set(['2026-09-07']));
+    expect(rows.map(r => r.measured)).toEqual([true, false, true]);
+    expect(rows.map(r => r.total)).toEqual([0, 0, 2]);
+  });
+
+  it('buildStackRows with no covered set marks every week measured', () => {
+    expect(buildStackRows([], weeks).map(r => r.measured)).toEqual([true, true, true]);
+  });
+
+  it('the stacked tooltip reads "Not measured", not a 0 total, for an unmeasured week', () => {
+    const row = buildStackRows([], weeks, new Set<string>())[0];
+    const { container } = render(<StackedTypesTooltip active payload={[{ payload: row }] as never} />);
+    expect(container.textContent).toContain('Sep 7');
+    expect(container.textContent).toContain('Not measured');
+    expect(container.textContent).not.toContain('total');
+  });
+});
+```
+
+- [ ] **Step 3: Write the failing page-wiring test**
+
+No existing test renders a report page. This one mocks the chart modules with recorders, so it checks what each page hands its charts, not how the charts draw. I dry-ran this exact harness against the current pages on 2026-09-25:
+- Both pages rendered.
+- The chart counts (7 and 6) and the single-shared-array check passed.
+- Both tests failed only on the week domain, which still ends at today's week.
+
+`jest.config.ts` sets `restoreMocks: true`, so the SWR mock is a plain function, not a `jest.fn()`.
+
+Create `src/lib/__tests__/unit/report-pages-coverage-wiring.test.tsx`:
+
+```tsx
+/** @jest-environment jsdom */
+// GLOOK-58 Decision 15: both report pages hand every page-grid chart the SAME week domain, ending
+// at the response's anchorWeek (not today), plus the response's coveredWeeks. The charts are
+// replaced by recorders, so this checks the pages' wiring, not chart rendering (the chart suites
+// cover that). Without it, a chart missing its coveredWeeks prop would show up only if the single
+// browser hover happened to land on that chart.
+import React from 'react';
+import { render } from '@testing-library/react';
+import { weekDomainEndingAt } from '@/components/charts/chart-format';
+import OrgDetailPage from '@/app/report/[id]/org/page';
+import DevDetailPage from '@/app/report/[id]/dev/[login]/page';
+
+type Seen = { chart: string; weeks: string[]; coveredWeeks?: string[] };
+const mockSeen: Seen[] = [];
+let mockSwrData: Record<string, unknown> = {};
+
+// Plain functions, not jest.fn(): jest.config sets restoreMocks, which would strip a jest.fn()'s
+// implementation before each test.
+jest.mock('swr', () => ({
+  __esModule: true,
+  default: (key: string | null) => ({ data: key ? mockSwrData[key] : undefined, isLoading: false, error: undefined }),
+}));
+jest.mock('next/navigation', () => ({
+  useParams: () => ({ id: 'r1', login: 'alice' }),
+  useRouter: () => ({ push: () => undefined }),
+}));
+jest.mock('@/lib/url-state', () => ({ useUrlState: () => ['impact', () => undefined] }));
+jest.mock('@/app/chat-panel', () => ({ __esModule: true, default: () => null }));
+jest.mock('@/components/IntegrityBadge', () => ({ __esModule: true, default: () => null }));
+jest.mock('@/components/Breadcrumb', () => ({ __esModule: true, default: () => null }));
+jest.mock('@/components/charts/commit-type-donut', () => ({ CommitTypeDonut: () => null }));
+jest.mock('@/components/charts/timeline-chart', () => ({
+  TimelineChart: (p: { weeks: string[]; coveredWeeks?: string[] }) => {
+    mockSeen.push({ chart: 'TimelineChart', weeks: p.weeks, coveredWeeks: p.coveredWeeks });
+    return null;
+  },
+}));
+jest.mock('@/components/charts/lines-changed-chart', () => ({
+  LinesChangedChart: (p: { weeks: string[]; coveredWeeks?: string[] }) => {
+    mockSeen.push({ chart: 'LinesChangedChart', weeks: p.weeks, coveredWeeks: p.coveredWeeks });
+    return null;
+  },
+}));
+jest.mock('@/components/charts/stacked-types-chart', () => ({
+  StackedTypesChart: (p: { weeks: string[]; coveredWeeks?: string[] }) => {
+    mockSeen.push({ chart: 'StackedTypesChart', weeks: p.weeks, coveredWeeks: p.coveredWeeks });
+    return null;
+  },
+}));
+
+// A historical report: its anchor week is months before any real "today", so a page that still
+// built its domain from new Date() cannot pass.
+const ANCHOR = '2026-07-06';
+const COVERED = ['2026-06-22', '2026-06-29'];
+const TIMELINE = [
+  { week: '2026-06-22', commits: 3, prs: 1, avgLinesPerPr: 40, linesAdded: 30, linesRemoved: 10, avgComplexity: 3, aiPercent: 0, types: { feature: 3 } },
+  { week: '2026-06-29', commits: 2, prs: 1, avgLinesPerPr: 20, linesAdded: 15, linesRemoved: 5, avgComplexity: 2, aiPercent: 50, types: { bug: 2 } },
+];
+const REPORT = {
+  id: 'r1', org: 'acme', period_days: 14, status: 'completed',
+  created_at: '2026-06-24T12:00:00Z', completed_at: '2026-07-08T12:00:00Z', run_metadata: null,
+};
+const DEV = {
+  github_login: 'alice', github_name: 'Alice', avatar_url: '',
+  total_prs: 2, total_commits: 5, lines_added: 45, lines_removed: 15,
+  avg_complexity: 2.5, impact_score: 5, pr_percentage: 100, ai_percentage: 20,
+  type_breakdown: { feature: 3, bug: 2 }, active_repos: ['acme/app'],
+  total_jira_issues: 0, total_reviews: 0,
+};
+
+beforeEach(() => { mockSeen.length = 0; });
+
+function expectEveryChartWired(expectedCharts: string[]) {
+  const expectedWeeks = weekDomainEndingAt(ANCHOR);
+  expect(expectedWeeks[expectedWeeks.length - 1]).toBe(ANCHOR);
+  expect(mockSeen.map(s => s.chart).sort()).toEqual([...expectedCharts].sort());
+  // One array per page, so syncId's index matching lines up.
+  expect(new Set(mockSeen.map(s => s.weeks)).size).toBe(1);
+  for (const s of mockSeen) {
+    expect(s.weeks).toEqual(expectedWeeks);
+    expect(s.coveredWeeks).toEqual(COVERED);
+  }
+}
+
+it('the org page passes the anchor-week domain and coveredWeeks to all 7 page-grid charts', () => {
+  mockSwrData = {
+    '/api/report/r1/org': {
+      report: REPORT, developers: [], timeline: TIMELINE, spendWindow: null,
+      modelUsage: [], skillsUsage: [], unmergedSummary: null,
+      coveredWeeks: COVERED, anchorWeek: ANCHOR,
+    },
+  };
+  render(<OrgDetailPage />);
+  expectEveryChartWired([...Array(5).fill('TimelineChart'), 'LinesChangedChart', 'StackedTypesChart']);
+});
+
+it('the dev page passes the anchor-week domain and coveredWeeks to all 6 TimelineCharts', () => {
+  mockSwrData = {
+    '/api/report/r1/dev/alice': {
+      report: REPORT, developer: DEV, allDevelopers: [DEV], commits: [], timeline: TIMELINE,
+      unmergedWork: { openPrs: [], branchCommits: [] }, skills: [], models: [],
+      coveredWeeks: COVERED, anchorWeek: ANCHOR,
+    },
+  };
+  render(<DevDetailPage />);
+  expectEveryChartWired(Array(6).fill('TimelineChart'));
+});
+```
+
+If a page throws on a fixture field it reads, add that field to the fixture and say so in your report. Don't mock another module without reporting why.
+
+- [ ] **Step 4: Run the five test files and confirm they fail**
+
+Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest src/lib/__tests__/unit/chart-format.test.ts src/lib/__tests__/unit/timeline-chart.test.tsx src/lib/__tests__/unit/lines-changed-chart.test.tsx src/lib/__tests__/unit/stacked-types-chart.test.tsx src/lib/__tests__/unit/report-pages-coverage-wiring.test.tsx'`
+
+Expected: FAIL, in these ways:
+- `chart-format` and `timeline-chart` don't compile. `weekDomainEndingAt` and `buildTimelineRows` aren't exported (TS2305), and `covered` isn't a known `FillOptions` property.
+- `stacked-types-chart` doesn't compile, because `buildStackRows` isn't exported.
+- `lines-changed-chart` doesn't compile, because `buildLinesRows` takes 2 arguments, not 3.
+- `report-pages-coverage-wiring` compiles only if `weekDomainEndingAt` exists. Until Step 5 it fails to compile too. After Step 5 and before Step 11 it fails on `expect(s.weeks).toEqual(expectedWeeks)`, because the domain still ends at today's week.
+
+- [ ] **Step 5: Implement `chart-format.ts`**
+
+In `src/components/charts/chart-format.ts`:
+
+1. After `recentWeekDomain`, add:
+
+```ts
+/**
+ * GLOOK-58 Decision 15: the page-wide domain, the `days` days (default 90) ending at the report's
+ * own week, `${anchorWeek}T00:00:00Z`. The server computes anchorWeek, so the client never re-parses
+ * a DB timestamp. A missing or malformed anchor falls back to today's domain: charts never throw.
+ */
+export function weekDomainEndingAt(anchorWeek: string | null | undefined, days = 90): string[] {
+  const t = utcDay(anchorWeek ?? '');
+  return recentWeekDomain(t === null ? new Date() : new Date(t), days);
+}
+```
+
+2. Replace the `WeekPoint` and `FillOptions` interfaces and `fillWeeks` with:
+
+```ts
+export interface WeekPoint<T> {
+  week: string;
+  value: number | null;
+  hasData: boolean;
+  /** Decision 15: false when the week has no data AND no report provably measured it. */
+  measured: boolean;
+  row?: T;
+}
+
+export interface FillOptions<T> {
+  value: (row: T) => unknown;
+  kind: MetricKind;
+  isDefined?: (row: T) => boolean;
+  /** Decision 15: weeks some report provably measured. Omitted: every week counts as measured. */
+  covered?: ReadonlySet<string>;
+}
+
+/**
+ * GLOOK-58 Decision 15: a week counts as measured when it has data (even outside every report
+ * period, e.g. an old in-flight commit) or some report provably measured it. With no `covered`
+ * set, every week counts as measured: the behavior before Decision 15.
+ */
+export function isMeasured(week: string, hasRow: boolean, covered?: ReadonlySet<string>): boolean {
+  return hasRow || !covered || covered.has(week);
+}
+
+/**
+ * One point per domain week. kind 'count': a missing or undefined week is 0.
+ * kind 'ratio': a missing or undefined week is null (a gap). Rows outside the domain are ignored.
+ * `measured` (Decision 15) never changes a value; tooltips read it.
+ */
+export function fillWeeks<T extends { week: string }>(weeks: string[], data: T[], opts: FillOptions<T>): WeekPoint<T>[] {
+  const byWeek = indexByWeek(data);
+  return weeks.map(week => {
+    const row = byWeek.get(week);
+    const raw = row ? opts.value(row) : undefined;
+    const defined = !!row && raw != null && (opts.isDefined ? opts.isDefined(row) : true);
+    const measured = isMeasured(week, !!row, opts.covered);
+    if (opts.kind === 'count') return { week, row, hasData: !!row, measured, value: defined ? toNum(raw) : 0 };
+    return { week, row, hasData: defined, measured, value: defined ? toNum(raw) : null };
+  });
+}
+```
+
+- [ ] **Step 6: Add `NotMeasuredTooltip` to `chart.tsx`**
+
+In `src/components/charts/chart.tsx`:
+1. Add `import { formatWeek } from './chart-format';` after `import { cn } from '@/lib/cn';`.
+2. Directly after the `CHART_TOOLTIP_CLASS` constant, add:
+
+```tsx
+/**
+ * GLOOK-58 Decision 15: the tooltip for a week no report measured. Shared by TimelineChart,
+ * LinesChangedChart and StackedTypesChart, so the three say it identically.
+ */
+export function NotMeasuredTooltip({ week }: { week: string }) {
+  return (
+    <div className={CHART_TOOLTIP_CLASS}>
+      <div className="font-medium">{formatWeek(week)}</div>
+      <div>Not measured</div>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 7: Replace `timeline-chart.tsx`**
+
+Replace the whole of `src/components/charts/timeline-chart.tsx` with:
+
+```tsx
+'use client';
+
+// GLOOK-58: the one TimelineChart (it used to exist twice, in the org and dev pages, and the
+// copies had diverged). Bars are placed by date on the page's shared week domain, so every chart
+// in a grid has the same array and hover sync (syncId, matched by index) lines up.
+import { Bar, BarChart, CartesianGrid, Rectangle, XAxis, YAxis, type BarShapeProps, type RectangleProps } from 'recharts';
+import type { TooltipContentProps, TooltipValueType } from 'recharts';
+import { ChartContainer, ChartTooltip, CHART_TOOLTIP_CLASS, NotMeasuredTooltip } from './chart';
+import { fillWeeks, formatCompact, formatValue, formatWeek, type MetricKind, type WeekPoint } from './chart-format';
+import { inFlightFloor, useHatch } from './hatch';
+
+export interface TimelineRow {
+  week: string;
+}
+
+export interface TimelinePoint {
+  week: string;
+  value: number | null;
+  shipped: number | null;
+  inFlight: number | null;
+  /** Decision 15: false when the week has no data and no report measured it. */
+  measured: boolean;
+}
+
+export interface TimelineChartProps<T extends TimelineRow> {
+  data: T[];
+  /** The page's shared week domain (weekDomainEndingAt(anchorWeek)). */
+  weeks: string[];
+  /** Decision 15: the weeks some report provably measured. Omitted: every week counts as measured. */
+  coveredWeeks?: string[];
+  valueKey?: keyof T & string;
+  computeValue?: (row: T) => unknown;
+  kind: MetricKind;
+  isDefined?: (row: T) => boolean;
+  label: string;
+  suffix?: string;
+  decimals?: number;
+  /** Per-week in-flight portion of the value (a part of the total, not an addition to it). */
+  inFlightValue?: (row: T) => unknown;
+  syncId: string;
+}
+
+export interface TimelineRowOptions<T> {
+  value: (row: T) => unknown;
+  kind: MetricKind;
+  isDefined?: (row: T) => boolean;
+  inFlightValue?: (row: T) => unknown;
+  covered?: ReadonlySet<string>;
+}
+
+/**
+ * The chart's rows from real week data. In-flight is a portion of the week's total, clamped to
+ * [0, value]. Exported so tests can drive real rows into TimelineTooltip, as buildLinesRows does:
+ * Recharts never activates its tooltip on a synthetic jsdom mouse event.
+ */
+export function buildTimelineRows<T extends TimelineRow>(
+  weeks: string[],
+  data: T[],
+  opts: TimelineRowOptions<T>,
+): { points: WeekPoint<T>[]; rows: TimelinePoint[] } {
+  const points = fillWeeks(weeks, data, { value: opts.value, kind: opts.kind, isDefined: opts.isDefined, covered: opts.covered });
+  const inFlight = opts.inFlightValue ? fillWeeks(weeks, data, { value: opts.inFlightValue, kind: 'count' }) : null;
+  const rows: TimelinePoint[] = points.map((p, i) => {
+    if (p.value === null) return { week: p.week, value: null, shipped: null, inFlight: null, measured: p.measured };
+    const f = inFlight ? Math.min(Math.max(0, inFlight[i].value ?? 0), p.value) : 0;
+    return { week: p.week, value: p.value, shipped: p.value - f, inFlight: f, measured: p.measured };
+  });
+  return { points, rows };
+}
+
+type TimelineTooltipProps = Partial<TooltipContentProps<TooltipValueType, string | number>> & {
+  suffix?: string;
+  decimals?: number;
+  split?: boolean;
+};
+
+export function TimelineTooltip({ active, payload, suffix = '', decimals = 0, split = false }: TimelineTooltipProps) {
+  const row = payload?.[0]?.payload as TimelinePoint | undefined;
+  if (!active || !row) return null;
+  if (row.measured === false) return <NotMeasuredTooltip week={row.week} />;
+  if (row.value === null) return null;
+  const fmt = (v: number) => formatValue(v, { suffix, decimals });
+  const inFlight = row.inFlight ?? 0;
+  return (
+    <div className={CHART_TOOLTIP_CLASS}>
+      <div className="font-medium">{formatWeek(row.week)}</div>
+      <div className="font-mono tabular-nums">{fmt(row.value)}</div>
+      {split && inFlight > 0 && (
+        <>
+          <div className="flex justify-between gap-4"><span>Shipped</span><span className="font-mono tabular-nums">{fmt(row.shipped ?? 0)}</span></div>
+          <div className="flex justify-between gap-4"><span>In flight</span><span className="font-mono tabular-nums">{fmt(inFlight)}</span></div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function shippedShape(props: BarShapeProps) {
+  const row = props.payload as TimelinePoint;
+  const top = !((row.inFlight ?? 0) > 0);
+  return <Rectangle {...(props as RectangleProps)} radius={top ? [4, 4, 0, 0] : 0} />;
+}
+
+export function TimelineChart<T extends TimelineRow>({
+  data, weeks, coveredWeeks, valueKey, computeValue, kind, isDefined, label, suffix = '', decimals = 0, inFlightValue, syncId,
+}: TimelineChartProps<T>) {
+  const hatch = useHatch('var(--accent)');
+  const read = (row: T): unknown => (computeValue ? computeValue(row) : valueKey ? row[valueKey] : undefined);
+  const covered = coveredWeeks ? new Set(coveredWeeks) : undefined;
+  const { points, rows } = buildTimelineRows(weeks, data, { value: read, kind, isDefined, inFlightValue, covered });
+
+  const withData = points.filter(p => p.hasData);
+  const latest = withData.length > 0 ? withData[withData.length - 1].value : null;
+  const prev = withData.length > 1 ? withData[withData.length - 2].value : null;
+  const diff = latest !== null && prev !== null ? latest - prev : 0;
+  const fmt = (v: number) => formatValue(v, { suffix, decimals });
+
+  return (
+    <div className="bg-gray-900 rounded-xl p-4">
+      <div className="flex items-baseline justify-between mb-2">
+        <p className="text-xs text-gray-500 font-medium">{label}</p>
+        {latest !== null && (
+          <div className="flex items-baseline gap-2">
+            <span data-testid="timeline-latest" className="text-sm font-bold text-white">{fmt(latest)}</span>
+            {diff !== 0 && (
+              <span data-testid="timeline-change" className={`text-xs ${diff > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {diff > 0 ? '+' : '−'}{fmt(Math.abs(diff))}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+      {withData.length === 0 ? (
+        <p className="text-xs text-chart-axis py-8 text-center">No data in the 90 days before this report</p>
+      ) : (
+        <ChartContainer config={{}} className="aspect-auto h-[140px] w-full">
+          <BarChart data={rows} syncId={syncId} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+            {inFlightValue && hatch.defs}
+            <CartesianGrid vertical={false} />
+            <XAxis dataKey="week" tickLine={false} axisLine={false} minTickGap={24} tickFormatter={formatWeek} />
+            <YAxis tickLine={false} axisLine={false} width={40} tickCount={4} allowDecimals={decimals > 0} tickFormatter={formatCompact} />
+            <ChartTooltip content={<TimelineTooltip suffix={suffix} decimals={decimals} split={!!inFlightValue} />} />
+            <Bar dataKey="shipped" stackId="timeline" fill="var(--accent)" stroke="var(--chart-surface)" strokeWidth={2}
+              shape={shippedShape} isAnimationActive={false} />
+            {inFlightValue && (
+              <Bar dataKey="inFlight" stackId="timeline" fill={hatch.fill} stroke="var(--chart-surface)" strokeWidth={2}
+                radius={[4, 4, 0, 0]} minPointSize={inFlightFloor(rows, 'inFlight')} isAnimationActive={false} />
+            )}
+          </BarChart>
+        </ChartContainer>
+      )}
+    </div>
+  );
+}
+```
+
+The changes from the current file, so a reviewer can diff them quickly:
+- `measured` is added to `TimelinePoint`.
+- `coveredWeeks` is added to the props.
+- The row building moves into the exported `buildTimelineRows`, unchanged except for `measured`.
+- The tooltip checks `measured === false` first.
+- The empty-state text changes.
+
+- [ ] **Step 8: Replace `lines-changed-chart.tsx`**
+
+Replace the whole of `src/components/charts/lines-changed-chart.tsx` with:
+
+```tsx
+'use client';
+
+// GLOOK-58 Decision 12: a diverging chart. Added lines stack above zero, removed lines are negated
+// and stack below, in ONE stackOffset="sign" stack. Two stackIds would place them side by side
+// instead. Shipped linesP95* and in-flight inFlightLinesP95* are separate additive layers, as today.
+import { Bar, BarChart, CartesianGrid, Rectangle, ReferenceLine, XAxis, YAxis, type BarShapeProps, type RectangleProps } from 'recharts';
+import type { TooltipContentProps, TooltipValueType } from 'recharts';
+import { ChartContainer, ChartTooltip, CHART_TOOLTIP_CLASS, NotMeasuredTooltip } from './chart';
+import { formatCompact, formatValue, formatWeek, indexByWeek, isMeasured, toNum } from './chart-format';
+import { commitTypeColor } from './commit-types';
+import { inFlightFloor, TypeSwatch, useHatch } from './hatch';
+
+export interface LinesWeek {
+  week: string;
+  linesP95Added?: unknown;
+  linesP95Removed?: unknown;
+  inFlightLinesP95Added?: unknown;
+  inFlightLinesP95Removed?: unknown;
+}
+
+interface LinesRow {
+  week: string;
+  added: number;
+  inFlightAdded: number;
+  removed: number;
+  inFlightRemoved: number;
+  /** Decision 15: false when the week has no data and no report measured it. */
+  measured: boolean;
+}
+
+const ADDED = 'var(--chart-lines-added)';
+const REMOVED = 'var(--chart-lines-removed)';
+const TOP: [number, number, number, number] = [4, 4, 0, 0];
+const BOTTOM: [number, number, number, number] = [0, 0, 4, 4];
+
+export function LinesTooltip({ active, payload }: Partial<TooltipContentProps<TooltipValueType, string | number>>) {
+  const row = payload?.[0]?.payload as LinesRow | undefined;
+  if (!active || !row) return null;
+  if (row.measured === false) return <NotMeasuredTooltip week={row.week} />;
+  const fmt = (v: number) => formatValue(v);
+  // Churn, not net change: "Lines Changed / Week" is added + removed as magnitudes.
+  // removed/inFlightRemoved are negated for the diverging stack, so abs() them back.
+  const total = row.added + row.inFlightAdded + Math.abs(row.removed) + Math.abs(row.inFlightRemoved);
+  return (
+    <div className={CHART_TOOLTIP_CLASS}>
+      <div className="font-medium">{formatWeek(row.week)}</div>
+      <div className="font-mono tabular-nums">+{fmt(row.added)} added</div>
+      {row.inFlightAdded > 0 && <div className="font-mono tabular-nums">+{fmt(row.inFlightAdded)} added in flight</div>}
+      <div className="font-mono tabular-nums">−{fmt(-row.removed)} removed</div>
+      {row.inFlightRemoved < 0 && <div className="font-mono tabular-nums">−{fmt(-row.inFlightRemoved)} removed in flight</div>}
+      <div className="font-mono tabular-nums">{fmt(total)} total</div>
+    </div>
+  );
+}
+
+function addedShape(props: BarShapeProps) {
+  const row = props.payload as LinesRow;
+  return <Rectangle {...(props as RectangleProps)} radius={row.inFlightAdded > 0 ? 0 : TOP} />;
+}
+function removedShape(props: BarShapeProps) {
+  const row = props.payload as LinesRow;
+  return <Rectangle {...(props as RectangleProps)} radius={row.inFlightRemoved < 0 ? 0 : BOTTOM} />;
+}
+
+/**
+ * Builds the diverging rows from real week data: added/removed magnitudes go through toNum(),
+ * then removed and inFlightRemoved are negated for the stackOffset="sign" stack. Exported so
+ * tests can exercise this real sign-flip pipeline directly, instead of hand-building a row whose
+ * signs the test author has to get right on their own (GLOOK-58 review, fix round 1: a hand-built
+ * row is exactly how the tooltip's total-formula bug slipped through the first time).
+ * `covered` (Decision 15) sets each row's `measured` and never changes a value.
+ */
+export function buildLinesRows(data: LinesWeek[], weeks: string[], covered?: ReadonlySet<string>): LinesRow[] {
+  const byWeek = indexByWeek(data);
+  return weeks.map(week => {
+    const r = byWeek.get(week);
+    return {
+      week,
+      added: toNum(r?.linesP95Added),
+      inFlightAdded: toNum(r?.inFlightLinesP95Added),
+      removed: -toNum(r?.linesP95Removed),
+      inFlightRemoved: -toNum(r?.inFlightLinesP95Removed),
+      measured: isMeasured(week, !!r, covered),
+    };
+  });
+}
+
+export function LinesChangedChart({ data, weeks, coveredWeeks, syncId }: { data: LinesWeek[]; weeks: string[]; coveredWeeks?: string[]; syncId?: string }) {
+  const hatch = useHatch(commitTypeColor('in_flight'));
+  const rows = buildLinesRows(data, weeks, coveredWeeks ? new Set(coveredWeeks) : undefined);
+  const hasAny = rows.some(r => r.added || r.inFlightAdded || r.removed || r.inFlightRemoved);
+  const hasInFlight = rows.some(r => r.inFlightAdded > 0 || r.inFlightRemoved < 0);
+
+  return (
+    <div className="bg-gray-900 rounded-xl p-4">
+      <p className="text-xs text-gray-500 font-medium mb-2">
+        Lines Changed / Week <span className="text-gray-600 font-normal">(outlier commits excluded)</span>
+      </p>
+      {!hasAny ? (
+        <p className="text-xs text-chart-axis py-8 text-center">No line changes in the 90 days before this report</p>
+      ) : (
+        <ChartContainer config={{}} className="aspect-auto h-[160px] w-full">
+          <BarChart data={rows} stackOffset="sign" syncId={syncId} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+            {hatch.defs}
+            <CartesianGrid vertical={false} />
+            <XAxis dataKey="week" tickLine={false} axisLine={false} minTickGap={24} tickFormatter={formatWeek} />
+            <YAxis tickLine={false} axisLine={false} width={44} tickCount={5} tickFormatter={formatCompact} />
+            <ChartTooltip content={<LinesTooltip />} />
+            <ReferenceLine y={0} stroke="var(--chart-axis)" strokeWidth={1} ifOverflow="extendDomain" />
+            <Bar dataKey="added" stackId="lines" fill={ADDED} stroke="var(--chart-surface)" strokeWidth={2} shape={addedShape} isAnimationActive={false} />
+            <Bar dataKey="inFlightAdded" stackId="lines" fill={hatch.fill} stroke="var(--chart-surface)" strokeWidth={2} radius={TOP} minPointSize={inFlightFloor(rows, 'inFlightAdded')} isAnimationActive={false} />
+            <Bar dataKey="removed" stackId="lines" fill={REMOVED} stroke="var(--chart-surface)" strokeWidth={2} shape={removedShape} isAnimationActive={false} />
+            <Bar dataKey="inFlightRemoved" stackId="lines" fill={hatch.fill} stroke="var(--chart-surface)" strokeWidth={2} radius={BOTTOM} minPointSize={inFlightFloor(rows, 'inFlightRemoved')} isAnimationActive={false} />
+          </BarChart>
+        </ChartContainer>
+      )}
+      <div className="flex gap-4 mt-2 justify-end">
+        <span className="flex items-center gap-1.5 text-[11px] text-chart-axis">
+          <TypeSwatch colorVar={ADDED} /> Added
+        </span>
+        <span className="flex items-center gap-1.5 text-[11px] text-chart-axis">
+          <TypeSwatch colorVar={REMOVED} /> Removed
+        </span>
+        {hasInFlight && (
+          <span className="flex items-center gap-1.5 text-[11px] text-chart-axis">
+            <TypeSwatch colorVar={commitTypeColor('in_flight')} hatched /> In flight
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 9: Replace `stacked-types-chart.tsx`**
+
+Replace the whole of `src/components/charts/stacked-types-chart.tsx` with:
+
+```tsx
+'use client';
+
+import { type ReactElement } from 'react';
+import { Bar, BarChart, CartesianGrid, Rectangle, XAxis, YAxis, type BarShapeProps, type RectangleProps } from 'recharts';
+import type { TooltipContentProps, TooltipValueType } from 'recharts';
+import { ChartContainer, ChartTooltip, CHART_TOOLTIP_CLASS, NotMeasuredTooltip } from './chart';
+import { formatCompact, formatWeek, indexByWeek, isMeasured, isTopOfStack } from './chart-format';
+import { COMMIT_TYPE_ORDER, commitTypeColor, foldTypes, type CommitType } from './commit-types';
+import { inFlightFloor, TypeSwatch, useHatch } from './hatch';
+
+interface TypesWeek {
+  week: string;
+  types?: Record<string, unknown>;
+}
+
+type StackRow = { week: string; total: number; measured: boolean } & Record<CommitType, number>;
+
+// Built once at module load, not per render (GLOOK-58 review, fix round 1): a fresh shape
+// component per type per render remounts the Rectangle each time. COMMIT_TYPE_ORDER (the full
+// fixed order, not the per-render `present` list) is safe here — a type excluded from `present`
+// is zero in every row, so it always reads as zero in isTopOfStack regardless of which list is
+// passed, and it never has its own Bar to apply this shape to anyway.
+const typeShapes = Object.fromEntries(
+  COMMIT_TYPE_ORDER.map(t => [
+    t,
+    (props: BarShapeProps): ReactElement => (
+      <Rectangle {...(props as RectangleProps)} radius={isTopOfStack(props.payload, COMMIT_TYPE_ORDER, t) ? [4, 4, 0, 0] : 0} />
+    ),
+  ]),
+) as Record<CommitType, (props: BarShapeProps) => ReactElement>;
+
+/**
+ * One row per domain week: the week's types folded into COMMIT_TYPE_ORDER, their total, and
+ * whether the week was measured (Decision 15; `covered` never changes a value). Exported so tests
+ * can drive real rows into StackedTypesTooltip, as buildLinesRows does.
+ */
+export function buildStackRows(data: TypesWeek[], weeks: string[], covered?: ReadonlySet<string>): StackRow[] {
+  const byWeek = indexByWeek(data);
+  return weeks.map(week => {
+    const row = byWeek.get(week);
+    const folded = foldTypes([row?.types ?? {}]);
+    const total = COMMIT_TYPE_ORDER.reduce((s, t) => s + folded[t], 0);
+    return { week, total, measured: isMeasured(week, !!row, covered), ...folded };
+  });
+}
+
+export function StackedTypesTooltip({ active, payload }: Partial<TooltipContentProps<TooltipValueType, string | number>>) {
+  const row = payload?.[0]?.payload as StackRow | undefined;
+  if (!active || !row) return null;
+  if (row.measured === false) return <NotMeasuredTooltip week={row.week} />;
+  return (
+    <div className={CHART_TOOLTIP_CLASS}>
+      <div className="font-medium">{formatWeek(row.week)} · {row.total} total</div>
+      {COMMIT_TYPE_ORDER.filter(t => row[t] > 0).map(t => (
+        <div key={t} className="flex justify-between gap-4">
+          <span>{t}</span>
+          <span className="font-mono tabular-nums">{row[t]}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function StackedTypesChart({ data, weeks, coveredWeeks }: { data: TypesWeek[]; weeks: string[]; coveredWeeks?: string[] }) {
+  const hatch = useHatch(commitTypeColor('in_flight'));
+  const rows = buildStackRows(data, weeks, coveredWeeks ? new Set(coveredWeeks) : undefined);
+  const present = COMMIT_TYPE_ORDER.filter(t => rows.some(r => r[t] > 0));
+  const fillFor = (t: CommitType) => (t === 'in_flight' ? hatch.fill : commitTypeColor(t));
+
+  return (
+    <div className="bg-gray-900 rounded-xl p-4 mb-6">
+      <div className="flex items-center justify-between gap-4 flex-wrap mb-3">
+        <p className="text-xs text-gray-500 font-medium">Commit Types Over Time (weekly)</p>
+        <div className="flex flex-wrap gap-3">
+          {present.map(t => (
+            <span key={t} className="flex items-center gap-1.5 text-[11px] text-chart-axis">
+              <TypeSwatch colorVar={commitTypeColor(t)} hatched={t === 'in_flight'} />
+              {t}
+            </span>
+          ))}
+        </div>
+      </div>
+      {present.length === 0 ? (
+        <p className="text-xs text-chart-axis py-8 text-center">No commits in the 90 days before this report</p>
+      ) : (
+        <ChartContainer config={{}} className="aspect-auto h-[200px] w-full">
+          <BarChart data={rows} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+            {hatch.defs}
+            <CartesianGrid vertical={false} />
+            <XAxis dataKey="week" tickLine={false} axisLine={false} minTickGap={24} tickFormatter={formatWeek} />
+            <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={36} tickFormatter={formatCompact} />
+            <ChartTooltip content={<StackedTypesTooltip />} />
+            {present.map(t => (
+              <Bar key={t} dataKey={t} name={t} stackId="types" fill={fillFor(t)} stroke="var(--chart-surface)" strokeWidth={2}
+                shape={typeShapes[t]} minPointSize={t === 'in_flight' ? inFlightFloor(rows, t) : undefined}
+                isAnimationActive={false} />
+            ))}
+          </BarChart>
+        </ChartContainer>
+      )}
+    </div>
+  );
+}
+```
+
+- [ ] **Step 10: Run the four chart test files and the alignment test**
+
+Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest src/lib/__tests__/unit/chart-format.test.ts src/lib/__tests__/unit/timeline-chart.test.tsx src/lib/__tests__/unit/lines-changed-chart.test.tsx src/lib/__tests__/unit/stacked-types-chart.test.tsx src/lib/__tests__/unit/chart-domain-alignment.test.tsx src/lib/__tests__/unit/chart-no-literal-colors.test.ts'`
+
+Expected: PASS, 6 suites.
+- `chart-domain-alignment` passes unchanged, because `coveredWeeks` is optional and never changes the domain.
+- `chart-no-literal-colors` passes, because none of the new code contains a hex literal.
+
+- [ ] **Step 11: Wire the org page**
+
+In `src/app/report/[id]/org/page.tsx`:
+
+1. Change `import { recentWeekDomain, toNum } from '@/components/charts/chart-format';` to `import { toNum, weekDomainEndingAt } from '@/components/charts/chart-format';`.
+2. After `const skillsUsage: SkillsUsageRow[] = data?.skillsUsage ?? [];`, add:
+
+```tsx
+  // GLOOK-58 Decision 15: the weeks some completed report measured, and the week this report's
+  // charts end at. Both come from the server; the client never re-parses a DB timestamp. A
+  // response without coveredWeeks gives [], so unmeasured weeks never claim a zero.
+  const coveredWeeks: string[] = data?.coveredWeeks ?? [];
+  const anchorWeek: string | undefined = data?.anchorWeek;
+```
+
+3. Replace:
+
+```tsx
+  // One week domain per render, shared by every chart below so hover sync (syncId) lines up.
+  const weeks = recentWeekDomain(new Date());
+```
+
+with:
+
+```tsx
+  // One week domain per render, ending at this report's own week (Decision 15), shared by every
+  // chart below so hover sync (syncId) lines up.
+  const weeks = weekDomainEndingAt(anchorWeek);
+```
+
+4. Replace the timeline grid, from `<TimelineChart` (the Commits / Week one) through the AI Assisted % chart's closing `/>`, with:
+
+```tsx
+            <TimelineChart
+              data={timeline}
+              weeks={weeks}
+              coveredWeeks={coveredWeeks}
+              valueKey="commits"
+              kind="count"
+              label="Commits / Week"
+              inFlightValue={d => d.types?.in_flight ?? 0}
+              syncId="org-timeline"
+            />
+            <TimelineChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks} valueKey="prs" kind="count" label="PRs / Week" syncId="org-timeline" />
+            <TimelineChart
+              data={timeline}
+              weeks={weeks}
+              coveredWeeks={coveredWeeks}
+              valueKey="avgLinesPerPr"
+              kind="ratio"
+              isDefined={d => toNum(d.prs) > 0}
+              label="Avg Lines Changed / PR (outliers excluded)"
+              suffix=" lines"
+              syncId="org-timeline"
+            />
+            <TimelineChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks} valueKey="avgImpact" kind="ratio" label="Avg Impact Score / Week" decimals={1} syncId="org-timeline" />
+            <LinesChangedChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks} syncId="org-timeline" />
+            <TimelineChart
+              data={timeline}
+              weeks={weeks}
+              coveredWeeks={coveredWeeks}
+              valueKey="aiPercent"
+              kind="ratio"
+              isDefined={d => toNum(d.commits) > 0}
+              label="AI Assisted %"
+              suffix="%"
+              syncId="org-timeline"
+            />
+```
+
+5. Replace `{timeline.length >= 2 && <StackedTypesChart data={timeline} weeks={weeks} />}` with:
+
+```tsx
+      {timeline.length >= 2 && <StackedTypesChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks} />}
+```
+
+- [ ] **Step 12: Wire the dev page**
+
+In `src/app/report/[id]/dev/[login]/page.tsx`:
+
+1. Change `import { recentWeekDomain, toNum } from '@/components/charts/chart-format';` to `import { toNum, weekDomainEndingAt } from '@/components/charts/chart-format';`.
+2. After `const models: ModelRow[] = devData?.models ?? [];`, add:
+
+```tsx
+  // GLOOK-58 Decision 15: the weeks some completed report measured for THIS developer, and the
+  // week this report's charts end at. Both come from the server. A response without coveredWeeks
+  // gives [], so unmeasured weeks never claim a zero.
+  const coveredWeeks: string[] = devData?.coveredWeeks ?? [];
+  const anchorWeek: string | undefined = devData?.anchorWeek;
+```
+
+3. Replace:
+
+```tsx
+  // One week domain per render, shared by every chart below so hover sync (syncId) lines up.
+  const weeks = recentWeekDomain(new Date());
+```
+
+with:
+
+```tsx
+  // One week domain per render, ending at this report's own week (Decision 15), shared by every
+  // chart below so hover sync (syncId) lines up.
+  const weeks = weekDomainEndingAt(anchorWeek);
+```
+
+4. Replace the six `TimelineChart`s inside the `Activity Over Time (weekly)` grid with:
+
+```tsx
+            <TimelineChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks} valueKey="commits" kind="count" label="Commits / Week" syncId="dev-timeline" />
+            <TimelineChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks} valueKey="prs" kind="count" label="PRs / Week" syncId="dev-timeline" />
+            <TimelineChart
+              data={timeline}
+              weeks={weeks}
+              coveredWeeks={coveredWeeks}
+              valueKey="avgLinesPerPr"
+              kind="ratio"
+              isDefined={d => toNum(d.prs) > 0}
+              label="Avg Lines Changed / PR (outliers excluded)"
+              suffix=" lines"
+              syncId="dev-timeline"
+            />
+            <TimelineChart
+              data={timeline}
+              weeks={weeks}
+              coveredWeeks={coveredWeeks}
+              kind="count"
+              label="Lines Changed / Week"
+              computeValue={d => toNum(d.linesAdded) + toNum(d.linesRemoved)}
+              syncId="dev-timeline"
+            />
+            <TimelineChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks} valueKey="avgComplexity" kind="ratio" label="Avg Complexity / Week" decimals={1} syncId="dev-timeline" />
+            <TimelineChart
+              data={timeline}
+              weeks={weeks}
+              coveredWeeks={coveredWeeks}
+              valueKey="aiPercent"
+              kind="ratio"
+              isDefined={d => toNum(d.commits) > 0}
+              label="AI Assisted %"
+              suffix="%"
+              syncId="dev-timeline"
+            />
+```
+
+Neither page gains an export. Both keep `export default function …` as their only export.
+
+- [ ] **Step 13: Run the page-wiring test**
+
+Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest src/lib/__tests__/unit/report-pages-coverage-wiring.test.tsx'`
+
+Expected: PASS, 2 tests.
+
+- [ ] **Step 14: Full suite, then build**
+
+Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest --maxWorkers=3'`
+
+Expected: 0 failed, **191 suites / 1847 tests**. That's Task 12's 190 / 1829 plus 1 suite and 18 tests: 6 in `chart-format`, 4 in `timeline-chart`, 3 in `lines-changed-chart`, 3 in `stacked-types-chart` and 2 in the wiring test. The six edited empty-state assertions are changed tests, not new ones. If the counts differ, record the actual numbers in the commit body and say why.
+
+Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npm run build'`
+
+Expected: the build succeeds. A failure on a `page.tsx` export means a helper leaked into a page file. Move it to `src/components/charts/`.
+
+- [ ] **Step 15: Commit**
+
+Commit before the browser check, so the check ends on a clean tree. If the check finds a defect, fix it in a separate commit.
+
+```bash
+git add src/components/charts/chart-format.ts src/components/charts/chart.tsx src/components/charts/timeline-chart.tsx src/components/charts/lines-changed-chart.tsx src/components/charts/stacked-types-chart.tsx "src/app/report/[id]/org/page.tsx" "src/app/report/[id]/dev/[login]/page.tsx" src/lib/__tests__/unit/chart-format.test.ts src/lib/__tests__/unit/timeline-chart.test.tsx src/lib/__tests__/unit/lines-changed-chart.test.tsx src/lib/__tests__/unit/stacked-types-chart.test.tsx src/lib/__tests__/unit/report-pages-coverage-wiring.test.tsx
+git commit -F - <<'EOF'
+GLOOK-58: unmeasured weeks read "Not measured"; charts end at the report's week
+
+Decision 15, client side. Rows of the three page-grid charts carry a
+measured flag (data, or a covered week), their tooltips say "Not measured"
+for an unmeasured week, and both pages build one domain with
+weekDomainEndingAt(anchorWeek) and pass coveredWeeks to every grid chart
+(org: 7, dev: 6). Empty states read "in the 90 days before this report".
+
+Full suite: <N> suites / <M> tests green. Build green.
+
+Co-Authored-By: Claude <Model> <noreply@anthropic.com>
+EOF
+```
+
+Before committing:
+- Replace `<N>` and `<M>` with Step 14's counts.
+- Replace `Claude <Model>` with the model you are running as.
+
+- [ ] **Step 16: Browser check, one real hover over an unmeasured week**
+
+This check uses port 3001, because the user's Docker holds port 3000. It uses a throwaway Chrome profile.
+
+1. Clear the build cache. CLAUDE.md says `next build` artifacts conflict with `next dev`, and Step 14 ran a build.
+
+   Run: `rm -rf /Users/maes/Documents/1macmount/code/glooker/.claude/worktrees/GLOOK-58-recharts/.next`
+
+2. Seed.
+
+   Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npm run seed:reset'`
+
+3. Confirm port 3001 is free.
+
+   Run: `curl -s -o /dev/null -w "%{http_code}" http://localhost:3001/api/health`
+
+   Expected: `000`. If it prints anything else, stop and report. Don't kill a server you didn't start.
+
+4. Start the mock server in the background, with Bash `run_in_background: true`.
+
+   Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npm run dev:mock -- -p 3001'`
+
+   Then re-run `curl -s http://localhost:3001/api/health` every few seconds. With the Monitor tool, use an until-loop. Continue once it returns `{"status":"ok",…}`.
+
+5. Check the live API has an unmeasured week inside the org page's window. Write this to your scratchpad as `coverage-check.ts`:
+
+```ts
+import { formatWeek, weekDomainEndingAt } from '/Users/maes/Documents/1macmount/code/glooker/.claude/worktrees/GLOOK-58-recharts/src/components/charts/chart-format';
+
+async function main() {
+  const res = await fetch('http://localhost:3001/api/report/00000000-0000-4000-a000-000000000001/org');
+  const body = await res.json();
+  const weeks = weekDomainEndingAt(body.anchorWeek);
+  const covered = new Set<string>(body.coveredWeeks);
+  const withData = new Set<string>(body.timeline.map((w: { week: string }) => w.week));
+  const unmeasured = weeks.filter(w => !covered.has(w) && !withData.has(w));
+  console.log('anchorWeek', body.anchorWeek);
+  console.log('coveredWeeks', body.coveredWeeks.join(','));
+  console.log('domain', weeks[0], '..', weeks[weeks.length - 1], `(${weeks.length} weeks)`);
+  console.log('unmeasured', unmeasured.join(','));
+  console.log('slot 0', weeks[0], formatWeek(weeks[0]), unmeasured.includes(weeks[0]) ? 'UNMEASURED' : 'MEASURED');
+}
+main();
+```
+
+   Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx tsx <scratchpad>/coverage-check.ts'`, replacing `<scratchpad>` with the scratchpad path.
+
+   What must hold on any day:
+   - `anchorWeek` is the UTC week containing yesterday, because R1 completes `daysAgo(1)`.
+   - The domain has 14 weeks.
+   - `slot 0` prints `UNMEASURED`.
+
+   On 2026-09-25, on this America/New_York host, the expected output is:
+   - `anchorWeek 2026-09-21`
+   - `coveredWeeks 2026-08-17,2026-08-24,2026-08-31,2026-09-14`
+   - `domain 2026-06-22 .. 2026-09-21 (14 weeks)`
+   - `slot 0 2026-06-22 Jun 22 UNMEASURED`
+
+   **Why the week of Sep 7 is missing from `coveredWeeks`.** The zone-less seed timestamps parse as local time, so R2's window ends at 04:00Z on Sep 10, and R1's starts there. Sep 10 is split between the two windows, and neither window holds it whole. This is the per-window under-claim in addendum review focus 5. It's expected, not a bug.
+
+   If `slot 0` prints `MEASURED`, stop and report. The seed would need a coverage gap, and that's a seed change needing sign-off.
+
+6. Create a throwaway Chrome profile.
+
+   Run: `mktemp -d <scratchpad>/chrome-profile-XXXXXX`
+
+   Note the printed path, `<profile>`, and use it literally below.
+
+7. Confirm port 9333 is free.
+
+   Run: `curl -s -o /dev/null -w "%{http_code}" http://localhost:9333/json/version`
+
+   Expected: `000`. If it's taken, use 9334 in this step and the next two.
+
+8. Start headless Chrome in the background, with `run_in_background: true`.
+
+   Run: `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --disable-gpu --remote-debugging-port=9333 --user-data-dir=<profile> --window-size=1400,1000 --no-first-run --no-default-browser-check about:blank`
+
+   Then check that `curl -s http://localhost:9333/json/version` returns JSON with a `webSocketDebuggerUrl`.
+
+9. Write this DevTools driver to your scratchpad as `hover-unmeasured.mjs`. It needs Node 24, whose global `WebSocket` and `fetch` it uses.
+   - It opens the org page and finds the **Commits / Week** card.
+   - It aims at the centre of category slot 0, the domain's first week, which Step 5 confirmed is unmeasured. The point is computed from the plot grid's box and the slot count, because an unmeasured week draws no bar to aim at.
+   - It performs one real mouse move there and reads the tooltip text.
+   - It saves a screenshot.
+
+```js
+// GLOOK-58 Task 13: ONE real hover over an unmeasured week on the org page.
+// Usage: node hover-unmeasured.mjs <app-port> <cdp-port> <report-id> <screenshot-path>
+import fs from 'node:fs';
+
+const [appPort, cdpPort, reportId, shot] = process.argv.slice(2);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+const version = await (await fetch(`http://localhost:${cdpPort}/json/version`)).json();
+const ws = new WebSocket(version.webSocketDebuggerUrl);
+await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject; });
+let nextId = 0;
+const pending = new Map();
+ws.onmessage = ev => {
+  const m = JSON.parse(ev.data);
+  if (!m.id || !pending.has(m.id)) return;
+  const p = pending.get(m.id);
+  pending.delete(m.id);
+  if (m.error) p.reject(new Error(JSON.stringify(m.error)));
+  else p.resolve(m.result);
+};
+const send = (method, params = {}, sessionId) => new Promise((resolve, reject) => {
+  const id = ++nextId;
+  pending.set(id, { resolve, reject });
+  ws.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
+});
+
+const { targetId } = await send('Target.createTarget', { url: 'about:blank' });
+const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true });
+const evaluate = async expression =>
+  (await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }, sessionId)).result.value;
+await send('Page.enable', {}, sessionId);
+await send('Emulation.setDeviceMetricsOverride', { width: 1400, height: 1000, deviceScaleFactor: 1, mobile: false }, sessionId);
+await send('Page.navigate', { url: `http://localhost:${appPort}/report/${reportId}/org` }, sessionId);
+for (let i = 0; i < 60 && !(await evaluate(`!!document.querySelector('.recharts-cartesian-grid')`)); i++) await sleep(500);
+await sleep(800);
+
+const CARD = `[...document.querySelectorAll('p')].find(p => p.textContent.trim() === 'Commits / Week')?.closest('.rounded-xl')`;
+const target = await evaluate(`(() => {
+  const card = ${CARD};
+  if (!card) return { error: 'no Commits / Week card' };
+  card.scrollIntoView({ block: 'center' });
+  const grid = card.querySelector('.recharts-cartesian-grid');
+  const slots = card.querySelector('.recharts-bar')?.querySelectorAll('.recharts-bar-rectangle').length ?? 0;
+  if (!grid || !slots) return { error: 'no plot grid or no category slots', slots };
+  const b = grid.getBoundingClientRect();
+  return { x: b.left + b.width / slots / 2, y: b.top + b.height / 2, slots };
+})()`);
+if (target.error) { console.log('FAIL', JSON.stringify(target)); process.exit(1); }
+
+await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: target.x, y: target.y, button: 'none' }, sessionId);
+await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: target.x + 1, y: target.y, button: 'none' }, sessionId);
+await sleep(600);
+const tip = await evaluate(`(() => { const w = ${CARD}?.querySelector('.recharts-tooltip-wrapper'); return w ? w.textContent : null; })()`);
+console.log('slots', target.slots, 'tooltip:', JSON.stringify(tip));
+
+const { data } = await send('Page.captureScreenshot', { format: 'png' }, sessionId);
+fs.writeFileSync(shot, Buffer.from(data, 'base64'));
+console.log('SAVED', shot);
+await send('Target.closeTarget', { targetId });
+ws.close();
+const ok = typeof tip === 'string' && tip.includes('Not measured');
+console.log(ok ? 'PASS' : 'FAIL');
+process.exit(ok ? 0 : 1);
+```
+
+10. Run it.
+
+    Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'node <scratchpad>/hover-unmeasured.mjs 3001 9333 00000000-0000-4000-a000-000000000001 <scratchpad>/task13-not-measured.png'`
+
+    Expected, with the slot count equal to Step 5's domain length:
+    - `slots 14 tooltip: "Jun 22Not measured"`, where the label is Step 5's `slot 0` label.
+    - `SAVED …`
+    - `PASS`
+
+    Then open `<scratchpad>/task13-not-measured.png` with the Read tool. Confirm that the Commits / Week card shows a tooltip reading the week label and "Not measured". The synced charts in the grid may show their own tooltips too.
+
+    **If it prints `FAIL`,** report the printed tooltip text. Don't adjust the aim until it passes: a tooltip showing a value there is the bug this check exists to catch. A `null` tooltip means the hover didn't land on the plot. Report that as well.
+
+11. Clean up.
+    1. Stop both background tasks, the dev server and Chrome, with TaskStop.
+    2. Run `lsof -ti tcp:3001` and `lsof -ti tcp:9333`. Both must print nothing. If either prints PIDs, run `kill <pid>` for each, then re-check. Don't use `pkill -f`, which can hit other sessions' servers.
+    3. Run `rm -rf /Users/maes/Documents/1macmount/code/glooker/.claude/worktrees/GLOOK-58-recharts/.next`
+    4. Run `rm -f /Users/maes/Documents/1macmount/code/glooker/.claude/worktrees/GLOOK-58-recharts/glooker.db /Users/maes/Documents/1macmount/code/glooker/.claude/worktrees/GLOOK-58-recharts/glooker.db-wal /Users/maes/Documents/1macmount/code/glooker/.claude/worktrees/GLOOK-58-recharts/glooker.db-shm`
+    5. Run `rm -rf <profile>`
+    6. Run `git status --short`. Expected: no output, a clean tree. The screenshot and scripts live in the scratchpad, not the repo.
+
+    Report the tooltip text, the screenshot path and the `git status` result.
