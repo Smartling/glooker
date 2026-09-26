@@ -127,10 +127,16 @@ Libraries evaluated on 2026-09-25 against GitHub, npm and official docs:
          - A row exists only for developers with commits in that report. Both inserts (`report-runner.ts:131,670`) build rows from `aggregate(commits, …)`, and skipped members get none.
          - So per-developer coverage is conservative. A week in which a developer was a member but made no commits reads "Not measured", not a proven 0.
        - **Whole days only:**
-         - Mark every UTC calendar day inside any counted window.
+         - First take the **union** of all counted windows as time intervals. Two windows that meet mid-day then form one continuous interval, and don't lose the day they share.
+         - Mark every UTC calendar day lying fully inside that union.
          - A week is in `coveredWeeks` only if all 7 of its days are marked.
          - A partly covered week is left out, so the edges of a gap never claim a zero.
-       - **`anchorWeek`:** `weekKeyForDate(completed_at ?? created_at)`, computed on the server. The server parses the SQLite local-time string on the same host that wrote it. The client never re-parses a database timestamp.
+         - The union never over-claims, because every instant in it was searched.
+       - **`anchorWeek`:** `weekKeyForDate` of `completed_at` when `status = 'completed'`, and of `created_at` otherwise. `completed_at` is not a reliable completion marker for other statuses: failed runs set it, and a resumed run keeps its old value while running. It's computed on the server, which parses the SQLite local-time string on the same host that wrote it, so the client never re-parses a database timestamp.
+       - **Unparseable timestamps:**
+         - A window whose `completed_at` doesn't parse is skipped, which is conservative.
+         - An `anchorWeek` source that doesn't parse falls back to the current UTC week.
+         - Nothing throws.
        - **Shared helper:** one helper in `timeline.ts` turns a list of `{ end, periodDays }` windows into `coveredWeeks`. The org and dev services differ only in which reports they pass in.
     2. **Filling on the client.**
        - Row values stay **numeric**.
@@ -587,7 +593,7 @@ Tests go in `src/lib/__tests__/unit/` (Jest `roots` is `src/lib`) and use the `/
 
 | Subject | Asserts |
 |---|---|
-| Coverage, server (Decision 15) | Only fully covered UTC weeks are listed: a 14-day window from a Wednesday lists only the weeks all 7 of whose days are inside it. Two completed reports with a gap leave the gap's weeks out. Overlapping windows don't duplicate keys. Failed, stopped and running reports add nothing. A resumed report counts from `completed_at`. The dev page counts only reports with a `developer_stats` row for that login. `anchorWeek` is `completed_at`'s week, or `created_at`'s while it's `null`. No existing test asserts the exact response shape with `toEqual` in a way the additive fields would break; adjust any that does |
+| Coverage, server (Decision 15) | Only fully covered UTC weeks are listed: a 14-day window from a Wednesday lists only the weeks all 7 of whose days are inside it. Two completed reports with a gap leave the gap's weeks out. Overlapping windows don't duplicate keys. Failed, stopped and running reports add nothing. A resumed report counts from `completed_at`. The dev page counts only reports with a `developer_stats` row for that login. Two windows meeting mid-day leave no hole. `anchorWeek` is `completed_at`'s week for a completed report and `created_at`'s otherwise, including for a resumed running report with a stale `completed_at`. An unparseable timestamp doesn't throw. No existing test asserts the exact response shape with `toEqual` in a way the additive fields would break; adjust any that does |
 | Coverage, client (Decision 15) | `measured` is true for a week with data or in `covered`, false otherwise, and true everywhere when `covered` is omitted, on the rows of all three charts. All three tooltips, rendered directly, read "Not measured" when `measured` is false and show values otherwise. `weekDomainEndingAt(anchorWeek)` ends at that week, and the same array reaches every chart on the page. Plus ONE real hover over an unmeasured week on the org page in headless Chrome, showing "Not measured", as part of the screenshot pass |
 | `chart-format` | Weeks are Monday-anchored; for `kind: 'count'` a missing week is `0`, and for `kind: 'ratio'` a missing week is `null`; `isDefined` returning false gives `null`; every chart on a page gets an identical week array; `toNum("12.50") === 12.5`; the formatter respects `suffix` and `decimals` |
 | `TimelineChart` | One bar per week that has a value, and gaps for `null`; the header shows the latest value and change; the hatch appears only with `inFlightValue`; bars use `var(--accent)`; two instances get different pattern IDs |
