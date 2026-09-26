@@ -4700,7 +4700,7 @@ Tasks 1-11 are implemented and reviewed. Tasks 12 and 13 implement spec **Decisi
 - **ISO strings with `Z`** parse as absolute instants.
 - **An Invalid Date** (`NaN` time) is skipped for coverage. For the anchor, the current UTC week is used instead. It does **not** fall through to the other timestamp, because the spec picks the anchor source by status.
 
-**Why the SQL is widened, not extended with a new query.** `org-unmerged-summary.test.ts` resets its mock and then supplies exactly 9 `mockResolvedValueOnce` values. A 10th `db.execute` call gets `undefined`, and its destructure throws. `report-org.test.ts` and `report-dev.test.ts` are positional too. So each service reads coverage from the `SELECT id FROM reports WHERE org = ?` query it already runs. The call count and order stay unchanged. Existing mocks return `{ id }`-only rows, which yield no coverage, and no test asserts that query's SQL text or params (checked 2026-09-25). No test asserts either whole response with `toEqual` either. The route tests mock the services.
+**Why the SQL is widened, not extended with a new query.** `org-unmerged-summary.test.ts` resets its mock and then supplies exactly 9 `mockResolvedValueOnce` values. A 10th `db.execute` call gets `undefined`, and its destructure throws. `report-org.test.ts` and `report-dev.test.ts` are positional too (`mockResolvedValueOnce` chains), so a query inserted mid-function would shift their rows into the wrong calls. `org-model-usage.test.ts` is different: it routes by SQL text (`routeQueries`, `/FROM reports/`). Three queries match that regex: the metadata query, the widened reports query and the avg-impact query (`FROM reports r JOIN …`). All three receive its one metadata row, `{ status: 'completed', completed_at: 'y', … }`. That's harmless. The widened query sees one completed row whose `completed_at` doesn't parse, so `completedReportWindows` skips it. The impact query already ignores the row, because it has no `avg_impact`. `report-coverage-db.test.ts` runs on the real SQLite driver, so query order doesn't matter to it at all. So each service reads coverage from the `SELECT id FROM reports WHERE org = ?` query it already runs. The call count and order stay unchanged. Existing mocks return `{ id }`-only rows, which yield no coverage, and no test asserts that query's SQL text or params (checked 2026-09-25). No test asserts either whole response with `toEqual` either. The route tests mock the services.
 
 - [ ] **Step 1: Write the failing pure-helper test**
 
@@ -4755,11 +4755,21 @@ describe('coveredWeeksFromWindows', () => {
     expect(weeks).toEqual(['2026-03-02', '2026-03-16']);
   });
 
-  it('skips a window with an unparseable end or an unusable period instead of throwing', () => {
+  it('skips a window with a NaN period instead of letting it swallow the valid window behind it', () => {
+    // Discriminating on purpose (checked by mutation in Step 12): without the guard, the NaN
+    // interval [NaN, end] sorts ahead, the valid window merges into it, and its NaN start marks no
+    // days, so the result would be [] instead of the valid window's week.
+    const weeks = coveredWeeksFromWindows([
+      win('2026-03-16T00:00:00Z', Number.NaN),
+      win('2026-03-16T00:00:00Z', 7),
+    ]);
+    expect(weeks).toEqual(['2026-03-09']);
+  });
+
+  it('other degenerate windows (an unparseable end, a zero or negative period) add nothing and never throw', () => {
     const weeks = coveredWeeksFromWindows([
       { end: new Date('y'), periodDays: 14 },
       win('2026-03-16T00:00:00Z', 0),
-      win('2026-03-16T00:00:00Z', Number.NaN),
       win('2026-03-16T00:00:00Z', -7),
     ]);
     expect(weeks).toEqual([]);
@@ -4934,7 +4944,7 @@ export function anchorWeekFor(status: unknown, completedAt: unknown, createdAt: 
 
 Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest src/lib/__tests__/unit/report-coverage.test.ts'`
 
-Expected: PASS, 17 tests.
+Expected: PASS, 18 tests.
 
 - [ ] **Step 5: Write the failing DB-backed service test**
 
@@ -4943,6 +4953,8 @@ This test copies the SQLite pattern from `cc-apply-breakdowns.test.ts` exactly:
 - set both in `beforeAll`;
 - dynamic-import `@/lib/db` and the services;
 - restore both in `afterAll`, per CLAUDE.md.
+
+**Every fixture timestamp in this file is ISO 8601 with an explicit `Z`.** The services parse with `new Date(value)`, and a zone-less `'YYYY-MM-DD HH:MM:SS'` string would be read as host local time. Such windows would then sit 4-5 hours apart on this machine (America/New_York) and on CI (UTC). Whole-day coverage could differ, so the test would pass locally and fail on the PR. Step 9 runs the file under `TZ=UTC` as well, to prove it.
 
 The `@octokit/rest` mock uses the factory form CLAUDE.md requires. `report-runner` and `progress-store` are mocked because `org.ts` and `dev.ts` import `./service`, which pulls in the ESM-only `p-limit` (see `org-model-usage.test.ts`).
 
@@ -4990,10 +5002,17 @@ const REPORTS: Array<[string, string, number, string, string, string | null]> = 
   ['rRunning', 'acme', 14, 'running', '2026-04-15T12:00:00Z', '2026-05-04T00:00:00Z'],
   ['rPending', 'acme', 14, 'pending', '2026-05-13T12:00:00Z', null],
   ['rOther', 'beta', 14, 'completed', '2026-05-18T00:00:00Z', '2026-06-01T00:00:00Z'], // other org: May 18, 25
+  // acme-adjoin: two completed reports whose windows meet at 2026-07-11T12:00Z. Alone they cover
+  // Jun 29 and Jul 13; only their UNION holds Jul 11 whole, so only the union lists Jul 6.
+  ['rAdj1', 'acme-adjoin', 14, 'completed', '2026-06-27T12:00:00Z', '2026-07-11T12:00:00Z'],
+  ['rAdj2', 'acme-adjoin', 14, 'completed', '2026-07-11T12:00:00Z', '2026-07-25T12:00:00Z'],
+  // gamma: no completed report at all.
+  ['rGammaFailed', 'gamma', 14, 'failed', '2026-02-01T00:00:00Z', '2026-02-20T00:00:00Z'],
 ];
 // alice: rA (completed), rFailed (failed), rPending (pending). bob: rA and rB (both completed).
+// carol: only rFailed, so no completed report holds her row.
 const DEV_ROWS: Array<[string, string]> = [
-  ['rA', 'alice'], ['rA', 'bob'], ['rB', 'bob'], ['rFailed', 'alice'], ['rPending', 'alice'],
+  ['rA', 'alice'], ['rA', 'bob'], ['rB', 'bob'], ['rFailed', 'alice'], ['rPending', 'alice'], ['rFailed', 'carol'],
 ];
 
 beforeAll(async () => {
@@ -5045,6 +5064,16 @@ describe('getOrgReport coverage', () => {
     expect(coveredWeeks).not.toContain('2025-12-29');
   });
 
+  it('two completed reports whose windows meet mid-day leave no hole, through the real service', async () => {
+    const { coveredWeeks } = await getOrgReport('rAdj1');
+    expect(coveredWeeks).toContain('2026-07-06'); // the week holding the shared day, Jul 11
+    expect(coveredWeeks).toEqual(['2026-06-29', '2026-07-06', '2026-07-13']);
+  });
+
+  it('an org with no completed reports has no covered weeks', async () => {
+    expect((await getOrgReport('rGammaFailed')).coveredWeeks).toEqual([]);
+  });
+
   it("another org's reports add nothing", async () => {
     const { coveredWeeks } = await getOrgReport('rA');
     expect(coveredWeeks.filter((w: string) => ['2026-05-18', '2026-05-25'].includes(w))).toEqual([]);
@@ -5069,6 +5098,10 @@ describe('getDevReport coverage', () => {
 
   it("a login with rows in more completed reports gets those reports' weeks too", async () => {
     expect((await getDevReport('rA', 'bob')).coveredWeeks).toEqual(['2026-03-09', '2026-03-23', '2026-03-30']);
+  });
+
+  it('a login with no developer_stats row in any completed report has no covered weeks', async () => {
+    expect((await getDevReport('rFailed', 'carol')).coveredWeeks).toEqual([]);
   });
 
   it("anchorWeek follows the viewed report's status: completed_at if completed, created_at otherwise", async () => {
@@ -5212,14 +5245,20 @@ and add the two fields to the returned object, after `models: …`:
 Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest src/lib/__tests__/unit/report-coverage.test.ts src/lib/__tests__/unit/report-coverage-db.test.ts src/lib/__tests__/unit/report-org.test.ts src/lib/__tests__/unit/report-dev.test.ts src/lib/__tests__/unit/org-unmerged-summary.test.ts src/lib/__tests__/unit/org-model-usage.test.ts'`
 
 Expected: PASS, 6 suites.
-- `report-coverage` has 17 tests and `report-coverage-db` has 10.
+- `report-coverage` has 18 tests and `report-coverage-db` has 13.
 - `org-model-usage` is the canary for the unparseable-timestamp fallback: its mock returns `completed_at: 'y'`. If it throws `RangeError: Invalid time value`, the guard in `anchorWeekFor` or `completedReportWindows` is missing.
+
+Then run both coverage files again, with the whole process in UTC, as CI is. Setting `process.env.TZ` inside Jest doesn't work, because V8 reads the zone at process start. Setting `TZ` for the whole process does.
+
+Run: `env TZ=UTC PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest src/lib/__tests__/unit/report-coverage.test.ts src/lib/__tests__/unit/report-coverage-db.test.ts'`
+
+Expected: PASS, 2 suites, 31 tests, with the same results as the host-zone run. A failure that appears only under `TZ=UTC` means a fixture or a helper depends on the host zone. Fix the fixture to an explicit `Z` instant, or fix the helper. Never fix it by changing an expected week.
 
 - [ ] **Step 10: Run the full suite**
 
 Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest --maxWorkers=3'`
 
-Expected: 0 failed, **190 suites / 1832 tests**. That's the 188 / 1805 baseline plus 2 suites and 27 tests. If the counts differ, record the actual numbers in the commit body and say why.
+Expected: 0 failed, and **about 190 suites / 1836 tests**. That's the 188 / 1805 baseline plus 2 suites and 31 tests: 18 in `report-coverage` and 13 in `report-coverage-db`. The totals are a sanity check, not a hard gate. What must hold is 0 failed, and both new files appear in the run. Record the actual totals in the commit body.
 
 - [ ] **Step 11: Commit**
 
@@ -5237,15 +5276,36 @@ completed report and created_at's otherwise; an unparseable source falls
 back to the current UTC week. Both are read from the existing reports
 query, so the call order is unchanged.
 
-Full suite: <N> suites / <M> tests green.
+Full suite: <N> suites / <M> tests green (expected about 190 / 1836).
+Both coverage files also green under TZ=UTC.
 
 Co-Authored-By: Claude <Model> <noreply@anthropic.com>
 EOF
 ```
 
 Before committing:
-- Replace `<N>` and `<M>` with Step 10's counts.
+- Replace `<N>` and `<M>` with Step 10's actual totals.
 - Replace `Claude <Model>` with the model you are running as.
+
+- [ ] **Step 12: Mutation check, proving the skip-guard test discriminates**
+
+This runs after the commit, so the restore is a plain checkout of committed code.
+
+1. In `src/lib/report/timeline.ts`, delete exactly this line inside `coveredWeeksFromWindows`:
+
+```ts
+    if (!Number.isFinite(endMs) || !Number.isFinite(period) || period <= 0) continue;
+```
+
+2. Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest src/lib/__tests__/unit/report-coverage.test.ts'`
+
+   Expected: FAIL, with only **one** test failing, `skips a window with a NaN period instead of letting it swallow the valid window behind it`, with a diff showing the expected `["2026-03-09"]` against the received `[]`. Jest prints this as `- Expected - 3` / `+ Received + 1`. I confirmed this mutation result in a dry run on 2026-09-25: 1 failed, 17 passed. If that test passes without the guard, it doesn't discriminate. Stop and report. If other tests fail too, note which in your report.
+
+3. Revert: `git checkout -- src/lib/report/timeline.ts`
+
+4. Confirm the revert by diff: `git diff --stat`. Expected: no output.
+
+5. Re-run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest src/lib/__tests__/unit/report-coverage.test.ts'`. Expected: PASS, 18 tests.
 
 ---
 
@@ -5257,7 +5317,7 @@ Before committing:
 - **Tests:** they live flat in `src/lib/__tests__/unit/`, and component tests start with `/** @jest-environment jsdom */` on line 1. They check behavior, never tick positions.
   - Recharts never activates its tooltip on a synthetic jsdom mouse event. So tooltip tests render the tooltip component directly, fed rows from the chart's own exported row builder.
 - **Code:** no hex literals in chart modules, comments included. Don't write `#` followed by three or more hex digits anywhere in `src/components/charts/*`. `src/app/**/page.tsx` exports only `default`.
-- **Test baseline before this task:** 190 suites / 1832 tests (after Task 12).
+- **Test baseline before this task:** about 190 suites / 1836 tests (after Task 12).
 - **Honesty:** if this task's code and its own test disagree, stop and report it. Don't pick one silently.
 - **Scope:** don't touch files that aren't listed.
 
@@ -5382,6 +5442,14 @@ describe('Decision 15: measured weeks', () => {
     expect(rows.map(r => r.value)).toEqual([0, 0, 0, 5]);
   });
 
+  it('buildTimelineRows with no covered set marks every week measured (the pre-Decision-15 behavior)', () => {
+    // Any caller that passes no coveredWeeks relies on this, e.g. chart-domain-alignment.test.tsx.
+    const data: Row[] = [{ week: '2026-09-21', commits: 5, prs: 2 }];
+    const { rows } = buildTimelineRows(weeks, data, { value: d => d.commits, kind: 'count' });
+    expect(rows.map(r => r.measured)).toEqual([true, true, true, true]);
+    expect(rows.map(r => r.value)).toEqual([0, 0, 0, 5]);
+  });
+
   it('the tooltip reads "Not measured", not a value, for an unmeasured week', () => {
     const row = { week: '2026-08-31', value: 0, shipped: 0, inFlight: 0, measured: false };
     const { container } = render(<TimelineTooltip active payload={[{ payload: row }] as never} split />);
@@ -5457,6 +5525,16 @@ describe('Decision 15: measured weeks', () => {
     expect(container.textContent).toContain('Not measured');
     expect(container.textContent).not.toContain('total');
   });
+
+  it('the stacked tooltip still shows the total and types for a measured week', () => {
+    // Measured by its data, even with an empty covered set.
+    const row = buildStackRows([{ week: '2026-09-14', types: { feature: 3 } }], weeks, new Set<string>())[1];
+    expect(row.measured).toBe(true);
+    const { container } = render(<StackedTypesTooltip active payload={[{ payload: row }] as never} />);
+    expect(container.textContent).toContain('Sep 14 · 3 total');
+    expect(container.textContent).toContain('feature3');
+    expect(container.textContent).not.toContain('Not measured');
+  });
 });
 ```
 
@@ -5465,7 +5543,8 @@ describe('Decision 15: measured weeks', () => {
 No existing test renders a report page. This one mocks the chart modules with recorders, so it checks what each page hands its charts, not how the charts draw. I dry-ran this exact harness against the current pages on 2026-09-25:
 - Both pages rendered.
 - The chart counts (7 and 6) and the single-shared-array check passed.
-- Both tests failed only on the week domain, which still ends at today's week.
+- The two anchor tests failed only on the week domain, which still ends at today's week.
+- The third test, whose response omits both fields, failed only on `coveredWeeks` being `undefined` instead of `[]`. With only `Date` faked, the page's domain already matched `weekDomainEndingAt(undefined)`.
 
 `jest.config.ts` sets `restoreMocks: true`, so the SWR mock is a plain function, not a `jest.fn()`.
 
@@ -5543,16 +5622,18 @@ const DEV = {
 };
 
 beforeEach(() => { mockSeen.length = 0; });
+afterEach(() => jest.useRealTimers());
 
-function expectEveryChartWired(expectedCharts: string[]) {
-  const expectedWeeks = weekDomainEndingAt(ANCHOR);
-  expect(expectedWeeks[expectedWeeks.length - 1]).toBe(ANCHOR);
+const ORG_CHARTS = [...Array(5).fill('TimelineChart'), 'LinesChangedChart', 'StackedTypesChart'];
+const DEV_CHARTS = Array(6).fill('TimelineChart');
+
+function expectEveryChartWired(expectedCharts: string[], expectedWeeks: string[], expectedCovered: string[]) {
   expect(mockSeen.map(s => s.chart).sort()).toEqual([...expectedCharts].sort());
   // One array per page, so syncId's index matching lines up.
   expect(new Set(mockSeen.map(s => s.weeks)).size).toBe(1);
   for (const s of mockSeen) {
     expect(s.weeks).toEqual(expectedWeeks);
-    expect(s.coveredWeeks).toEqual(COVERED);
+    expect(s.coveredWeeks).toEqual(expectedCovered);
   }
 }
 
@@ -5565,7 +5646,9 @@ it('the org page passes the anchor-week domain and coveredWeeks to all 7 page-gr
     },
   };
   render(<OrgDetailPage />);
-  expectEveryChartWired([...Array(5).fill('TimelineChart'), 'LinesChangedChart', 'StackedTypesChart']);
+  const expectedWeeks = weekDomainEndingAt(ANCHOR);
+  expect(expectedWeeks[expectedWeeks.length - 1]).toBe(ANCHOR);
+  expectEveryChartWired(ORG_CHARTS, expectedWeeks, COVERED);
 });
 
 it('the dev page passes the anchor-week domain and coveredWeeks to all 6 TimelineCharts', () => {
@@ -5577,7 +5660,41 @@ it('the dev page passes the anchor-week domain and coveredWeeks to all 6 Timelin
     },
   };
   render(<DevDetailPage />);
-  expectEveryChartWired(Array(6).fill('TimelineChart'));
+  expectEveryChartWired(DEV_CHARTS, weekDomainEndingAt(ANCHOR), COVERED);
+});
+
+it("a response without coveredWeeks and anchorWeek gives every chart [] and today's domain", () => {
+  // Only Date is faked (everything else stays real, so React and RTL behave normally), which pins
+  // "today" and removes any midnight race between the page's domain and the expected one.
+  jest.useFakeTimers({
+    now: new Date('2026-09-25T12:00:00Z'),
+    doNotFake: [
+      'hrtime', 'nextTick', 'performance', 'queueMicrotask', 'requestAnimationFrame', 'cancelAnimationFrame',
+      'requestIdleCallback', 'cancelIdleCallback', 'setImmediate', 'clearImmediate',
+      'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout',
+    ],
+  });
+  const today = weekDomainEndingAt(undefined);
+  expect(today[today.length - 1]).toBe('2026-09-21');
+
+  mockSwrData = {
+    '/api/report/r1/org': {
+      report: REPORT, developers: [], timeline: TIMELINE, spendWindow: null,
+      modelUsage: [], skillsUsage: [], unmergedSummary: null,
+    },
+  };
+  render(<OrgDetailPage />);
+  expectEveryChartWired(ORG_CHARTS, today, []);
+
+  mockSeen.length = 0;
+  mockSwrData = {
+    '/api/report/r1/dev/alice': {
+      report: REPORT, developer: DEV, allDevelopers: [DEV], commits: [], timeline: TIMELINE,
+      unmergedWork: { openPrs: [], branchCommits: [] }, skills: [], models: [],
+    },
+  };
+  render(<DevDetailPage />);
+  expectEveryChartWired(DEV_CHARTS, today, []);
 });
 ```
 
@@ -6104,6 +6221,12 @@ Expected: PASS, 6 suites.
 - `chart-domain-alignment` passes unchanged, because `coveredWeeks` is optional and never changes the domain.
 - `chart-no-literal-colors` passes, because none of the new code contains a hex literal.
 
+Then run `chart-format` with the whole process in UTC, as CI is (a `process.env.TZ` set inside Jest has no effect):
+
+Run: `env TZ=UTC PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest src/lib/__tests__/unit/chart-format.test.ts'`
+
+Expected: PASS, with the same results as the host-zone run.
+
 - [ ] **Step 11: Wire the org page**
 
 In `src/app/report/[id]/org/page.tsx`:
@@ -6255,13 +6378,19 @@ Neither page gains an export. Both keep `export default function …` as their o
 
 Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest src/lib/__tests__/unit/report-pages-coverage-wiring.test.tsx'`
 
-Expected: PASS, 2 tests.
+Expected: PASS, 3 tests.
+
+Run it again, with the whole process in UTC:
+
+Run: `env TZ=UTC PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest src/lib/__tests__/unit/report-pages-coverage-wiring.test.tsx'`
+
+Expected: PASS, 3 tests.
 
 - [ ] **Step 14: Full suite, then build**
 
 Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npx jest --maxWorkers=3'`
 
-Expected: 0 failed, **191 suites / 1850 tests**. That's Task 12's 190 / 1832 plus 1 suite and 18 tests: 6 in `chart-format`, 4 in `timeline-chart`, 3 in `lines-changed-chart`, 3 in `stacked-types-chart` and 2 in the wiring test. The six edited empty-state assertions are changed tests, not new ones. If the counts differ, record the actual numbers in the commit body and say why.
+Expected: 0 failed, and **about 191 suites / 1857 tests**. That's Task 12's 190 / 1836 plus 1 suite and 21 tests: 6 in `chart-format`, 5 in `timeline-chart`, 3 in `lines-changed-chart`, 4 in `stacked-types-chart` and 3 in the wiring test. The six edited empty-state assertions are changed tests, not new ones. The totals are a sanity check, not a hard gate. What must hold is 0 failed, and every file listed under **Files** appears in the run. Record the actual totals in the commit body.
 
 Run: `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c 'npm run build'`
 
@@ -6282,14 +6411,15 @@ for an unmeasured week, and both pages build one domain with
 weekDomainEndingAt(anchorWeek) and pass coveredWeeks to every grid chart
 (org: 7, dev: 6). Empty states read "in the 90 days before this report".
 
-Full suite: <N> suites / <M> tests green. Build green.
+Full suite: <N> suites / <M> tests green (expected about 191 / 1857). Build green.
+chart-format and the wiring test also green under TZ=UTC.
 
 Co-Authored-By: Claude <Model> <noreply@anthropic.com>
 EOF
 ```
 
 Before committing:
-- Replace `<N>` and `<M>` with Step 14's counts.
+- Replace `<N>` and `<M>` with Step 14's actual totals.
 - Replace `Claude <Model>` with the model you are running as.
 
 - [ ] **Step 16: Browser check, one real hover over an unmeasured week**
