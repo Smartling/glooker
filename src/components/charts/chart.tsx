@@ -42,13 +42,23 @@ export const CHART_TOOLTIP_CLASS =
 
 /**
  * GLOOK-58 Decision 15: the tooltip for a week no report measured. Shared by TimelineChart,
- * LinesChangedChart and StackedTypesChart, so the three say it identically.
+ * LinesChangedChart and StackedTypesChart, so the three say it identically. `inFlight` (already
+ * formatted, passed only when above zero) is for a week that still draws an in-flight hatch: the
+ * tooltip then says shipped work wasn't measured and shows the in-flight figure, so it never
+ * contradicts the bar.
  */
-export function NotMeasuredTooltip({ week }: { week: string }) {
+export function NotMeasuredTooltip({ week, inFlight }: { week: string; inFlight?: string }) {
   return (
     <div className={CHART_TOOLTIP_CLASS}>
       <div className="font-medium">{formatWeek(week)}</div>
-      <div>Not measured</div>
+      {inFlight === undefined ? (
+        <div>Not measured</div>
+      ) : (
+        <>
+          <div className="flex justify-between gap-4"><span>Shipped</span><span>Not measured</span></div>
+          <div className="flex justify-between gap-4"><span>In flight</span><span className="font-mono tabular-nums">{inFlight}</span></div>
+        </>
+      )}
     </div>
   );
 }

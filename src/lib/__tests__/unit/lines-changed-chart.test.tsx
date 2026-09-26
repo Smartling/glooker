@@ -113,8 +113,8 @@ it('the tooltip total is churn, never negative, even when removed exceeds added'
 });
 
 describe('Decision 15: measured weeks', () => {
-  it('buildLinesRows marks each row measured from its data or the covered set, keeping values numeric', () => {
-    const rows = buildLinesRows([{ week: '2026-09-21', linesP95Added: 5, linesP95Removed: 1 }], weeks, new Set(['2026-09-07']));
+  it('buildLinesRows marks each row measured from its shipped data or the covered set, keeping values numeric', () => {
+    const rows = buildLinesRows([{ week: '2026-09-21', commits: 2, linesP95Added: 5, linesP95Removed: 1 }], weeks, new Set(['2026-09-07']));
     expect(rows.map(r => r.measured)).toEqual([true, false, true]);
     expect(rows.map(r => r.added)).toEqual([0, 0, 5]);
   });
@@ -130,5 +130,30 @@ describe('Decision 15: measured weeks', () => {
     expect(container.textContent).toContain('Not measured');
     expect(container.textContent).not.toContain('added');
     expect(container.textContent).not.toContain('total');
+  });
+
+  // The org page's overlay bucket for a week with only in-flight commits (Decision 15 final review).
+  const inFlightOnly = {
+    week: '2026-09-21', commits: 2, types: { in_flight: 2 },
+    linesP95Added: 0, linesP95Removed: 0, inFlightLinesP95Added: 40, inFlightLinesP95Removed: 10,
+  };
+
+  it('an uncovered in-flight-only week is unmeasured; its tooltip says shipped was not measured and shows the in-flight lines', () => {
+    const row = buildLinesRows([inFlightOnly], weeks, new Set<string>())[2];
+    expect(row.measured).toBe(false);
+    const { container } = render(<LinesTooltip active payload={[{ payload: row }] as never} />);
+    expect(container.textContent).toContain('Sep 21');
+    expect(container.textContent).toContain('Not measured');
+    expect(container.textContent).toContain('In flight+40 / −10 lines');
+    expect(container.textContent).not.toContain('added'); // no "+0 added" false shipped zero
+  });
+
+  it('a COVERED in-flight-only week is measured and shows shipped 0 plus the in-flight lines', () => {
+    const row = buildLinesRows([inFlightOnly], weeks, new Set(['2026-09-21']))[2];
+    expect(row.measured).toBe(true);
+    const { container } = render(<LinesTooltip active payload={[{ payload: row }] as never} />);
+    expect(container.textContent).not.toContain('Not measured');
+    expect(container.textContent).toContain('+0 added');
+    expect(container.textContent).toContain('+40 added in flight');
   });
 });

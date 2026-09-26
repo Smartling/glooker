@@ -1,5 +1,5 @@
 import {
-  buildWeekDomain, fillWeeks, formatCompact, formatValue, formatWeek, indexByWeek, isTopOfStack,
+  buildWeekDomain, fillWeeks, formatCompact, hasShippedData, formatValue, formatWeek, indexByWeek, isTopOfStack,
   mondayOf, recentWeekDomain, toNum, weekDomainEndingAt,
 } from '@/components/charts/chart-format';
 
@@ -134,16 +134,37 @@ describe('isTopOfStack', () => {
 describe('fillWeeks measured (Decision 15)', () => {
   const weeks = ['2026-09-07', '2026-09-14', '2026-09-21'];
 
-  it('a week is measured when it has data or is covered, and not otherwise; values stay numeric', () => {
-    const pts = fillWeeks(weeks, [{ week: '2026-09-21', n: 4 }], { value: r => r.n, kind: 'count', covered: new Set(['2026-09-14']) });
+  it('a week is measured when it has shipped data or is covered, and not otherwise; values stay numeric', () => {
+    const pts = fillWeeks(weeks, [{ week: '2026-09-21', commits: 4 }], { value: r => r.commits, kind: 'count', covered: new Set(['2026-09-14']) });
     expect(pts.map(p => p.measured)).toEqual([false, true, true]);
     expect(pts.map(p => p.value)).toEqual([0, 0, 4]);
   });
 
-  it('a week with data is measured even when no report covered it (in-flight older than every report)', () => {
-    const pts = fillWeeks(weeks, [{ week: '2026-09-07', n: 2 }], { value: r => r.n, kind: 'count', covered: new Set<string>() });
+  it('a week with shipped data is measured even when no report covered it', () => {
+    const pts = fillWeeks(weeks, [{ week: '2026-09-07', commits: 2 }], { value: r => r.commits, kind: 'count', covered: new Set<string>() });
     expect(pts[0].measured).toBe(true);
     expect(pts[0].value).toBe(2);
+  });
+
+  it('an uncovered week holding ONLY in-flight commits is not measured: the overlay proves nothing about shipped work', () => {
+    // The org page's in-flight overlay adds to commits and types.in_flight alike, with no date filter.
+    const data = [{ week: '2026-09-07', commits: 3, prs: 0, types: { in_flight: 3 } }];
+    const pts = fillWeeks(weeks, data, { value: r => r.prs, kind: 'count', covered: new Set<string>() });
+    expect(pts[0].measured).toBe(false);
+    expect(pts[0].hasData).toBe(true); // the row exists, so its in-flight hatch still draws
+    expect(pts[0].value).toBe(0);
+  });
+
+  it('a COVERED in-flight-only week is measured, so its shipped 0 is a real, proven zero', () => {
+    const data = [{ week: '2026-09-07', commits: 3, prs: 0, types: { in_flight: 3 } }];
+    const pts = fillWeeks(weeks, data, { value: r => r.prs, kind: 'count', covered: new Set(['2026-09-07']) });
+    expect(pts[0].measured).toBe(true);
+    expect(pts[0].value).toBe(0);
+  });
+
+  it('a week mixing shipped and in-flight commits is measured by its shipped part', () => {
+    const data = [{ week: '2026-09-07', commits: '4', types: { in_flight: 3, feature: 1 } }];
+    expect(fillWeeks(weeks, data, { value: r => r.commits, kind: 'count', covered: new Set<string>() })[0].measured).toBe(true);
   });
 
   it('with no covered set, every week counts as measured (the old behavior)', () => {
@@ -152,9 +173,25 @@ describe('fillWeeks measured (Decision 15)', () => {
   });
 
   it('ratio kinds keep their null gaps; covered changes only measured', () => {
-    const pts = fillWeeks(weeks, [{ week: '2026-09-14', r: 2.5 }], { value: r => r.r, kind: 'ratio', covered: new Set(['2026-09-21']) });
+    const pts = fillWeeks(weeks, [{ week: '2026-09-14', commits: 1, r: 2.5 }], { value: r => r.r, kind: 'ratio', covered: new Set(['2026-09-21']) });
     expect(pts.map(p => p.value)).toEqual([null, 2.5, null]);
     expect(pts.map(p => p.measured)).toEqual([false, true, true]);
+  });
+});
+
+describe('hasShippedData (Decision 15: only shipped work proves a week measured)', () => {
+  it('is commits minus in-flight commits, above zero; strings pass through toNum', () => {
+    expect(hasShippedData({ commits: 2 })).toBe(true);
+    expect(hasShippedData({ commits: '5', types: { in_flight: '4' } })).toBe(true);
+    expect(hasShippedData({ commits: 3, types: { in_flight: 3 } })).toBe(false);
+    expect(hasShippedData({ commits: 0 })).toBe(false);
+  });
+
+  it('a missing row, or one with no commits field, has no shipped data', () => {
+    expect(hasShippedData(undefined)).toBe(false);
+    expect(hasShippedData(null)).toBe(false);
+    expect(hasShippedData({ week: '2026-09-07' })).toBe(false);
+    expect(hasShippedData({ types: null })).toBe(false);
   });
 });
 

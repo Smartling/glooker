@@ -131,12 +131,15 @@ export function coveredWeeksFromWindows(windows: CoverageWindow[]): string[] {
  * GLOOK-58 Decision 15: the week this report's charts end at. The source is completed_at when
  * status is 'completed', and created_at otherwise: completed_at is not a reliable completion marker
  * for other statuses, because failed runs set it and a resumed run keeps its old value while it
- * runs. Parsed with new Date() as above. If the source is missing or doesn't parse, the current UTC
- * week, so weekKeyForDate never sees an Invalid Date (it would throw a RangeError).
+ * runs. Parsed with new Date() as above. A completed report whose completed_at is missing or
+ * doesn't parse falls back to created_at, which is still the report's own era. Only when no usable
+ * timestamp is left does it return the current UTC week, so weekKeyForDate never sees an Invalid
+ * Date (it would throw a RangeError).
  */
 export function anchorWeekFor(status: unknown, completedAt: unknown, createdAt: unknown, now: Date = new Date()): string {
-  const source = status === 'completed' ? completedAt : createdAt;
-  if (source != null) {
+  const sources = status === 'completed' ? [completedAt, createdAt] : [createdAt];
+  for (const source of sources) {
+    if (source == null) continue;
     const d = new Date(source as string | number | Date);
     if (!Number.isNaN(d.getTime())) return weekKeyForDate(d);
   }

@@ -171,10 +171,16 @@ describe('anchorWeekFor', () => {
     expect(anchorWeekFor('completed', '2026-03-18 12:00:00', null, NOW)).toBe('2026-03-16');
   });
 
-  it('falls back to the current UTC week when the source does not parse, instead of throwing', () => {
-    // A completed report's source is completed_at: an unparseable one does NOT fall through to
-    // created_at. This is org-model-usage.test.ts's mock row (completed_at 'y', created_at 'x').
-    expect(anchorWeekFor('completed', 'y', '2026-03-04T12:00:00Z', NOW)).toBe('2026-09-21');
+  it("a completed report with a null or unparseable completed_at falls back to created_at's week, not today", () => {
+    // Decision 15 final review: created_at is still this report's own era; today is not.
+    expect(anchorWeekFor('completed', null, '2026-03-04T12:00:00Z', NOW)).toBe('2026-03-02');
+    expect(anchorWeekFor('completed', 'y', '2026-03-04T12:00:00Z', NOW)).toBe('2026-03-02');
+  });
+
+  it('falls back to the current UTC week only when no usable timestamp is left, instead of throwing', () => {
+    // org-model-usage.test.ts's mock row: completed_at 'y', created_at 'x'.
+    expect(anchorWeekFor('completed', 'y', 'x', NOW)).toBe('2026-09-21');
+    expect(anchorWeekFor('completed', null, null, NOW)).toBe('2026-09-21');
     expect(anchorWeekFor('running', null, 'x', NOW)).toBe('2026-09-21');
   });
 });

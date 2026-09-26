@@ -4,12 +4,14 @@ import { type ReactElement } from 'react';
 import { Bar, BarChart, CartesianGrid, Rectangle, XAxis, YAxis, type BarShapeProps, type RectangleProps } from 'recharts';
 import type { TooltipContentProps, TooltipValueType } from 'recharts';
 import { ChartContainer, ChartTooltip, CHART_TOOLTIP_CLASS, NotMeasuredTooltip } from './chart';
-import { formatCompact, formatWeek, indexByWeek, isMeasured, isTopOfStack } from './chart-format';
+import { formatCompact, formatWeek, hasShippedData, indexByWeek, isMeasured, isTopOfStack } from './chart-format';
 import { COMMIT_TYPE_ORDER, commitTypeColor, foldTypes, type CommitType } from './commit-types';
 import { inFlightFloor, TypeSwatch, useHatch } from './hatch';
 
 interface TypesWeek {
   week: string;
+  /** Read only by hasShippedData (Decision 15): shipped = commits − types.in_flight. */
+  commits?: unknown;
   types?: Record<string, unknown>;
 }
 
@@ -31,8 +33,9 @@ const typeShapes = Object.fromEntries(
 
 /**
  * One row per domain week: the week's types folded into COMMIT_TYPE_ORDER, their total, and
- * whether the week was measured (Decision 15; `covered` never changes a value). Exported so tests
- * can drive real rows into StackedTypesTooltip, as buildLinesRows does.
+ * whether the week was measured (Decision 15: shipped data via hasShippedData, or a covered week;
+ * `covered` never changes a value). Exported so tests can drive real rows into
+ * StackedTypesTooltip, as buildLinesRows does.
  */
 export function buildStackRows(data: TypesWeek[], weeks: string[], covered?: ReadonlySet<string>): StackRow[] {
   const byWeek = indexByWeek(data);
@@ -40,14 +43,16 @@ export function buildStackRows(data: TypesWeek[], weeks: string[], covered?: Rea
     const row = byWeek.get(week);
     const folded = foldTypes([row?.types ?? {}]);
     const total = COMMIT_TYPE_ORDER.reduce((s, t) => s + folded[t], 0);
-    return { week, total, measured: isMeasured(week, !!row, covered), ...folded };
+    return { week, total, measured: isMeasured(week, hasShippedData(row), covered), ...folded };
   });
 }
 
 export function StackedTypesTooltip({ active, payload }: Partial<TooltipContentProps<TooltipValueType, string | number>>) {
   const row = payload?.[0]?.payload as StackRow | undefined;
   if (!active || !row) return null;
-  if (row.measured === false) return <NotMeasuredTooltip week={row.week} />;
+  if (row.measured === false) {
+    return <NotMeasuredTooltip week={row.week} inFlight={row.in_flight > 0 ? String(row.in_flight) : undefined} />;
+  }
   return (
     <div className={CHART_TOOLTIP_CLASS}>
       <div className="font-medium">{formatWeek(row.week)} · {row.total} total</div>

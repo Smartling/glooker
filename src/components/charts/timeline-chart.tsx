@@ -77,10 +77,12 @@ type TimelineTooltipProps = Partial<TooltipContentProps<TooltipValueType, string
 export function TimelineTooltip({ active, payload, suffix = '', decimals = 0, split = false }: TimelineTooltipProps) {
   const row = payload?.[0]?.payload as TimelinePoint | undefined;
   if (!active || !row) return null;
-  if (row.measured === false) return <NotMeasuredTooltip week={row.week} />;
-  if (row.value === null) return null;
   const fmt = (v: number) => formatValue(v, { suffix, decimals });
   const inFlight = row.inFlight ?? 0;
+  if (row.measured === false) {
+    return <NotMeasuredTooltip week={row.week} inFlight={split && inFlight > 0 ? fmt(inFlight) : undefined} />;
+  }
+  if (row.value === null) return null;
   return (
     <div className={CHART_TOOLTIP_CLASS}>
       <div className="font-medium">{formatWeek(row.week)}</div>
@@ -110,8 +112,12 @@ export function TimelineChart<T extends TimelineRow>({
   const { points, rows } = buildTimelineRows(weeks, data, { value: read, kind, isDefined, inFlightValue, covered });
 
   const withData = points.filter(p => p.hasData);
-  const latest = withData.length > 0 ? withData[withData.length - 1].value : null;
-  const prev = withData.length > 1 ? withData[withData.length - 2].value : null;
+  // The header's latest and change skip unmeasured weeks (Decision 15): an in-flight-only week no
+  // report covered would otherwise headline a false shipped 0. The empty state still reads plain
+  // hasData, so such a week's in-flight hatch still draws.
+  const headline = withData.filter(p => p.measured);
+  const latest = headline.length > 0 ? headline[headline.length - 1].value : null;
+  const prev = headline.length > 1 ? headline[headline.length - 2].value : null;
   const diff = latest !== null && prev !== null ? latest - prev : 0;
   const fmt = (v: number) => formatValue(v, { suffix, decimals });
 

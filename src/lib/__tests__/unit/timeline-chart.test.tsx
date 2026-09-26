@@ -201,3 +201,58 @@ describe('Decision 15: measured weeks', () => {
     expect(container.textContent).toContain('Not measured');
   });
 });
+
+describe('Decision 15: only shipped work proves a week measured (in-flight-only weeks)', () => {
+  // The org page's overlay bucket for a week with only in-flight commits: commits and types.in_flight
+  // both count the in-flight commits, and prs is 0.
+  const inFlightOnly: Row = { week: '2026-09-21', commits: 3, prs: 0, types: { in_flight: 3 } };
+  const shipped: Row = { week: '2026-09-14', commits: 5, prs: 2 };
+  const inFlight = (d: Row) => d.types?.in_flight ?? 0;
+
+  it('an uncovered in-flight-only week is unmeasured, and its tooltip says shipped work was not measured, with the in-flight count', () => {
+    const { rows } = buildTimelineRows(weeks, [shipped, inFlightOnly], {
+      value: d => d.commits, kind: 'count', inFlightValue: inFlight, covered: new Set<string>(),
+    });
+    const row = rows[3];
+    expect(row.measured).toBe(false);
+    expect(row.inFlight).toBe(3); // the hatch still draws
+    const { container } = render(<TimelineTooltip active payload={[{ payload: row }] as never} split />);
+    expect(container.textContent).toContain('Sep 21');
+    expect(container.textContent).toContain('Not measured');
+    expect(container.textContent).toContain('In flight3');
+  });
+
+  it('a chart with no in-flight layer (PRs / Week) shows plain "Not measured" for that week, never a proven 0', () => {
+    const { rows } = buildTimelineRows(weeks, [shipped, inFlightOnly], { value: d => d.prs, kind: 'count', covered: new Set<string>() });
+    const { container } = render(<TimelineTooltip active payload={[{ payload: rows[3] }] as never} />);
+    expect(container.textContent).toBe('Sep 21Not measured');
+  });
+
+  it('a COVERED in-flight-only week is measured and shows its shipped 0 and in-flight part', () => {
+    const { rows } = buildTimelineRows(weeks, [shipped, inFlightOnly], {
+      value: d => d.commits, kind: 'count', inFlightValue: inFlight, covered: new Set(['2026-09-21']),
+    });
+    expect(rows[3]).toMatchObject({ measured: true, value: 3, shipped: 0, inFlight: 3 });
+    const { container } = render(<TimelineTooltip active payload={[{ payload: rows[3] }] as never} split />);
+    expect(container.textContent).not.toContain('Not measured');
+    expect(container.textContent).toContain('Shipped0');
+    expect(container.textContent).toContain('In flight3');
+  });
+
+  it('the header never headlines an uncovered in-flight-only final week: latest and change come from measured weeks', () => {
+    const data: Row[] = [{ week: '2026-09-07', commits: 4, prs: 1 }, shipped, inFlightOnly];
+    render(<TimelineChart data={data} weeks={weeks} coveredWeeks={[]} valueKey="prs" kind="count" label="PRs / Week" syncId="t" />);
+    // Without the rule the header would read 0 (the in-flight-only week's prs) and "−2".
+    expect(screen.getByTestId('timeline-latest').textContent).toBe('2');
+    expect(screen.getByTestId('timeline-change').textContent).toBe('+1');
+  });
+
+  it('a chart whose only data is uncovered in-flight still draws (no empty state) but headlines nothing', () => {
+    const { container } = render(
+      <TimelineChart data={[inFlightOnly]} weeks={weeks} coveredWeeks={[]} valueKey="commits" kind="count"
+        label="Commits / Week" inFlightValue={inFlight} syncId="t" />,
+    );
+    expect(container.textContent).not.toContain('No data in the 90 days before this report');
+    expect(screen.queryByTestId('timeline-latest')).toBeNull();
+  });
+});

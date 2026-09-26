@@ -81,18 +81,32 @@ export interface FillOptions<T> {
 }
 
 /**
- * GLOOK-58 Decision 15: a week counts as measured when it has data (even outside every report
- * period, e.g. an old in-flight commit) or some report provably measured it. With no `covered`
- * set, every week counts as measured: the behavior before Decision 15.
+ * GLOOK-58 Decision 15: only SHIPPED work proves a week was measured. The org page's in-flight
+ * overlay (unmerged_commits, no date filter) adds buckets and adds to `commits` and
+ * `types.in_flight` alike, so a week holding only in-flight commits proves nothing about shipped
+ * work: shipped = commits − types.in_flight. Accepts any row (or undefined); a row without
+ * `commits` has no shipped data.
  */
-export function isMeasured(week: string, hasRow: boolean, covered?: ReadonlySet<string>): boolean {
-  return hasRow || !covered || covered.has(week);
+export function hasShippedData(row: unknown): boolean {
+  if (row == null || typeof row !== 'object') return false;
+  const r = row as { commits?: unknown; types?: Record<string, unknown> | null };
+  return toNum(r.commits) - toNum(r.types?.in_flight) > 0;
+}
+
+/**
+ * GLOOK-58 Decision 15: a week counts as measured when it has shipped data (even outside every
+ * report period) or some report provably measured it. With no `covered` set, every week counts as
+ * measured: the behavior before Decision 15.
+ */
+export function isMeasured(week: string, hasShipped: boolean, covered?: ReadonlySet<string>): boolean {
+  return hasShipped || !covered || covered.has(week);
 }
 
 /**
  * One point per domain week. kind 'count': a missing or undefined week is 0.
  * kind 'ratio': a missing or undefined week is null (a gap). Rows outside the domain are ignored.
- * `measured` (Decision 15) never changes a value; tooltips read it.
+ * `measured` (Decision 15: shipped data, or a covered week) never changes a value; tooltips and
+ * the timeline header read it.
  */
 export function fillWeeks<T extends { week: string }>(weeks: string[], data: T[], opts: FillOptions<T>): WeekPoint<T>[] {
   const byWeek = indexByWeek(data);
@@ -100,7 +114,7 @@ export function fillWeeks<T extends { week: string }>(weeks: string[], data: T[]
     const row = byWeek.get(week);
     const raw = row ? opts.value(row) : undefined;
     const defined = !!row && raw != null && (opts.isDefined ? opts.isDefined(row) : true);
-    const measured = isMeasured(week, !!row, opts.covered);
+    const measured = isMeasured(week, hasShippedData(row), opts.covered);
     if (opts.kind === 'count') return { week, row, hasData: !!row, measured, value: defined ? toNum(raw) : 0 };
     return { week, row, hasData: defined, measured, value: defined ? toNum(raw) : null };
   });

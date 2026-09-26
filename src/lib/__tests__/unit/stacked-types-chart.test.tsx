@@ -72,8 +72,8 @@ it('the tooltip lists the week total and only the non-zero types', () => {
 });
 
 describe('Decision 15: measured weeks', () => {
-  it('buildStackRows marks each row measured from its data or the covered set, keeping values numeric', () => {
-    const rows = buildStackRows([{ week: '2026-09-21', types: { feature: 2 } }], weeks, new Set(['2026-09-07']));
+  it('buildStackRows marks each row measured from its shipped data or the covered set, keeping values numeric', () => {
+    const rows = buildStackRows([{ week: '2026-09-21', commits: 2, types: { feature: 2 } }], weeks, new Set(['2026-09-07']));
     expect(rows.map(r => r.measured)).toEqual([true, false, true]);
     expect(rows.map(r => r.total)).toEqual([0, 0, 2]);
   });
@@ -91,12 +91,36 @@ describe('Decision 15: measured weeks', () => {
   });
 
   it('the stacked tooltip still shows the total and types for a measured week', () => {
-    // Measured by its data, even with an empty covered set.
-    const row = buildStackRows([{ week: '2026-09-14', types: { feature: 3 } }], weeks, new Set<string>())[1];
+    // Measured by its shipped data, even with an empty covered set.
+    const row = buildStackRows([{ week: '2026-09-14', commits: 3, types: { feature: 3 } }], weeks, new Set<string>())[1];
     expect(row.measured).toBe(true);
     const { container } = render(<StackedTypesTooltip active payload={[{ payload: row }] as never} />);
     expect(container.textContent).toContain('Sep 14 · 3 total');
     expect(container.textContent).toContain('feature3');
+    expect(container.textContent).not.toContain('Not measured');
+  });
+
+  // The org page's overlay bucket for a week with only in-flight commits (Decision 15 final review).
+  const inFlightOnly = { week: '2026-09-21', commits: 4, types: { in_flight: 4 } };
+
+  it('an uncovered in-flight-only week is unmeasured; its tooltip says shipped was not measured and shows the in-flight count', () => {
+    const row = buildStackRows([inFlightOnly], weeks, new Set<string>())[2];
+    expect(row.measured).toBe(false);
+    expect(row.in_flight).toBe(4); // the hatch still draws
+    const { container } = render(<StackedTypesTooltip active payload={[{ payload: row }] as never} />);
+    expect(container.textContent).toContain('Sep 21');
+    expect(container.textContent).toContain('Not measured');
+    expect(container.textContent).toContain('In flight4');
+    expect(container.textContent).not.toContain('total');
+  });
+
+  it('a COVERED in-flight-only week is measured and shows its total with zero shipped types', () => {
+    const row = buildStackRows([inFlightOnly], weeks, new Set(['2026-09-21']))[2];
+    expect(row.measured).toBe(true);
+    const { container } = render(<StackedTypesTooltip active payload={[{ payload: row }] as never} />);
+    expect(container.textContent).toContain('Sep 21 · 4 total');
+    expect(container.textContent).toContain('in_flight4');
+    expect(container.textContent).not.toContain('feature');
     expect(container.textContent).not.toContain('Not measured');
   });
 });

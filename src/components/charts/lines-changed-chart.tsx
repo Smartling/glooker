@@ -6,12 +6,15 @@
 import { Bar, BarChart, CartesianGrid, Rectangle, ReferenceLine, XAxis, YAxis, type BarShapeProps, type RectangleProps } from 'recharts';
 import type { TooltipContentProps, TooltipValueType } from 'recharts';
 import { ChartContainer, ChartTooltip, CHART_TOOLTIP_CLASS, NotMeasuredTooltip } from './chart';
-import { formatCompact, formatValue, formatWeek, indexByWeek, isMeasured, toNum } from './chart-format';
+import { formatCompact, formatValue, formatWeek, hasShippedData, indexByWeek, isMeasured, toNum } from './chart-format';
 import { commitTypeColor } from './commit-types';
 import { inFlightFloor, TypeSwatch, useHatch } from './hatch';
 
 export interface LinesWeek {
   week: string;
+  /** Read only by hasShippedData (Decision 15): shipped = commits − types.in_flight. */
+  commits?: unknown;
+  types?: Record<string, unknown>;
   linesP95Added?: unknown;
   linesP95Removed?: unknown;
   inFlightLinesP95Added?: unknown;
@@ -36,8 +39,11 @@ const BOTTOM: [number, number, number, number] = [0, 0, 4, 4];
 export function LinesTooltip({ active, payload }: Partial<TooltipContentProps<TooltipValueType, string | number>>) {
   const row = payload?.[0]?.payload as LinesRow | undefined;
   if (!active || !row) return null;
-  if (row.measured === false) return <NotMeasuredTooltip week={row.week} />;
   const fmt = (v: number) => formatValue(v);
+  if (row.measured === false) {
+    const hasInFlight = row.inFlightAdded > 0 || row.inFlightRemoved < 0;
+    return <NotMeasuredTooltip week={row.week} inFlight={hasInFlight ? `+${fmt(row.inFlightAdded)} / −${fmt(-row.inFlightRemoved)} lines` : undefined} />;
+  }
   // Churn, not net change: "Lines Changed / Week" is added + removed as magnitudes.
   // removed/inFlightRemoved are negated for the diverging stack, so abs() them back.
   const total = row.added + row.inFlightAdded + Math.abs(row.removed) + Math.abs(row.inFlightRemoved);
@@ -68,7 +74,8 @@ function removedShape(props: BarShapeProps) {
  * tests can exercise this real sign-flip pipeline directly, instead of hand-building a row whose
  * signs the test author has to get right on their own (GLOOK-58 review, fix round 1: a hand-built
  * row is exactly how the tooltip's total-formula bug slipped through the first time).
- * `covered` (Decision 15) sets each row's `measured` and never changes a value.
+ * `covered` (Decision 15) sets each row's `measured` and never changes a value. Only shipped data
+ * proves a week measured (hasShippedData), never an in-flight-only overlay bucket.
  */
 export function buildLinesRows(data: LinesWeek[], weeks: string[], covered?: ReadonlySet<string>): LinesRow[] {
   const byWeek = indexByWeek(data);
@@ -80,7 +87,7 @@ export function buildLinesRows(data: LinesWeek[], weeks: string[], covered?: Rea
       inFlightAdded: toNum(r?.inFlightLinesP95Added),
       removed: -toNum(r?.linesP95Removed),
       inFlightRemoved: -toNum(r?.inFlightLinesP95Removed),
-      measured: isMeasured(week, !!r, covered),
+      measured: isMeasured(week, hasShippedData(r), covered),
     };
   });
 }
