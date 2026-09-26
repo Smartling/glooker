@@ -127,7 +127,7 @@ Libraries evaluated on 2026-09-25 against GitHub, npm and official docs:
            - `created_at ≤ runStart ≤ completed_at`, so the left edge `completed_at − period_days ≥ since`, and the right edge `created_at ≤ runStart`.
          - The earlier right edge `completed_at` could over-claim the tail of a long run. A member searched early wasn't re-searched for commits made later in the same run. *(Corrected after the Task 12 review.)*
          - For a normal run, this loses only the run's own duration at the left. A report resumed long after creation may get an empty window, which under-claims.
-         - Failed, stopped, pending and running reports contribute no coverage. Their commits still appear, because a week with data is always measured (part 2).
+         - Failed, stopped, pending and running reports contribute no coverage. Their shipped commits still appear, because a week with shipped data is always measured (part 2).
        - **Org page:** every completed report for the org.
        - **Dev page:** only completed reports that have a `developer_stats` row for this login.
          - A row exists only for developers with commits in that report. Both inserts (`report-runner.ts:131,670`) build rows from `aggregate(commits, …)`, and skipped members get none.
@@ -140,15 +140,20 @@ Libraries evaluated on 2026-09-25 against GitHub, npm and official docs:
          - The union never over-claims, because every instant in it was searched.
        - **`anchorWeek`:** `weekKeyForDate` of `completed_at` when `status = 'completed'`, and of `created_at` otherwise. `completed_at` is not a reliable completion marker for other statuses: failed runs set it, and a resumed run keeps its old value while running. It's computed on the server, which parses the SQLite local-time string on the same host that wrote it, so the client never re-parses a database timestamp.
        - **Unparseable timestamps:**
-         - A window whose `completed_at` doesn't parse is skipped, which is conservative.
+         - A window whose `completed_at` or `created_at` doesn't parse is skipped, which is conservative.
+         - `anchorWeek` for a completed report with a missing or unparseable `completed_at` falls back to `created_at`, then to the current week.
          - An `anchorWeek` source that doesn't parse falls back to the current UTC week.
          - Nothing throws.
-       - **Shared helper:** one helper in `timeline.ts` turns a list of `{ end, periodDays }` windows into `coveredWeeks`. The org and dev services differ only in which reports they pass in.
+       - **Shared helper:** one helper in `timeline.ts` turns a list of `{ completedAt, createdAt, periodDays }` reports into windows and then into `coveredWeeks`. The org and dev services differ only in which reports they pass in.
     2. **Filling on the client.**
        - Row values stay **numeric**.
          - In these bar charts `0` and `null` draw the same nothing: `Rectangle` renders nothing at zero height, and `inFlightFloor` returns 0.
          - So the false zero only ever appears in the tooltip.
-       - Every row of the three page-grid charts (`TimelineChart`, `LinesChangedChart`, `StackedTypesChart`) gains `measured: boolean`. It is true when the week has data or is in `coveredWeeks`.
+       - Every row of the three page-grid charts (`TimelineChart`, `LinesChangedChart`, `StackedTypesChart`) gains `measured: boolean`. It is true when the week has **shipped** data or is in `coveredWeeks`.
+         - Shipped data means `commits − types.in_flight > 0`. The org timeline's in-flight overlay can create a week bucket holding only in-flight commits, and those prove nothing about shipped work.
+         - On the org page, an uncovered in-flight-only week is therefore unmeasured. Its tooltip says shipped work wasn't measured and still shows the in-flight count, consistent with the hatch it draws.
+         - The timeline header's "latest" and "previous" weeks follow the same rule, so no unmeasured week shows a value without hover.
+         - The dev page has no overlay, so its behavior is unchanged. *(Corrected after the Decision 15 final review. An earlier revision counted any data as proof.)*
          - `fillWeeks` takes an optional `covered: ReadonlySet<string>` and sets `measured`.
          - `buildLinesRows` and the stacked chart's row builder do the same.
          - When `covered` is omitted, every week counts as measured. That's today's behavior, so existing tests and callers are unaffected.
@@ -599,7 +604,7 @@ Tests go in `src/lib/__tests__/unit/` (Jest `roots` is `src/lib`) and use the `/
 
 | Subject | Asserts |
 |---|---|
-| Coverage, server (Decision 15) | Only fully covered UTC weeks are listed: a 14-day window from a Wednesday lists only the weeks all 7 of whose days are inside it. Two completed reports with a gap leave the gap's weeks out. Overlapping windows don't duplicate keys. Failed, stopped and running reports add nothing. A resumed report counts from `completed_at`. The dev page counts only reports with a `developer_stats` row for that login. Two windows meeting mid-day leave no hole. `anchorWeek` is `completed_at`'s week for a completed report and `created_at`'s otherwise, including for a resumed running report with a stale `completed_at`. An unparseable timestamp doesn't throw. No existing test asserts the exact response shape with `toEqual` in a way the additive fields would break; adjust any that does |
+| Coverage, server (Decision 15) | Only fully covered UTC weeks are listed: a 14-day window from a Wednesday lists only the weeks all 7 of whose days are inside it. Two completed reports with a gap leave the gap's weeks out. Overlapping windows don't duplicate keys. Failed, stopped and running reports add nothing. A window is `[completed_at − period_days, created_at]`: a long run doesn't claim its own tail, and a report resumed long after creation contributes nothing. The dev page counts only reports with a `developer_stats` row for that login. Two windows meeting mid-day leave no hole. `anchorWeek` is `completed_at`'s week for a completed report and `created_at`'s otherwise, including for a resumed running report with a stale `completed_at`. An unparseable timestamp doesn't throw. No existing test asserts the exact response shape with `toEqual` in a way the additive fields would break; adjust any that does |
 | Coverage, client (Decision 15) | `measured` is true for a week with data or in `covered`, false otherwise, and true everywhere when `covered` is omitted, on the rows of all three charts. All three tooltips, rendered directly, read "Not measured" when `measured` is false and show values otherwise. `weekDomainEndingAt(anchorWeek)` ends at that week, and the same array reaches every chart on the page. Plus ONE real hover over an unmeasured week on the org page in headless Chrome, showing "Not measured", as part of the screenshot pass |
 | `chart-format` | Weeks are Monday-anchored; for `kind: 'count'` a missing week is `0`, and for `kind: 'ratio'` a missing week is `null`; `isDefined` returning false gives `null`; every chart on a page gets an identical week array; `toNum("12.50") === 12.5`; the formatter respects `suffix` and `decimals` |
 | `TimelineChart` | One bar per week that has a value, and gaps for `null`; the header shows the latest value and change; the hatch appears only with `inFlightValue`; bars use `var(--accent)`; two instances get different pattern IDs |
