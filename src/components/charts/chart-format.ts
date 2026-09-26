@@ -67,7 +67,7 @@ export interface WeekPoint<T> {
   week: string;
   value: number | null;
   hasData: boolean;
-  /** Decision 15: false when the week has no data AND no report provably measured it. */
+  /** Decision 15: false when the week has no SHIPPED data AND no report provably measured it. */
   measured: boolean;
   row?: T;
 }

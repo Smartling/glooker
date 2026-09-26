@@ -6,11 +6,11 @@
 // browser hover happened to land on that chart.
 import React from 'react';
 import { render } from '@testing-library/react';
-import { weekDomainEndingAt } from '@/components/charts/chart-format';
+import { fillWeeks, weekDomainEndingAt } from '@/components/charts/chart-format';
 import OrgDetailPage from '@/app/report/[id]/org/page';
 import DevDetailPage from '@/app/report/[id]/dev/[login]/page';
 
-type Seen = { chart: string; weeks: string[]; coveredWeeks?: string[] };
+type Seen = { chart: string; weeks: string[]; coveredWeeks?: string[]; label?: string; isDefined?: (row: unknown) => boolean };
 const mockSeen: Seen[] = [];
 let mockSwrData: Record<string, unknown> = {};
 
@@ -30,8 +30,8 @@ jest.mock('@/components/IntegrityBadge', () => ({ __esModule: true, default: () 
 jest.mock('@/components/Breadcrumb', () => ({ __esModule: true, default: () => null }));
 jest.mock('@/components/charts/commit-type-donut', () => ({ CommitTypeDonut: () => null }));
 jest.mock('@/components/charts/timeline-chart', () => ({
-  TimelineChart: (p: { weeks: string[]; coveredWeeks?: string[] }) => {
-    mockSeen.push({ chart: 'TimelineChart', weeks: p.weeks, coveredWeeks: p.coveredWeeks });
+  TimelineChart: (p: { weeks: string[]; coveredWeeks?: string[]; label?: string; isDefined?: (row: unknown) => boolean }) => {
+    mockSeen.push({ chart: 'TimelineChart', weeks: p.weeks, coveredWeeks: p.coveredWeeks, label: p.label, isDefined: p.isDefined });
     return null;
   },
 }));
@@ -96,6 +96,36 @@ it('the org page passes the anchor-week domain and coveredWeeks to all 7 page-gr
   const expectedWeeks = weekDomainEndingAt(ANCHOR);
   expect(expectedWeeks[expectedWeeks.length - 1]).toBe(ANCHOR);
   expectEveryChartWired(ORG_CHARTS, expectedWeeks, COVERED);
+});
+
+it("the org page's AI % chart gates on SHIPPED commits: a covered in-flight-only week is a gap, not a proven 0%", () => {
+  // The org overlay's bucket for a week with only in-flight commits: merged commits counts them,
+  // aiPercent stays 0. The week is covered, so it IS measured; only isDefined keeps it from reading 0%.
+  const inFlightOnly = {
+    week: '2026-07-06', commits: 3, prs: 0, avgLinesPerPr: 0, linesAdded: 0, linesRemoved: 0,
+    avgComplexity: 0, aiPercent: 0, types: { in_flight: 3 },
+  };
+  mockSwrData = {
+    '/api/report/r1/org': {
+      report: REPORT, developers: [], timeline: [...TIMELINE, inFlightOnly], spendWindow: null,
+      modelUsage: [], skillsUsage: [], unmergedSummary: null,
+      coveredWeeks: [...COVERED, '2026-07-06'], anchorWeek: ANCHOR,
+    },
+  };
+  render(<OrgDetailPage />);
+  const ai = mockSeen.find(s => s.label === 'AI Assisted %');
+  expect(ai?.isDefined).toBeDefined();
+  expect(ai!.isDefined!(inFlightOnly)).toBe(false);
+  expect(ai!.isDefined!(TIMELINE[1])).toBe(true); // a shipped week still reads its 50%
+
+  const covered = new Set(ai!.coveredWeeks);
+  const pts = fillWeeks(ai!.weeks, [...TIMELINE, inFlightOnly], {
+    value: r => r.aiPercent, kind: 'ratio', isDefined: ai!.isDefined, covered,
+  });
+  const week = pts.find(p => p.week === '2026-07-06')!;
+  expect(week.measured).toBe(true);
+  expect(week.value).toBeNull();
+  expect(pts.find(p => p.week === '2026-06-29')!.value).toBe(50);
 });
 
 it('the dev page passes the anchor-week domain and coveredWeeks to all 6 TimelineCharts', () => {

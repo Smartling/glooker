@@ -8,7 +8,7 @@ import IntegrityBadge from '@/components/IntegrityBadge';
 import { useUrlState } from '@/lib/url-state';
 import { SpendTab, type Developer, type ReportMeta, type SpendWindow, type ModelUsageRow, type SkillsUsageRow } from './spend-tab';
 import { TimelineChart } from '@/components/charts/timeline-chart';
-import { toNum, weekDomainEndingAt } from '@/components/charts/chart-format';
+import { hasShippedData, toNum, weekDomainEndingAt } from '@/components/charts/chart-format';
 import { StackedTypesChart } from '@/components/charts/stacked-types-chart';
 import { LinesChangedChart } from '@/components/charts/lines-changed-chart';
 import { CommitTypeDonut } from '@/components/charts/commit-type-donut';
@@ -267,7 +267,7 @@ export default function OrgDetailPage() {
               coveredWeeks={coveredWeeks}
               valueKey="aiPercent"
               kind="ratio"
-              isDefined={d => toNum(d.commits) > 0}
+              isDefined={hasShippedData}
               label="AI Assisted %"
               suffix="%"
               syncId="org-timeline"

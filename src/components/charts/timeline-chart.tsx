@@ -18,7 +18,7 @@ export interface TimelinePoint {
   value: number | null;
   shipped: number | null;
   inFlight: number | null;
-  /** Decision 15: false when the week has no data and no report measured it. */
+  /** Decision 15: false when the week has no SHIPPED data and no report measured it. */
   measured: boolean;
 }
 
