@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 import React from 'react';
 import { render, screen } from '@testing-library/react';
-import { TimelineChart, TimelineTooltip } from '@/components/charts/timeline-chart';
+import { buildTimelineRows, TimelineChart, TimelineTooltip } from '@/components/charts/timeline-chart';
 import { fixChartSize } from '../setup/chart-size';
 
 fixChartSize();
@@ -89,13 +89,13 @@ it('two instances on one page get different pattern ids', () => {
 
 it('shows an explicit empty state when no week has data', () => {
   render(<TimelineChart data={[] as Row[]} weeks={weeks} valueKey="commits" kind="count" label="Commits / Week" syncId="t" />);
-  expect(screen.getByText('No data in the last 90 days')).toBeTruthy();
+  expect(screen.getByText('No data in the 90 days before this report')).toBeTruthy();
 });
 
 it('shows the empty state, not a blank card, for an old report whose weeks are all outside the domain', () => {
   const data: Row[] = [{ week: '2025-01-06', commits: 7, prs: 1 }];
   const { container } = render(<TimelineChart data={data} weeks={weeks} valueKey="commits" kind="count" label="Commits / Week" syncId="t" />);
-  expect(screen.getByText('No data in the last 90 days')).toBeTruthy();
+  expect(screen.getByText('No data in the 90 days before this report')).toBeTruthy();
   expect(container.querySelector('svg.recharts-surface')).toBeNull();
 });
 
@@ -161,4 +161,43 @@ it('a negative in-flight value clamps to 0: no hatched segment, shipped bar iden
   expect(drawn.map(r => r.getAttribute('fill'))).toEqual(['var(--accent)']);
   // Same geometry (height and rounded top) as the plain chart, so shipped is still the full 5.
   expect(drawn.map(r => r.getAttribute('d'))).toEqual(plainD);
+});
+
+describe('Decision 15: measured weeks', () => {
+  it('buildTimelineRows marks each row measured from its data or the covered set, keeping values numeric', () => {
+    const data: Row[] = [{ week: '2026-09-21', commits: 5, prs: 2 }];
+    const { rows } = buildTimelineRows(weeks, data, { value: d => d.commits, kind: 'count', covered: new Set(['2026-09-07']) });
+    expect(rows.map(r => r.measured)).toEqual([false, true, false, true]);
+    expect(rows.map(r => r.value)).toEqual([0, 0, 0, 5]);
+  });
+
+  it('buildTimelineRows with no covered set marks every week measured (the pre-Decision-15 behavior)', () => {
+    // Any caller that passes no coveredWeeks relies on this, e.g. chart-domain-alignment.test.tsx.
+    const data: Row[] = [{ week: '2026-09-21', commits: 5, prs: 2 }];
+    const { rows } = buildTimelineRows(weeks, data, { value: d => d.commits, kind: 'count' });
+    expect(rows.map(r => r.measured)).toEqual([true, true, true, true]);
+    expect(rows.map(r => r.value)).toEqual([0, 0, 0, 5]);
+  });
+
+  it('the tooltip reads "Not measured", not a value, for an unmeasured week', () => {
+    const row = { week: '2026-08-31', value: 0, shipped: 0, inFlight: 0, measured: false };
+    const { container } = render(<TimelineTooltip active payload={[{ payload: row }] as never} split />);
+    expect(container.textContent).toContain('Aug 31');
+    expect(container.textContent).toContain('Not measured');
+    expect(container.textContent).not.toContain('0');
+  });
+
+  it('the tooltip still shows a measured zero as 0', () => {
+    const row = { week: '2026-09-14', value: 0, shipped: 0, inFlight: 0, measured: true };
+    const { container } = render(<TimelineTooltip active payload={[{ payload: row }] as never} />);
+    expect(container.textContent).toContain('0');
+    expect(container.textContent).not.toContain('Not measured');
+  });
+
+  it("a real unmeasured row from the chart's own builder reaches the tooltip as \"Not measured\"", () => {
+    const data: Row[] = [{ week: '2026-09-21', commits: 5, prs: 2 }];
+    const { rows } = buildTimelineRows(weeks, data, { value: d => d.commits, kind: 'count', covered: new Set<string>() });
+    const { container } = render(<TimelineTooltip active payload={[{ payload: rows[0] }] as never} />);
+    expect(container.textContent).toContain('Not measured');
+  });
 });

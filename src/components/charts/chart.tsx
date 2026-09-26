@@ -8,6 +8,7 @@ import * as React from 'react';
 import * as RechartsPrimitive from 'recharts';
 import type { TooltipValueType } from 'recharts';
 import { cn } from '@/lib/cn';
+import { formatWeek } from './chart-format';
 
 // Format: { THEME_NAME: CSS_SELECTOR }. The app's unscoped styles are dark and light is the
 // override (applyTheme() in src/app/themes.ts sets data-theme-mode on <html>), so dark takes the
@@ -38,6 +39,19 @@ export type ChartConfig = Record<
 /** Shared by ChartTooltipContent and the charts' own tooltip bodies. */
 export const CHART_TOOLTIP_CLASS =
   'grid min-w-[8rem] items-start gap-1.5 rounded-lg border border-chart-tooltip-border bg-chart-tooltip-bg px-2.5 py-1.5 text-xs text-chart-tooltip-text shadow-xl';
+
+/**
+ * GLOOK-58 Decision 15: the tooltip for a week no report measured. Shared by TimelineChart,
+ * LinesChangedChart and StackedTypesChart, so the three say it identically.
+ */
+export function NotMeasuredTooltip({ week }: { week: string }) {
+  return (
+    <div className={CHART_TOOLTIP_CLASS}>
+      <div className="font-medium">{formatWeek(week)}</div>
+      <div>Not measured</div>
+    </div>
+  );
+}
 
 type ChartContextProps = { config: ChartConfig };
 

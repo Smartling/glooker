@@ -48,6 +48,16 @@ export function recentWeekDomain(now: Date = new Date(), days = 90): string[] {
   return buildWeekDomain(new Date(now.getTime() - days * DAY_MS), now);
 }
 
+/**
+ * GLOOK-58 Decision 15: the page-wide domain, the `days` days (default 90) ending at the report's
+ * own week, `${anchorWeek}T00:00:00Z`. The server computes anchorWeek, so the client never re-parses
+ * a DB timestamp. A missing or malformed anchor falls back to today's domain: charts never throw.
+ */
+export function weekDomainEndingAt(anchorWeek: string | null | undefined, days = 90): string[] {
+  const t = utcDay(anchorWeek ?? '');
+  return recentWeekDomain(t === null ? new Date() : new Date(t), days);
+}
+
 /** Rows keyed by their exact week. aggregateWeekly emits one row per key, so there are no collisions. */
 export function indexByWeek<T extends { week: string }>(data: T[]): Map<string, T> {
   return new Map(data.map(r => [r.week, r]));
@@ -57,6 +67,8 @@ export interface WeekPoint<T> {
   week: string;
   value: number | null;
   hasData: boolean;
+  /** Decision 15: false when the week has no data AND no report provably measured it. */
+  measured: boolean;
   row?: T;
 }
 
@@ -64,11 +76,23 @@ export interface FillOptions<T> {
   value: (row: T) => unknown;
   kind: MetricKind;
   isDefined?: (row: T) => boolean;
+  /** Decision 15: weeks some report provably measured. Omitted: every week counts as measured. */
+  covered?: ReadonlySet<string>;
+}
+
+/**
+ * GLOOK-58 Decision 15: a week counts as measured when it has data (even outside every report
+ * period, e.g. an old in-flight commit) or some report provably measured it. With no `covered`
+ * set, every week counts as measured: the behavior before Decision 15.
+ */
+export function isMeasured(week: string, hasRow: boolean, covered?: ReadonlySet<string>): boolean {
+  return hasRow || !covered || covered.has(week);
 }
 
 /**
  * One point per domain week. kind 'count': a missing or undefined week is 0.
  * kind 'ratio': a missing or undefined week is null (a gap). Rows outside the domain are ignored.
+ * `measured` (Decision 15) never changes a value; tooltips read it.
  */
 export function fillWeeks<T extends { week: string }>(weeks: string[], data: T[], opts: FillOptions<T>): WeekPoint<T>[] {
   const byWeek = indexByWeek(data);
@@ -76,8 +100,9 @@ export function fillWeeks<T extends { week: string }>(weeks: string[], data: T[]
     const row = byWeek.get(week);
     const raw = row ? opts.value(row) : undefined;
     const defined = !!row && raw != null && (opts.isDefined ? opts.isDefined(row) : true);
-    if (opts.kind === 'count') return { week, row, hasData: !!row, value: defined ? toNum(raw) : 0 };
-    return { week, row, hasData: defined, value: defined ? toNum(raw) : null };
+    const measured = isMeasured(week, !!row, opts.covered);
+    if (opts.kind === 'count') return { week, row, hasData: !!row, measured, value: defined ? toNum(raw) : 0 };
+    return { week, row, hasData: defined, measured, value: defined ? toNum(raw) : null };
   });
 }
 

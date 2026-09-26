@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 import React from 'react';
 import { render, screen } from '@testing-library/react';
-import { StackedTypesChart, StackedTypesTooltip } from '@/components/charts/stacked-types-chart';
+import { buildStackRows, StackedTypesChart, StackedTypesTooltip } from '@/components/charts/stacked-types-chart';
 import { fixChartSize } from '../setup/chart-size';
 
 fixChartSize();
@@ -54,12 +54,12 @@ it('folds unknown types into other instead of dropping them', () => {
 
 it('shows an explicit empty state when no week has commits', () => {
   render(<StackedTypesChart data={[]} weeks={weeks} />);
-  expect(screen.getByText('No commits in the last 90 days')).toBeTruthy();
+  expect(screen.getByText('No commits in the 90 days before this report')).toBeTruthy();
 });
 
 it('shows the empty state for an old report whose weeks are all outside the domain', () => {
   render(<StackedTypesChart data={[{ week: '2025-01-06', types: { feature: 4 } }]} weeks={weeks} />);
-  expect(screen.getByText('No commits in the last 90 days')).toBeTruthy();
+  expect(screen.getByText('No commits in the 90 days before this report')).toBeTruthy();
 });
 
 it('the tooltip lists the week total and only the non-zero types', () => {
@@ -69,4 +69,34 @@ it('the tooltip lists the week total and only the non-zero types', () => {
   expect(container.textContent).toContain('feature3');
   expect(container.textContent).toContain('in_flight1');
   expect(container.textContent).not.toContain('bug');
+});
+
+describe('Decision 15: measured weeks', () => {
+  it('buildStackRows marks each row measured from its data or the covered set, keeping values numeric', () => {
+    const rows = buildStackRows([{ week: '2026-09-21', types: { feature: 2 } }], weeks, new Set(['2026-09-07']));
+    expect(rows.map(r => r.measured)).toEqual([true, false, true]);
+    expect(rows.map(r => r.total)).toEqual([0, 0, 2]);
+  });
+
+  it('buildStackRows with no covered set marks every week measured', () => {
+    expect(buildStackRows([], weeks).map(r => r.measured)).toEqual([true, true, true]);
+  });
+
+  it('the stacked tooltip reads "Not measured", not a 0 total, for an unmeasured week', () => {
+    const row = buildStackRows([], weeks, new Set<string>())[0];
+    const { container } = render(<StackedTypesTooltip active payload={[{ payload: row }] as never} />);
+    expect(container.textContent).toContain('Sep 7');
+    expect(container.textContent).toContain('Not measured');
+    expect(container.textContent).not.toContain('total');
+  });
+
+  it('the stacked tooltip still shows the total and types for a measured week', () => {
+    // Measured by its data, even with an empty covered set.
+    const row = buildStackRows([{ week: '2026-09-14', types: { feature: 3 } }], weeks, new Set<string>())[1];
+    expect(row.measured).toBe(true);
+    const { container } = render(<StackedTypesTooltip active payload={[{ payload: row }] as never} />);
+    expect(container.textContent).toContain('Sep 14 · 3 total');
+    expect(container.textContent).toContain('feature3');
+    expect(container.textContent).not.toContain('Not measured');
+  });
 });

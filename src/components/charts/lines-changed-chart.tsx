@@ -5,8 +5,8 @@
 // instead. Shipped linesP95* and in-flight inFlightLinesP95* are separate additive layers, as today.
 import { Bar, BarChart, CartesianGrid, Rectangle, ReferenceLine, XAxis, YAxis, type BarShapeProps, type RectangleProps } from 'recharts';
 import type { TooltipContentProps, TooltipValueType } from 'recharts';
-import { ChartContainer, ChartTooltip, CHART_TOOLTIP_CLASS } from './chart';
-import { formatCompact, formatValue, formatWeek, indexByWeek, toNum } from './chart-format';
+import { ChartContainer, ChartTooltip, CHART_TOOLTIP_CLASS, NotMeasuredTooltip } from './chart';
+import { formatCompact, formatValue, formatWeek, indexByWeek, isMeasured, toNum } from './chart-format';
 import { commitTypeColor } from './commit-types';
 import { inFlightFloor, TypeSwatch, useHatch } from './hatch';
 
@@ -24,6 +24,8 @@ interface LinesRow {
   inFlightAdded: number;
   removed: number;
   inFlightRemoved: number;
+  /** Decision 15: false when the week has no data and no report measured it. */
+  measured: boolean;
 }
 
 const ADDED = 'var(--chart-lines-added)';
@@ -34,6 +36,7 @@ const BOTTOM: [number, number, number, number] = [0, 0, 4, 4];
 export function LinesTooltip({ active, payload }: Partial<TooltipContentProps<TooltipValueType, string | number>>) {
   const row = payload?.[0]?.payload as LinesRow | undefined;
   if (!active || !row) return null;
+  if (row.measured === false) return <NotMeasuredTooltip week={row.week} />;
   const fmt = (v: number) => formatValue(v);
   // Churn, not net change: "Lines Changed / Week" is added + removed as magnitudes.
   // removed/inFlightRemoved are negated for the diverging stack, so abs() them back.
@@ -65,8 +68,9 @@ function removedShape(props: BarShapeProps) {
  * tests can exercise this real sign-flip pipeline directly, instead of hand-building a row whose
  * signs the test author has to get right on their own (GLOOK-58 review, fix round 1: a hand-built
  * row is exactly how the tooltip's total-formula bug slipped through the first time).
+ * `covered` (Decision 15) sets each row's `measured` and never changes a value.
  */
-export function buildLinesRows(data: LinesWeek[], weeks: string[]): LinesRow[] {
+export function buildLinesRows(data: LinesWeek[], weeks: string[], covered?: ReadonlySet<string>): LinesRow[] {
   const byWeek = indexByWeek(data);
   return weeks.map(week => {
     const r = byWeek.get(week);
@@ -76,13 +80,14 @@ export function buildLinesRows(data: LinesWeek[], weeks: string[]): LinesRow[] {
       inFlightAdded: toNum(r?.inFlightLinesP95Added),
       removed: -toNum(r?.linesP95Removed),
       inFlightRemoved: -toNum(r?.inFlightLinesP95Removed),
+      measured: isMeasured(week, !!r, covered),
     };
   });
 }
 
-export function LinesChangedChart({ data, weeks, syncId }: { data: LinesWeek[]; weeks: string[]; syncId?: string }) {
+export function LinesChangedChart({ data, weeks, coveredWeeks, syncId }: { data: LinesWeek[]; weeks: string[]; coveredWeeks?: string[]; syncId?: string }) {
   const hatch = useHatch(commitTypeColor('in_flight'));
-  const rows = buildLinesRows(data, weeks);
+  const rows = buildLinesRows(data, weeks, coveredWeeks ? new Set(coveredWeeks) : undefined);
   const hasAny = rows.some(r => r.added || r.inFlightAdded || r.removed || r.inFlightRemoved);
   const hasInFlight = rows.some(r => r.inFlightAdded > 0 || r.inFlightRemoved < 0);
 
@@ -92,7 +97,7 @@ export function LinesChangedChart({ data, weeks, syncId }: { data: LinesWeek[]; 
         Lines Changed / Week <span className="text-gray-600 font-normal">(outlier commits excluded)</span>
       </p>
       {!hasAny ? (
-        <p className="text-xs text-chart-axis py-8 text-center">No line changes in the last 90 days</p>
+        <p className="text-xs text-chart-axis py-8 text-center">No line changes in the 90 days before this report</p>
       ) : (
         <ChartContainer config={{}} className="aspect-auto h-[160px] w-full">
           <BarChart data={rows} stackOffset="sign" syncId={syncId} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>

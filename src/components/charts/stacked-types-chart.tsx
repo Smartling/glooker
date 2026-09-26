@@ -3,8 +3,8 @@
 import { type ReactElement } from 'react';
 import { Bar, BarChart, CartesianGrid, Rectangle, XAxis, YAxis, type BarShapeProps, type RectangleProps } from 'recharts';
 import type { TooltipContentProps, TooltipValueType } from 'recharts';
-import { ChartContainer, ChartTooltip, CHART_TOOLTIP_CLASS } from './chart';
-import { formatCompact, formatWeek, indexByWeek, isTopOfStack } from './chart-format';
+import { ChartContainer, ChartTooltip, CHART_TOOLTIP_CLASS, NotMeasuredTooltip } from './chart';
+import { formatCompact, formatWeek, indexByWeek, isMeasured, isTopOfStack } from './chart-format';
 import { COMMIT_TYPE_ORDER, commitTypeColor, foldTypes, type CommitType } from './commit-types';
 import { inFlightFloor, TypeSwatch, useHatch } from './hatch';
 
@@ -13,7 +13,7 @@ interface TypesWeek {
   types?: Record<string, unknown>;
 }
 
-type StackRow = { week: string; total: number } & Record<CommitType, number>;
+type StackRow = { week: string; total: number; measured: boolean } & Record<CommitType, number>;
 
 // Built once at module load, not per render (GLOOK-58 review, fix round 1): a fresh shape
 // component per type per render remounts the Rectangle each time. COMMIT_TYPE_ORDER (the full
@@ -29,9 +29,25 @@ const typeShapes = Object.fromEntries(
   ]),
 ) as Record<CommitType, (props: BarShapeProps) => ReactElement>;
 
+/**
+ * One row per domain week: the week's types folded into COMMIT_TYPE_ORDER, their total, and
+ * whether the week was measured (Decision 15; `covered` never changes a value). Exported so tests
+ * can drive real rows into StackedTypesTooltip, as buildLinesRows does.
+ */
+export function buildStackRows(data: TypesWeek[], weeks: string[], covered?: ReadonlySet<string>): StackRow[] {
+  const byWeek = indexByWeek(data);
+  return weeks.map(week => {
+    const row = byWeek.get(week);
+    const folded = foldTypes([row?.types ?? {}]);
+    const total = COMMIT_TYPE_ORDER.reduce((s, t) => s + folded[t], 0);
+    return { week, total, measured: isMeasured(week, !!row, covered), ...folded };
+  });
+}
+
 export function StackedTypesTooltip({ active, payload }: Partial<TooltipContentProps<TooltipValueType, string | number>>) {
   const row = payload?.[0]?.payload as StackRow | undefined;
   if (!active || !row) return null;
+  if (row.measured === false) return <NotMeasuredTooltip week={row.week} />;
   return (
     <div className={CHART_TOOLTIP_CLASS}>
       <div className="font-medium">{formatWeek(row.week)} · {row.total} total</div>
@@ -45,14 +61,9 @@ export function StackedTypesTooltip({ active, payload }: Partial<TooltipContentP
   );
 }
 
-export function StackedTypesChart({ data, weeks }: { data: TypesWeek[]; weeks: string[] }) {
+export function StackedTypesChart({ data, weeks, coveredWeeks }: { data: TypesWeek[]; weeks: string[]; coveredWeeks?: string[] }) {
   const hatch = useHatch(commitTypeColor('in_flight'));
-  const byWeek = indexByWeek(data);
-  const rows: StackRow[] = weeks.map(week => {
-    const folded = foldTypes([byWeek.get(week)?.types ?? {}]);
-    const total = COMMIT_TYPE_ORDER.reduce((s, t) => s + folded[t], 0);
-    return { week, total, ...folded };
-  });
+  const rows = buildStackRows(data, weeks, coveredWeeks ? new Set(coveredWeeks) : undefined);
   const present = COMMIT_TYPE_ORDER.filter(t => rows.some(r => r[t] > 0));
   const fillFor = (t: CommitType) => (t === 'in_flight' ? hatch.fill : commitTypeColor(t));
 
@@ -70,7 +81,7 @@ export function StackedTypesChart({ data, weeks }: { data: TypesWeek[]; weeks: s
         </div>
       </div>
       {present.length === 0 ? (
-        <p className="text-xs text-chart-axis py-8 text-center">No commits in the last 90 days</p>
+        <p className="text-xs text-chart-axis py-8 text-center">No commits in the 90 days before this report</p>
       ) : (
         <ChartContainer config={{}} className="aspect-auto h-[200px] w-full">
           <BarChart data={rows} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>

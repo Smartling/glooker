@@ -7,7 +7,7 @@ import Breadcrumb from '@/components/Breadcrumb';
 import { findFirstJiraKey } from '@/lib/jira-key-utils';
 import { ClaudeCodeUsageCard, type SkillRow, type ModelRow } from './usage-card';
 import { TimelineChart } from '@/components/charts/timeline-chart';
-import { recentWeekDomain, toNum } from '@/components/charts/chart-format';
+import { toNum, weekDomainEndingAt } from '@/components/charts/chart-format';
 import { commitTypeBadge, commitTypeBg, typeEntriesFrom } from '@/components/charts/commit-types';
 
 interface DevStats {
@@ -119,6 +119,11 @@ export default function DevDetailPage() {
     devData?.unmergedWork ?? { openPrs: [], branchCommits: [] };
   const skills: SkillRow[] = devData?.skills ?? [];
   const models: ModelRow[] = devData?.models ?? [];
+  // GLOOK-58 Decision 15: the weeks some completed report measured for THIS developer, and the
+  // week this report's charts end at. Both come from the server. A response without coveredWeeks
+  // gives [], so unmeasured weeks never claim a zero.
+  const coveredWeeks: string[] = devData?.coveredWeeks ?? [];
+  const anchorWeek: string | undefined = devData?.anchorWeek;
 
   // 3. Summary (dependent on devData)
   const { data: summaryData, isLoading: summaryLoading, error: summaryError } = useSWR(
@@ -158,8 +163,9 @@ export default function DevDetailPage() {
   const typeEntries = typeEntriesFrom([dev.type_breakdown ?? {}]);
   const totalTyped = typeEntries.reduce((s, [, c]) => s + c, 0);
 
-  // One week domain per render, shared by every chart below so hover sync (syncId) lines up.
-  const weeks = recentWeekDomain(new Date());
+  // One week domain per render, ending at this report's own week (Decision 15), shared by every
+  // chart below so hover sync (syncId) lines up.
+  const weeks = weekDomainEndingAt(anchorWeek);
 
   // Repo commit counts
   const repoMap = new Map<string, number>();
@@ -309,11 +315,12 @@ export default function DevDetailPage() {
         <div className="mb-6">
           <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-3">Activity Over Time (weekly)</p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <TimelineChart data={timeline} weeks={weeks} valueKey="commits" kind="count" label="Commits / Week" syncId="dev-timeline" />
-            <TimelineChart data={timeline} weeks={weeks} valueKey="prs" kind="count" label="PRs / Week" syncId="dev-timeline" />
+            <TimelineChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks}valueKey="commits" kind="count" label="Commits / Week" syncId="dev-timeline" />
+            <TimelineChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks}valueKey="prs" kind="count" label="PRs / Week" syncId="dev-timeline" />
             <TimelineChart
               data={timeline}
               weeks={weeks}
+              coveredWeeks={coveredWeeks}
               valueKey="avgLinesPerPr"
               kind="ratio"
               isDefined={d => toNum(d.prs) > 0}
@@ -324,15 +331,17 @@ export default function DevDetailPage() {
             <TimelineChart
               data={timeline}
               weeks={weeks}
+              coveredWeeks={coveredWeeks}
               kind="count"
               label="Lines Changed / Week"
               computeValue={d => toNum(d.linesAdded) + toNum(d.linesRemoved)}
               syncId="dev-timeline"
             />
-            <TimelineChart data={timeline} weeks={weeks} valueKey="avgComplexity" kind="ratio" label="Avg Complexity / Week" decimals={1} syncId="dev-timeline" />
+            <TimelineChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks}valueKey="avgComplexity" kind="ratio" label="Avg Complexity / Week" decimals={1} syncId="dev-timeline" />
             <TimelineChart
               data={timeline}
               weeks={weeks}
+              coveredWeeks={coveredWeeks}
               valueKey="aiPercent"
               kind="ratio"
               isDefined={d => toNum(d.commits) > 0}

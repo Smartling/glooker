@@ -8,7 +8,7 @@ import IntegrityBadge from '@/components/IntegrityBadge';
 import { useUrlState } from '@/lib/url-state';
 import { SpendTab, type Developer, type ReportMeta, type SpendWindow, type ModelUsageRow, type SkillsUsageRow } from './spend-tab';
 import { TimelineChart } from '@/components/charts/timeline-chart';
-import { recentWeekDomain, toNum } from '@/components/charts/chart-format';
+import { toNum, weekDomainEndingAt } from '@/components/charts/chart-format';
 import { StackedTypesChart } from '@/components/charts/stacked-types-chart';
 import { LinesChangedChart } from '@/components/charts/lines-changed-chart';
 import { CommitTypeDonut } from '@/components/charts/commit-type-donut';
@@ -40,6 +40,11 @@ export default function OrgDetailPage() {
   const spendWindow: SpendWindow | null = data?.spendWindow ?? null;
   const modelUsage: ModelUsageRow[] = data?.modelUsage ?? [];
   const skillsUsage: SkillsUsageRow[] = data?.skillsUsage ?? [];
+  // GLOOK-58 Decision 15: the weeks some completed report measured, and the week this report's
+  // charts end at. Both come from the server; the client never re-parses a DB timestamp. A
+  // response without coveredWeeks gives [], so unmeasured weeks never claim a zero.
+  const coveredWeeks: string[] = data?.coveredWeeks ?? [];
+  const anchorWeek: string | undefined = data?.anchorWeek;
   const unmergedSummary: {
     openPrCount: number;
     openPrDevCount: number;
@@ -75,8 +80,9 @@ export default function OrgDetailPage() {
   const typeEntries = typeEntriesFrom(timeline.map(w => w.types ?? {}));
   const totalTyped = typeEntries.reduce((s, [, c]) => s + c, 0);
 
-  // One week domain per render, shared by every chart below so hover sync (syncId) lines up.
-  const weeks = recentWeekDomain(new Date());
+  // One week domain per render, ending at this report's own week (Decision 15), shared by every
+  // chart below so hover sync (syncId) lines up.
+  const weeks = weekDomainEndingAt(anchorWeek);
 
   const hasJira = developers.some(d => (d.total_jira_issues ?? 0) > 0);
   // Spend tab exists only when there is real spend to show. `!= null` alone is
@@ -234,16 +240,18 @@ export default function OrgDetailPage() {
             <TimelineChart
               data={timeline}
               weeks={weeks}
+              coveredWeeks={coveredWeeks}
               valueKey="commits"
               kind="count"
               label="Commits / Week"
               inFlightValue={d => d.types?.in_flight ?? 0}
               syncId="org-timeline"
             />
-            <TimelineChart data={timeline} weeks={weeks} valueKey="prs" kind="count" label="PRs / Week" syncId="org-timeline" />
+            <TimelineChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks}valueKey="prs" kind="count" label="PRs / Week" syncId="org-timeline" />
             <TimelineChart
               data={timeline}
               weeks={weeks}
+              coveredWeeks={coveredWeeks}
               valueKey="avgLinesPerPr"
               kind="ratio"
               isDefined={d => toNum(d.prs) > 0}
@@ -251,11 +259,12 @@ export default function OrgDetailPage() {
               suffix=" lines"
               syncId="org-timeline"
             />
-            <TimelineChart data={timeline} weeks={weeks} valueKey="avgImpact" kind="ratio" label="Avg Impact Score / Week" decimals={1} syncId="org-timeline" />
-            <LinesChangedChart data={timeline} weeks={weeks} syncId="org-timeline" />
+            <TimelineChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks}valueKey="avgImpact" kind="ratio" label="Avg Impact Score / Week" decimals={1} syncId="org-timeline" />
+            <LinesChangedChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks}syncId="org-timeline" />
             <TimelineChart
               data={timeline}
               weeks={weeks}
+              coveredWeeks={coveredWeeks}
               valueKey="aiPercent"
               kind="ratio"
               isDefined={d => toNum(d.commits) > 0}
@@ -268,7 +277,7 @@ export default function OrgDetailPage() {
       )}
 
       {/* Stacked Commit Types Over Time */}
-      {timeline.length >= 2 && <StackedTypesChart data={timeline} weeks={weeks} />}
+      {timeline.length >= 2 && <StackedTypesChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks}/>}
 
       {/* Top Developers Table — hidden, use Team Summary instead */}
       {false && <div className="bg-gray-900 rounded-xl overflow-hidden">

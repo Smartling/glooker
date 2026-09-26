@@ -1,6 +1,6 @@
 import {
   buildWeekDomain, fillWeeks, formatCompact, formatValue, formatWeek, indexByWeek, isTopOfStack,
-  mondayOf, recentWeekDomain, toNum,
+  mondayOf, recentWeekDomain, toNum, weekDomainEndingAt,
 } from '@/components/charts/chart-format';
 
 const utc = (iso: string) => new Date(`${iso}T12:00:00Z`);
@@ -128,5 +128,51 @@ describe('isTopOfStack', () => {
     expect(isTopOfStack({ a: 1, b: 2, c: 0 }, keys, 'b')).toBe(true);
     expect(isTopOfStack({ a: 1, b: 2, c: 3 }, keys, 'b')).toBe(false);
     expect(isTopOfStack({ a: 1, b: 0, c: '0' }, keys, 'a')).toBe(true);
+  });
+});
+
+describe('fillWeeks measured (Decision 15)', () => {
+  const weeks = ['2026-09-07', '2026-09-14', '2026-09-21'];
+
+  it('a week is measured when it has data or is covered, and not otherwise; values stay numeric', () => {
+    const pts = fillWeeks(weeks, [{ week: '2026-09-21', n: 4 }], { value: r => r.n, kind: 'count', covered: new Set(['2026-09-14']) });
+    expect(pts.map(p => p.measured)).toEqual([false, true, true]);
+    expect(pts.map(p => p.value)).toEqual([0, 0, 4]);
+  });
+
+  it('a week with data is measured even when no report covered it (in-flight older than every report)', () => {
+    const pts = fillWeeks(weeks, [{ week: '2026-09-07', n: 2 }], { value: r => r.n, kind: 'count', covered: new Set<string>() });
+    expect(pts[0].measured).toBe(true);
+    expect(pts[0].value).toBe(2);
+  });
+
+  it('with no covered set, every week counts as measured (the old behavior)', () => {
+    const pts = fillWeeks(weeks, [] as { week: string; n: number }[], { value: r => r.n, kind: 'count' });
+    expect(pts.map(p => p.measured)).toEqual([true, true, true]);
+  });
+
+  it('ratio kinds keep their null gaps; covered changes only measured', () => {
+    const pts = fillWeeks(weeks, [{ week: '2026-09-14', r: 2.5 }], { value: r => r.r, kind: 'ratio', covered: new Set(['2026-09-21']) });
+    expect(pts.map(p => p.value)).toEqual([null, 2.5, null]);
+    expect(pts.map(p => p.measured)).toEqual([false, true, true]);
+  });
+});
+
+describe('weekDomainEndingAt', () => {
+  afterEach(() => jest.useRealTimers());
+
+  it('ends at the anchor week and spans the 90 days before it', () => {
+    const weeks = weekDomainEndingAt('2026-07-06');
+    expect(weeks[weeks.length - 1]).toBe('2026-07-06');
+    expect(weeks[0]).toBe('2026-04-06');
+    expect(weeks).toEqual(recentWeekDomain(utc('2026-07-06')));
+  });
+
+  it("falls back to today's domain for a missing or malformed anchor, instead of throwing", () => {
+    jest.useFakeTimers({ now: new Date('2026-09-25T12:00:00Z') });
+    const today = recentWeekDomain(new Date());
+    expect(weekDomainEndingAt(undefined)).toEqual(today);
+    expect(weekDomainEndingAt('2026-13-01')).toEqual(today);
+    expect(weekDomainEndingAt('not a week')).toEqual(today);
   });
 });
