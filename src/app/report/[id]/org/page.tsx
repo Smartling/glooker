@@ -247,7 +247,7 @@ export default function OrgDetailPage() {
               inFlightValue={d => d.types?.in_flight ?? 0}
               syncId="org-timeline"
             />
-            <TimelineChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks}valueKey="prs" kind="count" label="PRs / Week" syncId="org-timeline" />
+            <TimelineChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks} valueKey="prs" kind="count" label="PRs / Week" syncId="org-timeline" />
             <TimelineChart
               data={timeline}
               weeks={weeks}
@@ -259,8 +259,8 @@ export default function OrgDetailPage() {
               suffix=" lines"
               syncId="org-timeline"
             />
-            <TimelineChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks}valueKey="avgImpact" kind="ratio" label="Avg Impact Score / Week" decimals={1} syncId="org-timeline" />
-            <LinesChangedChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks}syncId="org-timeline" />
+            <TimelineChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks} valueKey="avgImpact" kind="ratio" label="Avg Impact Score / Week" decimals={1} syncId="org-timeline" />
+            <LinesChangedChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks} syncId="org-timeline" />
             <TimelineChart
               data={timeline}
               weeks={weeks}
@@ -277,7 +277,7 @@ export default function OrgDetailPage() {
       )}
 
       {/* Stacked Commit Types Over Time */}
-      {timeline.length >= 2 && <StackedTypesChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks}/>}
+      {timeline.length >= 2 && <StackedTypesChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks} />}
 
       {/* Top Developers Table — hidden, use Team Summary instead */}
       {false && <div className="bg-gray-900 rounded-xl overflow-hidden">

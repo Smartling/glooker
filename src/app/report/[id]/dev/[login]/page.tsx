@@ -315,8 +315,8 @@ export default function DevDetailPage() {
         <div className="mb-6">
           <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-3">Activity Over Time (weekly)</p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <TimelineChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks}valueKey="commits" kind="count" label="Commits / Week" syncId="dev-timeline" />
-            <TimelineChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks}valueKey="prs" kind="count" label="PRs / Week" syncId="dev-timeline" />
+            <TimelineChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks} valueKey="commits" kind="count" label="Commits / Week" syncId="dev-timeline" />
+            <TimelineChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks} valueKey="prs" kind="count" label="PRs / Week" syncId="dev-timeline" />
             <TimelineChart
               data={timeline}
               weeks={weeks}
@@ -337,7 +337,7 @@ export default function DevDetailPage() {
               computeValue={d => toNum(d.linesAdded) + toNum(d.linesRemoved)}
               syncId="dev-timeline"
             />
-            <TimelineChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks}valueKey="avgComplexity" kind="ratio" label="Avg Complexity / Week" decimals={1} syncId="dev-timeline" />
+            <TimelineChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks} valueKey="avgComplexity" kind="ratio" label="Avg Complexity / Week" decimals={1} syncId="dev-timeline" />
             <TimelineChart
               data={timeline}
               weeks={weeks}
