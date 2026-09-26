@@ -31,6 +31,99 @@ export function weekKeyForDate(d: Date): string {
   return monday.toISOString().split('T')[0];
 }
 
+const DAY_MS = 86_400_000;
+
+/** One report's searched period, ending at the instant it completed (GLOOK-58 Decision 15). */
+export interface CoverageWindow {
+  end: Date;
+  periodDays: number;
+}
+
+/**
+ * GLOOK-58 Decision 15: which reports' windows count. Completed reports only, windowed on
+ * completed_at: every run searched from runStart − period_days (report-runner.ts:44), and runStart is
+ * no later than completed_at, resumed runs included, so [completed_at − period_days, completed_at]
+ * always sits inside what was searched. The filter is on status, not on completed_at being set: a
+ * failed run sets completed_at, and a resumed run is 'running' with its old completed_at still set.
+ *
+ * Timestamps are parsed with new Date(value), exactly as getOrgReport's avg-impact bucketing does:
+ * MySQL DATETIME arrives as a Date; SQLite's zone-less 'YYYY-MM-DD HH:MM:SS' (datetime('now',
+ * 'localtime')) is read as local time, on the same host that wrote it. A row whose completed_at
+ * doesn't parse is skipped, which is conservative.
+ */
+export function completedReportWindows(
+  rows: Array<{ status?: unknown; period_days?: unknown; completed_at?: unknown }>,
+): CoverageWindow[] {
+  const out: CoverageWindow[] = [];
+  for (const r of rows) {
+    if (r.status !== 'completed' || r.completed_at == null) continue;
+    const end = new Date(r.completed_at as string | number | Date);
+    if (Number.isNaN(end.getTime())) continue;
+    out.push({ end, periodDays: Number(r.period_days) });
+  }
+  return out;
+}
+
+/**
+ * GLOOK-58 Decision 15: the UTC Monday keys of every week all 7 of whose UTC days lie wholly inside
+ * the UNION of the windows. The windows are merged as time intervals first, so two windows that
+ * meet (or overlap) mid-day form one continuous interval and don't lose the day they share. The
+ * union never over-claims, because every instant in it was searched. A partly covered week is left
+ * out, so the edges of a real gap never claim a measured zero. A window with an invalid end, or a
+ * period that isn't a positive number, is skipped. Sorted ascending, no duplicates.
+ */
+export function coveredWeeksFromWindows(windows: CoverageWindow[]): string[] {
+  const intervals: Array<[number, number]> = [];
+  for (const { end, periodDays } of windows) {
+    const endMs = end.getTime();
+    const period = Number(periodDays);
+    if (!Number.isFinite(endMs) || !Number.isFinite(period) || period <= 0) continue;
+    intervals.push([endMs - period * DAY_MS, endMs]);
+  }
+  intervals.sort((a, b) => a[0] - b[0]);
+
+  // Union: an interval that starts at or before the current one's end extends it.
+  const merged: Array<[number, number]> = [];
+  for (const [start, end] of intervals) {
+    const last = merged[merged.length - 1];
+    if (last && start <= last[1]) last[1] = Math.max(last[1], end);
+    else merged.push([start, end]);
+  }
+
+  // A UTC day is marked only if it lies wholly inside one merged interval: it starts at or after
+  // the interval's start and ends at or before its end.
+  const days = new Set<number>(); // UTC midnights, as epoch ms
+  for (const [start, end] of merged) {
+    for (let d = Math.ceil(start / DAY_MS) * DAY_MS; d + DAY_MS <= end; d += DAY_MS) days.add(d);
+  }
+
+  const weeks = new Set<string>();
+  for (const d of days) {
+    const key = weekKeyForDate(new Date(d));
+    const monday = Date.parse(`${key}T00:00:00Z`);
+    let whole = true;
+    for (let i = 0; i < 7 && whole; i++) whole = days.has(monday + i * DAY_MS);
+    if (whole) weeks.add(key);
+  }
+  return [...weeks].sort();
+}
+
+/**
+ * GLOOK-58 Decision 15: the week this report's charts end at. The source is completed_at when
+ * status is 'completed', and created_at otherwise: completed_at is not a reliable completion marker
+ * for other statuses, because failed runs set it and a resumed run keeps its old value while it
+ * runs. Parsed with new Date() as above. If the source is missing or doesn't parse, the current UTC
+ * week, so weekKeyForDate never sees an Invalid Date (it would throw a RangeError).
+ */
+export function anchorWeekFor(status: unknown, completedAt: unknown, createdAt: unknown, now: Date = new Date()): string {
+  const source = status === 'completed' ? completedAt : createdAt;
+  if (source != null) {
+    const d = new Date(source as string | number | Date);
+    if (!Number.isNaN(d.getTime())) return weekKeyForDate(d);
+  }
+  return weekKeyForDate(now);
+}
+
 export function dedupCommitsBySha(rows: any[]): any[] {
   const seen = new Set<string>();
   const result: any[] = [];

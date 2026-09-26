@@ -1,6 +1,9 @@
 import db from '../db/index';
 import { ReportNotFoundError } from './service';
-import { dedupCommitsBySha, aggregateWeekly, weekKeyForDate } from './timeline';
+import {
+  dedupCommitsBySha, aggregateWeekly, weekKeyForDate,
+  anchorWeekFor, completedReportWindows, coveredWeeksFromWindows,
+} from './timeline';
 
 /**
  * Per-model usage rows, one per (login, model), unaggregated. `cost`/`requests`
@@ -52,9 +55,11 @@ export async function getOrgReport(reportId: string) {
     active_repos: typeof row.active_repos === 'string' ? JSON.parse(row.active_repos || '[]') : (row.active_repos || []),
   }));
 
-  // 3. All commits across all reports for org, deduped
+  // 3. All commits across all reports for org, deduped. status/period_days/completed_at feed the
+  // GLOOK-58 Decision 15 coverage below; they're read in this same query so the call order is
+  // unchanged (org-unmerged-summary.test.ts supplies exactly one mock per call).
   const [allReportIds] = await db.execute(
-    `SELECT id FROM reports WHERE org = ?`, [org],
+    `SELECT id, status, period_days, completed_at FROM reports WHERE org = ?`, [org],
   ) as [any[], any];
   const reportIds = allReportIds.map((r: any) => r.id);
 
@@ -334,5 +339,10 @@ export async function getOrgReport(reportId: string) {
     skills_distinct: Number(r.skills_distinct) || 0,
   }));
 
-  return { report: reportRows[0], developers, timeline, spendWindow, unmergedSummary, modelUsage, skillsUsage };
+  // GLOOK-58 Decision 15: the weeks some completed report of this org provably measured, and the
+  // week this report's charts end at. Additive fields; nothing above changes.
+  const coveredWeeks = coveredWeeksFromWindows(completedReportWindows(allReportIds));
+  const anchorWeek = anchorWeekFor(reportRows[0].status, reportRows[0].completed_at, reportRows[0].created_at);
+
+  return { report: reportRows[0], developers, timeline, spendWindow, unmergedSummary, modelUsage, skillsUsage, coveredWeeks, anchorWeek };
 }

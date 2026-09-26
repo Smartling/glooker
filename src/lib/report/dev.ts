@@ -1,6 +1,6 @@
 import db from '@/lib/db';
 import { ReportNotFoundError } from './service';
-import { dedupCommitsBySha, aggregateWeekly } from './timeline';
+import { dedupCommitsBySha, aggregateWeekly, anchorWeekFor, completedReportWindows, coveredWeeksFromWindows } from './timeline';
 import { UNMERGED_LOOKBACK_DAYS } from './unmerged-window';
 
 export class DeveloperNotFoundError extends Error {
@@ -80,10 +80,16 @@ export async function getDevReport(reportId: string, login: string) {
   ) as [any[], any];
 
   // Timeline: all commits for this developer across ALL reports for this org,
-  // deduped by commit_sha, for weekly aggregation graphs
+  // deduped by commit_sha, for weekly aggregation graphs. GLOOK-58 Decision 15: status,
+  // period_days, completed_at and has_login_stats feed this developer's coverage below. Only
+  // completed reports holding a developer_stats row for this login count. They're read in this
+  // same query so the call order is unchanged. The login match is exact-case, like every other
+  // developer_stats read in this file.
   const [allReportIds] = await db.execute(
-    `SELECT id FROM reports WHERE org = ?`,
-    [org],
+    `SELECT r.id, r.status, r.period_days, r.completed_at,
+            EXISTS(SELECT 1 FROM developer_stats ds WHERE ds.report_id = r.id AND ds.github_login = ?) AS has_login_stats
+     FROM reports r WHERE r.org = ?`,
+    [login, org],
   ) as [any[], any];
   const reportIds = allReportIds.map((r: any) => r.id);
 
@@ -176,6 +182,15 @@ export async function getDevReport(reportId: string, login: string) {
     [reportId, login],
   ) as [any[], any];
 
+  // GLOOK-58 Decision 15: a report counts only if it completed and holds this developer's row. A
+  // row exists only for developers with commits in that report, so an idle week reads "Not
+  // measured", never a proven 0. MySQL and SQLite both return EXISTS as 0/1; a mock row without
+  // the column gives NaN, which counts as absent.
+  const coveredWeeks = coveredWeeksFromWindows(
+    completedReportWindows(allReportIds.filter((r: any) => Number(r.has_login_stats) > 0)),
+  );
+  const anchorWeek = anchorWeekFor(reportRows[0].status, reportRows[0].completed_at, reportRows[0].created_at);
+
   return {
     report: reportRows[0],
     developer: parseDev(devRows[0]),
@@ -193,5 +208,7 @@ export async function getDevReport(reportId: string, login: string) {
       cost: Number(r.cost) || 0,
       requests: Number(r.requests) || 0,
     })),
+    coveredWeeks,
+    anchorWeek,
   };
 }
