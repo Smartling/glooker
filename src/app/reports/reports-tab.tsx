@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 import Link from 'next/link';
 import { useIdleAwarePolling } from '@/hooks/use-idle-aware-polling';
@@ -75,9 +75,11 @@ function ReportCard({
       : progress.totalRepos > 0
       ? `Fetching: ${progress.processedRepos}/${progress.totalRepos} members`
       : null,
-    pct: progress.completedDevelopers > 0 && progress.totalDevelopers > 0
+    pct: progress.status === 'completed'
+      ? 100
+      : progress.completedDevelopers > 0 && progress.totalDevelopers > 0
       ? Math.round((progress.completedDevelopers / progress.totalDevelopers) * 100)
-      : progress.status === 'completed' ? 100 : 0,
+      : 0,
     running: progress.status === 'running' || progress.status === 'pending',
     tone: progress.status === 'failed' ? 'failed' : progress.status === 'stopped' ? 'stopped' : 'normal',
     error: progress.error,
@@ -165,7 +167,16 @@ function ReportCard({
   );
 }
 
-export default function ReportsTab({ canAct, observedRunning }: { canAct: boolean; observedRunning: Set<string> }) {
+export default function ReportsTab({ canAct, observedRunning, finishedFired }: {
+  canAct: boolean;
+  observedRunning: Set<string>;
+  // Ids whose finish side effect (list mutate + global cache bust) has already run. Owned by the
+  // always-mounted ReportsTabs, like `observedRunning`, so it survives ReportsTab unmounting when
+  // the syncs tab is shown — without it, switching back remounted every observed-finished card with
+  // a fresh in-hook ref, and each refetched its now-finished progress and re-ran the global bust.
+  // Optional with a local fallback so a standalone render (e.g. this component's own tests) still works.
+  finishedFired?: Set<string>;
+}) {
   const { data: reports, mutate } = useSWR<ReportListRow[]>('/api/report', { dedupingInterval: 2_000 });
   const { data: orgsData } = useSWR<Array<{ login: string }>>('/api/orgs');
   const { data: scheduleData } = useSWR<Schedule[]>('/api/schedule');
@@ -182,6 +193,8 @@ export default function ReportsTab({ canAct, observedRunning }: { canAct: boolea
   const [reportStats, setReportStats] = useState<Record<string, ReportStats>>({});
   const [actionError, setActionError] = useState<string | null>(null);
   const [, forceRender] = useState(0);
+  const localFinishedFired = useRef<Set<string>>(new Set());
+  const finishedFiredSet = finishedFired ?? localFinishedFired.current;
 
   useEffect(() => {
     if (orgsData && orgsData.length > 0 && !org) setOrg(orgsData[0].login);
@@ -234,7 +247,12 @@ export default function ReportsTab({ canAct, observedRunning }: { canAct: boolea
     }
   }
 
-  function onFinish() {
+  // Called at most once per report id — a finished report's card can remount (unmounted while the
+  // syncs tab is shown, remounted on return) and its progress poll will resolve "finished" again on
+  // remount, but the global cache bust must not re-run every time that happens.
+  function handleFinish(id: string) {
+    if (finishedFiredSet.has(id)) return;
+    finishedFiredSet.add(id);
     mutate();
     globalMutate(() => true, undefined, { revalidate: true });
   }
@@ -408,7 +426,7 @@ export default function ReportsTab({ canAct, observedRunning }: { canAct: boolea
             onToggle={() => toggleExpand(r.id)}
             stats={reportStats[r.id]}
             wasObservedRunning={observedRunning.has(r.id)}
-            listMutate={onFinish}
+            listMutate={() => handleFinish(r.id)}
             anyRunning={anyRunning}
           />
         ))}

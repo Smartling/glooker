@@ -20,8 +20,12 @@ export default function ReportsTabs() {
   // switch — the inactive tab unmounts while the other is shown.
   const observedReports = useRef<Set<string>>(new Set());
   const observedSyncs = useRef<Set<number>>(new Set());
+  // Ids whose finish side effect (list mutate + global SWR cache bust) has already run. Also owned
+  // here, for the same reason: ReportsTab unmounts when the syncs tab is shown, so a per-card ref
+  // inside it would reset and re-fire the bust every time the reports tab remounts.
+  const finishedFired = useRef<Set<string>>(new Set());
 
-  const reportsTab = <ReportsTab canAct={canAct} observedRunning={observedReports.current} />;
+  const reportsTab = <ReportsTab canAct={canAct} observedRunning={observedReports.current} finishedFired={finishedFired.current} />;
 
   if (!config?.vulnerabilities?.enabled) return reportsTab;
 
