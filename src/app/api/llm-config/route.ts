@@ -1,14 +1,16 @@
 import { NextResponse } from 'next/server';
-import { getAppConfig, testLLMConnection, getLatestReport } from '@/lib/app-config/service';
+import { getAppConfig, testLLMConnection, getLatestReport, getReportFreshness, getVulnerabilityFreshness } from '@/lib/app-config/service';
 import { requireAdmin } from '@/lib/auth';
 import { withRequestLog } from '@/lib/logger';
 
 async function getHandler() {
-  const [config, latestReport] = await Promise.all([
+  const [config, latestReport, reportFreshness, vulnerabilityFreshness] = await Promise.all([
     Promise.resolve(getAppConfig()),
     getLatestReport(),
+    getReportFreshness(),
+    getVulnerabilityFreshness(),
   ]);
-  return NextResponse.json({ ...config, latestReport });
+  return NextResponse.json({ ...config, latestReport, reportFreshness, vulnerabilityFreshness });
 }
 
 async function postHandler(req: Request) {
