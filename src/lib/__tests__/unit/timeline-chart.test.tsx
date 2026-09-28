@@ -15,7 +15,7 @@ it("kind 'count': one accent bar per week with a value, zero weeks draw nothing"
   const data: Row[] = [{ week: '2026-09-07', commits: 3, prs: 1 }, { week: '2026-09-21', commits: 5, prs: 2 }];
   const { container } = render(<TimelineChart data={data} weeks={weeks} valueKey="commits" kind="count" label="Commits / Week" syncId="t" />);
   expect(rects(container)).toHaveLength(2);
-  rects(container).forEach(r => expect(r.getAttribute('fill')).toBe('var(--accent)'));
+  rects(container).forEach(r => expect(r.getAttribute('fill')).toBe('var(--chart-accent)'));
 });
 
 it("kind 'ratio' with isDefined: a present week with prs === 0 is a gap, not a 0 bar", () => {
@@ -61,7 +61,9 @@ it('the hatch appears only with inFlightValue, and the in-flight segment uses it
   );
   const pattern = container.querySelector('pattern')!;
   const fills = rects(container).map(r => r.getAttribute('fill'));
-  expect(fills).toEqual(['var(--accent)', `url(#${pattern.id})`]);
+  expect(fills).toEqual(['var(--chart-accent)', `url(#${pattern.id})`]);
+  const line = pattern.querySelector('line')!;
+  expect(line.style.stroke).toBe('var(--chart-accent)');
 });
 
 it('in-flight larger than the week total is clamped: the stack is all hatch, never negative', () => {
@@ -158,7 +160,7 @@ it('a negative in-flight value clamps to 0: no hatched segment, shipped bar iden
     <TimelineChart data={data} weeks={weeks} valueKey="commits" kind="count" label="C" syncId="t" inFlightValue={d => d.types?.in_flight ?? 0} />,
   );
   const drawn = rects(container);
-  expect(drawn.map(r => r.getAttribute('fill'))).toEqual(['var(--accent)']);
+  expect(drawn.map(r => r.getAttribute('fill'))).toEqual(['var(--chart-accent)']);
   // Same geometry (height and rounded top) as the plain chart, so shipped is still the full 5.
   expect(drawn.map(r => r.getAttribute('d'))).toEqual(plainD);
 });

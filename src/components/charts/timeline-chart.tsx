@@ -106,7 +106,9 @@ function shippedShape(props: BarShapeProps) {
 export function TimelineChart<T extends TimelineRow>({
   data, weeks, coveredWeeks, valueKey, computeValue, kind, isDefined, label, suffix = '', decimals = 0, inFlightValue, syncId,
 }: TimelineChartProps<T>) {
-  const hatch = useHatch('var(--accent)');
+  // GLOOK-58 Decision 16: reads the user's chart-color preference (Vivid/Soft/Deep), which
+  // defaults to the theme accent.
+  const hatch = useHatch('var(--chart-accent)');
   const read = (row: T): unknown => (computeValue ? computeValue(row) : valueKey ? row[valueKey] : undefined);
   const covered = coveredWeeks ? new Set(coveredWeeks) : undefined;
   const { points, rows } = buildTimelineRows(weeks, data, { value: read, kind, isDefined, inFlightValue, covered });
@@ -146,7 +148,7 @@ export function TimelineChart<T extends TimelineRow>({
             <XAxis dataKey="week" tickLine={false} axisLine={false} minTickGap={24} tickFormatter={formatWeek} />
             <YAxis tickLine={false} axisLine={false} width={40} tickCount={4} allowDecimals={decimals > 0} tickFormatter={formatCompact} />
             <ChartTooltip content={<TimelineTooltip suffix={suffix} decimals={decimals} split={!!inFlightValue} />} />
-            <Bar dataKey="shipped" stackId="timeline" fill="var(--accent)" stroke="var(--chart-surface)" strokeWidth={2}
+            <Bar dataKey="shipped" stackId="timeline" fill="var(--chart-accent)" stroke="var(--chart-surface)" strokeWidth={2}
               shape={shippedShape} isAnimationActive={false} />
             {inFlightValue && (
               <Bar dataKey="inFlight" stackId="timeline" fill={hatch.fill} stroke="var(--chart-surface)" strokeWidth={2}

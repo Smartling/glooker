@@ -80,6 +80,13 @@
   --chart-badge-other-text: #ffffff;
   --chart-badge-in-flight-bg: #0e7490;
   --chart-badge-in-flight-text: #ffffff;
+
+  /* GLOOK-58 Decision 16: the user's chart-color preference for single-metric timelines (the
+     other --chart-* tokens above are fixed marks, not accent-driven). --chart-accent defaults to
+     the theme accent; the attribute rules below repoint it to Soft or Deep. */
+  --chart-accent: var(--accent);
+  --chart-accent-soft: color-mix(in srgb, var(--accent) 70%, var(--chart-surface));
+  --chart-accent-deep: var(--accent-dark);
 }
 
 /* Accent utility classes */
@@ -195,7 +202,16 @@
   --chart-badge-other-text: #1f2937;
   --chart-badge-in-flight-bg: #cffafe;
   --chart-badge-in-flight-text: #155e75;
+
+  --chart-accent: var(--accent);
+  --chart-accent-soft: color-mix(in srgb, var(--accent) 70%, var(--chart-surface));
+  /* Decision 16: accent-dark is darker on light themes, i.e. louder, so Deep equals Vivid here. */
+  --chart-accent-deep: var(--accent);
 }
+
+/* GLOOK-58 Decision 16: user-selected chart color. (0,2,0) beats both mode blocks. */
+:root[data-chart-accent="soft"] { --chart-accent: var(--chart-accent-soft); }
+:root[data-chart-accent="deep"] { --chart-accent: var(--chart-accent-deep); }
 
 /* Body & base text */
 [data-theme-mode="light"] body {

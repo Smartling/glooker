@@ -46,7 +46,12 @@ const REQUIRED = [
   'chart-scatter-typical', 'chart-scatter-outlier',
   'chart-volume-prs', 'chart-volume-jiras', 'chart-volume-commits',
   ...TYPES.flatMap(t => [`chart-badge-${t}-bg`, `chart-badge-${t}-text`]),
+  'chart-accent', 'chart-accent-soft', 'chart-accent-deep',
 ];
+
+// GLOOK-58 Decision 16: these three are CSS expressions (var()/color-mix()), not hex literals —
+// the Vivid default's contrast is already covered by chart-contrast.test.ts's THEMES accents.
+const NON_HEX_TOKENS = ['chart-accent', 'chart-accent-soft', 'chart-accent-deep'];
 
 // Files whose var(--chart-*) references must resolve. Missing files are skipped, so this test can
 // land before the chart modules exist and tightens as they arrive.
@@ -82,10 +87,26 @@ it('defines exactly the same --chart-* tokens under the bare light block as unde
 
 it('every --chart-* value in both modes is a 6-digit hex (the contrast guard only parses that form)', () => {
   const bad = [
-    ...Object.entries(dark).filter(([, v]) => !/^#[0-9a-fA-F]{6}$/.test(v)).map(([k, v]) => `dark --${k}: ${v}`),
-    ...Object.entries(light).filter(([, v]) => !/^#[0-9a-fA-F]{6}$/.test(v)).map(([k, v]) => `light --${k}: ${v}`),
+    ...Object.entries(dark).filter(([k, v]) => !NON_HEX_TOKENS.includes(k) && !/^#[0-9a-fA-F]{6}$/.test(v)).map(([k, v]) => `dark --${k}: ${v}`),
+    ...Object.entries(light).filter(([k, v]) => !NON_HEX_TOKENS.includes(k) && !/^#[0-9a-fA-F]{6}$/.test(v)).map(([k, v]) => `light --${k}: ${v}`),
   ];
   expect(bad).toEqual([]);
+});
+
+it('the chart-accent tokens resolve through --accent and --chart-surface as Decision 16 specifies', () => {
+  expect(dark['chart-accent']).toBe('var(--accent)');
+  expect(dark['chart-accent-soft']).toBe('color-mix(in srgb, var(--accent) 70%, var(--chart-surface))');
+  expect(dark['chart-accent-deep']).toBe('var(--accent-dark)');
+
+  expect(light['chart-accent']).toBe('var(--accent)');
+  expect(light['chart-accent-soft']).toBe('color-mix(in srgb, var(--accent) 70%, var(--chart-surface))');
+  // Decision 16: accent-dark is darker (louder) on light themes, so Deep equals Vivid there.
+  expect(light['chart-accent-deep']).toBe('var(--accent)');
+});
+
+it('the data-chart-accent attribute rules repoint --chart-accent for soft and deep', () => {
+  expect(css).toMatch(/:root\[data-chart-accent="soft"\]\s*\{\s*--chart-accent:\s*var\(--chart-accent-soft\);\s*\}/);
+  expect(css).toMatch(/:root\[data-chart-accent="deep"\]\s*\{\s*--chart-accent:\s*var\(--chart-accent-deep\);\s*\}/);
 });
 
 it('every var(--chart-*) referenced by chart code or the Tailwind config is defined', () => {

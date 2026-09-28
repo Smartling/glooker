@@ -4,7 +4,8 @@
 //     the card surface.
 //   - Ring colours >= 3:1 against --chart-track, the surface they are drawn over.
 //   - All ten theme accents >= 3:1 against their own mode's card surface (single-metric timelines
-//     are drawn in var(--accent)).
+//     draw var(--chart-accent), whose Vivid default is var(--accent)). Per spec Decision 16's
+//     Contrast note, Soft and Deep are opt-in and this guard does not test them.
 //   - --chart-axis >= 4.5:1 against the card; --chart-tooltip-text >= 4.5:1 against --chart-tooltip-bg.
 //   - Commit-type badge text >= 4.5:1 against its own badge fill, all 8 types.
 // --chart-grid and --chart-tooltip-border are exempt (decorative; Decision 14), so the grid can
