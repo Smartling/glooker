@@ -3,6 +3,8 @@
 import { useState, type CSSProperties } from 'react';
 import type { useRouter } from 'next/navigation';
 import type { RunMetadata } from '@/lib/report-runner/types';
+import { SpendImpactScatter } from '@/components/charts/spend-impact-scatter';
+import { toNum } from '@/components/charts/chart-format';
 
 export interface Developer {
   github_login: string; github_name: string; avatar_url: string;
@@ -201,8 +203,6 @@ export function SpendTab({ developers, reportId, router, report, spendWindow, mo
 
   let cumulative = 0;
 
-  const maxImpact = Math.max(...withSpend.map(d => Number(d.impact_score) || 0), 1);
-  const maxCost = Math.max(...withSpend.map(d => Number(d.cc_total_cost ?? 0)), 1);
   const impactSorted = withSpend.map(d => Number(d.impact_score) || 0).sort((a, b) => a - b);
   const medianImpact = impactSorted.length > 0
     ? impactSorted.length % 2 === 0
@@ -518,43 +518,17 @@ export function SpendTab({ developers, reportId, router, report, spendWindow, mo
       {/* Spend vs Impact Scatter Plot */}
       <div className="bg-gray-900 rounded-xl p-5">
         <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-4">Spend vs Impact</p>
-        <div className="relative w-full" style={{ height: 320 }}>
-          <div className="absolute top-2 left-4 text-[10px] text-gray-600">High Spend / Low Impact</div>
-          <div className="absolute top-2 right-4 text-[10px] text-gray-600">High Spend / High Impact</div>
-          <div className="absolute bottom-8 left-4 text-[10px] text-gray-600">Low Spend / Low Impact</div>
-          <div className="absolute bottom-8 right-4 text-[10px] text-gray-600">Low Spend / High Impact</div>
-
-          <div className="absolute bg-gray-700" style={{ left: `${(medianImpact / maxImpact) * 100}%`, top: 0, width: 1, height: '100%', opacity: 0.4 }} />
-          <div className="absolute bg-gray-700" style={{ top: `${100 - (medianCost / maxCost) * 100}%`, left: 0, width: '100%', height: 1, opacity: 0.4 }} />
-
-          {withSpend.map(dev => {
-            const cost = Number(dev.cc_total_cost ?? 0);
-            const impact = Number(dev.impact_score) || 0;
-            const x = (impact / maxImpact) * 92 + 4;
-            const y = 100 - ((cost / maxCost) * 88 + 6);
-            const outlier = isOutlier(dev);
-            return (
-              <div
-                key={dev.github_login}
-                className="absolute group cursor-pointer"
-                style={{ left: `${x}%`, top: `${y}%`, transform: 'translate(-50%, -50%)' }}
-                onClick={() => router.push(`/report/${reportId}/dev/${dev.github_login}`)}
-              >
-                <div className={`w-3 h-3 rounded-full ${outlier ? 'bg-red-400' : 'bg-blue-400'} opacity-80 hover:opacity-100 transition-opacity`} />
-                <div className="hidden group-hover:block absolute z-10 bottom-5 left-1/2 -translate-x-1/2 bg-gray-800 border border-gray-700 rounded px-2 py-1 whitespace-nowrap text-xs">
-                  <span className="text-white font-medium">@{dev.github_login}</span>
-                  <span className="text-gray-400 ml-2">{formatDollars(cost)}</span>
-                  <span className="text-gray-500 ml-1">/ {impact.toFixed(1)} impact</span>
-                </div>
-              </div>
-            );
-          })}
-
-          <div className="absolute bottom-0 left-0 right-0 text-center text-[10px] text-gray-500">Impact Score &rarr;</div>
-          <div className="absolute top-0 left-0 bottom-0 flex items-center">
-            <span className="text-[10px] text-gray-500 -rotate-90 whitespace-nowrap">Spend &rarr;</span>
-          </div>
-        </div>
+        <SpendImpactScatter
+          points={withSpend.map(dev => ({
+            login: dev.github_login,
+            impact: toNum(dev.impact_score),
+            cost: toNum(dev.cc_total_cost),
+            outlier: isOutlier(dev),
+          }))}
+          medianImpact={medianImpact}
+          medianCost={medianCost}
+          onSelect={login => router.push(`/report/${reportId}/dev/${login}`)}
+        />
       </div>
     </div>
   );

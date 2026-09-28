@@ -463,7 +463,7 @@ export default function ReportsPage() {
                       </span>
                     ) : null}
                   </div>
-                  <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                  <div className="h-1.5 bg-chart-track rounded-full overflow-hidden">
                     <div
                       className={`h-full rounded-full transition-all duration-500 ${
                         progress.status === 'failed' ? 'bg-red-500' : progress.status === 'stopped' ? 'bg-orange-500' : 'bg-indigo-500'

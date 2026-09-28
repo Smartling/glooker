@@ -4,6 +4,7 @@ import { useState, useRef, useMemo, useEffect, type RefObject } from 'react';
 import { useRouter } from 'next/navigation';
 import { createPortal } from 'react-dom';
 import { useUrlState } from '@/lib/url-state';
+import { commitTypeBadge, typeEntriesFrom } from '@/components/charts/commit-types';
 
 export interface Developer {
   github_login:       string;
@@ -23,16 +24,6 @@ export interface Developer {
   type_breakdown:     Record<string, number>;
   active_repos:       string[];
 }
-
-const TYPE_COLORS: Record<string, string> = {
-  feature:  'bg-blue-500',
-  bug:      'bg-red-500',
-  refactor: 'bg-purple-500',
-  infra:    'bg-yellow-500',
-  docs:     'bg-gray-500',
-  test:     'bg-green-500',
-  other:    'bg-gray-600',
-};
 
 const DEV_SORT_KEYS = [
   'name', 'total_prs', 'total_commits', 'lines_added',
@@ -313,17 +304,17 @@ function PrPercentBadge({ value }: { value: number }) {
 }
 
 function TypeBreakdown({ breakdown }: { breakdown: Record<string, number> }) {
-  const entries = Object.entries(breakdown || {}).sort((a, b) => b[1] - a[1]);
+  const entries = typeEntriesFrom([breakdown ?? {}]);
   return (
     <div className="flex flex-wrap gap-1">
-      {entries.map(([type, count]) => (
-        <span
-          key={type}
-          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs text-white ${TYPE_COLORS[type] || 'bg-gray-600'}`}
-        >
-          {type} <span className="opacity-75">{count}</span>
-        </span>
-      ))}
+      {entries.map(([type, count]) => {
+        const badge = commitTypeBadge(type);
+        return (
+          <span key={type} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs ${badge.bg} ${badge.text}`}>
+            {type} <span className="opacity-75">{count}</span>
+          </span>
+        );
+      })}
     </div>
   );
 }

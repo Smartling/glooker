@@ -1,0 +1,206 @@
+// GLOOK-58 Decision 15: coveredWeeks and anchorWeek through the REAL SQLite driver, so the status
+// filter and the timestamp parsing run against real rows, not positional mocks. Env set/restore
+// copied from cc-apply-breakdowns.test.ts. Timestamps are inserted as absolute instants (…Z), so
+// the expected keys hold on any host zone, CI's UTC included; the zone-less SQLite form is pinned
+// in report-coverage.test.ts.
+//
+// Product owner revision (2026-09-28, e4913aa): the dev page now uses the SAME org-level coverage
+// as the org page, not a per-login EXISTS(developer_stats) filter. A developer's vacation week in
+// a covered report now reads a measured 0, not "Not measured".
+jest.mock('@octokit/rest', () => ({ Octokit: jest.fn().mockImplementation(() => ({})) }));
+// org.ts / dev.ts → ./service → @/lib/report-runner pulls in the ESM-only p-limit package.
+jest.mock('@/lib/report-runner', () => ({ runReport: jest.fn().mockResolvedValue(undefined), requestStop: jest.fn() }));
+jest.mock('@/lib/progress-store', () => ({ initProgress: jest.fn(), updateProgress: jest.fn(), getProgress: jest.fn() }));
+
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+
+let dbPath: string;
+let db: any;
+let getOrgReport: any;
+let getDevReport: any;
+
+// process.env is shared across test files in a Jest worker: restore both in afterAll, or later
+// files inherit a deleted DB path (CLAUDE.md).
+const priorSqlitePath = process.env.SQLITE_PATH;
+const priorDbType = process.env.DB_TYPE;
+
+// id, org, period_days, status, created_at, completed_at — and what each window WOULD cover.
+// GLOOK-58 Decision 15, corrected after the Task 12 review: the window is
+// [completed_at - period_days, created_at], not [completed_at - period_days, completed_at]. A
+// "quick" report (created_at == completed_at, an idealized zero-duration run) reproduces the old
+// single-edge window exactly, which is why most fixtures below set them equal.
+const REPORTS: Array<[string, string, number, string, string, string | null]> = [
+  // Quick run: created_at == completed_at, so its window is [2026-03-04T12:00, 2026-03-18T12:00],
+  // identical to the pre-fix single-edge window. Week of Mar 9.
+  ['rA', 'acme', 14, 'completed', '2026-03-18T12:00:00Z', '2026-03-18T12:00:00Z'],
+  // Resumed far later: created in January, completed in April. start = completed_at - 14d =
+  // 2026-03-23, which is AFTER end = created_at = 2026-01-05. The window is inverted (empty), so
+  // this report contributes NO coverage at all — neither the week near completed_at nor the week
+  // near created_at.
+  ['rB', 'acme', 14, 'completed', '2026-01-05T09:00:00Z', '2026-04-06T00:00:00Z'],
+  ['rFailed', 'acme', 30, 'failed', '2026-01-31T00:00:00Z', '2026-03-02T00:00:00Z'], // would be Feb 2-23
+  ['rStopped', 'acme', 14, 'stopped', '2026-01-05T00:00:00Z', '2026-01-19T00:00:00Z'], // would be Jan 5, 12
+  // Resumed and running again: its old completed_at is still set. Would be Apr 20, Apr 27.
+  ['rRunning', 'acme', 14, 'running', '2026-04-15T12:00:00Z', '2026-05-04T00:00:00Z'],
+  ['rPending', 'acme', 14, 'pending', '2026-05-13T12:00:00Z', null],
+  // Other org, quick run: other org: May 18, 25.
+  ['rOther', 'beta', 14, 'completed', '2026-06-01T00:00:00Z', '2026-06-01T00:00:00Z'],
+  // acme-adjoin: two quick, back-to-back completed reports whose windows meet at 2026-07-11T12:00Z.
+  // Alone they cover Jun 29 and Jul 13; only their UNION holds Jul 11 whole, so only the union
+  // lists Jul 6.
+  ['rAdj1', 'acme-adjoin', 14, 'completed', '2026-07-11T12:00:00Z', '2026-07-11T12:00:00Z'],
+  ['rAdj2', 'acme-adjoin', 14, 'completed', '2026-07-25T12:00:00Z', '2026-07-25T12:00:00Z'],
+  // gamma: no completed report at all.
+  ['rGammaFailed', 'gamma', 14, 'failed', '2026-02-01T00:00:00Z', '2026-02-20T00:00:00Z'],
+  // acme-narrow, own org so existing expectations don't move: a genuinely narrow (sub-day) gap
+  // between created_at and completed_at, through the REAL service, not just the pure helper.
+  // created Sunday 2026-03-15T20:00Z, completed Monday 2026-03-16T03:00Z (7 hours later). Window =
+  // [completed_at - 14d, created_at] = [2026-03-02T03:00Z, 2026-03-15T20:00Z] (about 13 days, not
+  // empty). Sunday Mar 15 is cut at 20:00, so it's the one day whose whole/partial status differs
+  // between the two right-edge choices. Sunday is deliberately the LAST day of its ISO week (not
+  // Monday, the first): the other 6 days of that week (Mon 9-Sat 14) are already inside the window
+  // regardless of the right edge, so completing Sunday is what completes the whole week. A version
+  // of this fixture with the roles reversed (created Monday, completed Tuesday) would NOT
+  // discriminate at the week level: Monday is the FIRST day of its week, and the other 6 days
+  // (Tue-Sun) are never reached by either right edge, so that week can never be whole either way.
+  ['rNarrow', 'acme-narrow', 14, 'completed', '2026-03-15T20:00:00Z', '2026-03-16T03:00:00Z'],
+];
+// alice: rA (completed), rFailed (failed), rPending (pending). bob: rA and rB (both completed).
+// carol: only rFailed. dana: only rAdj1, one of the two acme-adjoin reports — used below to prove
+// the vacation case (dana has no row in rAdj2, whose week must still show up as measured for her).
+// eve: only rGammaFailed, gamma's one report, which never completed.
+const DEV_ROWS: Array<[string, string]> = [
+  ['rA', 'alice'], ['rA', 'bob'], ['rB', 'bob'], ['rFailed', 'alice'], ['rPending', 'alice'], ['rFailed', 'carol'],
+  ['rAdj1', 'dana'], ['rGammaFailed', 'eve'],
+];
+
+beforeAll(async () => {
+  dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'glooker-coverage-')), 'test.db');
+  process.env.SQLITE_PATH = dbPath;
+  process.env.DB_TYPE = 'sqlite';
+  db = (await import('@/lib/db')).default;
+  ({ getOrgReport } = await import('@/lib/report/org'));
+  ({ getDevReport } = await import('@/lib/report/dev'));
+  for (const r of REPORTS) {
+    await db.execute(
+      `INSERT INTO reports (id, org, period_days, status, created_at, completed_at) VALUES (?, ?, ?, ?, ?, ?)`,
+      r,
+    );
+  }
+  for (const [reportId, login] of DEV_ROWS) {
+    await db.execute(
+      `INSERT INTO developer_stats (report_id, github_login, github_name) VALUES (?, ?, ?)`,
+      [reportId, login, login],
+    );
+  }
+});
+afterAll(() => {
+  if (priorSqlitePath === undefined) delete process.env.SQLITE_PATH;
+  else process.env.SQLITE_PATH = priorSqlitePath;
+  if (priorDbType === undefined) delete process.env.DB_TYPE;
+  else process.env.DB_TYPE = priorDbType;
+  try { fs.rmSync(path.dirname(dbPath), { recursive: true, force: true }); } catch { /* already gone */ }
+});
+
+describe('getOrgReport coverage', () => {
+  it("lists exactly the fully covered weeks of this org's completed reports", async () => {
+    // Only rA contributes: rB's window is empty (see below), so its week doesn't appear.
+    expect((await getOrgReport('rA')).coveredWeeks).toEqual(['2026-03-09']);
+  });
+
+  it("leaves the week right after rA's own window out, even though nothing else is between", async () => {
+    // Mar 16 directly follows rA's window (which ends 2026-03-18T12:00Z, partway through Mar 18),
+    // but Mar 16-17 alone isn't a whole week, so it's excluded on its own account, not because a
+    // second report used to sit past it.
+    expect((await getOrgReport('rA')).coveredWeeks).not.toContain('2026-03-16');
+  });
+
+  it('failed, stopped, running and pending reports add nothing, even when they carry a completed_at', async () => {
+    const { coveredWeeks } = await getOrgReport('rA');
+    const fromIgnored = ['2026-01-05', '2026-01-12', '2026-02-02', '2026-02-09', '2026-02-16', '2026-02-23', '2026-04-20', '2026-04-27'];
+    expect(coveredWeeks.filter((w: string) => fromIgnored.includes(w))).toEqual([]);
+  });
+
+  it('a report resumed long after it was created contributes no coverage at all', async () => {
+    // rB: created 2026-01-05, completed 2026-04-06. start (completed_at - 14d) = 2026-03-23, which
+    // is AFTER end (created_at) = 2026-01-05: the window is inverted, so it contributes nothing —
+    // not the week near its completed_at, and not the week near its created_at either.
+    const { coveredWeeks } = await getOrgReport('rA');
+    const nearRB = ['2025-12-29', '2026-01-05', '2026-01-12', '2026-03-23', '2026-03-30'];
+    expect(coveredWeeks.filter((w: string) => nearRB.includes(w))).toEqual([]);
+  });
+
+  it('two completed reports whose windows meet mid-day leave no hole, through the real service', async () => {
+    const { coveredWeeks } = await getOrgReport('rAdj1');
+    expect(coveredWeeks).toContain('2026-07-06'); // the week holding the shared day, Jul 11
+    expect(coveredWeeks).toEqual(['2026-06-29', '2026-07-06', '2026-07-13']);
+  });
+
+  it('an org with no completed reports has no covered weeks', async () => {
+    expect((await getOrgReport('rGammaFailed')).coveredWeeks).toEqual([]);
+  });
+
+  it("another org's reports add nothing", async () => {
+    const { coveredWeeks } = await getOrgReport('rA');
+    expect(coveredWeeks.filter((w: string) => ['2026-05-18', '2026-05-25'].includes(w))).toEqual([]);
+  });
+
+  it("anchorWeek is a completed report's completed_at week", async () => {
+    expect((await getOrgReport('rA')).anchorWeek).toBe('2026-03-16');
+  });
+
+  it("anchorWeek is created_at's week for every other status, even with a completed_at set", async () => {
+    expect((await getOrgReport('rPending')).anchorWeek).toBe('2026-05-11'); // completed_at null
+    expect((await getOrgReport('rRunning')).anchorWeek).toBe('2026-04-13'); // resumed; stale completed_at 2026-05-04
+    expect((await getOrgReport('rFailed')).anchorWeek).toBe('2026-01-26'); // failed runs set completed_at 2026-03-02
+  });
+
+  it('a narrow (sub-day) gap between created_at and completed_at, through the real service, still excludes the week that needs the cut day', async () => {
+    // rNarrow: created Sun 2026-03-15T20:00Z, completed Mon 2026-03-16T03:00Z. Window (correct right
+    // edge, created_at) = [2026-03-02T03:00Z, 2026-03-15T20:00Z], about 13 days — not empty, unlike
+    // rB above. Mon Mar 2 is cut by the left edge (03:00) and Sun Mar 15 is cut by the right edge
+    // (20:00), so BOTH the week of Mar 2 (missing its Monday) and the week of Mar 9 (missing its
+    // Sunday) are left out. If the right edge were (wrongly) completed_at instead, Sunday Mar 15
+    // would be whole (its day ends at Mon 00:00, before completed_at's Mon 03:00), completing the
+    // week of Mar 9 — this is what the mutation check below confirms.
+    expect((await getOrgReport('rNarrow')).coveredWeeks).toEqual([]);
+  });
+});
+
+describe('getDevReport coverage', () => {
+  it("the dev page's coveredWeeks equals the org page's for the same org, regardless of this login's own rows", async () => {
+    expect((await getDevReport('rA', 'alice')).coveredWeeks).toEqual((await getOrgReport('rA')).coveredWeeks);
+    expect((await getDevReport('rA', 'alice')).coveredWeeks).toEqual(['2026-03-09']);
+  });
+
+  it('a developer with NO developer_stats row in a covered report still gets that report\'s covered weeks (the vacation case)', async () => {
+    // dana has a developer_stats row only in rAdj1. rAdj1 alone would only cover the week of Jun 29
+    // (see report-coverage.test.ts's mid-day-union case); the week of Jul 13 is contributed solely
+    // by rAdj2, a completed report in the same org where dana made no commits at all — her vacation
+    // week. Org-level coverage still lists it as measured for her.
+    const { coveredWeeks } = await getDevReport('rAdj1', 'dana');
+    expect(coveredWeeks).toEqual((await getOrgReport('rAdj1')).coveredWeeks);
+    expect(coveredWeeks).toEqual(['2026-06-29', '2026-07-06', '2026-07-13']);
+    expect(coveredWeeks).toContain('2026-07-13');
+  });
+
+  it('a failed report still contributes nothing, on the dev page same as the org page', async () => {
+    // carol's only row is on rFailed itself (failed), which contributes no coverage. rA, a
+    // completed report in the same org, still shows up — that's org-level coverage, not carol's own.
+    expect((await getDevReport('rFailed', 'carol')).coveredWeeks).toEqual((await getOrgReport('rFailed')).coveredWeeks);
+    expect((await getDevReport('rFailed', 'carol')).coveredWeeks).toEqual(['2026-03-09']);
+  });
+
+  it('an org with no completed reports gives the dev page no covered weeks either', async () => {
+    expect((await getDevReport('rGammaFailed', 'eve')).coveredWeeks).toEqual((await getOrgReport('rGammaFailed')).coveredWeeks);
+    expect((await getDevReport('rGammaFailed', 'eve')).coveredWeeks).toEqual([]);
+  });
+
+  it("anchorWeek follows the viewed report's status: completed_at if completed, created_at otherwise", async () => {
+    expect((await getDevReport('rA', 'alice')).anchorWeek).toBe('2026-03-16');
+    expect((await getDevReport('rPending', 'alice')).anchorWeek).toBe('2026-05-11');
+    expect((await getDevReport('rFailed', 'alice')).anchorWeek).toBe('2026-01-26');
+  });
+});

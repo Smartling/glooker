@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import { useUrlState } from '@/lib/url-state';
@@ -7,6 +7,7 @@ import { CODEBASE_GROUPS, CODEBASE_LABELS } from '@/lib/vulnerabilities/codebase
 import type { CodebaseGroup } from '@/lib/vulnerabilities/types';
 import TeamPivot from './team-pivot';
 import TrendChart from './trend-chart';
+import { assignTeamColors } from './team-colors';
 import { AlertsPanel, alertFilterQuery, type AlertListUiFilters } from './alerts-table';
 import CoveragePanel from './coverage-panel';
 import PolicyPanel from './policy-panel';
@@ -88,6 +89,12 @@ export default function VulnerabilitiesContent() {
   const summaryStale = summaryLoading && !!summary;
   const trendStale = trendLoading && !!trend;
   const coverageStale = coverageLoading && !!coverage;
+  // GLOOK-58 Decision 11: built from the UNFILTERED trend series, before the team filter below, so
+  // a team keeps its colour when the page filter narrows the chart. Memoized because it's an O(n
+  // log n) sort over every team on every render otherwise, keyed on trend.series so it only
+  // recomputes when the trend response actually changes (not on every unrelated re-render, e.g.
+  // an alertFilters update).
+  const colorByTeam = useMemo(() => assignTeamColors(trend?.series ?? []), [trend?.series]);
 
   // GLOOK-43 Wave H: for any summary error other than an unknown team, the page fails visibly
   // with a single error line, whether or not `summary` still holds data. That is deliberate (user
@@ -200,7 +207,7 @@ export default function VulnerabilitiesContent() {
           const err = panelError(trendError, 'trend');
           if (err) return <p className="text-xs text-red-400">{err}</p>;
           return trend?.series
-            ? <div className={trendStale ? 'opacity-60' : undefined}><TrendChart series={team ? trend.series.filter((x: any) => x.team === team) : trend.series} /></div>
+            ? <div className={trendStale ? 'opacity-60' : undefined}><TrendChart series={team ? trend.series.filter((x: any) => x.team === team) : trend.series} colorByTeam={colorByTeam} /></div>
             : <p className="text-xs text-gray-500">Loading…</p>;
         })()}
       </div>
