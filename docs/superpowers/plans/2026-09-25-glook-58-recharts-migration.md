@@ -4667,6 +4667,8 @@ Tasks 1-11 are implemented and reviewed. Tasks 12 and 13 implement spec **Decisi
 
 ### Task 12: Server coverage (`coveredWeeks`, `anchorWeek`)
 
+> **Superseded 2026-09-28:** the dev page now uses the same org-level coverage as the org page (the per-login `EXISTS` filter below was removed). See spec Decision 15, "Dev page".
+
 **Rules for this task** (restated from Global Constraints):
 - **Commands:** run every node command as `env PATH="/opt/homebrew/Cellar/node@24/24.16.0/bin:/usr/bin:/bin:/usr/sbin:/sbin" sh -c '<one command>'`. Put one plain command inside the quotes, with no `&&`, pipes or `$VARS`.
 - **Commits:** the message starts with `GLOOK-58: `. Use `git add` with explicit paths, never `-A` or `.`. End the message with a blank line and a `Co-Authored-By:` trailer naming **the model you are running as**, for example `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.

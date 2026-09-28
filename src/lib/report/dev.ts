@@ -81,7 +81,7 @@ export async function getDevReport(reportId: string, login: string) {
 
   // Timeline: all commits for this developer across ALL reports for this org,
   // deduped by commit_sha, for weekly aggregation graphs. GLOOK-58 Decision 15: status,
-  // period_days, completed_at and created_at feed this developer's coverage below. The dev page
+  // period_days, completed_at and created_at feed the org-level coverage below. The dev page
   // uses the SAME org-level coverage as the org page (product owner revision, 2026-09-28): every
   // completed report for the org counts, not just ones holding a developer_stats row for this
   // login, so a covered week with no commits from this developer reads a measured 0 instead of

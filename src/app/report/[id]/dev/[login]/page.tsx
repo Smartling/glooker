@@ -119,7 +119,7 @@ export default function DevDetailPage() {
     devData?.unmergedWork ?? { openPrs: [], branchCommits: [] };
   const skills: SkillRow[] = devData?.skills ?? [];
   const models: ModelRow[] = devData?.models ?? [];
-  // GLOOK-58 Decision 15: the weeks some completed report measured for THIS developer, and the
+  // GLOOK-58 Decision 15: the weeks some completed report of the org measured, and the
   // week this report's charts end at. Both come from the server. A response without coveredWeeks
   // gives [], so unmeasured weeks never claim a zero.
   const coveredWeeks: string[] = devData?.coveredWeeks ?? [];
