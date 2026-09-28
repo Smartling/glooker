@@ -31,7 +31,7 @@ const runningSync = {
 };
 
 function listBody(syncs: any[], running = false) {
-  return { available: true, running, schedule, syncs };
+  return { available: true, org: 'acme', running, schedule, syncs };
 }
 
 /** Routes a mocked fetch by URL: the syncs list vs. one card's own `/progress` poll (keyed by
@@ -211,6 +211,27 @@ it('when the progress poll reports the run finished: the bar fills to 100%, poll
   expect(progressCalls).toBe(progressAfter);
   expect(listCalls).toBe(listBefore + 1);
 }, 15000);
+
+it('renders the shared card header: subject line and issue-count health', async () => {
+  (global as any).fetch = mockFetchFor([{ ...failedSync, status: 'partial' }, succeededSecond]);
+  render(wrap(<VulnerabilitySyncsTab canAct={true} />));
+  await waitFor(() => expect(screen.getAllByText('acme · Dependabot critical + high').length).toBe(2));
+  expect(screen.getByText('1 issue')).toBeTruthy();
+});
+
+it('never offers Delete or Stop on sync cards', async () => {
+  (global as any).fetch = mockFetchFor([succeededSecond]);
+  render(wrap(<VulnerabilitySyncsTab canAct={true} />));
+  await waitFor(() => screen.getByText('acme · Dependabot critical + high'));
+  expect(screen.queryByText('Delete')).toBeNull();
+  expect(screen.queryByText('Stop')).toBeNull();
+});
+
+it('shows the next run through the shared formatter', async () => {
+  (global as any).fetch = mockFetchFor([succeededSecond]);
+  render(wrap(<VulnerabilitySyncsTab canAct={false} />));
+  await waitFor(() => expect(screen.getByText(/next run Sep 23, 6:00 AM/)).toBeTruthy());
+});
 
 it('hides Sync now from viewers and shows it to admins', async () => {
   (global as any).fetch = mockFetchFor([succeededFirst]);

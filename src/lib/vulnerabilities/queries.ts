@@ -355,7 +355,7 @@ export interface SyncRunRow {
 }
 export type ListSyncsResponse =
   | { available: false; reason: string }
-  | { available: true; running: boolean; schedule: { cron: string; tz: string; next_run: string | null }; syncs: SyncRunRow[] };
+  | { available: true; org: string; running: boolean; schedule: { cron: string; tz: string; next_run: string | null }; syncs: SyncRunRow[] };
 
 export async function listSyncs(limit = 30): Promise<ListSyncsResponse> {
   const org = getVulnerabilitiesOrg();
@@ -368,7 +368,7 @@ export async function listSyncs(limit = 30): Promise<ListSyncsResponse> {
     `SELECT * FROM vulnerability_syncs WHERE org = ? ORDER BY id DESC LIMIT ?`, [org, bound]);
   const { cron, tz } = getSyncSchedule();
   return {
-    available: true as const, running: isSyncRunning(),
+    available: true as const, org, running: isSyncRunning(),
     schedule: { cron, tz, next_run: getNextSyncRun() },
     syncs: rows.map((r: any) => ({
       id: Number(r.id), triggerKind: r.trigger_kind, triggeredBy: r.triggered_by, status: r.status,
