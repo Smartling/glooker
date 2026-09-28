@@ -81,15 +81,15 @@ export async function getDevReport(reportId: string, login: string) {
 
   // Timeline: all commits for this developer across ALL reports for this org,
   // deduped by commit_sha, for weekly aggregation graphs. GLOOK-58 Decision 15: status,
-  // period_days, completed_at, created_at and has_login_stats feed this developer's coverage below.
-  // Only completed reports holding a developer_stats row for this login count. They're read in this
-  // same query so the call order is unchanged. The login match is exact-case, like every other
-  // developer_stats read in this file.
+  // period_days, completed_at and created_at feed this developer's coverage below. The dev page
+  // uses the SAME org-level coverage as the org page (product owner revision, 2026-09-28): every
+  // completed report for the org counts, not just ones holding a developer_stats row for this
+  // login, so a covered week with no commits from this developer reads a measured 0 instead of
+  // "Not measured". They're read in this same query so the call order is unchanged.
   const [allReportIds] = await db.execute(
-    `SELECT r.id, r.status, r.period_days, r.completed_at, r.created_at,
-            EXISTS(SELECT 1 FROM developer_stats ds WHERE ds.report_id = r.id AND ds.github_login = ?) AS has_login_stats
-     FROM reports r WHERE r.org = ?`,
-    [login, org],
+    `SELECT id, status, period_days, created_at, completed_at
+     FROM reports WHERE org = ?`,
+    [org],
   ) as [any[], any];
   const reportIds = allReportIds.map((r: any) => r.id);
 
@@ -182,13 +182,9 @@ export async function getDevReport(reportId: string, login: string) {
     [reportId, login],
   ) as [any[], any];
 
-  // GLOOK-58 Decision 15: a report counts only if it completed and holds this developer's row. A
-  // row exists only for developers with commits in that report, so an idle week reads "Not
-  // measured", never a proven 0. MySQL and SQLite both return EXISTS as 0/1; a mock row without
-  // the column gives NaN, which counts as absent.
-  const coveredWeeks = coveredWeeksFromWindows(
-    completedReportWindows(allReportIds.filter((r: any) => Number(r.has_login_stats) > 0)),
-  );
+  // GLOOK-58 Decision 15: org-level coverage, identical to org.ts. Every completed report for the
+  // org counts, regardless of whether this developer has a developer_stats row in it.
+  const coveredWeeks = coveredWeeksFromWindows(completedReportWindows(allReportIds));
   const anchorWeek = anchorWeekFor(reportRows[0].status, reportRows[0].completed_at, reportRows[0].created_at);
 
   return {

@@ -1,8 +1,12 @@
 // GLOOK-58 Decision 15: coveredWeeks and anchorWeek through the REAL SQLite driver, so the status
-// filter, the per-login EXISTS and the timestamp parsing run against real rows, not positional
-// mocks. Env set/restore copied from cc-apply-breakdowns.test.ts. Timestamps are inserted as
-// absolute instants (…Z), so the expected keys hold on any host zone, CI's UTC included; the
-// zone-less SQLite form is pinned in report-coverage.test.ts.
+// filter and the timestamp parsing run against real rows, not positional mocks. Env set/restore
+// copied from cc-apply-breakdowns.test.ts. Timestamps are inserted as absolute instants (…Z), so
+// the expected keys hold on any host zone, CI's UTC included; the zone-less SQLite form is pinned
+// in report-coverage.test.ts.
+//
+// Product owner revision (2026-09-28, e4913aa): the dev page now uses the SAME org-level coverage
+// as the org page, not a per-login EXISTS(developer_stats) filter. A developer's vacation week in
+// a covered report now reads a measured 0, not "Not measured".
 jest.mock('@octokit/rest', () => ({ Octokit: jest.fn().mockImplementation(() => ({})) }));
 // org.ts / dev.ts → ./service → @/lib/report-runner pulls in the ESM-only p-limit package.
 jest.mock('@/lib/report-runner', () => ({ runReport: jest.fn().mockResolvedValue(undefined), requestStop: jest.fn() }));
@@ -64,9 +68,12 @@ const REPORTS: Array<[string, string, number, string, string, string | null]> = 
   ['rNarrow', 'acme-narrow', 14, 'completed', '2026-03-15T20:00:00Z', '2026-03-16T03:00:00Z'],
 ];
 // alice: rA (completed), rFailed (failed), rPending (pending). bob: rA and rB (both completed).
-// carol: only rFailed, so no completed report holds her row.
+// carol: only rFailed. dana: only rAdj1, one of the two acme-adjoin reports — used below to prove
+// the vacation case (dana has no row in rAdj2, whose week must still show up as measured for her).
+// eve: only rGammaFailed, gamma's one report, which never completed.
 const DEV_ROWS: Array<[string, string]> = [
   ['rA', 'alice'], ['rA', 'bob'], ['rB', 'bob'], ['rFailed', 'alice'], ['rPending', 'alice'], ['rFailed', 'carol'],
+  ['rAdj1', 'dana'], ['rGammaFailed', 'eve'],
 ];
 
 beforeAll(async () => {
@@ -163,19 +170,32 @@ describe('getOrgReport coverage', () => {
 });
 
 describe('getDevReport coverage', () => {
-  it('counts only completed reports that hold a developer_stats row for this login', async () => {
-    // alice's failed and pending reports add nothing; bob's rB is not hers.
+  it("the dev page's coveredWeeks equals the org page's for the same org, regardless of this login's own rows", async () => {
+    expect((await getDevReport('rA', 'alice')).coveredWeeks).toEqual((await getOrgReport('rA')).coveredWeeks);
     expect((await getDevReport('rA', 'alice')).coveredWeeks).toEqual(['2026-03-09']);
   });
 
-  it("a login's row in a report resumed far later adds no extra weeks, even though bob has a row there too", async () => {
-    // bob has developer_stats rows in both rA (quick, contributes the week of Mar 9) and rB
-    // (resumed far later, empty window, contributes nothing). The result is rA's week alone.
-    expect((await getDevReport('rA', 'bob')).coveredWeeks).toEqual(['2026-03-09']);
+  it('a developer with NO developer_stats row in a covered report still gets that report\'s covered weeks (the vacation case)', async () => {
+    // dana has a developer_stats row only in rAdj1. rAdj1 alone would only cover the week of Jun 29
+    // (see report-coverage.test.ts's mid-day-union case); the week of Jul 13 is contributed solely
+    // by rAdj2, a completed report in the same org where dana made no commits at all — her vacation
+    // week. Org-level coverage still lists it as measured for her.
+    const { coveredWeeks } = await getDevReport('rAdj1', 'dana');
+    expect(coveredWeeks).toEqual((await getOrgReport('rAdj1')).coveredWeeks);
+    expect(coveredWeeks).toEqual(['2026-06-29', '2026-07-06', '2026-07-13']);
+    expect(coveredWeeks).toContain('2026-07-13');
   });
 
-  it('a login with no developer_stats row in any completed report has no covered weeks', async () => {
-    expect((await getDevReport('rFailed', 'carol')).coveredWeeks).toEqual([]);
+  it('a failed report still contributes nothing, on the dev page same as the org page', async () => {
+    // carol's only row is on rFailed itself (failed), which contributes no coverage. rA, a
+    // completed report in the same org, still shows up — that's org-level coverage, not carol's own.
+    expect((await getDevReport('rFailed', 'carol')).coveredWeeks).toEqual((await getOrgReport('rFailed')).coveredWeeks);
+    expect((await getDevReport('rFailed', 'carol')).coveredWeeks).toEqual(['2026-03-09']);
+  });
+
+  it('an org with no completed reports gives the dev page no covered weeks either', async () => {
+    expect((await getDevReport('rGammaFailed', 'eve')).coveredWeeks).toEqual((await getOrgReport('rGammaFailed')).coveredWeeks);
+    expect((await getDevReport('rGammaFailed', 'eve')).coveredWeeks).toEqual([]);
   });
 
   it("anchorWeek follows the viewed report's status: completed_at if completed, created_at otherwise", async () => {
