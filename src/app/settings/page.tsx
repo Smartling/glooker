@@ -5,6 +5,7 @@ import { useTheme } from '../theme-context';
 import { THEMES, type ThemeColors } from '../themes';
 import { useAuth } from '../auth-context';
 import ProjectsTab from './projects-tab';
+import VulnScheduleRow from './vuln-schedule-row';
 
 type Tab = 'schedules' | 'teams' | 'projects' | 'app' | 'appearance' | 'cc-spend' | 'skip-allowlist';
 
@@ -381,6 +382,8 @@ function SchedulesTab() {
           </div>
         </div>
       )}
+
+      <VulnScheduleRow />
     </div>
   );
 }
