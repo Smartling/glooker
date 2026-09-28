@@ -47,11 +47,21 @@ export function ChartAccentPicker() {
                 }`}
               >
                 <p className={`text-sm font-bold mb-2 ${isLight ? 'text-gray-900' : 'text-white'}`}>{opt.label}</p>
+                {isActive && (
+                  <p aria-hidden="true" className={`text-[10px] ${isLight ? 'text-gray-400' : 'text-gray-500'}`}>
+                    Active
+                  </p>
+                )}
                 <div className="flex items-end gap-1 h-8 rounded p-1.5" style={{ background: 'var(--chart-surface)' }}>
                   {[0.5, 0.8, 0.4, 1, 0.65].map((h, i) => (
                     <div key={i} className="flex-1 rounded-sm" style={{ height: `${h * 100}%`, background: opt.colorVar }} />
                   ))}
                 </div>
+                {opt.value === 'deep' && isLight && (
+                  <p aria-hidden="true" className="text-[10px] text-gray-400 mt-2">
+                    Same as Vivid on light themes
+                  </p>
+                )}
               </div>
             </label>
           );
