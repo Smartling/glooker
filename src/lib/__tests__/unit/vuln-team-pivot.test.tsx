@@ -153,7 +153,7 @@ describe('row selection', () => {
 
     rerender(<TeamPivot rows={rows as any} total={total as any} delta={null} highSlaActive={false} resolvedSince={{ date: '2020-01-08', invalid: false }} onSelectTeam={onSelectTeam} selectedTeam="TeamA" />);
     const teamARow = screen.getByText('TeamA').closest('tr')!;
-    expect(teamARow.className).toContain('bg-indigo-500/10');
+    expect(teamARow.className).toContain('bg-accent/10');
 
     fireEvent.click(screen.getByText('TeamA'));
     expect(onSelectTeam).toHaveBeenLastCalledWith(null);

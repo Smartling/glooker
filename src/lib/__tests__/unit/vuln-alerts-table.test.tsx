@@ -50,10 +50,10 @@ it('filter chips report immediately; search debounces ~300ms after the last keys
   }
 });
 
-it('Repo and Team columns sort independently', () => {
+it('Repo and Owning team columns sort independently', () => {
   const { rows } = listAlerts([A(1, 1), A(2, 1)], [R(1, 'Zeta'), R(2, 'Alpha')], { codebase: 'backend', state: 'open' }, new Date('2026-09-22T00:00:00Z'));
   render(<AlertsTable rows={rows} totalCount={2} truncated={false} filters={F} onFiltersChange={() => {}} />);
-  fireEvent.click(screen.getByText('Team'));
+  fireEvent.click(screen.getByText('Owning team'));
   const body = screen.getAllByRole('row').slice(1);
   expect(within(body[0]).getByText('Alpha')).toBeTruthy();
   fireEvent.click(screen.getByText('Repo'));

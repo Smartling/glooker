@@ -77,7 +77,7 @@ it('choosing a team in the dropdown puts team=<name> into the alerts, summary an
   (global as any).fetch = fetchMock;
   render(wrap(<VulnerabilitiesContent />));
 
-  const select = await screen.findByLabelText('Team') as HTMLSelectElement;
+  const select = await screen.findByLabelText('Owning team') as HTMLSelectElement;
   fireEvent.change(select, { target: { value: 'Team A' } });
 
   await waitFor(() => {
@@ -90,13 +90,13 @@ it('choosing a team in the dropdown puts team=<name> into the alerts, summary an
   expect(coverageUrls.some(u => urlTeam(u) === 'Team A')).toBe(true);
 });
 
-it('"All teams" removes the team filter, the same effect as clicking "clear" after a pivot-row click', async () => {
+it('"All owning teams" removes the team filter, the same effect as clicking "clear" after a pivot-row click', async () => {
   (jest.requireMock('next/navigation') as any).__resetSearch('team=Team+A');
   const fetchMock = makeFetchMock();
   (global as any).fetch = fetchMock;
   render(wrap(<VulnerabilitiesContent />));
 
-  const select = await screen.findByLabelText('Team') as HTMLSelectElement;
+  const select = await screen.findByLabelText('Owning team') as HTMLSelectElement;
   expect(select.value).toBe('Team A');
   fireEvent.change(select, { target: { value: '' } });
 
@@ -112,6 +112,6 @@ it('the dropdown shows the team already selected via the URL', async () => {
   (global as any).fetch = fetchMock;
   render(wrap(<VulnerabilitiesContent />));
 
-  const select = await screen.findByLabelText('Team') as HTMLSelectElement;
+  const select = await screen.findByLabelText('Owning team') as HTMLSelectElement;
   expect(select.value).toBe('Team B');
 });

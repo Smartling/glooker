@@ -24,7 +24,7 @@ export function alertFilterQuery(f: AlertListUiFilters): string {
 }
 
 type SortKey = 'repo' | 'team' | null;
-const chip = (on: boolean) => `px-2 py-0.5 rounded-full text-[11px] border ${on ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-700 text-gray-400'}`;
+const chip = (on: boolean) => `px-2 py-0.5 rounded-full text-[11px] border ${on ? 'bg-accent border-accent text-white' : 'border-gray-700 text-gray-400'}`;
 
 export default function AlertsTable({ rows, totalCount, truncated, filters, onFiltersChange, stale, error, loading, team, teams, onTeamChange, slaStatus, policy, policyInvalid, repos }: {
   rows: AlertRow[]; totalCount: number; truncated: boolean;
@@ -158,9 +158,9 @@ export default function AlertsTable({ rows, totalCount, truncated, filters, onFi
         <input placeholder="Search CVE, GHSA, package, repo" value={qLocal} onChange={e => setQLocal(e.target.value)}
           className="flex-1 min-w-[180px] bg-gray-900 border border-gray-700 rounded text-xs text-gray-200 px-2 py-1" />
         {onTeamChange && (
-          <select aria-label="Team" value={team ?? ''} onChange={e => onTeamChange(e.target.value || null)}
+          <select aria-label="Owning team" value={team ?? ''} onChange={e => onTeamChange(e.target.value || null)}
             className="bg-gray-900 border border-gray-700 rounded text-xs text-gray-300 px-2 py-1">
-            <option value="">All teams</option>
+            <option value="">All owning teams</option>
             {(teams ?? []).map(t => <option key={t} value={t}>{t}</option>)}
           </select>
         )}
@@ -206,7 +206,7 @@ export default function AlertsTable({ rows, totalCount, truncated, filters, onFi
                   <th className="px-2 py-1 text-left font-medium">CVE / advisory</th>
                   <th className="px-2 py-1 text-left font-medium">Package</th>
                   <th className="px-2 py-1 text-left font-medium cursor-pointer" onClick={() => toggleSort('repo')}>Repo{sort === 'repo' ? (dir === 1 ? ' ▲' : ' ▼') : ''}</th>
-                  <th className="px-2 py-1 text-left font-medium cursor-pointer" onClick={() => toggleSort('team')}>Team{sort === 'team' ? (dir === 1 ? ' ▲' : ' ▼') : ''}</th>
+                  <th className="px-2 py-1 text-left font-medium cursor-pointer" onClick={() => toggleSort('team')}>Owning team{sort === 'team' ? (dir === 1 ? ' ▲' : ' ▼') : ''}</th>
                   <th className="px-2 py-1 text-left font-medium">Age</th>
                   <th className="px-2 py-1 text-left font-medium">Due</th>
                   <th className="px-2 py-1 text-left font-medium">Scope</th>
@@ -218,7 +218,7 @@ export default function AlertsTable({ rows, totalCount, truncated, filters, onFi
                   <tr key={r.htmlUrl} className="border-b border-gray-800/60">
                     <td className="px-2 py-1.5"><span className={`px-1.5 rounded text-[10px] ${r.severity === 'critical' ? 'bg-red-500/15 text-red-400' : 'bg-orange-500/15 text-orange-400'}`}>{r.severity === 'critical' ? 'CRIT' : 'HIGH'}</span></td>
                     <td className="px-2 py-1.5">
-                      <a href={r.htmlUrl} target="_blank" rel="noreferrer" className="text-indigo-400 hover:text-indigo-300 underline">{r.cveId ?? r.ghsaId}</a>
+                      <a href={r.htmlUrl} target="_blank" rel="noreferrer" className="text-accent-light hover:text-accent-lighter underline">{r.cveId ?? r.ghsaId}</a>
                       {r.cvss !== null && <span className="ml-1 text-gray-500">{Number(r.cvss).toFixed(1)}</span>}
                       {r.reopenedCount > 0 && <span title="Reopened — the original deadline still applies" className="ml-1 px-1 rounded bg-amber-500/15 text-amber-400 text-[10px]">reopened</span>}
                     </td>
@@ -242,7 +242,7 @@ export default function AlertsTable({ rows, totalCount, truncated, filters, onFi
             <div className="flex items-center gap-2 mt-1">
               <span className="text-[10px] text-gray-500">Showing {visible} of {sorted.length}</span>
               {visible < sorted.length && (
-                <button className="text-[10px] text-indigo-400" onClick={() => setVisible(v => Math.min(v + 20, sorted.length))}>Show 20 more</button>
+                <button className="text-[10px] text-accent-light" onClick={() => setVisible(v => Math.min(v + 20, sorted.length))}>Show 20 more</button>
               )}
             </div>
           )}
@@ -301,7 +301,7 @@ export function AlertsPanel({ data, error, isLoading, filters, onFiltersChange, 
       <div className="flex items-center gap-2 mb-2">
         <h2 className="text-sm text-white">Alerts</h2>
         <span className="text-xs text-gray-500">· filtered by the codebase chips and team row above</span>
-        {stale && <span className="text-[11px] text-indigo-400">Updating…</span>}
+        {stale && <span className="text-[11px] text-accent-light">Updating…</span>}
       </div>
       {/* Wave E / E2 + Wave F / F1: a single AlertsTable slot for the error, loading and data
           cases — AlertsTable is mounted for the panel's whole lifetime, so the search input and

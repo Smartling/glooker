@@ -12,7 +12,7 @@ function List({ title, rows, note }: { title: string; rows: CoverageRow[]; note?
         <table className="w-full text-[11px] text-gray-400 mt-1"><tbody>
           {rows.map(r => (
             <tr key={r.repoId} className="border-b border-gray-800/40">
-              <td className="py-1"><a className="text-indigo-400" href={`https://github.com/${r.fullName}`} target="_blank" rel="noreferrer">{r.fullName}</a></td>
+              <td className="py-1"><a className="text-accent-light" href={`https://github.com/${r.fullName}`} target="_blank" rel="noreferrer">{r.fullName}</a></td>
               <td>{r.serviceTier ?? '—'} / {r.codebaseType ?? '—'}</td><td>{r.team ?? 'Unassigned'}</td>
               <td className="text-right">{r.openCritical} crit · {r.openHigh} high</td>
               {note && <td className="pl-2 text-amber-400">{note(r)}</td>}

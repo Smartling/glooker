@@ -16,7 +16,7 @@ import { dash, signed, deltaClass, panelError, fetcher, vulnSwrOptions, resolved
 import { addDays } from '@/lib/vulnerabilities/time';
 
 const BASELINES = [['last', 'Last sync'], ['7d', '7 days'], ['30d', '30 days']] as const;
-const chip = (on: boolean) => `px-2.5 py-1 rounded-full text-xs border ${on ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-700 text-gray-400 hover:text-gray-200'}`;
+const chip = (on: boolean) => `px-2.5 py-1 rounded-full text-xs border ${on ? 'bg-accent border-accent text-white' : 'border-gray-700 text-gray-400 hover:text-gray-200'}`;
 const panel = 'border border-gray-800 rounded-lg p-3 mt-3';
 
 // J2-6: timeframe chips on the trend panel. `range` lives in URL state, default 'all'.
@@ -108,7 +108,7 @@ export default function VulnerabilitiesContent() {
           <p className="text-sm text-red-400 mt-2">{info.error}</p>
           <p className="text-xs text-gray-500 mt-1">Known teams: {info.known_teams.join(', ')}</p>
           {team && (
-            <button className="text-xs text-indigo-400 mt-3 inline-block" onClick={() => setTeam(null)}>
+            <button className="text-xs text-accent-light mt-3 inline-block" onClick={() => setTeam(null)}>
               Clear team filter
             </button>
           )}
@@ -125,7 +125,7 @@ export default function VulnerabilitiesContent() {
         <p className="text-sm text-gray-400 mt-2">{summary.reason}</p>
         <ConfigErrorBanner errors={summary.configErrors} />
         {summary.sync?.lastStatus === 'failed' && <p className="text-sm text-red-400 mt-1">The last sync failed: {summary.sync.issues?.[0]?.message}</p>}
-        <Link href="/reports?tab=syncs" className="text-xs text-indigo-400 mt-3 inline-block">Sync history →</Link>
+        <Link href="/reports?tab=syncs" className="text-xs text-accent-light mt-3 inline-block">Sync history →</Link>
       </div>
     );
   }
@@ -148,8 +148,8 @@ export default function VulnerabilitiesContent() {
         }
         badges={
           <>
-            <Link href="/reports?tab=syncs" className="text-xs text-indigo-400">sync history →</Link>
-            {summaryStale && <span className="text-[11px] text-indigo-400">Updating…</span>}
+            <Link href="/reports?tab=syncs" className="text-xs text-accent-light">sync history →</Link>
+            {summaryStale && <span className="text-[11px] text-accent-light">Updating…</span>}
           </>
         }
       >
@@ -164,7 +164,7 @@ export default function VulnerabilitiesContent() {
         <input type="date" className="bg-gray-900 border border-gray-700 rounded text-xs text-gray-300 px-2 py-1"
           value={/^\d{4}-\d{2}-\d{2}$/.test(baseline) ? baseline : ''} onChange={e => e.target.value && setBaseline(e.target.value)} />
       </div>
-      {team && <div className="mt-2 text-xs text-gray-400">Filtered to team <b className="text-white">{team}</b> <button className="text-indigo-400 ml-1" onClick={() => setTeam(null)}>clear</button></div>}
+      {team && <div className="mt-2 text-xs text-gray-400">Filtered to owning team <b className="text-white">{team}</b> <button className="text-accent-light ml-1" onClick={() => setTeam(null)}>clear</button></div>}
 
       <div className={`grid grid-cols-2 md:grid-cols-4 gap-3 mt-4${summaryStale ? ' opacity-60' : ''}`}>
         <div className={panel}><div className="text-[11px] text-gray-500">Open critical alerts</div>
@@ -193,7 +193,7 @@ export default function VulnerabilitiesContent() {
       </div>
 
       <div className={panel}>
-        <h2 className="text-sm text-white mb-2">By team <span className="text-xs text-gray-500">(click a row to filter the page)</span></h2>
+        <h2 className="text-sm text-white mb-2">By owning team <span className="text-xs text-gray-500">(click a row to filter the page)</span></h2>
         <div className={summaryStale ? 'opacity-60' : undefined}>
           <TeamPivot rows={s.pivot.rows} total={s.pivot.total} delta={s.delta} highSlaActive={s.slaStatus.high === 'active'}
             resolvedSince={s.resolvedSince} onSelectTeam={setTeam} selectedTeam={team} />
@@ -208,7 +208,7 @@ export default function VulnerabilitiesContent() {
           {TREND_RANGES.map(([v, l]) => <button key={v} className={chip(range === v)} onClick={() => setRange(v)}>{l}</button>)}
           {(() => {
             const trendErrMsg = panelError(trendError, 'trend');
-            return trendStale && !trendErrMsg ? <span className="text-[11px] text-indigo-400">Updating…</span> : null;
+            return trendStale && !trendErrMsg ? <span className="text-[11px] text-accent-light">Updating…</span> : null;
           })()}
         </div>
         {(() => {
@@ -232,7 +232,7 @@ export default function VulnerabilitiesContent() {
           <div className="flex items-center gap-2 mb-2"><h2 className="text-sm text-white">Coverage gaps</h2>
             {(() => {
               const coverageErrMsg = panelError(coverageError, 'coverage');
-              return coverageStale && !coverageErrMsg ? <span className="text-[11px] text-indigo-400">Updating…</span> : null;
+              return coverageStale && !coverageErrMsg ? <span className="text-[11px] text-accent-light">Updating…</span> : null;
             })()}
           </div>
           {(() => {
