@@ -87,6 +87,11 @@ export default function NavBar() {
         {vulnerabilitiesEnabled && (
           <Link href="/vulnerabilities" className={navItemClass(pathname.startsWith('/vulnerabilities'))}>
             Vulnerabilities
+            {config?.vulnerabilityFreshness?.lastSuccessfulAt && (
+              <span className={`text-[10px] ml-1 ${config.vulnerabilityFreshness.stale ? 'text-amber-400' : 'text-gray-600'}`}>
+                {new Date(config.vulnerabilityFreshness.lastSuccessfulAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+              </span>
+            )}
           </Link>
         )}
 

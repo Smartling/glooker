@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useUrlState } from '@/lib/url-state';
 import { CODEBASE_GROUPS, CODEBASE_LABELS } from '@/lib/vulnerabilities/codebase-labels';
 import type { CodebaseGroup } from '@/lib/vulnerabilities/types';
+import PageHeader from '@/components/PageHeader';
+import DataFreshness from '@/components/runs/DataFreshness';
 import TeamPivot from './team-pivot';
 import TrendChart from './trend-chart';
 import { AlertsPanel, alertFilterQuery, type AlertListUiFilters } from './alerts-table';
@@ -132,14 +134,27 @@ export default function VulnerabilitiesContent() {
   const dc = s.delta.critical;
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
-      <div className="flex flex-wrap items-baseline gap-2">
-        <h1 className="text-lg font-semibold text-white">Vulnerabilities · {s.org}</h1>
-        <span className={`text-xs ${s.sync.stale ? 'text-amber-400' : 'text-gray-500'}`}>last successful sync {s.sync.lastSuccessfulAt}</span>
-        <Link href="/reports?tab=syncs" className="text-xs text-indigo-400">sync history →</Link>
-        {summaryStale && <span className="text-[11px] text-indigo-400">Updating…</span>}
-      </div>
-      <ConfigErrorBanner errors={s.configErrors} />
-      {s.sync.lastStatus === 'failed' && <div className="mt-2 text-xs text-red-400 border border-red-900 rounded p-2">The latest sync failed; showing data from the last good sync. {s.sync.issues?.[0]?.message}</div>}
+      <PageHeader
+        title={`Vulnerabilities · ${s.org}`}
+        freshness={
+          <DataFreshness
+            label="last successful sync"
+            at={s.sync.lastSuccessfulAt}
+            stale={s.sync.stale}
+            latestFailed={s.sync.lastStatus === 'failed'}
+            failedText="The latest sync failed; showing data from the last good sync."
+            failedDetail={s.sync.issues?.[0]?.message}
+          />
+        }
+        badges={
+          <>
+            <Link href="/reports?tab=syncs" className="text-xs text-indigo-400">sync history →</Link>
+            {summaryStale && <span className="text-[11px] text-indigo-400">Updating…</span>}
+          </>
+        }
+      >
+        <ConfigErrorBanner errors={s.configErrors} />
+      </PageHeader>
 
       <div className="flex flex-wrap items-center gap-2 mt-4">
         <span className="text-xs text-gray-500">Codebase:</span>
