@@ -6598,3 +6598,47 @@ process.exit(ok ? 0 : 1);
     6. Run `git status --short`. Expected: no output, a clean tree. The screenshot and scripts live in the scratchpad, not the repo.
 
     Report the tooltip text, the screenshot path and the `git status` result.
+
+---
+
+### Task 15: Chart color preference (spec Decision 16)
+
+Added 2026-09-28 after deploy feedback. Spec and plan phases combined for this small follow-up: spec **Decision 16** is the requirement; this task is its execution recipe.
+
+**Files:**
+- Modify: `src/app/themes.ts`, `src/app/theme-context.tsx`, `src/app/globals.css`, `src/components/charts/timeline-chart.tsx`, `src/app/settings/page.tsx`
+- Create: `src/app/settings/chart-accent-picker.tsx` (a `page.tsx` may export only `default`, so the control lives in a sibling module)
+- Test: `src/lib/__tests__/unit/chart-accent-pref.test.ts`, `src/lib/__tests__/unit/chart-accent-picker.test.tsx`; update `timeline-chart.test.tsx` and, if needed, `chart-tokens-css.test.ts`
+
+**Interfaces (produces):**
+- `themes.ts`: `export type ChartAccent = 'vivid' | 'soft' | 'deep'`, `export const CHART_ACCENTS: readonly ChartAccent[]`, `getSavedChartAccent(): ChartAccent`, `saveChartAccent(a: ChartAccent): void`, `applyChartAccent(a: ChartAccent): void` (sets `data-chart-accent` on `document.documentElement`).
+- `theme-context.tsx`: the context value gains `chartAccent: ChartAccent` and `setChartAccent(a: ChartAccent)`; the provider applies the saved value in its existing mount effect.
+- `chart-accent-picker.tsx`: `export function ChartAccentPicker()` reading/writing through `useTheme()`.
+
+**Steps:**
+
+1. **Tests first (red).**
+   - `chart-accent-pref.test.ts` (jsdom): round-trip save/get; missing key → `'vivid'`; unknown string (`'loud'`) → `'vivid'`; `localStorage.getItem` throwing → `'vivid'`, and `saveChartAccent` swallowing a throwing `setItem`; `applyChartAccent('soft')` sets `document.documentElement.dataset.chartAccent === 'soft'`.
+   - `chart-accent-picker.test.tsx` (jsdom): render inside `ThemeProvider`; three options labelled Vivid, Soft, Deep; Vivid is selected (`aria-checked="true"`) by default; clicking Deep selects it, writes `glooker-chart-accent=deep` to `localStorage`, and sets `data-chart-accent="deep"` on `<html>`; with `deep` pre-saved, a fresh provider mount applies `data-chart-accent="deep"`.
+   - `timeline-chart.test.tsx`: the three `'var(--accent)'` fill assertions become `'var(--chart-accent)'`; add one assertion that the hatch pattern's `<line>` stroke is `var(--chart-accent)`.
+   - CSS guard (extend `chart-tokens-css.test.ts` or add to the pref test by reading `globals.css`): `--chart-accent: var(--accent)` is defined under `:root` and under `[data-theme-mode="light"]`; `:root[data-chart-accent="soft"]` sets `--chart-accent: color-mix(in srgb, var(--accent) 70%, var(--chart-surface))`; `:root[data-chart-accent="deep"]` sets `--chart-accent: var(--accent-dark)`.
+   - Run them; confirm they fail for the right reason.
+
+2. **`themes.ts`.** Add the type, `CHART_ACCENTS = ['vivid', 'soft', 'deep'] as const`, key `'glooker-chart-accent'`. `getSavedChartAccent` returns `'vivid'` when `typeof window === 'undefined'`, when storage throws, or when the value isn't in `CHART_ACCENTS`. `saveChartAccent` wraps `setItem` in try/catch. `applyChartAccent` sets `document.documentElement.setAttribute('data-chart-accent', a)`. Don't touch `applyTheme`.
+
+3. **`theme-context.tsx`.** Add `chartAccent` state (initial `'vivid'`), read and apply the saved value in the existing mount `useEffect`, and a `setChartAccent` that sets state, saves and applies. Add both to the context default (`chartAccent: 'vivid'`, no-op setter).
+
+4. **`globals.css`.** Add `--chart-accent: var(--accent);` to the dark `:root` chart-token block and to the `[data-theme-mode="light"]` chart-token block. After the light block, add:
+   ```css
+   /* GLOOK-58 Decision 16: user-selected chart color. (0,2,0) beats both mode blocks. */
+   :root[data-chart-accent="soft"] { --chart-accent: color-mix(in srgb, var(--accent) 70%, var(--chart-surface)); }
+   :root[data-chart-accent="deep"] { --chart-accent: var(--accent-dark); }
+   ```
+
+5. **`timeline-chart.tsx`.** `useHatch('var(--chart-accent)')` and the shipped `<Bar fill="var(--chart-accent)">`. Update any comment that says the bars are the accent.
+
+6. **`chart-accent-picker.tsx` + `settings/page.tsx`.** A `'use client'` component: heading "Chart colors" in the same style as the Dark/Light `h3`s, a one-line help text — "Calmer options for the weekly activity charts. Soft and Deep can be harder to read on some themes." — and a `role="radiogroup"` of three `role="radio"` buttons with `aria-checked`. Each button shows its label and a mini preview of 4–5 small bars whose `background` is that option's colour (`var(--accent)`, `color-mix(in srgb, var(--accent) 70%, var(--chart-surface))`, `var(--accent-dark)`) on a `var(--chart-surface)` tile, so the user sees the effect in the current theme. Match the ThemeCard selected/unselected border styling, including its light-mode branch (`theme.mode`). In `AppearanceTab`, render `<ChartAccentPicker />` after the Light grid, with `mt-8`.
+
+7. **Verify.** Targeted tests green; full suite (`npx jest`); `npx tsc --noEmit`; `npm run build` (catches a stray `page.tsx` export) then `rm -rf .next`. Mutation check: revert the timeline `fill` to `var(--accent)` by Edit, confirm the timeline test fails, restore by Edit; remove the `deep` CSS rule by Edit, confirm the CSS guard fails, restore. `git diff --stat` shows only intended files.
+
+8. **Commit:** `GLOOK-58: chart colors setting (Vivid, Soft, Deep) for the weekly timelines`.

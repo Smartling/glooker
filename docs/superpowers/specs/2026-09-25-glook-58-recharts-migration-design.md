@@ -69,7 +69,7 @@ Libraries evaluated on 2026-09-25 against GitHub, npm and official docs:
 4. **`THEMES = { dark: "", light: '[data-theme-mode="light"]' }`.** The app's unscoped styles are dark, and light is the override. Renaming shadcn's `.dark` key directly would invert every chart. `applyTheme()` (`src/app/themes.ts:93-104`) sets `data-theme-mode` on `<html>`. There is no system mode.
 5. **No literal colors in chart code.** Every fill, stroke and text color comes from a CSS variable, defined under `:root` (dark) and `[data-theme-mode="light"]` (light).
 6. **Scoped token names.** The wrapper's shadcn classes (`border-border`, `bg-background`, `text-muted-foreground`, `text-foreground`) are rewritten to a `chart.*` Tailwind color namespace, so the app theme gains no generic names.
-7. **Single-metric timelines use `var(--accent)`,** so they follow the selected theme. Their in-flight segment is a diagonal hatch of the accent. This also removes the clash between today's in-flight cyan and Midnight Teal's accent.
+7. **Single-metric timelines use `var(--accent)`,** so they follow the selected theme. Their in-flight segment is a diagonal hatch of the accent. This also removes the clash between today's in-flight cyan and Midnight Teal's accent. *(Amended 2026-09-28 by Decision 16: they read `var(--chart-accent)`, which equals `var(--accent)` unless the user picks a calmer chart color.)*
 8. **Multi-series charts use fixed semantic colors.** This covers commit types, lines added and removed, and the two `ProgressRing` arcs. Each has a dark step and a light step. Bug stays red and feature stays blue in every theme.
 9. **In-flight is always hatched.** This holds in every chart that shows it: the single-metric timelines, `StackedTypesChart`, `LinesChangedChart`, and the donut's `in_flight` wedge and legend swatch. In multi-series charts the hatch uses the in-flight token color, and in single-metric timelines it uses the accent. The pattern is a second visual cue, so in-flight is never shown by color alone. The mechanics are in [Hatch](#hatch).
 10. **Bars are placed by date, and the fill depends on the metric kind.** `aggregateWeekly` (`src/lib/report/timeline.ts:135`) emits **only weeks that have commits**. Its ratios come back as `0` when the denominator is zero, for example `avgLinesPerPr` at `:142`. `buildWeekDomain` returns every Monday-anchored week from the 90-day cutoff to the anchor week, which is the report's own week under Decision 15. `TimelineChart` then fills it according to a `kind` prop:
@@ -174,6 +174,27 @@ Libraries evaluated on 2026-09-25 against GitHub, npm and official docs:
     - Viewing a report from July no longer shows commits that later reports gathered in September. The pages show "the 90 days up to this report" by design.
     - The "Download PDF" print of a historical report matches its era.
     - Weeks covered by only part of a report's period, and a developer's idle weeks, read "Not measured" even though some measurement happened. That's the price of never over-claiming.
+16. **Users can pick a calmer chart color in Settings → Appearance.** *(Added 2026-09-28, approved by the product owner after deploy feedback.)*
+
+    **Why.** Feedback from the dev deploy: on dark themes, and on Amber Glow especially, the primary color "screams". Under Decision 7 every single-metric timeline draws a solid accent, which means five charts on the org page and six on the dev page. Main drew each one in a different hue at 70% opacity. Amber Glow's accent has the highest contrast of the ten themes: 5.57:1 against `#111827`, when a mark needs only 3:1.
+
+    **What.** A "Chart colors" control in Settings → Appearance, below the theme cards, with three options:
+
+    | Option | `--chart-accent` | Contrast vs. the card surface |
+    |---|---|---|
+    | **Vivid** (default) | `var(--accent)` | ≥ 3:1 on all ten themes (unchanged, still guarded) |
+    | **Soft** | `color-mix(in srgb, var(--accent) 70%, var(--chart-surface))` | 2.13–3.33:1; main's 70%-opacity look |
+    | **Deep** | `var(--accent-dark)` | 2.50–3.53:1 on dark themes, 5.48–7.09:1 on light ones |
+
+    - **Scope:** only the accent-driven marks change, meaning `TimelineChart`'s bars and its in-flight hatch. Multi-series charts keep their semantic tokens (Decision 8). The rest of the UI keeps `--accent`.
+    - **Storage:** the choice is saved in `localStorage` under `glooker-chart-accent`, beside `glooker-theme`. It is per browser, like the theme. There's no DB or API change. A missing, unknown or unreadable value means Vivid.
+    - **Mechanism:** the theme provider sets `data-chart-accent="vivid|soft|deep"` on `<html>`, the same way `applyTheme` sets `data-theme-mode`. `globals.css` maps the attribute to `--chart-accent`, defaulting to `var(--accent)`. It's pure CSS, so a theme switch re-resolves it with no re-render.
+    - **Contrast:** Vivid stays the default and keeps the Decision 14 floor. Soft and Deep are opt-in, and on some themes they fall below 3:1. The user trades legibility for calm, and the control's help text says so. The contrast guard keeps testing Vivid. It doesn't test the opt-in options.
+    - **Rejected:**
+      - A toggle on the chart section. It clutters two pages and needs its own persistence.
+      - Per-theme chart defaults. That's the ideal long-term shape, and it can be layered on later without undoing this.
+      - Opacity instead of `color-mix`. The hatch stripes and legend swatches wouldn't follow it.
+      - Keeping main's hover brightening. Recharts' cursor band already marks the hovered week.
 
 ## Architecture
 
@@ -204,6 +225,7 @@ Libraries evaluated on 2026-09-25 against GitHub, npm and official docs:
   - The client: `chart-format.ts` (`fillWeeks`'s `covered` option and `weekDomainEndingAt`), plus the three charts' rows, tooltips and empty-state text.
   - The org and dev pages read `coveredWeeks` and `anchorWeek` from the response and pass them to their charts.
 
+- **Decision 16:** `src/app/themes.ts` (the chart-accent type, get/save/apply helpers), `src/app/theme-context.tsx` (state plus setter, applied on mount), `src/app/globals.css` (`--chart-accent` and its three rules), `src/components/charts/timeline-chart.tsx` (bars and hatch read `var(--chart-accent)`), and `src/app/settings/page.tsx` (the control in `AppearanceTab`).
 - **`src/app/vulnerabilities/vulnerabilities-content.tsx`.** Builds `colorByTeam` from the unfiltered series (Decision 11).
 - **`src/app/report/[id]/team/dev-table.tsx`.** Its type badges read `commit-types.ts`.
 - **Non-chart bars, colors only.** `src/components/ProjectsCard.tsx`, `src/app/reports/page.tsx` and `src/app/reports/vulnerability-syncs-tab.tsx`.
@@ -231,6 +253,7 @@ Each token is defined under `:root` (dark) and redefined under `[data-theme-mode
 - **Scatter:** `--chart-scatter-typical`, `--chart-scatter-outlier`.
 - **Volume bar** (`ProjectsCard`): `--chart-volume-prs`, `--chart-volume-jiras`, `--chart-volume-commits`. Today's white-alpha commits segment is invisible in light mode.
 - **Ring:** `--chart-ring-jira`, `--chart-ring-commits`.
+- **Timeline accent (Decision 16):** `--chart-accent`, defined in both modes as `var(--accent)`. `:root[data-chart-accent="soft"]` and `:root[data-chart-accent="deep"]` override it; their `(0,2,0)` specificity beats both mode blocks.
 - **Reused unchanged:** `--vuln-series-1..12`, `--vuln-series-other`, `--accent`.
 
 `tailwind.config.ts` registers the chrome tokens under `theme.extend.colors.chart`, for example `chart-axis`.
@@ -608,7 +631,8 @@ Tests go in `src/lib/__tests__/unit/` (Jest `roots` is `src/lib`) and use the `/
 | Coverage, server (Decision 15) | Only fully covered UTC weeks are listed: a 14-day window from a Wednesday lists only the weeks all 7 of whose days are inside it. Two completed reports with a gap leave the gap's weeks out. Overlapping windows don't duplicate keys. Failed, stopped and running reports add nothing. A window is `[completed_at − period_days, created_at]`: a long run doesn't claim its own tail, and a report resumed long after creation contributes nothing. The dev page returns the same `coveredWeeks` as the org page for the report's org. A developer with no commits in a covered week gets a measured 0, not "Not measured". Two windows meeting mid-day leave no hole. `anchorWeek` is `completed_at`'s week for a completed report and `created_at`'s otherwise, including for a resumed running report with a stale `completed_at`. An unparseable timestamp doesn't throw. No existing test asserts the exact response shape with `toEqual` in a way the additive fields would break; adjust any that does |
 | Coverage, client (Decision 15) | `measured` is true for a week with shipped data (`commits − in_flight > 0`) or in `covered`, false otherwise. An uncovered in-flight-only week is unmeasured, and its tooltip shows the in-flight count. The header's latest and change skip unmeasured weeks. Ratio `isDefined` gates key on shipped work, so a covered in-flight-only week is a gap, not 0%. `measured` is and true everywhere when `covered` is omitted, on the rows of all three charts. All three tooltips, rendered directly, read "Not measured" when `measured` is false and show values otherwise. `weekDomainEndingAt(anchorWeek)` ends at that week, and the same array reaches every chart on the page. Plus ONE real hover over an unmeasured week on the org page in headless Chrome, showing "Not measured", as part of the screenshot pass |
 | `chart-format` | Weeks are Monday-anchored; for `kind: 'count'` a missing week is `0`, and for `kind: 'ratio'` a missing week is `null`; `isDefined` returning false gives `null`; every chart on a page gets an identical week array; `toNum("12.50") === 12.5`; the formatter respects `suffix` and `decimals` |
-| `TimelineChart` | One bar per week that has a value, and gaps for `null`; the header shows the latest value and change; the hatch appears only with `inFlightValue`; bars use `var(--accent)`; two instances get different pattern IDs |
+| `TimelineChart` | One bar per week that has a value, and gaps for `null`; the header shows the latest value and change; the hatch appears only with `inFlightValue`; bars and hatch stripes use `var(--chart-accent)` (Decision 16), never `var(--accent)` directly; two instances get different pattern IDs |
+| Chart color preference (Decision 16) | The saved value round-trips through `localStorage`; a missing or unknown value, or a `localStorage` that throws, reads as `vivid`; applying it sets `data-chart-accent` on `<html>`; the provider applies the saved value on mount; the Settings control shows three options with Vivid selected by default, and clicking one saves it and sets the attribute; `globals.css` defines `--chart-accent` as `var(--accent)` in both modes, and the `soft` and `deep` rules resolve to the table's values |
 | `CommitTypeDonut` | The legend shows count and % with no hover; a total of 0 shows the empty state; hovering changes the center label, which stays chrome-colored; the `in_flight` wedge uses a pattern fill |
 | `LinesChangedChart` | Removed lines render below the zero baseline, and the zero reference line is present |
 | `TrendChart` | Colors are distinct; a team keeps its color after filtering and after a rank swap (tested through `assignTeamColors` and the caller) |
@@ -624,7 +648,7 @@ Tests go in `src/lib/__tests__/unit/` (Jest `roots` is `src/lib`) and use the `/
 3. **Contrast.** In the style of `vuln-series-contrast.test.ts`, this test covers every threshold in Decision 14:
    - The fixed palettes at 3:1 against the card surface in each mode.
    - The ring colors at 3:1 against `--chart-track`.
-   - All ten theme accents at 3:1 against their own mode's surface.
+   - All ten theme accents at 3:1 against their own mode's surface. This is the Vivid default of `--chart-accent`. The opt-in Soft and Deep options aren't held to it (Decision 16).
    - `--chart-axis` at 4.5:1 against the card, and `--chart-tooltip-text` at 4.5:1 against `--chart-tooltip-bg`.
    - Badge text at 4.5:1 against its badge fill, for all 8 commit types in both modes.
    - `--chart-grid` and `--chart-tooltip-border` are exempt (Decision 14).
