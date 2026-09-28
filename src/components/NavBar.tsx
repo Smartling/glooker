@@ -91,7 +91,7 @@ export default function NavBar() {
         )}
 
         <Link href="/reports" className={navItemClass(pathname.startsWith('/reports'))}>
-          Report History
+          Runs
         </Link>
       </div>
 
