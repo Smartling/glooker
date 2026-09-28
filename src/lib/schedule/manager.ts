@@ -115,7 +115,7 @@ async function triggerSchedule(schedule: Schedule): Promise<void> {
     // Create a new report
     const reportId = uuidv4();
     await db.execute(
-      `INSERT INTO reports (id, org, period_days, status) VALUES (?, ?, ?, 'pending')`,
+      `INSERT INTO reports (id, org, period_days, status, trigger_kind) VALUES (?, ?, ?, 'pending', 'schedule')`,
       [reportId, org, period_days],
     );
     initProgress(reportId);

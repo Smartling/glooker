@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS reports (
   status       ENUM('pending','running','completed','failed','stopped') NOT NULL DEFAULT 'pending',
   error        TEXT         NULL,
   run_metadata JSON         NULL,
+  trigger_kind VARCHAR(16)  NULL,
+  triggered_by VARCHAR(255) NULL,
   created_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   completed_at TIMESTAMP    NULL
 );

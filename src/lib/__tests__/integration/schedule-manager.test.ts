@@ -174,6 +174,7 @@ describe('schedule-manager', () => {
         (call: any[]) => typeof call[0] === 'string' && call[0].includes('INSERT INTO reports'),
       );
       expect(insertCall).toBeTruthy();
+      expect(insertCall[0]).toContain("'schedule'");
       expect(initProgress).toHaveBeenCalledWith('mock-uuid-1234');
       expect(runReport).toHaveBeenCalled();
     });

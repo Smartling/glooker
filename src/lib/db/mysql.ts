@@ -406,6 +406,13 @@ export function createMySQLDB(): DB {
   await pool.execute('ALTER TABLE reports ADD COLUMN run_metadata JSON NULL').catch((err) => {
     if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add run_metadata:', err);
   });
+  // GLOOK-59: who/what started a report, for the shared run card. NULL on pre-existing rows.
+  await pool.execute('ALTER TABLE reports ADD COLUMN trigger_kind VARCHAR(16) NULL').catch((err) => {
+    if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add trigger_kind:', err);
+  });
+  await pool.execute('ALTER TABLE reports ADD COLUMN triggered_by VARCHAR(255) NULL').catch((err) => {
+    if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add triggered_by:', err);
+  });
   // GLOOK-38: per-team board config lives in the jira_projects table.
   // `teams.board_config` never existed outside this branch (added and
   // dropped within it, before any release) — no DROP is needed.
