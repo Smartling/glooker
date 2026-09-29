@@ -43,7 +43,7 @@ function StatCell({ label, value }: { label: string; value: React.ReactNode }) {
 
 function ReportCard({
   r, canAct, isDeleting, onResume, onStop, onDeleteClick, onConfirmDelete, onCancelDelete,
-  isExpanded, onToggle, stats, wasObservedRunning, listMutate, anyRunning,
+  isExpanded, onToggle, stats, wasObservedRunning, listMutate, anyRunning, onRearmProgress,
 }: {
   r: ReportListRow;
   canAct: boolean;
@@ -59,12 +59,29 @@ function ReportCard({
   wasObservedRunning: boolean;
   listMutate: () => void;
   anyRunning: boolean;
+  // Called the moment this row's status transitions into running/pending (a Resume that succeeded,
+  // or a fresh run reusing this id) — clears the shared `finishedFired` guard for this id.
+  onRearmProgress: () => void;
 }) {
   const isRunningNow = r.status === 'running' || r.status === 'pending';
   const showProgress = isRunningNow || wasObservedRunning;
-  const { data: progress } = useReportProgress(r.id, showProgress, listMutate);
+  const { data: progress, mutate: mutateProgress } = useReportProgress(r.id, showProgress, listMutate);
   const { status, label } = fromReportStatus(r.status);
   const canResume = (r.status === 'failed' || r.status === 'stopped') && !anyRunning;
+
+  // GLOOK-59 final-fix item 1: Resume (or a new run reusing this id) leaves the progress SWR key
+  // unchanged — its cached data is still stopped/failed, so `refreshInterval` reads 0 and nothing
+  // re-polls, and the hook's once-guard plus the shared `finishedFired` set already hold this id
+  // from the earlier finish. On the observable transition into running/pending, re-arm the shared
+  // guard and force a real revalidation of the progress key so the card starts polling again.
+  const wasRunningRef = useRef(isRunningNow);
+  useEffect(() => {
+    if (isRunningNow && !wasRunningRef.current) {
+      onRearmProgress();
+      mutateProgress();
+    }
+    wasRunningRef.current = isRunningNow;
+  }, [isRunningNow, onRearmProgress, mutateProgress]);
 
   const progressView: RunProgressView | null = progress ? {
     step: progress.step,
@@ -428,6 +445,7 @@ export default function ReportsTab({ canAct, observedRunning, finishedFired }: {
             wasObservedRunning={observedRunning.has(r.id)}
             listMutate={() => handleFinish(r.id)}
             anyRunning={anyRunning}
+            onRearmProgress={() => finishedFiredSet.delete(r.id)}
           />
         ))}
       </div>

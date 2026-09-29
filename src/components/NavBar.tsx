@@ -89,7 +89,7 @@ export default function NavBar() {
             Vulnerabilities
             {config?.vulnerabilityFreshness?.lastSuccessfulAt && (
               <span className={`text-[10px] ml-1 ${config.vulnerabilityFreshness.stale ? 'text-amber-400' : 'text-gray-600'}`}>
-                {new Date(config.vulnerabilityFreshness.lastSuccessfulAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                {new Date(config.vulnerabilityFreshness.lastSuccessfulAt).toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' })}
               </span>
             )}
           </Link>

@@ -30,7 +30,13 @@ export function useReportProgress(id: string, enabled: boolean, onFinish: () => 
       refreshInterval: (latest?: ReportProgress) =>
         (!latest || latest.status === 'running' || latest.status === 'pending') ? 1500 : 0,
       onSuccess: (data) => {
-        if (data.status !== 'running' && data.status !== 'pending' && !firedOnce.current) {
+        // Re-arm on a running/pending fetch (e.g. after Resume revalidates this key) so a later
+        // finish fires `onFinish` again instead of staying silenced by an earlier run's guard.
+        if (data.status === 'running' || data.status === 'pending') {
+          firedOnce.current = false;
+          return;
+        }
+        if (!firedOnce.current) {
           firedOnce.current = true;
           onFinish();
         }

@@ -141,7 +141,10 @@ export default function VulnerabilitiesContent() {
             label="last successful sync"
             at={s.sync.lastSuccessfulAt}
             stale={s.sync.stale}
-            latestFailed={s.sync.lastStatus === 'failed'}
+            // Label only here — this row shares a flex line with `badges` and has no wrap, so the
+            // failed-sync banner is rendered separately below (bannerOnly, in `children`) instead of
+            // being squeezed into this row (GLOOK-59 final fix item 2).
+            latestFailed={false}
             failedText="The latest sync failed; showing data from the last good sync."
             failedDetail={s.sync.issues?.[0]?.message}
           />
@@ -153,6 +156,15 @@ export default function VulnerabilitiesContent() {
           </>
         }
       >
+        <DataFreshness
+          label="last successful sync"
+          at={s.sync.lastSuccessfulAt}
+          stale={s.sync.stale}
+          latestFailed={s.sync.lastStatus === 'failed'}
+          failedText="The latest sync failed; showing data from the last good sync."
+          failedDetail={s.sync.issues?.[0]?.message}
+          bannerOnly
+        />
         <ConfigErrorBanner errors={s.configErrors} />
       </PageHeader>
 

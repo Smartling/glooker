@@ -29,6 +29,13 @@ it('flags a latest failed run and is not stale without schedules', async () => {
   });
 });
 
+it('is not failed when the latest run is stopped', async () => {
+  route([{ created_at: '2026-09-20T10:00:00Z' }], [{ status: 'stopped' }], []);
+  expect(await getReportFreshness(now)).toEqual({
+    latestCompletedAt: '2026-09-20T10:00:00Z', latestRunStatus: 'stopped', latestRunFailed: false, stale: false,
+  });
+});
+
 it('is stale when the latest completed report is older than the schedule allows', async () => {
   route([{ created_at: '2026-09-20T10:00:00Z' }], [{ status: 'completed' }],
     [{ cron_expr: '0 9 * * *', timezone: 'America/New_York', enabled: 1 }]);

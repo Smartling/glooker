@@ -160,6 +160,56 @@ describe('ReportsTab', () => {
     expect(mockGlobalMutate).toHaveBeenCalledTimes(1);
   }, 10_000);
 
+  it('resume revalidates a watched card\'s progress and lets the finish side effect fire again', async () => {
+    // Reproduces GLOOK-59 final-fix item 1: a card observed finished as `stopped` (both once-guards
+    // — the hook's `firedOnce` ref and the shared `finishedFired` set — already hold this id, exactly
+    // as they would after the earlier `stopped` observation). Resume succeeds, the progress endpoint
+    // starts reporting `running` again, and the card must both show live progress again and let the
+    // finish side effect (list mutate + global cache bust) fire exactly once more when it completes.
+    mockGlobalMutate.mockClear();
+    let reportStatus: 'stopped' | 'running' = 'stopped';
+    let progressCalls = 0;
+    global.fetch = mockFetch({
+      '/api/report/r1/resume': () => { reportStatus = 'running'; return { body: { resumed: true, reportId: 'r1' } }; },
+      '/api/report/r1/progress': () => {
+        progressCalls++;
+        if (progressCalls === 1) {
+          return { body: { status: 'stopped', step: 'Stopped by user', totalRepos: 0, processedRepos: 0, totalDevelopers: 5, completedDevelopers: 2 } };
+        }
+        if (progressCalls === 2) {
+          return { body: { status: 'running', step: 'Fetching commits', totalRepos: 0, processedRepos: 0, totalDevelopers: 5, completedDevelopers: 3 } };
+        }
+        return { body: { status: 'completed', step: 'Done', totalRepos: 0, processedRepos: 0, totalDevelopers: 5, completedDevelopers: 5 } };
+      },
+      '/api/report': () => ({ body: [report({ id: 'r1', status: reportStatus, completed_at: reportStatus === 'stopped' ? '2026-09-22T10:20:00Z' : null })] }),
+      '/api/schedule': () => ({ body: [] }),
+      '/api/orgs': () => ({ body: [] }),
+    }) as any;
+
+    // Same shape ReportsTabs hands down: ids seen running this session, and ids whose finish side
+    // effect already ran — pre-seeded as if the earlier `stopped` observation already fired once.
+    const observedRunning = new Set<string>(['r1']);
+    const finishedFired = new Set<string>(['r1']);
+
+    wrap(<ReportsTab canAct observedRunning={observedRunning} finishedFired={finishedFired} />);
+
+    await screen.findByText('Stopped by user');
+
+    // Past the progress hook's dedupingInterval (1000ms) — matching the precedent above — so the
+    // resume click below causes a real revalidation instead of resolving from the recent cache.
+    await new Promise((r) => setTimeout(r, 1100));
+
+    fireEvent.click(await screen.findByText('Resume'));
+
+    // The card must show live progress again, not the stale `stopped` bar.
+    await screen.findByText('Fetching commits');
+
+    // The resumed run finishes (progress endpoint moves on to `completed` on its own, via the
+    // re-armed refreshInterval poll); the finish side effect must fire again now that resume
+    // cleared both once-guards.
+    await waitFor(() => expect(mockGlobalMutate).toHaveBeenCalledTimes(1), { timeout: 3000 });
+  }, 10_000);
+
   it('hides actions and the New report button for viewers', async () => {
     global.fetch = mockFetch({
       '/api/report': () => ({ body: [report({ status: 'failed', completed_at: null })] }),

@@ -30,7 +30,7 @@ export default function PageHeader({ title, meta, freshness, badges, actions, ch
         </div>
         {actions && <div className="shrink-0">{actions}</div>}
       </div>
-      {children}
+      {children && <div className="mt-3">{children}</div>}
     </div>
   );
 }
