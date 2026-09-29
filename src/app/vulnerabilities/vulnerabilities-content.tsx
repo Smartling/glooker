@@ -11,7 +11,7 @@ import { assignTeamColors } from './team-colors';
 import { AlertsPanel, alertFilterQuery, type AlertListUiFilters } from './alerts-table';
 import CoveragePanel from './coverage-panel';
 import PolicyPanel from './policy-panel';
-import { dash, signed, deltaClass, panelError, fetcher, vulnSwrOptions, resolvedCaption } from './format';
+import { dash, signed, deltaClass, panelError, fetcher, vulnSwrOptions, resolvedCaption, deltaBaselineCaption } from './format';
 import { addDays } from '@/lib/vulnerabilities/time';
 
 const BASELINES = [['last', 'Last sync'], ['7d', '7 days'], ['30d', '30 days']] as const;
@@ -54,11 +54,11 @@ function ConfigErrorBanner({ errors }: { errors?: Array<{ source: string; variab
 }
 
 export default function VulnerabilitiesContent() {
-  const [codebase, setCodebase] = useUrlState<CodebaseGroup>({ key: 'codebase', type: 'enum', values: CODEBASE_GROUPS, default: 'backend', history: 'replace' });
-  const [baseline, setBaseline] = useUrlState<string>({ key: 'baseline', type: 'string', default: 'last', history: 'replace' });
-  const [team, setTeam] = useUrlState<string | null>({ key: 'team', type: 'string', default: null, history: 'replace' });
-  const [severity, setSeverity] = useUrlState<'critical' | 'high'>({ key: 'sev', type: 'enum', values: ['critical', 'high'] as const, default: 'critical', history: 'replace' });
-  const [range, setRange] = useUrlState<TrendRange>({ key: 'range', type: 'enum', values: ['30d', '90d', '1y', 'all'] as const, default: 'all', history: 'replace' });
+  const [codebase, setCodebase] = useUrlState<CodebaseGroup>({ key: 'codebase', type: 'enum', values: CODEBASE_GROUPS, default: 'backend', history: 'replace', scroll: false });
+  const [baseline, setBaseline] = useUrlState<string>({ key: 'baseline', type: 'string', default: 'last', history: 'replace', scroll: false });
+  const [team, setTeam] = useUrlState<string | null>({ key: 'team', type: 'string', default: null, history: 'replace', scroll: false });
+  const [severity, setSeverity] = useUrlState<'critical' | 'high'>({ key: 'sev', type: 'enum', values: ['critical', 'high'] as const, default: 'critical', history: 'replace', scroll: false });
+  const [range, setRange] = useUrlState<TrendRange>({ key: 'range', type: 'enum', values: ['30d', '90d', '1y', 'all'] as const, default: 'all', history: 'replace', scroll: false });
   const [alertFilters, setAlertFilters] = useState<AlertListUiFilters>({ state: 'open', overdue: false, dueSoon: false, reopened: false, runtimeOnly: false, q: '', repo: null });
   // J2-5: alertFilters.repo is local, alert-only state — but it must be cleared whenever the
   // page-wide team or codebase changes, and the very NEXT alerts request has to reflect that
@@ -74,6 +74,12 @@ export default function VulnerabilitiesContent() {
     if (alertFilters.repo !== null) setAlertFilters(f => ({ ...f, repo: null }));
   }
   const qs = new URLSearchParams({ codebase, baseline, ...(team ? { team } : {}) }).toString();
+  // The "By team" pivot deliberately never scopes to the selected team — selecting a row would
+  // otherwise collapse the table to that one row + Total, which both breaks the point of a
+  // selected-row highlight (nothing else to compare it against) and shrinks the page enough to
+  // move the scroll position out from under the user. Same param order/encoding as `qs` above so
+  // the two SWR keys are byte-identical (and dedupe to one request) whenever no team is selected.
+  const pivotQs = new URLSearchParams({ codebase, baseline }).toString();
   // C7: keepPreviousData on every panel, so a codebase/team/baseline change swaps the SWR key but
   // keeps rendering the previous key's data instead of blanking the section while the new key
   // loads. `isLoading` — true only for a key that has never resolved before — combined with
@@ -82,11 +88,13 @@ export default function VulnerabilitiesContent() {
   // off app-wide in `SWRProvider`) leaves `isLoading` false since that key already has data, so the
   // indicator doesn't flash on every refetch the way `isValidating` did.
   const { data: summary, error: summaryError, isLoading: summaryLoading } = useSWR(`/api/vulnerabilities/summary?${qs}`, fetcher, { keepPreviousData: true, ...vulnSwrOptions });
+  const { data: pivotSummary, error: pivotSummaryError, isLoading: pivotSummaryLoading } = useSWR(`/api/vulnerabilities/summary?${pivotQs}`, fetcher, { keepPreviousData: true, ...vulnSwrOptions });
   const trendSinceParam = trendSince(range, new Date());
   const { data: trend, error: trendError, isLoading: trendLoading } = useSWR(`/api/vulnerabilities/trend?codebase=${codebase}&severity=${severity}${trendSinceParam ? `&since=${trendSinceParam}` : ''}`, fetcher, { keepPreviousData: true, ...vulnSwrOptions });
   const { data: alerts, error: alertsError, isLoading: alertsLoading } = useSWR(`/api/vulnerabilities/alerts?codebase=${codebase}${team ? `&team=${encodeURIComponent(team)}` : ''}&${alertFilterQuery(alertFilters)}&limit=200`, fetcher, { keepPreviousData: true, ...vulnSwrOptions });
   const { data: coverage, error: coverageError, isLoading: coverageLoading } = useSWR(`/api/vulnerabilities/coverage${team ? `?team=${encodeURIComponent(team)}` : ''}`, fetcher, { keepPreviousData: true, ...vulnSwrOptions });
   const summaryStale = summaryLoading && !!summary;
+  const pivotStale = pivotSummaryLoading && !!pivotSummary;
   const trendStale = trendLoading && !!trend;
   const coverageStale = coverageLoading && !!coverage;
   // GLOOK-58 Decision 11: built from the UNFILTERED trend series, before the team filter below, so
@@ -137,6 +145,7 @@ export default function VulnerabilitiesContent() {
   const s = summary;
   const crit = s.pivot.total.critical;
   const dc = s.delta.critical;
+  const dcCaption = deltaBaselineCaption(dc);
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
       <div className="flex flex-wrap items-baseline gap-2">
@@ -156,17 +165,48 @@ export default function VulnerabilitiesContent() {
         <input type="date" className="bg-gray-900 border border-gray-700 rounded text-xs text-gray-300 px-2 py-1"
           value={/^\d{4}-\d{2}-\d{2}$/.test(baseline) ? baseline : ''} onChange={e => e.target.value && setBaseline(e.target.value)} />
       </div>
-      {team && <div className="mt-2 text-xs text-gray-400">Filtered to team <b className="text-white">{team}</b> <button className="text-indigo-400 ml-1" onClick={() => setTeam(null)}>clear</button></div>}
+      {/* Always rendered, same classes and fixed height in both states: the "Filtered to team" line used
+          to appear only with a team set, pushing everything below it down on every team change. The
+          name truncates (a long one can't wrap) and the clear button never does. */}
+      <div data-testid="team-line" className="mt-2 h-4 flex items-center text-xs leading-4 text-gray-400 whitespace-nowrap">
+        {team ? (
+          <>
+            <span className="shrink-0 whitespace-pre">Filtered to team </span>
+            <b className="min-w-0 max-w-[24rem] truncate text-white" title={team}>{team}</b>
+            <button className="ml-1 shrink-0 text-indigo-400" onClick={() => setTeam(null)}>clear</button>
+          </>
+        ) : 'Showing all teams'}
+      </div>
 
       <div className={`grid grid-cols-2 md:grid-cols-4 gap-3 mt-4${summaryStale ? ' opacity-60' : ''}`}>
         <div className={panel}><div className="text-[11px] text-gray-500">Open critical alerts</div>
           <div className="text-2xl font-semibold text-white">{dash(crit.open)} {dc.available && dc.total && <span className={`text-sm ${deltaClass(dc.total.deltaOpen)}`}>{signed(dc.total.deltaOpen)}</span>}</div>
+          {/* The caption slot always renders: a delta-less view used to be one line shorter. */}
+          <div data-testid="kpi1-caption" aria-hidden={dcCaption ? undefined : true} className="text-[11px] leading-4 text-gray-500">{dcCaption ?? '\u00a0'}</div>
           {s.kpi.openCriticalOtherCodebases !== null && <div className="text-[11px] text-gray-500">+{s.kpi.openCriticalOtherCodebases} in other codebase types</div>}</div>
         <div className={panel}><div className="text-[11px] text-gray-500">Critical: new / resolved (dismissed) / reopened</div>
-          {dc.available && dc.total
-            ? <div className="text-lg font-semibold text-white">{dc.total.new} / {dc.total.resolved} ({dc.total.dismissed}) / {dc.total.reopened}{dc.total.other !== 0 && <span className="text-xs text-gray-400"> · other {signed(dc.total.other)}</span>}</div>
-            : <div className="text-sm text-gray-500">— no measurement for this view before {dc.baseline?.takenOn ?? 'the chosen baseline'}</div>}
-          {dc.available && dc.reposNotInBaseline > 0 && <div className="text-[11px] text-gray-500">{dc.reposNotInBaseline} repos not in baseline</div>}</div>
+          {/* Both branches share one shape: a figure line and two reserved lines, at fixed heights, so
+              the tile can't resize when the delta appears or disappears. The figure line truncates
+              (its title holds the full text), so "· other ±N" can't force a second line. */}
+          {(() => {
+            const total = dc.available ? dc.total : null;
+            const figure = total
+              ? `${total.new} / ${total.resolved} (${total.dismissed}) / ${total.reopened}${total.other !== 0 ? ` · other ${signed(total.other)}` : ''}`
+              : '—';
+            const caption = total ? dcCaption : `no measurement for this view before ${dc.baseline?.takenOn ?? 'the chosen baseline'}`;
+            const baseRepos = dc.available && dc.reposNotInBaseline > 0 ? `${dc.reposNotInBaseline} repos not in baseline` : null;
+            return (
+              <>
+                <div className={`h-7 truncate text-lg leading-7 font-semibold ${total ? 'text-white' : 'text-gray-500'}`} title={figure}>
+                  {total
+                    ? <>{total.new} / {total.resolved} ({total.dismissed}) / {total.reopened}{total.other !== 0 && <span className="text-xs text-gray-400"> · other {signed(total.other)}</span>}</>
+                    : figure}
+                </div>
+                <div data-testid="kpi2-caption" className="h-4 truncate text-[11px] leading-4 text-gray-500" title={caption ?? undefined}>{caption}</div>
+                <div data-testid="kpi2-baseline-repos" aria-hidden={baseRepos ? undefined : true} className="h-4 truncate text-[11px] leading-4 text-gray-500" title={baseRepos ?? undefined}>{baseRepos ?? '\u00a0'}</div>
+              </>
+            );
+          })()}</div>
         <div className={panel}><div className="text-[11px] text-gray-500">Resolved critical {resolvedCaption(s.resolvedSince)}</div>
           <div className="text-2xl font-semibold text-white">
             {dash(crit.resolved)}
@@ -186,10 +226,19 @@ export default function VulnerabilitiesContent() {
 
       <div className={panel}>
         <h2 className="text-sm text-white mb-2">By team <span className="text-xs text-gray-500">(click a row to filter the page)</span></h2>
-        <div className={summaryStale ? 'opacity-60' : undefined}>
-          <TeamPivot rows={s.pivot.rows} total={s.pivot.total} delta={s.delta} highSlaActive={s.slaStatus.high === 'active'}
-            resolvedSince={s.resolvedSince} onSelectTeam={setTeam} selectedTeam={team} />
-        </div>
+        {(() => {
+          const err = panelError(pivotSummaryError, 'team table');
+          if (err) return <p className="text-xs text-red-400">{err}</p>;
+          // Falls back to the (team-scoped) main summary's pivot only until the unfiltered
+          // request first resolves — e.g. a deep link that arrives with `?team=` already set.
+          const pivotView = pivotSummary?.pivot ? pivotSummary : s;
+          return (
+            <div className={pivotStale ? 'opacity-60' : undefined}>
+              <TeamPivot rows={pivotView.pivot.rows} total={pivotView.pivot.total} delta={pivotView.delta} highSlaActive={s.slaStatus.high === 'active'}
+                resolvedSince={s.resolvedSince} onSelectTeam={setTeam} selectedTeam={team} />
+            </div>
+          );
+        })()}
       </div>
 
       <div className={panel}>

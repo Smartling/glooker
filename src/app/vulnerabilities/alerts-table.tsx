@@ -23,8 +23,50 @@ export function alertFilterQuery(f: AlertListUiFilters): string {
   return p.toString();
 }
 
+/**
+ * Layout-stability sizing (GLOOK-43 follow-up). A page-filter change may change what the alerts
+ * slot shows, never its size, so every dimension below is a constant rather than a function of the
+ * current rows. They are exported from here (not from a page.tsx, which may export only `default`).
+ *
+ *  - ROW_H / HEAD_H: measured in headless Chrome as the rendered <tr> height (bottom border
+ *    included) with the pinning classes below (`py-1.5 leading-4` + 1px border, `py-1 leading-4`).
+ *  - LINE_H: the count line and the footnote, each `pt-1` + a 14px leading, including its spacing.
+ *  - PAGE_ROWS: the first page. The reserved height is max(PAGE_ROWS, rows the user expanded to).
+ */
+export const ROW_H = 29;
+export const HEAD_H = 24;
+export const LINE_H = 18;
+export const PAGE_ROWS = 20;
+/** `border-collapse` makes the table's own box HEAD_H + rows*ROW_H + 0.5px (half the last row's
+ * bottom border, measured), so a full slot came out 0.5px taller than its reservation. One whole
+ * pixel is reserved for it. */
+export const TABLE_BORDER_H = 1;
+
+/** Fixed column widths in px (cell padding included). Package is the one flexible column, so it has
+ * no entry: it takes whatever is left, and never less than PACKAGE_MIN_W. Sized against real data
+ * (repo short name ~20-27 chars, team <=16, id <=19 chars plus CVSS, due text 16-18 chars, and a
+ * state plus its `reopened` badge, which sits in the State cell, hence CVE 168 and State 98) but
+ * constrained by the hard rule that the table must not scroll horizontally at a 1024px viewport
+ * (~950px of panel content). Everything sized for its maximum would need ~970px
+ * before Package got any width, so Repo, State and the CVE id truncate first (each carries a
+ * `title`). Recompute TABLE_MIN_W's inputs whenever one of these changes. */
+export const ALERT_COL_W = { sev: 52, cve: 168, repo: 140, team: 104, age: 50, due: 130, scope: 86, state: 98 } as const;
+export const PACKAGE_MIN_W = 100;
+export const TABLE_MIN_W = Object.values(ALERT_COL_W).reduce((a, b) => a + b, PACKAGE_MIN_W);
+/** The alerts slot's reserved height: header + max(first page, rows the user expanded to) + the
+ * count line + the footnote line. Exported so tests can compare against the rendered inline style. */
+export const alertsBodyMinHeight = (visibleRows: number) => HEAD_H + Math.max(PAGE_ROWS, visibleRows) * ROW_H + TABLE_BORDER_H;
+export const alertsSlotMinHeight = (visibleRows: number) => alertsBodyMinHeight(visibleRows) + 2 * LINE_H;
+
+// Every body cell: one line, clipped with an ellipsis, on a fixed leading. `align-middle` and the
+// explicit leading keep a badge or a wrapped-looking value from making a row taller than ROW_H.
+const TD = 'px-1.5 py-1.5 leading-4 align-middle whitespace-nowrap overflow-hidden text-ellipsis';
+const TH = 'px-1.5 py-1 text-left font-medium leading-4 whitespace-nowrap overflow-hidden text-ellipsis';
+const BADGE = 'rounded text-[10px] leading-none align-middle';
+const repoLabel = (full: string, count: number) => `${full.split('/').pop()} (${count})`;
+
 type SortKey = 'repo' | 'team' | null;
-const chip = (on: boolean) => `px-2 py-0.5 rounded-full text-[11px] border ${on ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-700 text-gray-400'}`;
+const chip =(on: boolean) => `px-2 py-0.5 rounded-full text-[11px] border ${on ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-700 text-gray-400'}`;
 
 export default function AlertsTable({ rows, totalCount, truncated, filters, onFiltersChange, stale, error, loading, team, teams, onTeamChange, slaStatus, policy, policyInvalid, repos }: {
   rows: AlertRow[]; totalCount: number; truncated: boolean;
@@ -77,21 +119,13 @@ export default function AlertsTable({ rows, totalCount, truncated, filters, onFi
   const toggleSort = (k: Exclude<SortKey, null>) => { if (sort === k) setDir(d => (d === 1 ? -1 : 1)); else { setSort(k); setDir(1); } };
   // J2-2: all fetched rows (up to 200) used to render at once, pushing the Coverage panel far
   // down the page. Only the first `visible` of the sorted rows render; sorting itself still
-  // applies to every loaded row before slicing, never only to the visible page. `rows` changing
-  // identity is "new data for a new key" (AlertsTable stays mounted across filter changes, per
-  // Wave F), so that's the one thing that resets `visible` back to 20 — a "Show 20 more" click
-  // (which doesn't touch `rows`) must not.
-  const [visible, setVisible] = useState(20);
-  // K4: a `useEffect(() => setVisible(20), [rows])` reset pagination one commit AFTER new `rows`
-  // painted, so a filter change made while `visible > 20` could paint up to 40 rows of the new
-  // data for one frame. Adjusting `visible` during render instead — the same pattern
-  // vulnerabilities-content.tsx uses for its repo-scope reset — discards that stale render and
-  // re-renders immediately with `visible` already capped, before anything commits.
-  const [prevRows, setPrevRows] = useState(rows);
-  if (prevRows !== rows) {
-    setPrevRows(rows);
-    setVisible(20);
-  }
+  // applies to every loaded row before slicing, never only to the visible page.
+  // The page size the user expanded to persists across filter changes (the layout-stability
+  // decision): the reserved slot height follows `visible`, so a filter change never shrinks the
+  // panel underneath a scrolled page. It used to reset to 20 whenever `rows` changed identity; now
+  // only a reload resets it. The count line shows min(visible, loaded rows), so a shorter result
+  // reads "Showing 5 of 5", never "Showing 40 of 5".
+  const [visible, setVisible] = useState(PAGE_ROWS);
   const visibleRows = sorted.slice(0, visible);
   const set = (patch: Partial<AlertListUiFilters>) => onFiltersChange({ ...filters, ...patch });
   // B1/5: Resolved has no due date, so the two time-based chips are disabled under it, and
@@ -152,6 +186,12 @@ export default function AlertsTable({ rows, totalCount, truncated, filters, onFi
       onFiltersChangeRef.current({ ...filtersRef.current, q: qLocalRef.current });
     }
   }, []);
+  const selectedRepoFacet = filters.repo ? (repos ?? []).find(r => r.repo === filters.repo) : undefined;
+  const selectedRepoLabel = filters.repo ? repoLabel(filters.repo, selectedRepoFacet?.count ?? 0) : 'All repos';
+  // The slot renders in every branch and shows the same count line and footnote frame, so an
+  // error or loading state never shows a "Showing 0 of 0" that reads as a real count.
+  const placeholder = !!error || !!loading;
+  const shown = Math.min(visible, sorted.length);
   return (
     <div>
       <div className="flex flex-wrap items-center gap-2 mb-2">
@@ -164,9 +204,13 @@ export default function AlertsTable({ rows, totalCount, truncated, filters, onFi
             {(teams ?? []).map(t => <option key={t} value={t}>{t}</option>)}
           </select>
         )}
+        {/* Fixed width, never as wide as the longest facet option: an auto-width select resized with
+            every filter change, and the search input (flex-1) absorbed it, sliding the Team select
+            between them. The closed select truncates its label; `title` shows the rest. */}
         <select aria-label="Repo" value={filters.repo ?? ''} disabled={(repos ?? []).length === 0}
+          title={selectedRepoLabel}
           onChange={e => set({ repo: e.target.value || null })}
-          className="bg-gray-900 border border-gray-700 rounded text-xs text-gray-300 px-2 py-1 disabled:opacity-40">
+          className="w-48 shrink-0 bg-gray-900 border border-gray-700 rounded text-xs text-gray-300 px-2 py-1 disabled:opacity-40">
           <option value="">All repos</option>
           {/* K1: the `repos` facet covers every OTHER active filter, so toggling one of them (e.g.
               Resolved, Reopened, Runtime only, or search) can drop the selected repo out of it while
@@ -175,9 +219,9 @@ export default function AlertsTable({ rows, totalCount, truncated, filters, onFi
               stale selection as its own "(0)" option instead of clearing it; the user can pick
               "All repos" themselves. */}
           {filters.repo && !(repos ?? []).some(r => r.repo === filters.repo) && (
-            <option value={filters.repo}>{`${filters.repo.split('/').pop()} (0)`}</option>
+            <option value={filters.repo}>{repoLabel(filters.repo, 0)}</option>
           )}
-          {(repos ?? []).map(r => <option key={r.repo} value={r.repo}>{`${r.repo.split('/').pop()} (${r.count})`}</option>)}
+          {(repos ?? []).map(r => <option key={r.repo} value={r.repo}>{repoLabel(r.repo, r.count)}</option>)}
         </select>
         <button className={chip(filters.state === 'open')} onClick={() => setState('open')}>Open</button>
         <button className={chip(filters.state === 'resolved')} onClick={() => setState('resolved')}>Resolved</button>
@@ -192,63 +236,125 @@ export default function AlertsTable({ rows, totalCount, truncated, filters, onFi
         <button className={chip(filters.reopened)} onClick={() => set({ reopened: !filters.reopened })}>Reopened</button>
         <button className={chip(filters.runtimeOnly)} onClick={() => set({ runtimeOnly: !filters.runtimeOnly })}>Runtime only</button>
       </div>
-      {error ? (
-        <p className="text-xs text-red-400">{error}</p>
-      ) : loading ? (
-        <p className="text-xs text-gray-500">Loading…</p>
-      ) : (
-        <>
-          <div className={`overflow-x-auto${stale ? ' opacity-60' : ''}`}>
-            <table className="w-full text-xs text-gray-300">
-              <thead className="text-gray-400">
-                <tr>
-                  <th className="px-2 py-1 text-left font-medium">Sev</th>
-                  <th className="px-2 py-1 text-left font-medium">CVE / advisory</th>
-                  <th className="px-2 py-1 text-left font-medium">Package</th>
-                  <th className="px-2 py-1 text-left font-medium cursor-pointer" onClick={() => toggleSort('repo')}>Repo{sort === 'repo' ? (dir === 1 ? ' ▲' : ' ▼') : ''}</th>
-                  <th className="px-2 py-1 text-left font-medium cursor-pointer" onClick={() => toggleSort('team')}>Team{sort === 'team' ? (dir === 1 ? ' ▲' : ' ▼') : ''}</th>
-                  <th className="px-2 py-1 text-left font-medium">Age</th>
-                  <th className="px-2 py-1 text-left font-medium">Due</th>
-                  <th className="px-2 py-1 text-left font-medium">Scope</th>
-                  <th className="px-2 py-1 text-left font-medium">State</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleRows.map(r => (
-                  <tr key={r.htmlUrl} className="border-b border-gray-800/60">
-                    <td className="px-2 py-1.5"><span className={`px-1.5 rounded text-[10px] ${r.severity === 'critical' ? 'bg-red-500/15 text-red-400' : 'bg-orange-500/15 text-orange-400'}`}>{r.severity === 'critical' ? 'CRIT' : 'HIGH'}</span></td>
-                    <td className="px-2 py-1.5">
-                      <a href={r.htmlUrl} target="_blank" rel="noreferrer" className="text-indigo-400 hover:text-indigo-300 underline">{r.cveId ?? r.ghsaId}</a>
-                      {r.cvss !== null && <span className="ml-1 text-gray-500">{Number(r.cvss).toFixed(1)}</span>}
-                      {r.reopenedCount > 0 && <span title="Reopened — the original deadline still applies" className="ml-1 px-1 rounded bg-amber-500/15 text-amber-400 text-[10px]">reopened</span>}
-                    </td>
-                    <td className="px-2 py-1.5">{r.packageName}{r.ecosystem ? ` (${r.ecosystem})` : ''}</td>
-                    <td className="px-2 py-1.5">{r.repo.split('/').pop()}</td>
-                    <td className="px-2 py-1.5">{r.team}</td>
-                    <td className="px-2 py-1.5">{r.ageDays}d</td>
-                    <td className={`px-2 py-1.5 ${r.daysRemaining !== null && r.daysRemaining < 0 ? 'text-red-400' : ''}`}>
-                      {r.state === 'open'
-                        ? (r.dueDate ? `${r.dueDate}${r.daysRemaining !== null ? ` (${r.daysRemaining}d)` : ''}` : <span className="text-gray-500">no SLA</span>)
-                        : r.resolvedOnTime === null ? '—' : r.resolvedOnTime ? 'resolved on time' : `resolved ${r.resolvedDaysLate}d late`}
-                    </td>
-                    <td className="px-2 py-1.5 text-gray-400">{r.scope ?? 'unknown'}</td>
-                    <td className="px-2 py-1.5">{r.state}{r.dismissedReason ? ` · ${r.dismissedReason}` : ''}</td>
+      {/* The scroll wrapper holds ONE slot for every branch (error, loading, empty, table), the count
+          line and the footnote. The slot carries the table's min-width and a min-height for the
+          header + a full page of rows + both lines, so a filter change can swap what is inside it
+          but never resize it. The horizontal scrollbar's presence then depends only on viewport
+          width, never on which branch is showing. jsdom has no layout: the tests guard the
+          structure, the browser acceptance harness is the real check. */}
+      <div className="overflow-x-auto">
+        <div data-testid="alerts-slot" style={{ minHeight: alertsSlotMinHeight(visible), minWidth: TABLE_MIN_W }}>
+          {/* The branch region has its own floor (header + a full page of rows), so the count line and
+              the footnote below it sit at the same y whatever the row count: a shorter result blanks
+              the space under its rows instead of pulling those two lines up (which the browser's
+              layout-shift API scores as a shift). */}
+          <div data-testid="alerts-body" style={{ minHeight: alertsBodyMinHeight(visible) }}>
+          {/* The error and loading text sits in a `sticky left-0` box no wider than the viewport: the slot
+              keeps the table's min-width even below ~950px, and without this the message would sit at
+              the slot's left edge, scrolled out of view. */}
+          {error ? (
+            <div className="sticky left-0 max-w-[calc(100vw-4rem)]"><p className="text-xs leading-4 text-red-400">{error}</p></div>
+          ) : loading ? (
+            <div className="sticky left-0 max-w-[calc(100vw-4rem)]"><p className="text-xs leading-4 text-gray-500">Loading…</p></div>
+          ) : (
+            <div className={stale ? 'opacity-60' : undefined}>
+              <table className="w-full table-fixed text-xs text-gray-300" style={{ minWidth: TABLE_MIN_W }}>
+                <colgroup>
+                  <col style={{ width: ALERT_COL_W.sev }} />
+                  <col style={{ width: ALERT_COL_W.cve }} />
+                  <col />
+                  <col style={{ width: ALERT_COL_W.repo }} />
+                  <col style={{ width: ALERT_COL_W.team }} />
+                  <col style={{ width: ALERT_COL_W.age }} />
+                  <col style={{ width: ALERT_COL_W.due }} />
+                  <col style={{ width: ALERT_COL_W.scope }} />
+                  <col style={{ width: ALERT_COL_W.state }} />
+                </colgroup>
+                <thead className="text-gray-400">
+                  <tr style={{ height: HEAD_H }}>
+                    <th className={TH}>Sev</th>
+                    <th className={TH}>CVE / advisory</th>
+                    <th className={TH}>Package</th>
+                    <th className={`${TH} cursor-pointer`} onClick={() => toggleSort('repo')}>Repo{sort === 'repo' ? (dir === 1 ? ' ▲' : ' ▼') : ''}</th>
+                    <th className={`${TH} cursor-pointer`} onClick={() => toggleSort('team')}>Team{sort === 'team' ? (dir === 1 ? ' ▲' : ' ▼') : ''}</th>
+                    <th className={TH}>Age</th>
+                    <th className={TH}>Due</th>
+                    <th className={TH}>Scope</th>
+                    <th className={TH}>State</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {sorted.length > 20 && (
-            <div className="flex items-center gap-2 mt-1">
-              <span className="text-[10px] text-gray-500">Showing {visible} of {sorted.length}</span>
-              {visible < sorted.length && (
-                <button className="text-[10px] text-indigo-400" onClick={() => setVisible(v => Math.min(v + 20, sorted.length))}>Show 20 more</button>
-              )}
+                </thead>
+                <tbody>
+                  {visibleRows.map((r, i) => {
+                    const idText = r.cveId ?? r.ghsaId ?? '';
+                    const cvssText = r.cvss !== null ? Number(r.cvss).toFixed(1) : null;
+                    // A null package renders nothing (as on main), never the text "null", in the cell or its title.
+                    const pkgText = `${r.packageName ?? ''}${r.ecosystem ? ` (${r.ecosystem})` : ''}`;
+                    const repoText = r.repo.split('/').pop() ?? '';
+                    const dueText = r.state === 'open'
+                      ? (r.dueDate ? `${r.dueDate}${r.daysRemaining !== null ? ` (${r.daysRemaining}d)` : ''}` : 'no SLA')
+                      : r.resolvedOnTime === null ? '—' : r.resolvedOnTime ? 'resolved on time' : `resolved ${r.resolvedDaysLate}d late`;
+                    const stateText = `${r.state}${r.dismissedReason ? ` · ${r.dismissedReason}` : ''}`;
+                    return (
+                      // Keyed by position, not by alert: rows carry no state, and a key per alert made the
+                      // browser treat a filter change as the SAME rows sliding up the page, which its
+                      // layout-shift API scores; by position, row N is simply repainted in place.
+                      <tr key={i} className="border-b border-gray-800/60" style={{ height: ROW_H }}>
+                        <td className={TD}><span className={`${BADGE} px-1.5 ${r.severity === 'critical' ? 'bg-red-500/15 text-red-400' : 'bg-orange-500/15 text-orange-400'}`}>{r.severity === 'critical' ? 'CRIT' : 'HIGH'}</span></td>
+                        <td className={TD} title={[idText, cvssText].filter(Boolean).join(' ')}>
+                          {/* The id is the part that truncates: the CVSS score is shrink-0. */}
+                          <div className="flex items-center gap-1 min-w-0">
+                            <a href={r.htmlUrl} target="_blank" rel="noreferrer" className="min-w-0 truncate text-indigo-400 hover:text-indigo-300 underline">{idText}</a>
+                            {cvssText !== null && <span className="shrink-0 text-gray-500">{cvssText}</span>}
+                          </div>
+                        </td>
+                        <td className={TD} title={pkgText || undefined}>{pkgText}</td>
+                        <td className={TD} title={repoText}>{repoText}</td>
+                        <td className={TD} title={r.team}>{r.team}</td>
+                        <td className={TD}>{r.ageDays}d</td>
+                        <td className={`${TD} ${r.daysRemaining !== null && r.daysRemaining < 0 ? 'text-red-400' : ''}`} title={dueText}>
+                          {dueText === 'no SLA' ? <span className="text-gray-500">no SLA</span> : dueText}
+                        </td>
+                        <td className={`${TD} text-gray-400`}>{r.scope ?? 'unknown'}</td>
+                        {/* The state text is the part that truncates: the reopened badge is shrink-0, so it is
+                            never the piece that gets cut off (resolved-then-reopened rows included). */}
+                        <td className={TD} title={r.reopenedCount > 0 ? `${stateText} · reopened` : stateText}>
+                          <div className="flex items-center gap-1 min-w-0">
+                            <span className="min-w-0 truncate">{stateText}</span>
+                            {r.reopenedCount > 0 && <span title="Reopened — the original deadline still applies" className={`${BADGE} shrink-0 px-1 bg-amber-500/15 text-amber-400`}>reopened</span>}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
-          <p className="text-[10px] text-gray-500 mt-1">{truncated ? `Showing ${rows.length} of ${totalCount} alerts.` : `${totalCount} alerts.`} Counts are Dependabot alerts, not CVEs.</p>
-        </>
-      )}
+          </div>
+          {/* The count line always renders (including "Showing 0 of 0"), and "Show 20 more" sits on the
+              same line, so its height is the same with or without the button. In the error and
+              loading branches it is an empty placeholder, so an error never reads as a real count. No
+              `overflow-hidden` here: it clipped the "Show 20 more" button's focus ring. The line is
+              nowrap and its content short, so the fixed height alone keeps it one line. */}
+          <div data-testid="alerts-count-line" aria-hidden={placeholder ? true : undefined}
+            className="box-border pt-1 flex items-center gap-2 text-[10px] leading-[14px] text-gray-500 whitespace-nowrap" style={{ height: LINE_H }}>
+            {placeholder ? '\u00a0' : (
+              <>
+                <span>Showing {shown} of {sorted.length}</span>
+                {visible < sorted.length && (
+                  <button className="text-[10px] leading-[14px] text-indigo-400" onClick={() => setVisible(v => Math.min(v + PAGE_ROWS, sorted.length))}>Show 20 more</button>
+                )}
+              </>
+            )}
+          </div>
+          {/* Loaded count and total are stated once each: the count line says how many of the loaded
+              rows are on screen, this line says how many are loaded of the real total. */}
+          <p data-testid="alerts-footnote" aria-hidden={placeholder ? true : undefined}
+            className="box-border pt-1 text-[10px] leading-[14px] text-gray-500 whitespace-nowrap overflow-hidden text-ellipsis" style={{ height: LINE_H }}>
+            {placeholder ? '\u00a0' : `${truncated ? `${rows.length} of ${totalCount} alerts loaded.` : `${totalCount} alerts.`} Counts are Dependabot alerts, not CVEs.`}
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
