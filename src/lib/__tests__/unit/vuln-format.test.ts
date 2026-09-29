@@ -2,7 +2,8 @@
 // the shared SWR fetcher (src/app/vulnerabilities/format.ts) hardened —
 // status carried on the thrown error, a lenient error-body parse on the !ok path only, and a
 // shouldRetryOnError predicate so SWR doesn't retry a 4xx.
-import { fetcher, shouldRetryVulnFetch } from '@/app/vulnerabilities/format';
+import { fetcher, shouldRetryVulnFetch, deltaBaselineCaption } from '@/app/vulnerabilities/format';
+import type { DeltaResult } from '@/lib/vulnerabilities/aggregate';
 
 beforeEach(() => {
   (global as any).fetch = undefined;
@@ -59,5 +60,29 @@ describe('shouldRetryVulnFetch', () => {
     expect(shouldRetryVulnFetch(Object.assign(new Error('x'), { status: 429 }))).toBe(true);
     expect(shouldRetryVulnFetch(Object.assign(new Error('x'), { status: 499 }))).toBe(false);
     expect(shouldRetryVulnFetch(Object.assign(new Error('x'), { status: 500 }))).toBe(true);
+  });
+});
+
+describe('deltaBaselineCaption', () => {
+  const baseline = (takenOn: string) => ({ source: 'sync' as const, key: 'sync:1', takenOn, measuredAt: `${takenOn}T06:00:00Z` });
+
+  it('returns "vs <takenOn>" for an available delta with a baseline', () => {
+    const delta: DeltaResult = { available: true, baseline: baseline('2099-01-01'), reposNotInBaseline: 0, teams: [], total: null };
+    expect(deltaBaselineCaption(delta)).toBe('vs 2099-01-01');
+  });
+
+  it('returns null when the delta is unavailable', () => {
+    const delta: DeltaResult = { available: false, baseline: baseline('2099-01-01'), reposNotInBaseline: 0, teams: [], total: null };
+    expect(deltaBaselineCaption(delta)).toBeNull();
+  });
+
+  it('returns null when available but baseline is null', () => {
+    const delta: DeltaResult = { available: true, baseline: null, reposNotInBaseline: 0, teams: [], total: null };
+    expect(deltaBaselineCaption(delta)).toBeNull();
+  });
+
+  it('returns null for undefined/null input', () => {
+    expect(deltaBaselineCaption(undefined)).toBeNull();
+    expect(deltaBaselineCaption(null)).toBeNull();
   });
 });
