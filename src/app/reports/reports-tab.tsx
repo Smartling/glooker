@@ -19,6 +19,7 @@ interface Schedule {
   period_days: number;
   enabled: number | boolean;
   next_run_at: string | null;
+  kind?: 'report' | 'vuln_sync';
 }
 
 interface ReportStats {
@@ -327,7 +328,7 @@ export default function ReportsTab({ canAct, observedRunning, finishedFired }: {
   }
 
   const nextScheduled = useMemo(() => {
-    const enabled = (scheduleData ?? []).filter(s => Boolean(s.enabled) && s.next_run_at);
+    const enabled = (scheduleData ?? []).filter(s => s.kind !== 'vuln_sync' && Boolean(s.enabled) && s.next_run_at);
     if (enabled.length === 0) return null;
     return enabled.reduce((a, b) => (new Date(a.next_run_at!).getTime() <= new Date(b.next_run_at!).getTime() ? a : b));
   }, [scheduleData]);

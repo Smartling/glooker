@@ -84,6 +84,8 @@ describe('ReportsTab', () => {
       '/api/schedule': () => ({ body: [
         { id: 's1', org: 'acme', period_days: 14, enabled: 1, next_run_at: '2026-09-29T13:00:00Z' },
         { id: 's2', org: 'other', period_days: 30, enabled: 0, next_run_at: null },
+        // The Dependabot alerts schedule fires sooner but is not a report schedule.
+        { id: 'v1', org: 'acme', period_days: 0, enabled: 1, next_run_at: '2026-09-29T10:00:00Z', kind: 'vuln_sync' },
       ] }),
       '/api/orgs': () => ({ body: [] }),
     }) as any;

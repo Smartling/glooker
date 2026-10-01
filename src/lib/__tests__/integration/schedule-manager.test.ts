@@ -37,6 +37,7 @@ function makeSchedule(overrides: Partial<Schedule> = {}): Schedule {
     id: 'sched-1',
     org: 'test-org',
     period_days: 14,
+    kind: 'report',
     cron_expr: '0 9 * * 1',
     timezone: 'America/New_York',
     enabled: 1,

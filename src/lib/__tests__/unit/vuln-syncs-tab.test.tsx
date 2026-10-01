@@ -6,7 +6,7 @@ import { SWRConfig } from 'swr';
 import SWRProvider from '@/lib/swr-provider';
 import VulnerabilitySyncsTab from '@/app/reports/vulnerability-syncs-tab';
 
-const schedule = { cron: '0 6 * * *', tz: 'America/New_York', next_run: '2026-09-23T10:00:00Z' };
+let schedule: any = { id: 'vs1', cron: '0 6 * * *', tz: 'America/New_York', enabled: true, next_run: '2026-09-23T10:00:00Z' };
 
 const succeededFirst = {
   id: 1, triggerKind: 'manual', triggeredBy: 'admin@x', status: 'succeeded',
@@ -231,6 +231,26 @@ it('shows the next run through the shared formatter', async () => {
   (global as any).fetch = mockFetchFor([succeededSecond]);
   render(wrap(<VulnerabilitySyncsTab canAct={false} />));
   await waitFor(() => expect(screen.getByText(/next run Sep 23, 6:00 AM/)).toBeTruthy());
+});
+
+it('links admins to Settings to manage the schedule, and not viewers', async () => {
+  (global as any).fetch = mockFetchFor([succeededSecond]);
+  const { rerender } = render(wrap(<VulnerabilitySyncsTab canAct={false} />));
+  await waitFor(() => screen.getByText(/next run/));
+  expect(screen.queryByText('Manage schedules')).toBeNull();
+  rerender(wrap(<VulnerabilitySyncsTab canAct />));
+  await waitFor(() => expect(screen.getByText('Manage schedules').getAttribute('href')).toBe('/settings#schedules'));
+});
+
+it('says the schedule is paused instead of showing a next run', async () => {
+  const before = schedule;
+  schedule = { ...schedule, enabled: false, next_run: null };
+  try {
+    (global as any).fetch = mockFetchFor([succeededSecond]);
+    render(wrap(<VulnerabilitySyncsTab canAct={false} />));
+    await waitFor(() => expect(screen.getByText(/Schedule paused/)).toBeTruthy());
+    expect(screen.queryByText(/next run/)).toBeNull();
+  } finally { schedule = before; }
 });
 
 it('hides Sync now from viewers and shows it to admins', async () => {
