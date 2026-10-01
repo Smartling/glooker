@@ -67,7 +67,7 @@ beforeEach(() => {
 
 it('header shows the org', () => {
   render(<VulnerabilitiesContent />);
-  expect(screen.getByText('Vulnerabilities · acme')).toBeTruthy();
+  expect(screen.getByText('Security · acme')).toBeTruthy();
 });
 
 it('alerts panel subtitle names the codebase chips and team row', () => {

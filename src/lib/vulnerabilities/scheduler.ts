@@ -1,4 +1,3 @@
-import { Cron } from 'croner';
 import db from '../db/index';
 import { getGitHubProvider } from '../github';
 import { insertRunningSync, runSync } from './sync';
@@ -6,12 +5,12 @@ import { getVulnerabilitiesOrg, getSyncSchedule } from './config';
 import { initSyncProgress, updateSyncProgress } from './progress';
 import { toIsoSecond } from './time';
 import type { TriggerKind } from './types';
+import type { Schedule } from '../schedule/manager';
 
 // globalThis so the flag and the job survive Next.js HMR. Assumes a single app
 // instance, the same as report schedules (spec: Non-goals).
 const g = globalThis as typeof globalThis & {
   __glooker_vuln_sync_running?: boolean;
-  __glooker_vuln_job?: Cron;
   __glooker_vuln_init?: boolean;
 };
 
@@ -79,6 +78,12 @@ export async function startSync(trigger: TriggerKind, triggeredBy: string | null
   return { status: 'started', syncId };
 }
 
+/**
+ * GLOOK-59: the sync is scheduled through the shared `schedules` table and scheduler manager
+ * (`src/lib/schedule/manager.ts`), as one `kind = 'vuln_sync'` row managed in Settings → Schedules.
+ * VULN_SYNC_CRON / VULN_SYNC_TZ only SEED that row on the first boot with the feature on; after
+ * that the row is the source of truth, so a Settings edit survives restarts and deploys.
+ */
 export async function initVulnerabilityScheduler(): Promise<void> {
   if (g.__glooker_vuln_init) return;
   const org = getVulnerabilitiesOrg();
@@ -88,24 +93,47 @@ export async function initVulnerabilityScheduler(): Promise<void> {
       `UPDATE vulnerability_syncs SET status = 'failed', finished_at = ?, issues = ? WHERE status = 'running'`,
       [toIsoSecond(new Date()), JSON.stringify([{ kind: 'restart', message: 'interrupted by restart' }])],
     );
-    const { cron, tz } = getSyncSchedule();
-    g.__glooker_vuln_job?.stop();
-    g.__glooker_vuln_job = new Cron(cron, { timezone: tz }, async () => {
-      try {
-        const r = await startSync('schedule', null);
-        if (r.status === 'already-running') console.log('[vuln-sync] scheduled tick skipped: a sync is already running');
-      } catch (err) {
-        console.error('[vuln-sync] scheduled tick failed:', err);
-      }
-    });
+    const row = await ensureVulnScheduleRow(org);
+    const { registerSchedule } = await import('../schedule/manager');
+    registerSchedule(row);
     g.__glooker_vuln_init = true;
-    console.log(`[vuln-sync] scheduled ${cron} (${tz}) for ${org}`);
+    console.log(`[vuln-sync] schedule ${row.cron_expr} (${row.timezone})${row.enabled ? '' : ' [paused]'} for ${org}`);
   } catch (err) {
     console.error('[vuln-sync] scheduler init failed:', err);
   }
 }
 
-export function getNextSyncRun(): string | null {
-  const next = g.__glooker_vuln_job?.nextRun();
-  return next ? toIsoSecond(next) : null;
+/** The one vuln_sync row has a fixed id, so concurrent seeds (multi-instance boot, HMR) collapse into it. */
+export const VULN_SCHEDULE_ID = 'vuln-sync';
+
+// Oldest first, so if an older build ever left a second row behind, every reader picks the same one.
+const SELECT_VULN_ROW = `SELECT * FROM schedules WHERE kind = 'vuln_sync' ORDER BY created_at, id LIMIT 1`;
+
+async function ensureVulnScheduleRow(org: string): Promise<Schedule> {
+  const [rows] = await db.execute<Schedule>(SELECT_VULN_ROW);
+  if (!rows[0]) {
+    const { cron, tz } = getSyncSchedule();
+    await db.execute(
+      `INSERT IGNORE INTO schedules (id, org, period_days, cron_expr, timezone, enabled, test_mode, kind)
+       VALUES (?, ?, 0, ?, ?, 1, 0, 'vuln_sync')`,
+      [VULN_SCHEDULE_ID, org, cron, tz],
+    );
+  }
+  // The row's org follows VULNERABILITIES_ORG, which is the org every sync runs against.
+  await db.execute(`UPDATE schedules SET org = ? WHERE kind = 'vuln_sync'`, [org]);
+  const [current] = await db.execute<Schedule>(SELECT_VULN_ROW);
+  return current[0];
+}
+
+export interface VulnSchedule { id: string; cron: string; tz: string; enabled: boolean; next_run: string | null }
+
+/** The managed vuln_sync schedule row, or null before it has been seeded. */
+export async function getVulnSchedule(): Promise<VulnSchedule | null> {
+  const [rows] = await db.execute<Schedule>(SELECT_VULN_ROW);
+  const r = rows[0];
+  if (!r) return null;
+  const enabled = Number(r.enabled) === 1;
+  const { getNextRun } = await import('../schedule/manager');
+  const next = enabled ? getNextRun(r.cron_expr, r.timezone) : null;
+  return { id: r.id, cron: r.cron_expr, tz: r.timezone, enabled, next_run: next ? toIsoSecond(next) : null };
 }

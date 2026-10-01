@@ -129,6 +129,7 @@ it('listSyncs binds LIMIT as a string (mysql2 execute() rejects a numeric LIMIT)
   await db.execute(`INSERT INTO vulnerability_syncs (org, trigger_kind, status, started_at, finished_at, issues) VALUES ('o','manual','succeeded','2026-09-22T10:00:00Z','2026-09-22T10:00:05Z','[]')`);
   const r = await q.listSyncs(2);
   expect(r.available).toBe(true);
+  expect((r as any).org).toBe('o');
   expect(r.syncs).toHaveLength(2);
   expect(r.syncs.map((s: any) => s.startedAt)).toEqual(['2026-09-22T10:00:00Z', '2026-09-21T10:00:00Z']);
   expect(r.schedule.cron).toBeTruthy();

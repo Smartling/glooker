@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import db from '@/lib/db';
 import { runReport, requestStop } from '@/lib/report-runner';
 import { initProgress, updateProgress, getProgress } from '@/lib/progress-store';
+import { reportHealth, type RunHealth } from '@/lib/runs/health';
 
 // ---------------------------------------------------------------------------
 // Typed errors
@@ -49,28 +50,42 @@ async function assertNoRunningReport(excludeId?: string): Promise<void> {
 // Service functions
 // ---------------------------------------------------------------------------
 
-export async function listReports() {
+export interface ReportListRow {
+  id: string; org: string; period_days: number; status: string;
+  created_at: string; completed_at: string | null;
+  trigger_kind: 'manual' | 'schedule' | null; triggered_by: string | null;
+  health: RunHealth | null;
+}
+
+export async function listReports(): Promise<ReportListRow[]> {
   const [rows] = await db.execute(
-    `SELECT id, org, period_days, status, created_at, completed_at
+    `SELECT id, org, period_days, status, created_at, completed_at, trigger_kind, triggered_by, run_metadata
      FROM reports
      ORDER BY created_at DESC
      LIMIT 20`,
   ) as [any[], any];
-  return rows;
+  // run_metadata can carry hundreds of per-commit errors — ship only the card-sized summary.
+  return rows.map(({ run_metadata, ...r }: any) => ({
+    ...r,
+    trigger_kind: r.trigger_kind ?? null,
+    triggered_by: r.triggered_by ?? null,
+    health: reportHealth(run_metadata),
+  }));
 }
 
 export async function createReport(input: {
   org: string;
   periodDays: number;
   testMode?: boolean;
+  triggeredBy?: string | null;
 }): Promise<string> {
   await assertNoRunningReport();
-  const { org, periodDays, testMode = false } = input;
+  const { org, periodDays, testMode = false, triggeredBy = null } = input;
   const id = uuidv4();
 
   await db.execute(
-    `INSERT INTO reports (id, org, period_days, status) VALUES (?, ?, ?, 'pending')`,
-    [id, org, periodDays],
+    `INSERT INTO reports (id, org, period_days, status, trigger_kind, triggered_by) VALUES (?, ?, ?, 'pending', ?, ?)`,
+    [id, org, periodDays, 'manual', triggeredBy],
   );
 
   initProgress(id);
@@ -204,7 +219,8 @@ export async function stopReport(id: string): Promise<void> {
     throw new ReportNotFoundError(id);
   }
 
-  if (rows[0].status !== 'running') {
+  // A pending report counts as in flight everywhere else (New/Resume are blocked), so it is stoppable too.
+  if (rows[0].status !== 'running' && rows[0].status !== 'pending') {
     throw new ReportNotRunningError(id);
   }
 

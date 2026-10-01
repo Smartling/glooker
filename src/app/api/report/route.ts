@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { listReports, createReport, ReportAlreadyRunningError } from '@/lib/report/service';
-import { requireAdmin } from '@/lib/auth';
+import { requireAdmin, extractUser } from '@/lib/auth';
 import { withRequestLog } from '@/lib/logger';
 
 async function postHandler(req: NextRequest) {
@@ -17,7 +17,12 @@ async function postHandler(req: NextRequest) {
   }
 
   try {
-    const id = await createReport({ org, periodDays: Number(periodDays), testMode: Boolean(testMode) });
+    const id = await createReport({
+      org,
+      periodDays: Number(periodDays),
+      testMode: Boolean(testMode),
+      triggeredBy: extractUser(req.headers)?.email ?? null,
+    });
     return NextResponse.json({ reportId: id });
   } catch (err) {
     if (err instanceof ReportAlreadyRunningError) {

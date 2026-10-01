@@ -29,7 +29,7 @@ export default function Home() {
           <p className="text-xs text-gray-600">
             Go to{' '}
             <Link href="/reports" className="text-indigo-400 hover:text-indigo-300 transition-colors">
-              Report History
+              Reports
             </Link>
             {' '}to generate your first report.
           </p>

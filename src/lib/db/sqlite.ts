@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS reports (
   period_days  INTEGER NOT NULL,
   status       TEXT    NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','running','completed','failed','stopped')),
   error        TEXT,
+  trigger_kind TEXT,
+  triggered_by TEXT,
   created_at   TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
   completed_at TEXT
 );
@@ -126,6 +128,7 @@ CREATE TABLE IF NOT EXISTS schedules (
   timezone       TEXT    NOT NULL DEFAULT 'UTC',
   enabled        INTEGER NOT NULL DEFAULT 1,
   test_mode      INTEGER NOT NULL DEFAULT 0,
+  kind           TEXT    NOT NULL DEFAULT 'report',
   last_run_at    TEXT,
   last_report_id TEXT,
   created_at     TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
@@ -407,6 +410,9 @@ export function createSQLiteDB(): DB {
   try { db.exec('ALTER TABLE team_pulse_summaries ADD COLUMN projects TEXT'); } catch (_) {}
   // GLOOK-13: report integrity (run_metadata column + skip-allowlist table)
   try { db.exec('ALTER TABLE reports ADD COLUMN run_metadata TEXT'); } catch (_) {}
+  try { db.exec('ALTER TABLE reports ADD COLUMN trigger_kind TEXT'); } catch (_) {}
+  try { db.exec('ALTER TABLE reports ADD COLUMN triggered_by TEXT'); } catch (_) {}
+  try { db.exec("ALTER TABLE schedules ADD COLUMN kind TEXT NOT NULL DEFAULT 'report'"); } catch (_) {}
   // GLOOK-38: per-team board config lives in the jira_projects table (see
   // CREATE TABLE above). `teams.board_config` never existed outside this
   // branch — no DROP is needed.

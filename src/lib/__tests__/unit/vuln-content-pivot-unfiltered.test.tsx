@@ -126,8 +126,8 @@ it('with a team selected via the URL, the pivot still lists every team while the
   const teamARow = teamACell.closest('tr')!;
   const teamBRow = teamBCell.closest('tr')!;
   // Selected row highlighted (TeamPivot's selectedTeam styling).
-  expect(teamARow.className).toContain('bg-indigo-500/10');
-  expect(teamBRow.className).not.toContain('bg-indigo-500/10');
+  expect(teamARow.className).toContain('bg-accent/10');
+  expect(teamBRow.className).not.toContain('bg-accent/10');
 
   // KPI tile: the team-scoped critical-open count (3), not the unfiltered total (10).
   const kpiTile = screen.getByText('Open critical alerts').parentElement!;

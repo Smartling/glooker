@@ -5,6 +5,8 @@ import { useParams, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import ChatPanel from '@/app/chat-panel';
 import IntegrityBadge from '@/components/IntegrityBadge';
+import PageHeader from '@/components/PageHeader';
+import DataFreshness from '@/components/runs/DataFreshness';
 import { useUrlState } from '@/lib/url-state';
 import { SpendTab, type Developer, type ReportMeta, type SpendWindow, type ModelUsageRow, type SkillsUsageRow } from './spend-tab';
 import { TimelineChart } from '@/components/charts/timeline-chart';
@@ -111,36 +113,33 @@ export default function OrgDetailPage() {
     { label: 'Avg AI %', value: `${avgAiPct}%` },
   ];
 
+  const isLatestReport = latestReportId === params.id;
+
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
-      {/* Historical report notice */}
-      {latestReportId && latestReportId !== params.id && (
-        <div className="mb-4 px-4 py-2.5 bg-amber-500/10 border border-amber-500/20 rounded-lg flex items-center gap-2 text-xs text-amber-400">
-          <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          Viewing historical report from {new Date(report.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} — not the latest report.
-        </div>
-      )}
-
       {/* Header */}
-      <div className="bg-gray-900 rounded-xl p-6 mb-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-white">{report.org}</h1>
-            <p className="text-gray-500 mt-1">
-              {report.period_days} days &middot; {developers.length} developers &middot; {new Date(report.created_at).toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' })}
-            </p>
-            <IntegrityBadge metadata={report.run_metadata ?? null} />
-          </div>
+      <PageHeader
+        title={report.org}
+        meta={<>{report.period_days} days &middot; {developers.length} developers &middot; {new Date(report.created_at).toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' })}</>}
+        badges={<IntegrityBadge metadata={report.run_metadata ?? null} />}
+        actions={
           <button
             onClick={() => window.print()}
             className="px-3 py-1.5 text-xs font-medium bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors shrink-0 no-print"
           >
             Download PDF
           </button>
-        </div>
-      </div>
+        }
+      >
+        <DataFreshness
+          label="report generated"
+          at={report.created_at}
+          stale={isLatestReport ? !!config?.reportFreshness?.stale : false}
+          latestFailed={isLatestReport ? !!config?.reportFreshness?.latestRunFailed : false}
+          failedText="The latest report run failed; showing the last completed report."
+          historicalAt={latestReportId && !isLatestReport ? report.created_at : null}
+        />
+      </PageHeader>
 
       {/* Tab Navigation */}
       {hasSpend && (
