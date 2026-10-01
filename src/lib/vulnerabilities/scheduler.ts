@@ -1,4 +1,3 @@
-import { v4 as uuidv4 } from 'uuid';
 import db from '../db/index';
 import { getGitHubProvider } from '../github';
 import { insertRunningSync, runSync } from './sync';
@@ -104,25 +103,33 @@ export async function initVulnerabilityScheduler(): Promise<void> {
   }
 }
 
+/** The one vuln_sync row has a fixed id, so concurrent seeds (multi-instance boot, HMR) collapse into it. */
+export const VULN_SCHEDULE_ID = 'vuln-sync';
+
+// Oldest first, so if an older build ever left a second row behind, every reader picks the same one.
+const SELECT_VULN_ROW = `SELECT * FROM schedules WHERE kind = 'vuln_sync' ORDER BY created_at, id LIMIT 1`;
+
 async function ensureVulnScheduleRow(org: string): Promise<Schedule> {
-  const [rows] = await db.execute<Schedule>(`SELECT * FROM schedules WHERE kind = 'vuln_sync' LIMIT 1`);
-  if (rows[0]) return rows[0];
-  const { cron, tz } = getSyncSchedule();
-  const id = uuidv4();
-  await db.execute(
-    `INSERT INTO schedules (id, org, period_days, cron_expr, timezone, enabled, test_mode, kind)
-     VALUES (?, ?, 0, ?, ?, 1, 0, 'vuln_sync')`,
-    [id, org, cron, tz],
-  );
-  const [created] = await db.execute<Schedule>(`SELECT * FROM schedules WHERE id = ?`, [id]);
-  return created[0];
+  const [rows] = await db.execute<Schedule>(SELECT_VULN_ROW);
+  if (!rows[0]) {
+    const { cron, tz } = getSyncSchedule();
+    await db.execute(
+      `INSERT IGNORE INTO schedules (id, org, period_days, cron_expr, timezone, enabled, test_mode, kind)
+       VALUES (?, ?, 0, ?, ?, 1, 0, 'vuln_sync')`,
+      [VULN_SCHEDULE_ID, org, cron, tz],
+    );
+  }
+  // The row's org follows VULNERABILITIES_ORG, which is the org every sync runs against.
+  await db.execute(`UPDATE schedules SET org = ? WHERE kind = 'vuln_sync'`, [org]);
+  const [current] = await db.execute<Schedule>(SELECT_VULN_ROW);
+  return current[0];
 }
 
 export interface VulnSchedule { id: string; cron: string; tz: string; enabled: boolean; next_run: string | null }
 
 /** The managed vuln_sync schedule row, or null before it has been seeded. */
 export async function getVulnSchedule(): Promise<VulnSchedule | null> {
-  const [rows] = await db.execute<Schedule>(`SELECT * FROM schedules WHERE kind = 'vuln_sync' LIMIT 1`);
+  const [rows] = await db.execute<Schedule>(SELECT_VULN_ROW);
   const r = rows[0];
   if (!r) return null;
   const enabled = Number(r.enabled) === 1;

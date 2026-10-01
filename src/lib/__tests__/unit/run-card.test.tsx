@@ -83,3 +83,22 @@ describe('RunsToolbar', () => {
     expect(screen.getByText('HTTP 409')).toBeTruthy();
   });
 });
+
+describe('RunCard keyboard access', () => {
+  it('the expandable header is a focusable button that toggles on Enter and Space', () => {
+    const onToggle = jest.fn();
+    render(<RunCard {...base} onToggle={onToggle} actions={<button>Delete</button>} />);
+    const header = screen.getByRole('button', { name: /acme · 30 days/ });
+    expect(header.getAttribute('tabindex')).toBe('0');
+    expect(header.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.keyDown(header, { key: 'Enter' });
+    fireEvent.keyDown(header, { key: ' ' });
+    expect(onToggle).toHaveBeenCalledTimes(2);
+    fireEvent.keyDown(screen.getByText('Delete'), { key: 'Enter' }); // keys on an action are the action's own
+    expect(onToggle).toHaveBeenCalledTimes(2);
+  });
+  it('a non-expandable header is not a button', () => {
+    render(<RunCard {...base} expandable={false} />);
+    expect(screen.queryByRole('button', { name: /acme · 30 days/ })).toBeNull();
+  });
+});

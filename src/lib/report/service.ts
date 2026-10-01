@@ -219,7 +219,8 @@ export async function stopReport(id: string): Promise<void> {
     throw new ReportNotFoundError(id);
   }
 
-  if (rows[0].status !== 'running') {
+  // A pending report counts as in flight everywhere else (New/Resume are blocked), so it is stoppable too.
+  if (rows[0].status !== 'running' && rows[0].status !== 'pending') {
     throw new ReportNotRunningError(id);
   }
 

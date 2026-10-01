@@ -223,4 +223,87 @@ describe('ReportsTab', () => {
     expect(screen.queryByText('Resume')).toBeNull();
     expect(screen.queryByText('+ New report')).toBeNull();
   });
+
+  // ── Run flow (PR #77 review: the rewritten start/stop/delete flow had no coverage) ──
+
+  it('starting a report shows its live progress: POST → list returns the pending row → progress is polled', async () => {
+    let started = false;
+    const calls: string[] = [];
+    global.fetch = jest.fn((url: string, init?: any) => {
+      calls.push(`${init?.method ?? 'GET'} ${url}`);
+      let body: any;
+      if (url === '/api/report' && init?.method === 'POST') { started = true; body = { reportId: 'r9' }; }
+      else if (url.startsWith('/api/report/r9/progress')) body = { status: 'running', step: 'Fetching commits', totalRepos: 0, processedRepos: 0, totalDevelopers: 10, completedDevelopers: 3, logs: [] };
+      else if (url === '/api/report') body = started ? [report({ id: 'r9', status: 'pending', completed_at: null, trigger_kind: 'manual' })] : [];
+      else if (url === '/api/orgs') body = [{ login: 'acme', avatar_url: '' }];
+      else body = [];
+      return Promise.resolve({ ok: true, status: 200, json: async () => body });
+    }) as any;
+    wrap(<ReportsTab canAct observedRunning={new Set()} />);
+    fireEvent.click(await screen.findByText('+ New report'));
+    await screen.findByRole('option', { name: 'acme' });
+    fireEvent.click(screen.getByText('Run Report'));
+    await screen.findByText('Fetching commits');
+    expect(screen.getByText('3 / 10 developers')).toBeTruthy();
+    expect(calls).toContain('POST /api/report');
+    expect(calls.some(c => c.startsWith('GET /api/report/r9/progress'))).toBe(true);
+  });
+
+  it.each([
+    ['start', '/api/report', 'POST'],
+    ['stop', '/api/report/r1/stop', 'POST'],
+    ['delete', '/api/report/r1', 'DELETE'],
+  ])('a failed %s shows the server error inline', async (action, failUrl, method) => {
+    const alertSpy = jest.spyOn(window, 'alert').mockImplementation(() => {});
+    const row = action === 'stop' ? report({ status: 'running', completed_at: null }) : report();
+    global.fetch = jest.fn((url: string, init?: any) => {
+      if (url === failUrl && (init?.method ?? 'GET') === method) {
+        return Promise.resolve({ ok: false, status: 409, json: async () => ({ error: `${action} refused` }) });
+      }
+      const body = url === '/api/report' ? [row] : url === '/api/orgs' ? [{ login: 'acme', avatar_url: '' }]
+        : url.includes('/progress') ? { status: 'running', step: 'x', totalRepos: 0, processedRepos: 0, totalDevelopers: 0, completedDevelopers: 0, logs: [] } : [];
+      return Promise.resolve({ ok: true, status: 200, json: async () => body });
+    }) as any;
+    wrap(<ReportsTab canAct observedRunning={new Set()} />);
+    await screen.findByText('acme · 30 days');
+    if (action === 'start') {
+      fireEvent.click(screen.getByText('+ New report'));
+      await screen.findByRole('option', { name: 'acme' });
+      fireEvent.click(screen.getByText('Run Report'));
+    } else if (action === 'stop') {
+      fireEvent.click(screen.getByText('Stop'));
+    } else {
+      fireEvent.click(screen.getByTitle('Delete report'));
+      fireEvent.click(await screen.findByText('Delete'));
+    }
+    await screen.findByText(`${action} refused`);
+    expect(alertSpy).not.toHaveBeenCalled();
+    alertSpy.mockRestore();
+  });
+
+  it('confirming delete removes the report from the list', async () => {
+    let deleted = false;
+    global.fetch = jest.fn((url: string, init?: any) => {
+      if (url === '/api/report/r1' && init?.method === 'DELETE') deleted = true;
+      const body = url === '/api/report' ? (deleted ? [] : [report()]) : [];
+      return Promise.resolve({ ok: true, status: 200, json: async () => body });
+    }) as any;
+    wrap(<ReportsTab canAct observedRunning={new Set()} />);
+    fireEvent.click(await screen.findByTitle('Delete report'));
+    fireEvent.click(await screen.findByText('Delete'));
+    await waitFor(() => expect(screen.queryByText('acme · 30 days')).toBeNull());
+    expect(deleted).toBe(true);
+  });
+
+  it('offers Stop on a pending report, not only a running one', async () => {
+    global.fetch = mockFetch({
+      '/api/report/r1/progress': () => ({ body: { status: 'pending', step: 'Queued', totalRepos: 0, processedRepos: 0, totalDevelopers: 0, completedDevelopers: 0, logs: [] } }),
+      '/api/report': () => ({ body: [report({ status: 'pending', completed_at: null })] }),
+      '/api/schedule': () => ({ body: [] }),
+      '/api/orgs': () => ({ body: [] }),
+    }) as any;
+    wrap(<ReportsTab canAct observedRunning={new Set()} />);
+    await screen.findByText('acme · 30 days');
+    expect(screen.getByText('Stop')).toBeTruthy();
+  });
 });

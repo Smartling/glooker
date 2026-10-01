@@ -77,8 +77,18 @@ export interface RunCardProps {
 export default function RunCard(p: RunCardProps) {
   return (
     <div className={`group bg-gray-900 border rounded-xl transition-colors ${p.expanded ? 'border-gray-700' : 'border-gray-800 hover:border-gray-700'}`}>
-      <div className={`flex items-center justify-between p-4 ${p.expandable ? 'cursor-pointer' : ''}`}
-        onClick={() => (p.expandable ? p.onToggle() : undefined)}>
+      {/* The header is the card's toggle: keyboard-operable and announced as an expandable button. */}
+      <div className={`flex items-center justify-between p-4 ${p.expandable ? 'cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-xl' : ''}`}
+        onClick={() => (p.expandable ? p.onToggle() : undefined)}
+        {...(p.expandable ? {
+          role: 'button',
+          tabIndex: 0,
+          'aria-expanded': p.expanded,
+          onKeyDown: (e: React.KeyboardEvent) => {
+            if (e.target !== e.currentTarget) return; // keys inside an action button are its own
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); p.onToggle(); }
+          },
+        } : {})}>
         <div className="flex items-center gap-3 min-w-0 flex-wrap">
           {p.expandable && (
             <svg className={`w-3.5 h-3.5 text-gray-600 transition-transform ${p.expanded ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -94,7 +104,7 @@ export default function RunCard(p: RunCardProps) {
         <div className="flex items-center gap-3">
           <span className="text-xs text-gray-600">{formatRunTime(p.startedAt)}</span>
           {p.actions && (
-            <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"
+            <div className="flex items-center gap-1.5 md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100 transition-opacity"
               onClick={(e) => e.stopPropagation()}>
               {p.actions}
             </div>

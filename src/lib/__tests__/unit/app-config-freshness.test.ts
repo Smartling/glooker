@@ -60,3 +60,20 @@ it('maps the vulnerability sync status and is null when disabled', async () => {
   (isVulnerabilitiesEnabled as jest.Mock).mockReturnValue(false);
   expect(await getVulnerabilityFreshness(now)).toBeNull();
 });
+
+it('only report schedules drive report staleness — a daily Dependabot alerts schedule does not', async () => {
+  // A weekly report schedule (Mondays 09:00 ET) and a report finished 4 days ago: not stale.
+  // The daily vuln_sync row would make it stale if it were counted.
+  exec.mockImplementation(async (sql: string) => {
+    if (sql.includes("status = 'completed'")) return [[{ created_at: '2026-09-24T13:00:00Z' }], null];
+    if (sql.includes('FROM schedules')) {
+      const rows = [
+        { cron_expr: '0 9 * * 1', timezone: 'America/New_York', enabled: 1, kind: 'report' },
+        { cron_expr: '0 6 * * *', timezone: 'America/New_York', enabled: 1, kind: 'vuln_sync' },
+      ];
+      return [sql.includes("kind = 'report'") ? rows.filter(r => r.kind === 'report') : rows, null];
+    }
+    return [[{ status: 'completed' }], null];
+  });
+  expect((await getReportFreshness(now))?.stale).toBe(false);
+});

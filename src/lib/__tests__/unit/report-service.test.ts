@@ -236,6 +236,13 @@ describe('stopReport', () => {
     await expect(stopReport('missing-id')).rejects.toThrow(ReportNotFoundError);
   });
 
+  it('stops a pending report too', async () => {
+    mockDbExecute.mockResolvedValueOnce([[{ status: 'pending' }], null]).mockResolvedValue([[], null]);
+    await stopReport('r1');
+    expect(mockRequestStop).toHaveBeenCalledWith('r1');
+    expect(mockDbExecute).toHaveBeenCalledWith(expect.stringContaining("status = 'stopped'"), ['r1']);
+  });
+
   it('throws ReportNotRunningError when status is not running', async () => {
     mockDbExecute.mockResolvedValue([[{ status: 'completed' }], null]);
 

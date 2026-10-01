@@ -140,7 +140,7 @@ function ReportCard({
               Resume
             </button>
           )}
-          {r.status === 'running' && (
+          {isRunningNow && (
             <button onClick={onStop} className="px-2 py-1 text-xs font-medium text-orange-400 hover:text-orange-300 bg-orange-500/10 hover:bg-orange-500/20 rounded transition-colors">
               Stop
             </button>

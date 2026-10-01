@@ -26,7 +26,8 @@ export function useReportProgress(id: string, enabled: boolean, onFinish: () => 
     fetcher,
     {
       dedupingInterval: 1000,
-      onErrorRetry: (_err, _key, _config, revalidate, opts) => { setTimeout(() => revalidate(opts), 1500); },
+      // A 404 means the report is gone (e.g. deleted while watched) — retrying can't fix that.
+      onErrorRetry: (err, _key, _config, revalidate, opts) => { if ((err as any)?.status === 404) return; setTimeout(() => revalidate(opts), 1500); },
       refreshInterval: (latest?: ReportProgress) =>
         (!latest || latest.status === 'running' || latest.status === 'pending') ? 1500 : 0,
       onSuccess: (data) => {

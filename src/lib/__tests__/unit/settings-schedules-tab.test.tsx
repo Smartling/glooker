@@ -61,3 +61,21 @@ it('pauses the alerts schedule from the status toggle', async () => {
   await waitFor(() => expect(calls.some(c => c.url === '/api/schedule/v1' && c.init?.method === 'PUT')).toBe(true));
   expect(JSON.parse(calls.find(c => c.url === '/api/schedule/v1')!.init.body).enabled).toBe(false);
 });
+
+it('surfaces a server error from delete or toggle instead of swallowing it', async () => {
+  const alertSpy = jest.spyOn(window, 'alert').mockImplementation(() => {});
+  (global as any).fetch = jest.fn((url: string, init?: any) => {
+    if (init?.method === 'DELETE' || init?.method === 'PUT') {
+      return Promise.resolve({ ok: false, status: 400, json: async () => ({ error: 'nope from server' }) });
+    }
+    const body = url === '/api/schedule' ? [report, vuln] : url === '/api/orgs' ? [{ login: 'acme' }] : {};
+    return Promise.resolve({ ok: true, status: 200, json: async () => body });
+  });
+  render(<SchedulesTab />);
+  fireEvent.click(within(await rowFor('Dependabot alerts')).getByText('Active'));
+  await waitFor(() => expect(alertSpy).toHaveBeenCalledWith('nope from server'));
+  fireEvent.click(within(await rowFor('Commits & PRs')).getByText('Delete'));
+  fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+  await waitFor(() => expect(alertSpy).toHaveBeenCalledTimes(2));
+  alertSpy.mockRestore();
+});

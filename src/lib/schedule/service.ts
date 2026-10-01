@@ -98,7 +98,9 @@ export async function updateSchedule(id: string, input: ScheduleInput): Promise<
       [cronExpr, timezone, enabled ? 1 : 0, id],
     );
     const row = { ...existing[0], cron_expr: cronExpr, timezone, enabled: enabled ? 1 : 0 };
-    if (enabled) registerSchedule(row); else unregisterSchedule(id);
+    const { isVulnerabilitiesEnabled } = await import('../vulnerabilities/config');
+    // Same rule as initScheduler: a vuln_sync job only runs while the feature is enabled.
+    if (enabled && isVulnerabilitiesEnabled()) registerSchedule(row); else unregisterSchedule(id);
     return;
   }
 

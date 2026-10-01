@@ -50,10 +50,11 @@ export async function initScheduler(): Promise<void> {
       `SELECT * FROM schedules WHERE enabled = 1`,
     );
 
+    // A vuln_sync row only runs while the feature is enabled; its own init seeds and
+    // registers it (initVulnerabilityScheduler), so skip it here when the feature is off.
+    const vulnOn = await vulnerabilitiesEnabled();
     for (const schedule of rows) {
-      // A vuln_sync row only runs while the feature is enabled; its own init seeds and
-      // registers it (initVulnerabilityScheduler), so skip it here when the feature is off.
-      if (schedule.kind === 'vuln_sync' && !(await vulnerabilitiesEnabled())) continue;
+      if (schedule.kind === 'vuln_sync' && !vulnOn) continue;
       try {
         registerSchedule(schedule);
       } catch (err) {

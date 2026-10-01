@@ -102,3 +102,33 @@ it('creating through the service always makes a report schedule', async () => {
   expect(row.kind).toBe('report');
   void mockStartSync;
 });
+
+it('concurrent first-boot seeds collapse into one row with the fixed id', async () => {
+  await db.execute(`DELETE FROM schedules WHERE kind = 'vuln_sync'`);
+  delete g.__glooker_vuln_init;
+  await Promise.all([vuln.initVulnerabilityScheduler(), (async () => { delete g.__glooker_vuln_init; await vuln.initVulnerabilityScheduler(); })()]);
+  const rows = await vulnRows();
+  expect(rows).toHaveLength(1);
+  expect(rows[0].id).toBe(vuln.VULN_SCHEDULE_ID);
+});
+
+it("the row's org follows VULNERABILITIES_ORG on boot", async () => {
+  process.env.VULNERABILITIES_ORG = 'renamed-org';
+  delete g.__glooker_vuln_init;
+  try {
+    await vuln.initVulnerabilityScheduler();
+    expect((await vulnRows())[0].org).toBe('renamed-org');
+  } finally { process.env.VULNERABILITIES_ORG = 'acme'; delete g.__glooker_vuln_init; await vuln.initVulnerabilityScheduler(); }
+});
+
+it('editing the vuln row while the feature is off saves it but registers no job', async () => {
+  const [row] = await vulnRows();
+  manager.unregisterSchedule(row.id);
+  process.env.VULNERABILITIES_ORG = '';
+  try {
+    await service.updateSchedule(row.id, { org: 'acme', periodDays: 0, cronExpr: '15 4 * * *', timezone: 'UTC', enabled: true });
+    expect((g.__glooker_schedules as Map<string, any>).has(row.id)).toBe(false);
+    const [[after]] = await db.execute(`SELECT cron_expr, enabled FROM schedules WHERE id = ?`, [row.id]);
+    expect(after).toMatchObject({ cron_expr: '15 4 * * *', enabled: 1 });
+  } finally { process.env.VULNERABILITIES_ORG = 'acme'; }
+});

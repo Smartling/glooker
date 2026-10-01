@@ -168,7 +168,7 @@ export async function getReportFreshness(now = new Date()): Promise<ReportFreshn
       `SELECT created_at FROM reports WHERE status = 'completed' ORDER BY created_at DESC LIMIT 1`) as [any[], any];
     const [latest] = await db.execute(
       `SELECT status FROM reports WHERE status IN ('completed','failed','stopped') ORDER BY created_at DESC LIMIT 1`) as [any[], any];
-    const [schedules] = await db.execute(`SELECT cron_expr, timezone, enabled FROM schedules`) as [any[], any];
+    const [schedules] = await db.execute(`SELECT cron_expr, timezone, enabled FROM schedules WHERE kind = 'report'`) as [any[], any];
     const latestCompletedAt = iso(completed[0]?.created_at);
     const latestRunStatus: string | null = latest[0]?.status ?? null;
     return {

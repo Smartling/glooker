@@ -112,7 +112,8 @@ export default function SchedulesTab() {
 
   async function del(id: string) {
     try {
-      await fetch(`/api/schedule/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/schedule/${id}`, { method: 'DELETE' });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || 'Failed to delete'); setDeletingId(null); return; }
       loadSchedules();
       setDeletingId(null);
       if (editing?.id === id) { setShowForm(false); resetForm(); }
@@ -122,7 +123,8 @@ export default function SchedulesTab() {
   async function toggle(s: any) {
     const body = { org: s.org, periodDays: s.period_days, cronExpr: s.cron_expr, timezone: s.timezone, testMode: Boolean(s.test_mode), enabled: !s.enabled };
     try {
-      await fetch(`/api/schedule/${s.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const res = await fetch(`/api/schedule/${s.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || 'Failed to update'); return; }
       loadSchedules();
     } catch { alert('Network error'); }
   }
