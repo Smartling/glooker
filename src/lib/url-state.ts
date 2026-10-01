@@ -7,6 +7,7 @@ type BatchPending = {
   params: URLSearchParams;
   pathname: string;
   usePush: boolean;
+  noScroll: boolean;
 };
 // Module-level singleton. Safe because batch() and setters are only ever called
 // from event handlers / effects, never during render. JS single-threaded
@@ -40,12 +41,16 @@ export type UrlSchema<T> =
       values: readonly T[];
       default: T;
       history: 'push' | 'replace';
+      /** Opt-in: pass `false` to preserve scroll position on write (default Next.js behavior scrolls to top). */
+      scroll?: false;
     }
   | {
       key: string;
       type: 'string';
       default: T extends string | null ? T : never;
       history: 'push' | 'replace';
+      /** Opt-in: pass `false` to preserve scroll position on write (default Next.js behavior scrolls to top). */
+      scroll?: false;
     }
   | {
       /**
@@ -59,6 +64,8 @@ export type UrlSchema<T> =
       type: 'string-set';
       default: Set<string>;
       history: 'push' | 'replace';
+      /** Opt-in: pass `false` to preserve scroll position on write (default Next.js behavior scrolls to top). */
+      scroll?: false;
     };
 
 export function readValue<T>(params: URLSearchParams, schema: UrlSchema<T>): T {
@@ -145,6 +152,7 @@ export function useUrlState<T>(schema: UrlSchema<T>): [T, (next: T) => void] {
       if (batchPending) {
         writeValueIntoParams(batchPending.params, next, schema);
         if (schema.history === 'push') batchPending.usePush = true;
+        if (schema.scroll === false) batchPending.noScroll = true;
         return;
       }
       const baseSearch = searchParams.toString();
@@ -168,13 +176,15 @@ export function useUrlState<T>(schema: UrlSchema<T>): [T, (next: T) => void] {
       const queryStr = params.toString();
       const newUrl = queryStr ? `${pathname}?${queryStr}` : pathname;
       if (schema.history === 'push') {
-        router.push(newUrl);
+        if (schema.scroll === false) router.push(newUrl, { scroll: false });
+        else router.push(newUrl);
       } else {
-        router.replace(newUrl);
+        if (schema.scroll === false) router.replace(newUrl, { scroll: false });
+        else router.replace(newUrl);
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- schema fields are stable per call site
-    [router, pathname, searchParams, schema.key, schema.type, schema.history],
+    [router, pathname, searchParams, schema.key, schema.type, schema.history, schema.scroll],
   );
 
   return [value, setter];
@@ -191,7 +201,8 @@ export function useUrlState<T>(schema: UrlSchema<T>): [T, (next: T) => void] {
  *   against stale params. Use sequential explicit `batch` calls instead.
  *
  * Push wins: if any setter inside the batch has `history: 'push'`, the
- * combined flush uses `router.push`; otherwise `router.replace`.
+ * combined flush uses `router.push`; otherwise `router.replace`. No-scroll wins the same way: if
+ * any setter inside the batch has `scroll: false`, the flush passes `{ scroll: false }`.
  *
  * Nested calls: an inner `batch(fn)` runs `fn` inline and inherits the
  * outer accumulator (no separate flush).
@@ -215,6 +226,7 @@ export function useUrlBatch(): (fn: () => void) => void {
         params: new URLSearchParams(searchParams.toString()),
         pathname,
         usePush: false,
+        noScroll: false,
       };
       try {
         const result = fn() as unknown;
@@ -224,8 +236,14 @@ export function useUrlBatch(): (fn: () => void) => void {
         const queryStr = batchPending.params.toString();
         const newUrl = queryStr ? `${pathname}?${queryStr}` : pathname;
         const usePush = batchPending.usePush;
-        if (usePush) router.push(newUrl);
-        else router.replace(newUrl);
+        const noScroll = batchPending.noScroll;
+        if (usePush) {
+          if (noScroll) router.push(newUrl, { scroll: false });
+          else router.push(newUrl);
+        } else {
+          if (noScroll) router.replace(newUrl, { scroll: false });
+          else router.replace(newUrl);
+        }
       } finally {
         batchPending = null;
       }

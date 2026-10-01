@@ -33,7 +33,7 @@ function Progress({ p }: { p: RunProgressView }) {
         <span className="text-gray-400">{p.step}</span>
         {p.counter && <span className="text-gray-600">{p.counter}</span>}
       </div>
-      <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+      <div className="h-1.5 bg-chart-track rounded-full overflow-hidden">
         <div className={`h-full rounded-full transition-all duration-500 ${BAR[p.tone]}`}
           style={{ width: `${Math.max(p.pct, p.running ? 2 : 0)}%` }} />
       </div>

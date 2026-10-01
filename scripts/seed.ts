@@ -42,6 +42,7 @@ async function main() {
   await seed('schedules', data.seedSchedules);
   await seed('release_notes', data.seedReleaseNotes);
   await seed('unmerged_prs', data.seedUnmergedPrs);
+  await seed('unmerged_commits', data.seedUnmergedCommits);
   await seed('cc_skills_usage', data.seedCcSkillsUsage);
   await seed('cc_model_usage', data.seedCcModelUsage);
 

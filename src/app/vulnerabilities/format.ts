@@ -1,4 +1,5 @@
 import type { ResolvedSince } from '@/lib/vulnerabilities/types';
+import type { DeltaResult } from '@/lib/vulnerabilities/aggregate';
 
 export const dash = (v: number | null | undefined, suffix = '') => (v === null || v === undefined ? '—' : `${v.toLocaleString()}${suffix}`);
 
@@ -14,6 +15,17 @@ export function resolvedCaption(r: ResolvedSince): string {
   return r.date === null ? 'all time' : `since ${r.date}`;
 }
 export const signed = (v: number) => (v > 0 ? `+${v}` : `${v}`);
+
+/**
+ * When a delta is available, names the baseline date it's measured against — a snapshot-history
+ * gap can make e.g. "7 days" silently resolve to a measurement many weeks old, and without this a
+ * delta figure reads as fresher than it is. Uses `takenOn` (the date the trend chart plots), not
+ * `measuredAt`, so the caption matches what the rest of the page calls that snapshot's date.
+ */
+export function deltaBaselineCaption(delta: DeltaResult | null | undefined): string | null {
+  if (!delta?.available || !delta.baseline) return null;
+  return `vs ${delta.baseline.takenOn}`;
+}
 export const deltaClass = (v: number) => (v > 0 ? 'text-red-400' : v < 0 ? 'text-green-400' : 'text-gray-500');
 
 /**

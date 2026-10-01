@@ -86,7 +86,7 @@ export default function NavBar() {
 
         {vulnerabilitiesEnabled && (
           <Link href="/vulnerabilities" className={navItemClass(pathname.startsWith('/vulnerabilities'))}>
-            Vulnerabilities
+            Security
             {config?.vulnerabilityFreshness?.lastSuccessfulAt && (
               <span className={`text-[10px] ml-1 ${config.vulnerabilityFreshness.stale ? 'text-amber-400' : 'text-gray-600'}`}>
                 {new Date(config.vulnerabilityFreshness.lastSuccessfulAt).toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' })}
@@ -96,7 +96,7 @@ export default function NavBar() {
         )}
 
         <Link href="/reports" className={navItemClass(pathname.startsWith('/reports'))}>
-          Runs
+          Reports
         </Link>
       </div>
 

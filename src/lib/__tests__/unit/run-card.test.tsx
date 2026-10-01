@@ -77,9 +77,9 @@ describe('RunHealthBadge', () => {
 
 describe('RunsToolbar', () => {
   it('renders info, action and an inline error banner', () => {
-    render(<RunsToolbar info="Daily at 0 6 * * *" action={<button>Sync now</button>} error="HTTP 409" />);
+    render(<RunsToolbar info="Daily at 0 6 * * *" action={<button>Sync alerts</button>} error="HTTP 409" />);
     expect(screen.getByText('Daily at 0 6 * * *')).toBeTruthy();
-    expect(screen.getByText('Sync now')).toBeTruthy();
+    expect(screen.getByText('Sync alerts')).toBeTruthy();
     expect(screen.getByText('HTTP 409')).toBeTruthy();
   });
 });

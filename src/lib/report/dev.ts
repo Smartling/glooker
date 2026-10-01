@@ -1,6 +1,6 @@
 import db from '@/lib/db';
 import { ReportNotFoundError } from './service';
-import { dedupCommitsBySha, aggregateWeekly } from './timeline';
+import { dedupCommitsBySha, aggregateWeekly, anchorWeekFor, completedReportWindows, coveredWeeksFromWindows } from './timeline';
 import { UNMERGED_LOOKBACK_DAYS } from './unmerged-window';
 
 export class DeveloperNotFoundError extends Error {
@@ -80,9 +80,15 @@ export async function getDevReport(reportId: string, login: string) {
   ) as [any[], any];
 
   // Timeline: all commits for this developer across ALL reports for this org,
-  // deduped by commit_sha, for weekly aggregation graphs
+  // deduped by commit_sha, for weekly aggregation graphs. GLOOK-58 Decision 15: status,
+  // period_days, completed_at and created_at feed the org-level coverage below. The dev page
+  // uses the SAME org-level coverage as the org page (product owner revision, 2026-09-28): every
+  // completed report for the org counts, not just ones holding a developer_stats row for this
+  // login, so a covered week with no commits from this developer reads a measured 0 instead of
+  // "Not measured". They're read in this same query so the call order is unchanged.
   const [allReportIds] = await db.execute(
-    `SELECT id FROM reports WHERE org = ?`,
+    `SELECT id, status, period_days, created_at, completed_at
+     FROM reports WHERE org = ?`,
     [org],
   ) as [any[], any];
   const reportIds = allReportIds.map((r: any) => r.id);
@@ -176,6 +182,11 @@ export async function getDevReport(reportId: string, login: string) {
     [reportId, login],
   ) as [any[], any];
 
+  // GLOOK-58 Decision 15: org-level coverage, identical to org.ts. Every completed report for the
+  // org counts, regardless of whether this developer has a developer_stats row in it.
+  const coveredWeeks = coveredWeeksFromWindows(completedReportWindows(allReportIds));
+  const anchorWeek = anchorWeekFor(reportRows[0].status, reportRows[0].completed_at, reportRows[0].created_at);
+
   return {
     report: reportRows[0],
     developer: parseDev(devRows[0]),
@@ -193,5 +204,7 @@ export async function getDevReport(reportId: string, login: string) {
       cost: Number(r.cost) || 0,
       requests: Number(r.requests) || 0,
     })),
+    coveredWeeks,
+    anchorWeek,
   };
 }

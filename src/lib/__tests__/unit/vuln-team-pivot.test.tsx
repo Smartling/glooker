@@ -144,6 +144,36 @@ describe('resolvedSince caption states (the Resolved column sub-header)', () => 
   });
 });
 
+describe('delta baseline caption on the Δ column header', () => {
+  const fullCell = (o: any = {}) => ({ open: 5, resolved: 5, dismissed: 0, pctClosed: 50, overdue: 0, dueSoon: 0, ...o });
+  const rowsForTest = [{ team: 'TeamA', critical: fullCell(), high: fullCell(), unmeasuredRepos: 0 }];
+  const totalForTest = { team: 'Total', critical: fullCell(), high: fullCell(), unmeasuredRepos: 0 };
+  const baseline = (takenOn: string) => ({ source: 'sync' as const, key: 'sync:1', takenOn, measuredAt: `${takenOn}T06:00:00Z` });
+
+  it('shows "vs <date>" under both Δ headers when both severities have an available delta with the same baseline', () => {
+    const delta = {
+      critical: { available: true, baseline: baseline('2099-01-01'), reposNotInBaseline: 0, teams: [], total: null },
+      high: { available: true, baseline: baseline('2099-01-01'), reposNotInBaseline: 0, teams: [], total: null },
+    };
+    render(<TeamPivot rows={rowsForTest as any} total={totalForTest as any} delta={delta as any} highSlaActive={false} resolvedSince={{ date: '2020-01-08', invalid: false }} onSelectTeam={() => {}} selectedTeam={null} />);
+    expect(screen.getAllByText('vs 2099-01-01').length).toBe(2);
+  });
+
+  it('shows the caption only under the critical Δ header when high is unavailable (csv-import baseline)', () => {
+    const delta = {
+      critical: { available: true, baseline: baseline('2099-01-01'), reposNotInBaseline: 0, teams: [], total: null },
+      high: { available: false, baseline: baseline('2099-01-01'), reposNotInBaseline: 0, teams: [], total: null },
+    };
+    render(<TeamPivot rows={rowsForTest as any} total={totalForTest as any} delta={delta as any} highSlaActive={false} resolvedSince={{ date: '2020-01-08', invalid: false }} onSelectTeam={() => {}} selectedTeam={null} />);
+    expect(screen.getAllByText('vs 2099-01-01').length).toBe(1);
+  });
+
+  it('shows no caption under either Δ header when delta is null (no baseline picked)', () => {
+    render(<TeamPivot rows={rows as any} total={total as any} delta={null} highSlaActive={false} resolvedSince={{ date: '2020-01-08', invalid: false }} onSelectTeam={() => {}} selectedTeam={null} />);
+    expect(screen.queryByText(/^vs /)).toBeNull();
+  });
+});
+
 describe('row selection', () => {
   it('clicking a row selects it, clicking the selected row clears it, and the selected row is highlighted', () => {
     const onSelectTeam = jest.fn();
@@ -157,5 +187,79 @@ describe('row selection', () => {
 
     fireEvent.click(screen.getByText('TeamA'));
     expect(onSelectTeam).toHaveBeenLastCalledWith(null);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Layout stability: the Δ header's caption slot always renders. jsdom has no layout, so this
+// guards structure only; the acceptance harness (pivot <th> x and width per action, incl. the
+// csv-import baseline that never measures high) is the real check.
+// ---------------------------------------------------------------------------------------------
+describe('Δ caption slot is always present', () => {
+  const fullCell = (o: any = {}) => ({ open: 5, resolved: 5, dismissed: 0, pctClosed: 50, overdue: 0, dueSoon: 0, ...o });
+  const rowsForTest = [{ team: 'TeamA', critical: fullCell(), high: fullCell(), unmeasuredRepos: 0 }];
+  const totalForTest = { team: 'Total', critical: fullCell(), high: fullCell(), unmeasuredRepos: 0 };
+  const baseline = (takenOn: string) => ({ source: 'sync' as const, key: 'sync:1', takenOn, measuredAt: `${takenOn}T06:00:00Z` });
+  const renderPivot = (delta: any) => render(<TeamPivot rows={rowsForTest as any} total={totalForTest as any} delta={delta} highSlaActive={false} resolvedSince={{ date: '2020-01-08', invalid: false }} onSelectTeam={() => {}} selectedTeam={null} />);
+
+  // Revert: render the caption only when there is one (`{deltaCaption && <div>…</div>}`).
+  it('renders both slots as aria-hidden non-breaking spaces when there is no delta', () => {
+    renderPivot(null);
+    for (const sev of ['critical', 'high']) {
+      const slot = screen.getByTestId(`pivot-delta-caption-${sev}`);
+      expect(slot.textContent).toBe('\u00a0');
+      expect(slot.getAttribute('aria-hidden')).toBe('true');
+    }
+  });
+
+  // Revert: fall back to the placeholder for every severity (ignore `deltaCaption`), or share one
+  // caption between the two severities instead of computing each from its own delta.
+  it('holds "vs <date>" (not aria-hidden) for a severity with an available delta, and a placeholder for the other', () => {
+    renderPivot({
+      critical: { available: true, baseline: baseline('2099-01-01'), reposNotInBaseline: 0, teams: [], total: null },
+      high: { available: false, baseline: baseline('2099-01-01'), reposNotInBaseline: 0, teams: [], total: null },
+    });
+    const crit = screen.getByTestId('pivot-delta-caption-critical');
+    expect(crit.textContent).toBe('vs 2099-01-01');
+    expect(crit.hasAttribute('aria-hidden')).toBe(false);
+    expect(screen.getByTestId('pivot-delta-caption-high').textContent).toBe('\u00a0');
+  });
+
+  // The slot carries the same width floor in every state (sized for "vs YYYY-MM-DD" at 10px), and
+  // the numeric cells use tabular digits, so neither a baseline switch nor a changing value can
+  // resize a column. Revert: drop `min-w-[…]` from the slot or `tabular-nums` from the cells.
+  it('the caption slot has a min-width floor in both states, and numeric cells are tabular-nums', () => {
+    const { unmount } = renderPivot(null);
+    const empty = screen.getByTestId('pivot-delta-caption-critical').className;
+    unmount();
+    renderPivot({
+      critical: { available: true, baseline: baseline('2099-01-01'), reposNotInBaseline: 0, teams: [], total: null },
+      high: { available: true, baseline: baseline('2099-01-01'), reposNotInBaseline: 0, teams: [], total: null },
+    });
+    const floor = (cls: string) => cls.split(/\s+/).find(c => c.startsWith('min-w-'));
+    expect(floor(empty)).toBeTruthy();
+    expect(floor(screen.getByTestId('pivot-delta-caption-critical').className)).toBe(floor(empty));
+    const cells = screen.getByText('TeamA').closest('tr')!.querySelectorAll('td');
+    for (const i of [1, 2, 3, 4, 5]) expect(cells[i].className).toContain('tabular-nums'); // critical Open, Δ, Resolved, % closed, Overdue
+  });
+
+  // The Δ value sits in a span keyed by its text: in a right-aligned cell an in-place text edit moves
+  // the text's start, which the browser's layout-shift API scores, while a remounted span is a new
+  // object. jsdom keeps React's node reuse observable. Revert: drop `key={d ?? '—'}` from the span
+  // (React then reuses the node and only edits its text).
+  it('the Δ value span is a NEW node when its text changes', () => {
+    const deltaTeam = (team: string, deltaOpen: number) => ({ team, deltaOpen, new: 0, resolved: 0, dismissed: 0, reopened: 0, other: 0 });
+    const withDelta = (open: number) => ({
+      critical: { available: true, baseline: baseline('2099-01-01'), reposNotInBaseline: 0, teams: [deltaTeam('TeamA', open)], total: deltaTeam('Total', open) },
+      high: { available: false, baseline: baseline('2099-01-01'), reposNotInBaseline: 0, teams: [], total: null },
+    });
+    const props = { rows: rowsForTest as any, total: totalForTest as any, highSlaActive: false, resolvedSince: { date: '2020-01-08', invalid: false }, onSelectTeam: () => {}, selectedTeam: null };
+    const { rerender } = render(<TeamPivot {...props} delta={withDelta(12) as any} />);
+    const teamARow = () => screen.getByText('TeamA').closest('tr')!;
+    const before = within(teamARow()).getByText('+12');
+    rerender(<TeamPivot {...props} delta={withDelta(5) as any} />);
+    const after = within(teamARow()).getByText('+5');
+    expect(after).not.toBe(before);
+    expect(before.isConnected).toBe(false);
   });
 });

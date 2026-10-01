@@ -6,16 +6,9 @@ import useSWR from 'swr';
 import Breadcrumb from '@/components/Breadcrumb';
 import { findFirstJiraKey } from '@/lib/jira-key-utils';
 import { ClaudeCodeUsageCard, type SkillRow, type ModelRow } from './usage-card';
-
-const TYPE_COLORS: Record<string, string> = {
-  feature: 'bg-blue-500', bug: 'bg-red-500', refactor: 'bg-purple-500',
-  infra: 'bg-yellow-500', docs: 'bg-gray-500', test: 'bg-green-500', other: 'bg-gray-600',
-};
-
-const TYPE_TEXT_COLORS: Record<string, string> = {
-  feature: 'text-blue-400', bug: 'text-red-400', refactor: 'text-purple-400',
-  infra: 'text-yellow-400', docs: 'text-gray-400', test: 'text-green-400', other: 'text-gray-500',
-};
+import { TimelineChart } from '@/components/charts/timeline-chart';
+import { toNum, weekDomainEndingAt } from '@/components/charts/chart-format';
+import { commitTypeBadge, commitTypeBg, typeEntriesFrom } from '@/components/charts/commit-types';
 
 interface DevStats {
   github_login: string; github_name: string; avatar_url: string;
@@ -126,6 +119,11 @@ export default function DevDetailPage() {
     devData?.unmergedWork ?? { openPrs: [], branchCommits: [] };
   const skills: SkillRow[] = devData?.skills ?? [];
   const models: ModelRow[] = devData?.models ?? [];
+  // GLOOK-58 Decision 15: the weeks some completed report of the org measured, and the
+  // week this report's charts end at. Both come from the server. A response without coveredWeeks
+  // gives [], so unmeasured weeks never claim a zero.
+  const coveredWeeks: string[] = devData?.coveredWeeks ?? [];
+  const anchorWeek: string | undefined = devData?.anchorWeek;
 
   // 3. Summary (dependent on devData)
   const { data: summaryData, isLoading: summaryLoading, error: summaryError } = useSWR(
@@ -162,8 +160,12 @@ export default function DevDetailPage() {
   ];
 
   // Type breakdown for stacked bar
-  const typeEntries = Object.entries(dev.type_breakdown || {}).sort((a, b) => b[1] - a[1]);
+  const typeEntries = typeEntriesFrom([dev.type_breakdown ?? {}]);
   const totalTyped = typeEntries.reduce((s, [, c]) => s + c, 0);
+
+  // One week domain per render, ending at this report's own week (Decision 15), shared by every
+  // chart below so hover sync (syncId) lines up.
+  const weeks = weekDomainEndingAt(anchorWeek);
 
   // Repo commit counts
   const repoMap = new Map<string, number>();
@@ -269,7 +271,7 @@ export default function DevDetailPage() {
               {typeEntries.map(([type, count]) => (
                 <div
                   key={type}
-                  className={`${TYPE_COLORS[type] || 'bg-gray-600'} h-full`}
+                  className={`${commitTypeBg(type)} h-full`}
                   style={{ width: `${(count / totalTyped) * 100}%` }}
                   title={`${type}: ${count}`}
                 />
@@ -277,13 +279,14 @@ export default function DevDetailPage() {
             </div>
           )}
           <div className="flex flex-wrap gap-2">
-            {typeEntries.map(([type, count]) => (
-              <div key={type} className="flex items-center gap-1.5 text-xs">
-                <span className={`w-2.5 h-2.5 rounded-sm ${TYPE_COLORS[type] || 'bg-gray-600'}`} />
-                <span className="text-gray-400">{type}</span>
-                <span className="text-gray-600">{count} ({Math.round((count / totalTyped) * 100)}%)</span>
-              </div>
-            ))}
+            {typeEntries.map(([type, count]) => {
+              const badge = commitTypeBadge(type);
+              return (
+                <span key={type} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs ${badge.bg} ${badge.text}`}>
+                  {type} <span className="opacity-80">{count} ({Math.round((count / totalTyped) * 100)}%)</span>
+                </span>
+              );
+            })}
           </div>
         </div>
 
@@ -312,45 +315,39 @@ export default function DevDetailPage() {
         <div className="mb-6">
           <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-3">Activity Over Time (weekly)</p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <TimelineChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks} valueKey="commits" kind="count" label="Commits / Week" syncId="dev-timeline" />
+            <TimelineChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks} valueKey="prs" kind="count" label="PRs / Week" syncId="dev-timeline" />
             <TimelineChart
               data={timeline}
-              valueKey="commits"
-              label="Commits / Week"
-              color="#3B82F6"
-            />
-            <TimelineChart
-              data={timeline}
-              valueKey="prs"
-              label="PRs / Week"
-              color="#06B6D4"
-            />
-            <TimelineChart
-              data={timeline}
+              weeks={weeks}
+              coveredWeeks={coveredWeeks}
               valueKey="avgLinesPerPr"
+              kind="ratio"
+              isDefined={d => toNum(d.prs) > 0}
               label="Avg Lines Changed / PR (outliers excluded)"
-              color="#EC4899"
               suffix=" lines"
+              syncId="dev-timeline"
             />
             <TimelineChart
               data={timeline}
-              valueKey="linesChanged"
+              weeks={weeks}
+              coveredWeeks={coveredWeeks}
+              kind="count"
               label="Lines Changed / Week"
-              color="#10B981"
-              computeValue={d => d.linesAdded + d.linesRemoved}
+              computeValue={d => toNum(d.linesAdded) + toNum(d.linesRemoved)}
+              syncId="dev-timeline"
             />
+            <TimelineChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks} valueKey="avgComplexity" kind="ratio" label="Avg Complexity / Week" decimals={1} syncId="dev-timeline" />
             <TimelineChart
               data={timeline}
-              valueKey="avgComplexity"
-              label="Avg Complexity / Week"
-              color="#F59E0B"
-              decimals={1}
-            />
-            <TimelineChart
-              data={timeline}
+              weeks={weeks}
+              coveredWeeks={coveredWeeks}
               valueKey="aiPercent"
+              kind="ratio"
+              isDefined={d => toNum(d.commits) > 0}
               label="AI Assisted %"
-              color="#A855F7"
               suffix="%"
+              syncId="dev-timeline"
             />
           </div>
         </div>
@@ -496,7 +493,7 @@ export default function DevDetailPage() {
                     <td className="px-4 py-2.5 text-gray-500 text-xs whitespace-nowrap">{c.repo}</td>
                     <td className="px-4 py-2.5">
                       {c.type && (
-                        <span className={`inline-block px-1.5 py-0.5 rounded text-xs text-white ${TYPE_COLORS[c.type] || 'bg-gray-600'}`}>
+                        <span className={`inline-block px-1.5 py-0.5 rounded text-xs ${commitTypeBadge(c.type).bg} ${commitTypeBadge(c.type).text}`}>
                           {c.type}
                         </span>
                       )}
@@ -661,182 +658,6 @@ export default function DevDetailPage() {
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-function TimelineChart({
-  data,
-  valueKey,
-  label,
-  color,
-  suffix = '',
-  decimals = 0,
-  computeValue,
-}: {
-  data: WeeklyData[];
-  valueKey: string;
-  label: string;
-  color: string;
-  suffix?: string;
-  decimals?: number;
-  computeValue?: (d: WeeklyData) => number;
-}) {
-  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
-
-  // Last 90 days of data
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - 90);
-  const cutoffStr = cutoff.toISOString().split('T')[0];
-  const filtered = data.filter(d => d.week >= cutoffStr);
-
-  if (filtered.length < 1) return null;
-
-  const values = filtered.map(d => computeValue ? computeValue(d) : (d as any)[valueKey] as number);
-  const max = Math.max(...values, 1);
-  const min = Math.min(...values, 0);
-  const range = max - min || 1;
-
-  // Y-axis: pick nice round tick values
-  const yTicks: number[] = [];
-  const step = range <= 5 ? 1 : range <= 20 ? 5 : range <= 100 ? 20 : range <= 500 ? 100 : range <= 2000 ? 500 : Math.ceil(range / 5 / 100) * 100;
-  for (let v = Math.ceil(min / step) * step; v <= max; v += step) {
-    yTicks.push(v);
-  }
-  if (yTicks.length === 0) yTicks.push(min, max);
-  if (yTicks.length > 6) {
-    const keep = [yTicks[0], yTicks[Math.floor(yTicks.length / 2)], yTicks[yTicks.length - 1]];
-    yTicks.length = 0;
-    yTicks.push(...keep);
-  }
-
-  const W = 400;
-  const H = 130;
-  const padL = 40;
-  const padR = 12;
-  const padT = 12;
-  const padB = 24;
-  const chartW = W - padL - padR;
-  const chartH = H - padT - padB;
-
-  // Fixed X-axis range: [cutoff, today].
-  // d.week is a Monday-anchored ISO date string (YYYY-MM-DD) from weekKeyForDate() in timeline.ts.
-  // Parse with T00:00:00 to stay in local time, consistent with formatWeek below.
-  const today = new Date();
-  const totalMs = today.getTime() - cutoff.getTime();
-  const totalWeeks = totalMs / (7 * 24 * 3600 * 1000);
-  const barWidth = (chartW / totalWeeks) * 0.85;
-
-  const bars = filtered.map((d, i) => {
-    const x = padL + ((new Date(d.week + 'T00:00:00').getTime() - cutoff.getTime()) / totalMs) * chartW;
-    const v = values[i];
-    const barH = Math.max(((v - min) / range) * chartH, 1);
-    const barY = padT + chartH - barH;
-    return { x, barY, barH, v, week: d.week };
-  });
-
-  const formatWeek = (w: string) => {
-    const d = new Date(w + 'T00:00:00');
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  };
-  const formatVal = (v: number) => (decimals > 0 ? v.toFixed(decimals) : String(Math.round(v))) + suffix;
-
-  // X-axis labels: left = cutoff (axis origin), middle = midpoint of range, right = "This week"
-  const middleDate = new Date(cutoff.getTime() + totalMs / 2);
-  const middleLabel = middleDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-
-  const latest = values[values.length - 1];
-  const prev = values.length >= 2 ? values[values.length - 2] : latest;
-  const trend = latest > prev ? '+' : latest < prev ? '' : '';
-  const diff = latest - prev;
-
-  return (
-    <div className="bg-gray-900 rounded-xl p-4">
-      <div className="flex items-baseline justify-between mb-2">
-        <p className="text-xs text-gray-500 font-medium">{label}</p>
-        <div className="flex items-baseline gap-2">
-          <span className="text-sm font-bold text-white">
-            {formatVal(latest)}
-          </span>
-          {diff !== 0 && (
-            <span className={`text-xs ${diff > 0 ? 'text-green-400' : 'text-red-400'}`}>
-              {trend}{formatVal(Math.abs(diff))}
-            </span>
-          )}
-        </div>
-      </div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto">
-        {/* Grid lines + Y-axis labels */}
-        {yTicks.map(v => {
-          const y = padT + chartH - ((v - min) / range) * chartH;
-          return (
-            <g key={v}>
-              <line x1={padL} y1={y} x2={W - padR} y2={y} stroke="#1F2937" strokeWidth="1" />
-              <text x={padL - 6} y={y + 3.5} textAnchor="end" className="fill-gray-600" fontSize="9">
-                {decimals > 0 ? v.toFixed(decimals) : v}{suffix}
-              </text>
-            </g>
-          );
-        })}
-        {/* Bars — color prop, opacity 1, no corner radius */}
-        {bars.map((bar, i) => (
-          <rect
-            key={i}
-            x={bar.x - barWidth / 2}
-            y={bar.barY}
-            width={barWidth}
-            height={bar.barH}
-            fill={color}
-            opacity={1}
-          />
-        ))}
-        {/* Full-column invisible hover targets (rendered after bars to sit on top) */}
-        {bars.map((bar, i) => (
-          <rect
-            key={i}
-            x={bar.x - barWidth / 2}
-            y={padT}
-            width={barWidth}
-            height={chartH}
-            fill="transparent"
-            onMouseEnter={() => setHoverIdx(i)}
-            onMouseLeave={() => setHoverIdx(null)}
-          />
-        ))}
-        {/* Hover tooltip */}
-        {hoverIdx !== null && (() => {
-          const bar = bars[hoverIdx];
-          const weekLabel = formatWeek(bar.week);
-          const valLabel = formatVal(bar.v);
-          const text = `${weekLabel}: ${valLabel}`;
-          const textW = text.length * 6 + 16;
-          const tooltipX = Math.min(Math.max(bar.x - textW / 2, 2), W - textW - 2);
-          const above = bar.barY > padT + 30;
-          const tooltipY = above ? bar.barY - 28 : bar.barY + 12;
-          return (
-            <g>
-              {/* Vertical guide line */}
-              <line x1={bar.x} y1={padT} x2={bar.x} y2={padT + chartH} stroke={color} strokeWidth="1" opacity="0.3" strokeDasharray="3,3" />
-              {/* Tooltip background */}
-              <rect x={tooltipX} y={tooltipY} width={textW} height={20} rx="4" fill="#1F2937" stroke="#374151" strokeWidth="1" />
-              {/* Tooltip text */}
-              <text x={tooltipX + textW / 2} y={tooltipY + 14} textAnchor="middle" className="fill-gray-200" fontSize="10" fontWeight="500">
-                {text}
-              </text>
-            </g>
-          );
-        })()}
-        {/* X-axis labels: left = cutoff, middle = midpoint, right = "This week" */}
-        <text x={padL} y={H - 4} textAnchor="start" className="fill-gray-600" fontSize="10">
-          {formatWeek(cutoffStr)}
-        </text>
-        <text x={padL + chartW / 2} y={H - 4} textAnchor="middle" className="fill-gray-600" fontSize="10">
-          {middleLabel}
-        </text>
-        <text x={padL + chartW} y={H - 4} textAnchor="end" className="fill-gray-600" fontSize="10">
-          This week
-        </text>
-      </svg>
     </div>
   );
 }

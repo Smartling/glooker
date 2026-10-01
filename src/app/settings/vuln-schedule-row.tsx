@@ -13,7 +13,7 @@ export default function VulnScheduleRow() {
       <table className="w-full text-sm">
         <tbody>
           <tr className="text-gray-400">
-            <td className="px-4 py-3 text-white font-medium">Vulnerability sync</td>
+            <td className="px-4 py-3 text-white font-medium">Dependabot alerts sync</td>
             <td className="px-4 py-3 text-gray-300">{data.org}</td>
             <td className="px-4 py-3 text-gray-400 text-xs font-mono">{cron}</td>
             <td className="px-4 py-3 text-gray-500 text-xs">{tz}</td>

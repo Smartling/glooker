@@ -93,6 +93,23 @@ describe('useUrlState — write', () => {
     expect(mockPush).toHaveBeenCalledWith('/projects');
   });
 
+  it('calls router.replace with { scroll: false } for a scroll:false schema', () => {
+    const scrollSchema: UrlSchema<string> = { key: 'q', type: 'string', default: '', history: 'replace', scroll: false };
+    const { result } = renderHook(() => useUrlState(scrollSchema));
+    act(() => result.current[1]('hello'));
+    expect(mockReplace).toHaveBeenCalledWith('/projects?q=hello', { scroll: false });
+  });
+
+  it('calls router.push with { scroll: false } for a scroll:false schema', () => {
+    const scrollSchema: UrlSchema<'impact' | 'spend'> = {
+      key: 'tab', type: 'enum', values: ['impact', 'spend'] as const,
+      default: 'impact', history: 'push', scroll: false,
+    };
+    const { result } = renderHook(() => useUrlState(scrollSchema));
+    act(() => result.current[1]('spend'));
+    expect(mockPush).toHaveBeenCalledWith('/projects?tab=spend', { scroll: false });
+  });
+
   it('coalesces consecutive same-tick writes (no batch needed)', () => {
     const { result } = renderHook(() => ({
       tab: useUrlState(tabSchema),
@@ -161,6 +178,98 @@ describe('useUrlBatch', () => {
 
     expect(mockPush).toHaveBeenCalledTimes(1);
     expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it('flushes with { scroll: false } when one participating setter has scroll: false', () => {
+    const noScrollTeamSchema: UrlSchema<string | null> = {
+      key: 'team', type: 'string', default: null, history: 'replace', scroll: false,
+    };
+    const { result } = renderHook(() => ({
+      batch: useUrlBatch(),
+      tab: useUrlState(tabSchema),
+      team: useUrlState(noScrollTeamSchema),
+    }));
+
+    act(() => {
+      result.current.batch(() => {
+        result.current.tab[1]('spend');
+        result.current.team[1]('Platform');
+      });
+    });
+
+    expect(mockPush).toHaveBeenCalledTimes(1);
+    const url = mockPush.mock.calls[0][0] as string;
+    expect(mockPush).toHaveBeenCalledWith(url, { scroll: false });
+  });
+
+  it('flushes with a single argument when no participating setter has scroll: false', () => {
+    const { result } = renderHook(() => ({
+      batch: useUrlBatch(),
+      team: useUrlState(teamSchema),
+      devs: useUrlState(devSchema),
+    }));
+
+    act(() => {
+      result.current.batch(() => {
+        result.current.team[1]('Platform');
+        result.current.devs[1](new Set());
+      });
+    });
+
+    expect(mockReplace).toHaveBeenCalledTimes(1);
+    expect(mockReplace.mock.calls[0].length).toBe(1);
+  });
+
+  // The replace branch of the batch flush honours noScroll too. Revert: drop the `if (noScroll)` arm
+  // from the `router.replace` branch of useUrlBatch (the call then carries no options argument).
+  it('an all-replace batch with one scroll:false setter flushes router.replace with { scroll: false }', () => {
+    const noScrollTeamSchema: UrlSchema<string | null> = {
+      key: 'team', type: 'string', default: null, history: 'replace', scroll: false,
+    };
+    const { result } = renderHook(() => ({
+      batch: useUrlBatch(),
+      q: useUrlState(filterSchema),          // replace, scroll allowed
+      team: useUrlState(noScrollTeamSchema), // replace, scroll: false
+    }));
+
+    act(() => {
+      result.current.batch(() => {
+        result.current.q[1]('hello');
+        result.current.team[1]('Platform');
+      });
+    });
+
+    expect(mockPush).not.toHaveBeenCalled();
+    expect(mockReplace).toHaveBeenCalledTimes(1);
+    const url = mockReplace.mock.calls[0][0] as string;
+    const params = new URLSearchParams(url.split('?')[1] || '');
+    expect(params.get('q')).toBe('hello');
+    expect(params.get('team')).toBe('Platform');
+    expect(mockReplace).toHaveBeenCalledWith(url, { scroll: false });
+  });
+
+  // string-set schemas accept `scroll: false` too, both on a direct write and inside a batch. Revert:
+  // make the setter or the batch accumulator read `scroll` only for the enum / string schema types.
+  it('a string-set schema with scroll:false passes { scroll: false } on a direct write and inside a batch', () => {
+    const noScrollDevSchema: UrlSchema<Set<string>> = {
+      key: 'dev', type: 'string-set', default: new Set(), history: 'replace', scroll: false,
+    };
+    const { result } = renderHook(() => ({ batch: useUrlBatch(), devs: useUrlState(noScrollDevSchema), q: useUrlState(filterSchema) }));
+
+    act(() => result.current.devs[1](new Set(['alice'])));
+    expect(mockReplace).toHaveBeenLastCalledWith('/projects?dev=alice', { scroll: false });
+
+    mockReplace.mockClear();
+    act(() => {
+      result.current.batch(() => {
+        result.current.q[1]('hello');
+        result.current.devs[1](new Set(['bob']));
+      });
+    });
+    expect(mockReplace).toHaveBeenCalledTimes(1);
+    const url = mockReplace.mock.calls[0][0] as string;
+    expect(new URLSearchParams(url.split('?')[1] || '').getAll('dev')).toEqual(['bob']);
+    expect(mockReplace).toHaveBeenCalledWith(url, { scroll: false });
   });
 
   it('nested batch runs inline without re-flushing', () => {

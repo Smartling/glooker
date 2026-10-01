@@ -38,13 +38,13 @@ it('shows only the reports tab when vulnerabilities are disabled', () => {
   swr.mockReturnValue({ data: { vulnerabilities: { enabled: false } } });
   render(<ReportsTabs />);
   expect(screen.getByText('REPORTS TAB')).toBeTruthy();
-  expect(screen.queryByText('Vulnerability syncs')).toBeNull();
+  expect(screen.queryByRole('button', { name: /Dependabot alerts/ })).toBeNull();
 });
 
 it('switches tabs when vulnerabilities are enabled', async () => {
   swr.mockReturnValue({ data: { vulnerabilities: { enabled: true } } });
   render(<ReportsTabs />);
   expect(screen.getByText('REPORTS TAB')).toBeTruthy();
-  fireEvent.click(screen.getByText('Vulnerability syncs'));
+  fireEvent.click(screen.getByRole('button', { name: /Dependabot alerts/ }));
   await waitFor(() => expect(screen.getByText('SYNCS TAB')).toBeTruthy());
 });

@@ -90,6 +90,35 @@ export function saveThemeId(id: string): void {
   localStorage.setItem('glooker-theme', id);
 }
 
+// GLOOK-58 Decision 16: the user's chart-color preference for single-metric timelines (bars and
+// their in-flight hatch). Saved separately from the theme, under its own localStorage key, so it
+// persists independently of a theme switch.
+export type ChartAccent = 'vivid' | 'soft' | 'deep';
+export const CHART_ACCENTS: readonly ChartAccent[] = ['vivid', 'soft', 'deep'] as const;
+const CHART_ACCENT_KEY = 'glooker-chart-accent';
+
+export function getSavedChartAccent(): ChartAccent {
+  if (typeof window === 'undefined') return 'vivid';
+  try {
+    const v = localStorage.getItem(CHART_ACCENT_KEY);
+    return (CHART_ACCENTS as readonly string[]).includes(v ?? '') ? (v as ChartAccent) : 'vivid';
+  } catch {
+    return 'vivid';
+  }
+}
+
+export function saveChartAccent(a: ChartAccent): void {
+  try {
+    localStorage.setItem(CHART_ACCENT_KEY, a);
+  } catch {
+    // Storage can be unavailable (private browsing, quota); the preference just won't persist.
+  }
+}
+
+export function applyChartAccent(a: ChartAccent): void {
+  document.documentElement.setAttribute('data-chart-accent', a);
+}
+
 export function applyTheme(theme: ThemeColors): void {
   const root = document.documentElement;
   root.style.setProperty('--accent', theme.accent);

@@ -55,7 +55,7 @@ it('bannerOnly renders nothing for a historical snapshot (the historical notice,
 it('keeps the failed-sync banner out of the badges row (PageHeader + split label/bannerOnly)', () => {
   render(
     <PageHeader
-      title="Vulnerabilities · acme"
+      title="Security · acme"
       freshness={<DataFreshness {...base} latestFailed={false} />}
       badges={<span data-testid="badge-row-marker">sync history →</span>}
     >

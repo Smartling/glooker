@@ -6,6 +6,7 @@ import { THEMES, type ThemeColors } from '../themes';
 import { useAuth } from '../auth-context';
 import ProjectsTab from './projects-tab';
 import VulnScheduleRow from './vuln-schedule-row';
+import { ChartAccentPicker } from './chart-accent-picker';
 
 type Tab = 'schedules' | 'teams' | 'projects' | 'app' | 'appearance' | 'cc-spend' | 'skip-allowlist';
 
@@ -1408,6 +1409,8 @@ function AppearanceTab() {
           <ThemeCard key={t.id} t={t} isActive={theme.id === t.id} onSelect={() => setThemeId(t.id)} />
         ))}
       </div>
+
+      <ChartAccentPicker />
     </div>
   );
 }

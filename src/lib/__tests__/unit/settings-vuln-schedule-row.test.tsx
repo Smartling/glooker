@@ -16,7 +16,7 @@ it('renders a read-only row for the vulnerability sync', async () => {
     schedule: { cron: '0 6 * * *', tz: 'America/New_York', next_run: '2026-09-29T10:00:00Z' }, syncs: [],
   }) }) as any;
   wrap();
-  await waitFor(() => screen.getByText('Vulnerability sync'));
+  await waitFor(() => screen.getByText('Dependabot alerts sync'));
   expect(screen.getByText('acme')).toBeTruthy();
   expect(screen.getByText('0 6 * * *')).toBeTruthy();
   expect(screen.getByText('America/New_York')).toBeTruthy();

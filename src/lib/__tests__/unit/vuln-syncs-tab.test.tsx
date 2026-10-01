@@ -237,9 +237,9 @@ it('hides Sync now from viewers and shows it to admins', async () => {
   (global as any).fetch = mockFetchFor([succeededFirst]);
   const { rerender } = render(wrap(<VulnerabilitySyncsTab canAct={false} />));
   await waitFor(() => screen.getByText('Manual · admin@x'));
-  expect(screen.queryByText('Sync now')).toBeNull();
+  expect(screen.queryByText('Sync alerts')).toBeNull();
   rerender(wrap(<VulnerabilitySyncsTab canAct={true} />));
-  await waitFor(() => expect(screen.getByText('Sync now')).toBeTruthy());
+  await waitFor(() => expect(screen.getByText('Sync alerts')).toBeTruthy());
 });
 
 // the sync tab shares vulnerabilities-content.tsx's panelError helper (format.ts), which
@@ -276,11 +276,11 @@ it('a poll that returns 500 keeps the last good cards visible under the error ba
   render(wrap(<VulnerabilitySyncsTab canAct={true} />));
   await waitFor(() => screen.getByText('Manual · admin@x'));
 
-  fireEvent.click(screen.getByText('Sync now')); // triggers the POST, then mutate() re-fetches (and gets the 500)
+  fireEvent.click(screen.getByText('Sync alerts')); // triggers the POST, then mutate() re-fetches (and gets the 500)
 
   expect(await screen.findByText("Couldn't load vulnerability syncs: Internal Server Error")).toBeTruthy();
   expect(screen.getByText('Manual · admin@x')).toBeTruthy();
-  expect(screen.getByText('Sync now')).toBeTruthy();
+  expect(screen.getByText('Sync alerts')).toBeTruthy();
 });
 
 // a poll that fails after good data was already showing must not blank the cards or hide the
@@ -296,10 +296,10 @@ it('a failed poll after good data shows both the error banner and the last good 
   render(wrap(<VulnerabilitySyncsTab canAct={true} />));
   await waitFor(() => screen.getByText('Manual · admin@x'));
 
-  fireEvent.click(screen.getByText('Sync now')); // triggers the POST, then mutate() re-fetches (and fails)
+  fireEvent.click(screen.getByText('Sync alerts')); // triggers the POST, then mutate() re-fetches (and fails)
 
   expect(await screen.findByText(/Couldn't load vulnerability syncs: network down/)).toBeTruthy();
   // The last good data is still on screen: the card and the Sync now button.
   expect(screen.getByText('Manual · admin@x')).toBeTruthy();
-  expect(screen.getByText('Sync now')).toBeTruthy();
+  expect(screen.getByText('Sync alerts')).toBeTruthy();
 });

@@ -33,8 +33,8 @@ export default function ReportsTabs() {
   return (
     <>
       <div className="flex gap-6 border-b border-gray-800 mb-4">
-        <button className={cls(tab === 'reports')} onClick={() => setTab('reports')}>Reports</button>
-        <button className={cls(tab === 'syncs')} onClick={() => setTab('syncs')}>Vulnerability syncs</button>
+        <button className={cls(tab === 'reports')} onClick={() => setTab('reports')}>Commits &amp; PRs <span className="ml-1 text-[10px] font-normal text-gray-500">GitHub · Jira</span></button>
+        <button className={cls(tab === 'syncs')} onClick={() => setTab('syncs')}>Dependabot alerts <span className="ml-1 text-[10px] font-normal text-gray-500">GitHub</span></button>
       </div>
       {tab === 'syncs' ? <VulnerabilitySyncsTab canAct={canAct} observedRunning={observedSyncs.current} /> : reportsTab}
     </>

@@ -106,7 +106,7 @@ describe('ReportsTab', () => {
     // real path that exercises a completed-but-partial progress payload.
     wrap(<ReportsTab canAct observedRunning={new Set(['r1'])} />);
     await waitFor(() => screen.getByText('acme · 30 days'));
-    const bar = await waitFor(() => document.querySelector('.h-1\\.5.bg-gray-800 > div') as HTMLElement);
+    const bar = await waitFor(() => document.querySelector('.h-1\\.5.bg-chart-track > div') as HTMLElement);
     expect(bar.style.width).toBe('100%');
   });
 
