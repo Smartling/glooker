@@ -151,13 +151,22 @@ export async function extractUser(headers: Headers): Promise<AuthUser | null> {
   if (!token) return null;
 
   try {
-    // Pin the algorithm from our side. Reading `alg` out of the token and
-    // trusting it is what makes alg:none and HMAC-substitution attacks work.
+    // Unverified header read, used ONLY to pick a signing key (kid) and to
+    // reject obviously-wrong algorithms early. No claim from it drives a
+    // security decision: jwtVerify below is the authority, and it is given an
+    // explicit `algorithms` allowlist, so a token lying about `alg` cannot
+    // influence which algorithm is actually accepted. This is why the
+    // "unsafe JWT decode" pattern does not apply here — the pre-filter can only
+    // ever reject, never admit.
     const { alg, kid } = decodeProtectedHeader(token);
 
     let payload: JWTPayload;
     if (process.env.AUTH_JWKS_URL) {
       ({ payload } = await jwtVerify(token, remoteJwks(), {
+        // Pinned here too, not just on the ALB branch. Without an explicit
+        // allowlist jose accepts whatever the JWKS advertises, which hands
+        // algorithm choice to the key document rather than to us.
+        algorithms: (process.env.AUTH_JWKS_ALGS || 'RS256,ES256').split(',').map((a) => a.trim()),
         clockTolerance: 60,
         ...(process.env.AUTH_EXPECTED_ISS ? { issuer: process.env.AUTH_EXPECTED_ISS } : {}),
       }));
