@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getUntrackedWork } from '@/lib/projects/untracked';
 import { withRequestLog } from '@/lib/logger';
 import { requireAllowedOrg } from '@/lib/orgs/guard';
+import { internalError } from '@/lib/api-error';
 
 async function getHandler(req: NextRequest) {
   const orgParam = req.nextUrl.searchParams.get('org');
@@ -16,10 +17,7 @@ async function getHandler(req: NextRequest) {
     return NextResponse.json(result);
   } catch (err) {
     console.error('[untracked] Error:', err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Failed to fetch untracked work' },
-      { status: 500 },
-    );
+    return internalError('untracked', err);
   }
 }
 

@@ -3,6 +3,7 @@ import { getEpicRingStats } from '@/lib/projects/epic-stats';
 import { withRequestLog } from '@/lib/logger';
 import { requireAllowedOrg } from '@/lib/orgs/guard';
 import { isValidIssueKey } from '@/lib/jira-key-utils';
+import { internalError } from '@/lib/api-error';
 
 async function getHandler(
   req: NextRequest,
@@ -28,11 +29,7 @@ async function getHandler(
     const stats = await getEpicRingStats(key, org);
     return NextResponse.json(stats);
   } catch (err) {
-    console.error(`[epic-stats] Error for ${key}:`, err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Failed to fetch stats' },
-      { status: 500 },
-    );
+    return internalError('epic-stats', err);
   }
 }
 

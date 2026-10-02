@@ -3,6 +3,7 @@ import { getEpicSummary } from '@/lib/projects/epic-summary';
 import { withRequestLog } from '@/lib/logger';
 import { requireAllowedOrg } from '@/lib/orgs/guard';
 import { isValidIssueKey } from '@/lib/jira-key-utils';
+import { internalError } from '@/lib/api-error';
 
 async function getHandler(
   req: NextRequest,
@@ -30,11 +31,7 @@ async function getHandler(
     const result = await getEpicSummary(key, epicSummary, org, refresh);
     return NextResponse.json(result);
   } catch (err) {
-    console.error(`[epic-summary] Error for ${key}:`, err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Failed to generate summary' },
-      { status: 500 },
-    );
+    return internalError('epic-summary', err);
   }
 }
 

@@ -3,6 +3,7 @@ import { getDevSummary } from '@/lib/report/summary';
 import { ReportNotFoundError } from '@/lib/report/service';
 import { DeveloperNotFoundError } from '@/lib/report/dev';
 import { withRequestLog } from '@/lib/logger';
+import { internalError } from '@/lib/api-error';
 
 async function getHandler(_req: NextRequest, { params }: { params: Promise<{ id: string; login: string }> }) {
   const { id, login } = await params;
@@ -11,7 +12,7 @@ async function getHandler(_req: NextRequest, { params }: { params: Promise<{ id:
   } catch (err) {
     if (err instanceof ReportNotFoundError) return NextResponse.json({ error: 'Report not found' }, { status: 404 });
     if (err instanceof DeveloperNotFoundError) return NextResponse.json({ error: 'Developer not found' }, { status: 404 });
-    return NextResponse.json({ error: `LLM error: ${err instanceof Error ? err.message : String(err)}` }, { status: 500 });
+    return internalError('dev-summary', err);
   }
 }
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { runChatAgent, type ChatMessage } from '@/lib/chat/agent';
 import { withRequestLog } from '@/lib/logger';
 import { requireAllowedOrg } from '@/lib/orgs/guard';
+import { internalError } from '@/lib/api-error';
 
 async function postHandler(req: NextRequest) {
   const body = await req.json();
@@ -15,10 +16,7 @@ async function postHandler(req: NextRequest) {
     const result = await runChatAgent(messages, org);
     return NextResponse.json(result);
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status: 500 },
-    );
+    return internalError('chat', err);
   }
 }
 

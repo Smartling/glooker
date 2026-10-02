@@ -108,7 +108,10 @@ export class JiraClient implements JiraClientInterface {
     });
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(`Jira API error (${res.status}): ${text}`);
+      // Bounded: the full body used to reach unauthenticated callers through the
+      // handlers that returned err.message, which made Jira's own parse errors a
+      // feedback channel for probing JQL.
+      throw new Error(`Jira API error (${res.status}): ${text.slice(0, 200)}`);
     }
     return res.json();
   }
@@ -293,7 +296,10 @@ export class JiraClient implements JiraClientInterface {
     });
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(`Jira API error (${res.status}): ${text}`);
+      // Bounded: the full body used to reach unauthenticated callers through the
+      // handlers that returned err.message, which made Jira's own parse errors a
+      // feedback channel for probing JQL.
+      throw new Error(`Jira API error (${res.status}): ${text.slice(0, 200)}`);
     }
   }
 
@@ -309,7 +315,10 @@ export class JiraClient implements JiraClientInterface {
     });
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(`Jira API error (${res.status}): ${text}`);
+      // Bounded: the full body used to reach unauthenticated callers through the
+      // handlers that returned err.message, which made Jira's own parse errors a
+      // feedback channel for probing JQL.
+      throw new Error(`Jira API error (${res.status}): ${text.slice(0, 200)}`);
     }
   }
 

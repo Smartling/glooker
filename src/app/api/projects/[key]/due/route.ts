@@ -3,6 +3,7 @@ import { getJiraClient } from '@/lib/jira/client';
 import { requireAdmin } from '@/lib/auth';
 import { withRequestLog } from '@/lib/logger';
 import { isValidIssueKey } from '@/lib/jira-key-utils';
+import { internalError } from '@/lib/api-error';
 
 async function patchHandler(
   req: NextRequest,
@@ -33,11 +34,7 @@ async function patchHandler(
     await client.updateDueDate(key, dueDate);
     return NextResponse.json({ success: true, key, dueDate });
   } catch (err) {
-    console.error(`[due-date] Error updating ${key}:`, err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Failed to update due date' },
-      { status: 500 },
-    );
+    return internalError('due-date', err);
   }
 }
 

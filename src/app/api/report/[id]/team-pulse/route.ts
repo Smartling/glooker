@@ -3,6 +3,7 @@ import { withRequestLog } from '@/lib/logger';
 import { getTeamPulse } from '@/lib/team-pulse';
 import db from '@/lib/db';
 import { requireAllowedOrg } from '@/lib/orgs/guard';
+import { internalError } from '@/lib/api-error';
 
 async function getHandler(
   req: NextRequest,
@@ -54,10 +55,7 @@ async function getHandler(
     const result = await getTeamPulse(id, team, org, members, { withProjects });
     return NextResponse.json(result);
   } catch (err) {
-    return NextResponse.json(
-      { error: `Failed to generate team pulse: ${err instanceof Error ? err.message : String(err)}` },
-      { status: 500 },
-    );
+    return internalError('team-pulse', err);
   }
 }
 

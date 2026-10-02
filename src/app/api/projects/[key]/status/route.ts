@@ -3,6 +3,7 @@ import { getJiraClient } from '@/lib/jira/client';
 import { requireAdmin } from '@/lib/auth';
 import { withRequestLog } from '@/lib/logger';
 import { isValidIssueKey } from '@/lib/jira-key-utils';
+import { internalError } from '@/lib/api-error';
 
 // GET: fetch available transitions for an epic
 async function getHandler(
@@ -28,11 +29,7 @@ async function getHandler(
     const transitions = await client.getTransitions(key);
     return NextResponse.json({ transitions });
   } catch (err) {
-    console.error(`[status] Error fetching transitions for ${key}:`, err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Failed to fetch transitions' },
-      { status: 500 },
-    );
+    return internalError('status-transitions', err);
   }
 }
 
@@ -72,11 +69,7 @@ async function patchHandler(
     // its `toStatusCategory`, and that is what the board classifies against.
     return NextResponse.json({ success: true, key });
   } catch (err) {
-    console.error(`[status] Error transitioning ${key}:`, err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Failed to transition issue' },
-      { status: 500 },
-    );
+    return internalError('status-transition', err);
   }
 }
 
