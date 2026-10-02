@@ -50,19 +50,36 @@ describe('validateEnv: AUTH_TEST_USER alert', () => {
     expect(alert).toContain('testuser@glooker.dev');
   });
 
-  it('does not alert when AUTH_TEST_USER is set but AUTH_ENABLED is not true', () => {
+  // Auth being OFF is now itself an alert condition. Previously silent, which is
+  // how a dropped AUTH_ENABLED could turn every authorization check into "allow"
+  // with no signal at all.
+  it('alerts that authentication is disabled when AUTH_ENABLED is not true', () => {
     delete process.env.AUTH_ENABLED;
     process.env.AUTH_TEST_USER = 'admin';
 
     validateEnv();
 
-    const alert = errorSpy.mock.calls.map((c) => String(c[0])).find((m) => m.includes('[ALERT]'));
-    expect(alert).toBeUndefined();
+    const alerts = errorSpy.mock.calls.map((c) => String(c[0])).filter((m) => m.includes('[ALERT]'));
+    expect(alerts.some((m) => m.includes('AUTHENTICATION IS DISABLED'))).toBe(true);
+    expect(alerts.some((m) => m.includes('AUTH_TEST_USER=admin'))).toBe(true);
+  });
+
+  it('errors when AUTH_ENABLED=true but no token-verification mode is configured', () => {
+    process.env.AUTH_ENABLED = 'true';
+    process.env.AUTH_ADMIN_GROUP = 'admins';
+    delete process.env.AUTH_ALB_REGION;
+    delete process.env.AUTH_JWKS_URL;
+
+    validateEnv();
+
+    const msg = errorSpy.mock.calls.map((c) => String(c[0])).find((m) => m.includes('AUTH_ALB_REGION or AUTH_JWKS_URL'));
+    expect(msg).toBeDefined();
   });
 
   it('does not alert when AUTH_ENABLED=true but AUTH_TEST_USER is unset', () => {
     process.env.AUTH_ENABLED = 'true';
     process.env.AUTH_ADMIN_GROUP = 'admins';
+    process.env.AUTH_ALB_REGION = 'us-east-1';
     delete process.env.AUTH_TEST_USER;
 
     validateEnv();

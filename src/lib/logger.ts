@@ -73,7 +73,7 @@ export function withRequestLog<T extends (...args: any[]) => Promise<Response>>(
       uri = url.pathname;
       query = url.search.slice(1); // remove leading '?'
       method = req.method;
-      userEmail = extractUser(req.headers)?.email ?? null;
+      userEmail = (await extractUser(req.headers))?.email ?? null;
     }
 
     try {

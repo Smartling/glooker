@@ -36,7 +36,7 @@ async function postHandler(req: NextRequest) {
   }
 
   // Identity comes from the OIDC JWT in x-amzn-oidc-data, parsed by extractUser().
-  const addedBy = extractUser(req.headers)?.email ?? null;
+  const addedBy = (await extractUser(req.headers))?.email ?? null;
 
   await db.execute(
     `INSERT INTO report_skip_allowlist (github_login, reason, added_by) VALUES (?, ?, ?)

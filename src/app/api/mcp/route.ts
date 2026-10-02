@@ -11,7 +11,7 @@ async function postHandler(req: Request) {
   // or the app port being reached directly, can't silently expose an open read API.
   // When AUTH_ENABLED is unset (local dev / mock), extractUser returns null and this
   // gate is skipped. This is a defense-in-depth check, not the primary auth layer.
-  if (isAuthEnabled() && !extractUser(req.headers)) {
+  if (isAuthEnabled() && !(await extractUser(req.headers))) {
     return NextResponse.json(
       { jsonrpc: '2.0', id: null, error: { code: -32001, message: 'Unauthorized' } },
       { status: 401 },
