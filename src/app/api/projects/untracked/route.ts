@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getUntrackedWork } from '@/lib/projects/untracked';
 import { withRequestLog } from '@/lib/logger';
+import { requireAllowedOrg } from '@/lib/orgs/guard';
 
 async function getHandler(req: NextRequest) {
-  const org = req.nextUrl.searchParams.get('org');
+  const orgParam = req.nextUrl.searchParams.get('org');
   const refresh = req.nextUrl.searchParams.get('refresh') === 'true';
 
-  if (!org) {
-    return NextResponse.json({ error: 'org query parameter is required' }, { status: 400 });
-  }
+  const orgCheck = requireAllowedOrg(orgParam);
+  if (!orgCheck.ok) return orgCheck.res;
+  const org = orgCheck.org;
 
   try {
     const result = await getUntrackedWork(org, refresh);

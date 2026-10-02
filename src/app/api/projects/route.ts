@@ -5,14 +5,15 @@ import { ensureSeedProject, parseLegacyJql } from '@/lib/jira-projects/seed';
 import { buildProjectJql } from '@/lib/jira-projects/jql';
 import type { BoardTabKind, JiraProjectWithLegacyFlag } from '@/lib/jira-projects/types';
 import { withRequestLog } from '@/lib/logger';
+import { requireAllowedOrg } from '@/lib/orgs/guard';
 
 const TABS: BoardTabKind[] = ['active', 'middle', 'done'];
 
 async function getHandler(req: NextRequest) {
-  const org = req.nextUrl.searchParams.get('org');
-  if (!org) {
-    return NextResponse.json({ error: 'org query parameter is required' }, { status: 400 });
-  }
+  const orgParam = req.nextUrl.searchParams.get('org');
+  const orgCheck = requireAllowedOrg(orgParam);
+  if (!orgCheck.ok) return orgCheck.res;
+  const org = orgCheck.org;
 
   if (process.env.JIRA_ENABLED !== 'true') {
     return NextResponse.json({ error: 'Jira integration is not enabled' }, { status: 404 });

@@ -1,8 +1,15 @@
 import { NextResponse } from 'next/server';
 import { getGitHubProvider } from '@/lib/github';
 import { withRequestLog } from '@/lib/logger';
+import { requireAdmin } from '@/lib/auth';
 
-async function postHandler() {
+async function postHandler(req: Request) {
+  // This returns every organisation the server's PAT can see, so it is a
+  // credentialed enumeration primitive, not a harmless connectivity probe.
+  // It was the only *_test-connection route without an admin gate.
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
+
   const start = Date.now();
   try {
     const provider = getGitHubProvider();

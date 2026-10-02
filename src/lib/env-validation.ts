@@ -196,6 +196,15 @@ export function validateEnv(): void {
     }
   }
 
+  // No org allowlist: `org` is caller-supplied on ~14 routes, including two that
+  // proxy the server's GitHub PAT at whichever org is named.
+  if (!process.env.ALLOWED_ORGS?.trim()) {
+    warnings.push(
+      '  - ALLOWED_ORGS: not set — any well-shaped org name is accepted, so the GitHub PAT '
+      + 'can be aimed at any organisation and any org in the database can be read',
+    );
+  }
+
   // Auth is enabled but no way to verify a token's signature is configured.
   // extractUser() denies every request in that state rather than trusting the
   // header, so this is a hard error: the app is up but nobody can sign in.

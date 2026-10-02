@@ -2,14 +2,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import { listReports, createReport, ReportAlreadyRunningError } from '@/lib/report/service';
 import { requireAdmin } from '@/lib/auth';
 import { withRequestLog } from '@/lib/logger';
+import { requireAllowedOrg } from '@/lib/orgs/guard';
 
 async function postHandler(req: NextRequest) {
   const denied = await requireAdmin(req);
   if (denied) return denied;
   const { org, periodDays, testMode } = await req.json();
 
-  if (!org || !periodDays) {
-    return NextResponse.json({ error: 'org and periodDays are required' }, { status: 400 });
+  const orgCheck = requireAllowedOrg(org);
+  if (!orgCheck.ok) return orgCheck.res;
+
+  if (!periodDays) {
+    return NextResponse.json({ error: 'periodDays is required' }, { status: 400 });
   }
 
   if (![3, 14, 30, 90].includes(Number(periodDays))) {

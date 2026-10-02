@@ -57,7 +57,10 @@ export async function runChatAgent(
           const parsed = JSON.parse(jsonStr);
           const fnName = parsed.name;
           const fnArgs = parsed.args || {};
-          if (!fnArgs.org) fnArgs.org = org;
+          // Overwrite rather than default. `if (!fnArgs.org)` let the model
+          // choose the org whenever it emitted one, so a prompt-injected tool
+          // call could widen the query past the org the request was scoped to.
+          fnArgs.org = org;
 
           toolCalls.push(`${fnName}(${JSON.stringify(fnArgs)})`);
           const result = await executeTool(fnName, fnArgs);

@@ -2,19 +2,22 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getUserMappings, updateUserMapping, JiraNotConfiguredError, JiraUserNotFoundError } from '@/lib/jira';
 import { requireAdmin } from '@/lib/auth';
 import { withRequestLog } from '@/lib/logger';
+import { requireAllowedOrg } from '@/lib/orgs/guard';
 
 async function getHandler(req: NextRequest) {
-  const org = req.nextUrl.searchParams.get('org');
-  if (!org) return NextResponse.json({ error: 'org required' }, { status: 400 });
-  return NextResponse.json(await getUserMappings(org));
+  const orgCheck = requireAllowedOrg(req.nextUrl.searchParams.get('org'));
+  if (!orgCheck.ok) return orgCheck.res;
+  return NextResponse.json(await getUserMappings(orgCheck.org));
 }
 
 async function putHandler(req: Request) {
   const denied = await requireAdmin(req);
   if (denied) return denied;
   const { org, github_login, jira_email } = await req.json();
-  if (!org || !github_login) {
-    return NextResponse.json({ error: 'org and github_login required' }, { status: 400 });
+  const orgCheck = requireAllowedOrg(org);
+  if (!orgCheck.ok) return orgCheck.res;
+  if (!github_login) {
+    return NextResponse.json({ error: 'github_login required' }, { status: 400 });
   }
 
   try {
