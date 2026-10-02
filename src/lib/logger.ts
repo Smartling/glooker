@@ -3,6 +3,28 @@ import path from 'path';
 import { extractUser } from '@/lib/auth';
 import { NextResponse } from 'next/server';
 
+/**
+ * Neutralise a value before it is interpolated into a plaintext log line.
+ *
+ * Five console.error sites interpolated the raw `[key]` route segment, three of
+ * them on unauthenticated routes, and the segment arrives URL-decoded — so a key
+ * containing CR/LF forged whole log entries, including plausible-looking
+ * successful-authentication events. ANSI escapes could additionally corrupt a
+ * terminal-based log review.
+ *
+ * Note this never applied to requests.log / errors.log: those are written with
+ * JSON.stringify, which escapes newlines. The exposure was the console stream —
+ * which is the one most likely to be shipped to a SIEM and read by a human
+ * during an incident.
+ */
+export function logSafe(value: unknown, maxLen = 120): string {
+  return String(value ?? '')
+    .replace(/[\r\n\u2028\u2029]+/g, '\u21b5')
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .slice(0, maxLen);
+}
+
 // --- Types ---
 
 export interface RequestLogEntry {
