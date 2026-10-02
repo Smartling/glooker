@@ -2,12 +2,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getEpicRingStats } from '@/lib/projects/epic-stats';
 import { withRequestLog } from '@/lib/logger';
 import { requireAllowedOrg } from '@/lib/orgs/guard';
+import { isValidIssueKey } from '@/lib/jira-key-utils';
 
 async function getHandler(
   req: NextRequest,
   { params }: { params: Promise<{ key: string }> },
 ) {
   const { key } = await params;
+  // Reject at the boundary so a malformed key is a 400 rather than a 500
+  // from deep in the Jira client, and so it never reaches a log line.
+  if (!isValidIssueKey(key)) {
+    return NextResponse.json({ error: 'Invalid Jira issue key' }, { status: 400 });
+  }
   const orgParam = req.nextUrl.searchParams.get('org');
 
   const orgCheck = requireAllowedOrg(orgParam);

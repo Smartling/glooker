@@ -53,3 +53,49 @@ export function findFirstJiraKey(text: string): { key: string; start: number; en
     end: match.index + match[0].length,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Validation for keys that reach Jira
+// ---------------------------------------------------------------------------
+
+/**
+ * A full Jira issue key, anchored. Deliberately stricter than the detection
+ * regex above: that one scans free text and tolerates spaces and mixed case,
+ * whereas this gates values that are interpolated into JQL and into Jira REST
+ * URL paths.
+ */
+export const ISSUE_KEY_RE = /^[A-Z][A-Z0-9_]{0,19}-\d{1,10}$/;
+
+export class InvalidJiraKeyError extends Error {
+  constructor() {
+    // Never echoes the rejected value: the callers that surface this are
+    // reachable without credentials.
+    super('Invalid Jira issue key');
+    this.name = 'InvalidJiraKeyError';
+  }
+}
+
+/**
+ * Normalize and validate an issue key, or throw.
+ *
+ * Required because `searchChildIssues` built
+ *   `"Epic Link" = ${epicKey} OR parent = ${epicKey} ORDER BY ...`
+ * with no quoting, and `getTransitions` / `transitionIssue` / `updateDueDate`
+ * interpolated the same value into `/issue/${issueKey}/...` with no encoding.
+ * Both were reachable from unauthenticated routes, so the key controlled JQL
+ * structure and could climb out of the REST base path.
+ *
+ * jira-projects/jql.ts already applies exactly this discipline to project keys
+ * and status names; this extends it to issue keys.
+ */
+export function assertIssueKey(key: unknown): string {
+  if (typeof key !== 'string') throw new InvalidJiraKeyError();
+  const k = key.trim().toUpperCase();
+  if (!ISSUE_KEY_RE.test(k)) throw new InvalidJiraKeyError();
+  return k;
+}
+
+/** Non-throwing form for callers that want to branch rather than catch. */
+export function isValidIssueKey(key: unknown): boolean {
+  try { assertIssueKey(key); return true; } catch { return false; }
+}

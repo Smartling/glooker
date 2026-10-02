@@ -115,7 +115,7 @@ describe('JiraClient.getTransitions', () => {
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
     const [url, options] = mockFetch.mock.calls[0];
-    expect(url).toBe('https://mycompany.atlassian.net/rest/api/3/issue/PROJ-1/transitions');
+    expect(String(url)).toBe('https://mycompany.atlassian.net/rest/api/3/issue/PROJ-1/transitions');
     expect(options?.method).toBeUndefined(); // GET is the default
   });
 
@@ -201,7 +201,7 @@ describe('JiraClient.transitionIssue', () => {
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
     const [url, options] = mockFetch.mock.calls[0];
-    expect(url).toBe('https://mycompany.atlassian.net/rest/api/3/issue/PROJ-42/transitions');
+    expect(String(url)).toBe('https://mycompany.atlassian.net/rest/api/3/issue/PROJ-42/transitions');
     expect(options.method).toBe('POST');
     expect(JSON.parse(options.body)).toEqual({ transition: { id: '21' } });
   });
@@ -243,7 +243,7 @@ describe('JiraClient.updateDueDate', () => {
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
     const [url, options] = mockFetch.mock.calls[0];
-    expect(url).toBe('https://mycompany.atlassian.net/rest/api/3/issue/PROJ-42');
+    expect(String(url)).toBe('https://mycompany.atlassian.net/rest/api/3/issue/PROJ-42');
     expect(options.method).toBe('PUT');
     expect(JSON.parse(options.body)).toEqual({ fields: { duedate: '2026-04-15' } });
   });
@@ -253,7 +253,7 @@ describe('JiraClient.updateDueDate', () => {
     await client.updateDueDate('PROJ-42', null);
 
     const [url, options] = mockFetch.mock.calls[0];
-    expect(url).toBe('https://mycompany.atlassian.net/rest/api/3/issue/PROJ-42');
+    expect(String(url)).toBe('https://mycompany.atlassian.net/rest/api/3/issue/PROJ-42');
     expect(options.method).toBe('PUT');
     expect(JSON.parse(options.body)).toEqual({ fields: { duedate: null } });
   });

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getJiraClient } from '@/lib/jira/client';
 import { requireAdmin } from '@/lib/auth';
 import { withRequestLog } from '@/lib/logger';
+import { isValidIssueKey } from '@/lib/jira-key-utils';
 
 // GET: fetch available transitions for an epic
 async function getHandler(
@@ -9,6 +10,11 @@ async function getHandler(
   { params }: { params: Promise<{ key: string }> },
 ) {
   const { key } = await params;
+  // Reject at the boundary so a malformed key is a 400 rather than a 500
+  // from deep in the Jira client, and so it never reaches a log line.
+  if (!isValidIssueKey(key)) {
+    return NextResponse.json({ error: 'Invalid Jira issue key' }, { status: 400 });
+  }
   const client = getJiraClient();
   if (!client) {
     return NextResponse.json({ error: 'Jira is not configured' }, { status: 404 });
@@ -39,6 +45,11 @@ async function patchHandler(
   if (denied) return denied;
 
   const { key } = await params;
+  // Reject at the boundary so a malformed key is a 400 rather than a 500
+  // from deep in the Jira client, and so it never reaches a log line.
+  if (!isValidIssueKey(key)) {
+    return NextResponse.json({ error: 'Invalid Jira issue key' }, { status: 400 });
+  }
   const body = await req.json();
   const { transitionId } = body;
 

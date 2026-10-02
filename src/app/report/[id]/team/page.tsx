@@ -12,6 +12,8 @@ import ProjectsCard from '@/components/ProjectsCard';
 import IntegrityBadge from '@/components/IntegrityBadge';
 import type { TeamProject } from '@/lib/team-pulse/types';
 import type { RunMetadata } from '@/lib/report-runner/types';
+import SafeMarkdown from '@/components/SafeMarkdown';
+import { toCsv } from '@/lib/csv';
 
 interface Report {
   id:           string;
@@ -109,7 +111,7 @@ export default function TeamSummaryPage() {
       (Array.isArray(d.active_repos) ? d.active_repos : []).join('; '),
     ]);
 
-    const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const csv = toCsv([headers, ...rows]);
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -138,7 +140,7 @@ export default function TeamSummaryPage() {
     ]);
 
     // Build a CSV string for Google Sheets import via URL
-    const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const csv = toCsv([headers, ...rows]);
 
     // Copy CSV to clipboard and open a new Google Sheet
     const title = encodeURIComponent(`Glooker: ${report.org} (${report.period_days}d) - ${new Date(report.created_at).toLocaleDateString()}`);
@@ -464,10 +466,9 @@ function TeamPulseCard({ reportId, teamName, org, periodDays }: {
             <div className="py-4 text-center text-sm text-red-400">Failed to generate summary</div>
           )}
           {data?.summary && (
-            <div
-              className="mt-3 text-sm text-gray-300 leading-relaxed"
-              dangerouslySetInnerHTML={{ __html: renderPulseMarkdown(data.summary) }}
-            />
+            <SafeMarkdown className="mt-3 text-sm text-gray-300 leading-relaxed">
+              {data.summary}
+            </SafeMarkdown>
           )}
         </div>
       )}
@@ -475,12 +476,4 @@ function TeamPulseCard({ reportId, teamName, org, periodDays }: {
   );
 }
 
-function renderPulseMarkdown(md: string): string {
-  return md
-    .replace(/^## (.+)$/gm, '<h3 class="text-xs font-bold uppercase tracking-wider text-gray-400 mt-4 mb-2">$1</h3>')
-    .replace(/^- (.+)$/gm, '<li class="ml-4 text-gray-300 mb-1">$1</li>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong class="text-white">$1</strong>')
-    .replace(/@(\w[\w-]*)/g, '<span class="text-accent-light font-medium">@$1</span>')
-    .replace(/\n/g, '');
-}
 
