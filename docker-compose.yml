@@ -4,15 +4,17 @@ services:
   app:
     build: .
     ports:
-      - "3000:3000"
+      # Loopback only. Publishing on all interfaces put an app whose auth was
+      # off by default (see AUTH_ENABLED below) on the host's network.
+      - "127.0.0.1:3000:3000"
     environment:
       # Database — use MySQL from the mysql service
       DB_TYPE: mysql
       DB_HOST: mysql
       DB_PORT: 3306
-      DB_USER: glooker
-      DB_PASSWORD: glooker
-      DB_NAME: glooker
+      DB_USER: ${DB_USER:?DB_USER is required}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      DB_NAME: ${DB_NAME:-glooker}
 
       # GitHub
       GITHUB_TOKEN: ${GITHUB_TOKEN}
@@ -71,12 +73,12 @@ services:
   mysql:
     image: mysql:8.4
     environment:
-      MYSQL_DATABASE: glooker
-      MYSQL_USER: glooker
-      MYSQL_PASSWORD: glooker
-      MYSQL_ROOT_PASSWORD: rootpassword
-    ports:
-      - "3307:3306"
+      MYSQL_DATABASE: ${DB_NAME:-glooker}
+      MYSQL_USER: ${DB_USER:?DB_USER is required}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
+    # No `ports:` — the app reaches MySQL over the compose network. Publishing
+    # 3307 exposed a database whose credentials were hardcoded in this file.
     volumes:
       - mysql_data:/var/lib/mysql
       - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql
