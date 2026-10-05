@@ -25,7 +25,7 @@ async function postHandler(req: NextRequest) {
       org,
       periodDays: Number(periodDays),
       testMode: Boolean(testMode),
-      triggeredBy: extractUser(req.headers)?.email ?? null,
+      triggeredBy: (await extractUser(req.headers))?.email ?? null,
     });
     return NextResponse.json({ reportId: id });
   } catch (err) {
