@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateScheduleBody } from '@/lib/schedule/validation';
-import { updateSchedule, deleteSchedule, ScheduleNotFoundError } from '@/lib/schedule/service';
+import { updateSchedule, deleteSchedule, getScheduleKind, ScheduleNotFoundError, ScheduleNotDeletableError } from '@/lib/schedule/service';
 import { requireAdmin } from '@/lib/auth';
 import { withRequestLog } from '@/lib/logger';
 
@@ -13,7 +13,9 @@ async function putHandler(
   try {
     const { id } = await params;
     const body = await req.json();
-    const error = validateScheduleBody(body);
+    const kind = await getScheduleKind(id);
+    if (!kind) throw new ScheduleNotFoundError(id);
+    const error = validateScheduleBody(body, kind);
     if (error) return NextResponse.json({ error }, { status: 400 });
 
     await updateSchedule(id, body);
@@ -38,6 +40,9 @@ async function deleteHandler(
     await deleteSchedule(id);
     return NextResponse.json({ ok: true });
   } catch (err) {
+    if (err instanceof ScheduleNotDeletableError) {
+      return NextResponse.json({ error: err.message }, { status: 400 });
+    }
     console.error('[api/schedule] DELETE failed:', err);
     return NextResponse.json({ error: 'Failed to delete schedule' }, { status: 500 });
   }

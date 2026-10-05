@@ -50,10 +50,10 @@ it('filter chips report immediately; search debounces ~300ms after the last keys
   }
 });
 
-it('Repo and Team columns sort independently', () => {
+it('Repo and Owning team columns sort independently', () => {
   const { rows } = listAlerts([A(1, 1), A(2, 1)], [R(1, 'Zeta'), R(2, 'Alpha')], { codebase: 'backend', state: 'open' }, new Date('2026-09-22T00:00:00Z'));
   render(<AlertsTable rows={rows} totalCount={2} truncated={false} filters={F} onFiltersChange={() => {}} />);
-  fireEvent.click(screen.getByText('Team'));
+  fireEvent.click(screen.getByText('Owning team'));
   const body = screen.getAllByRole('row').slice(1);
   expect(within(body[0]).getByText('Alpha')).toBeTruthy();
   fireEvent.click(screen.getByText('Repo'));
@@ -575,7 +575,7 @@ describe('alerts slot: fixed geometry', () => {
     const cols = Array.from(table.querySelectorAll('col')) as HTMLElement[];
     const ths = Array.from(table.querySelectorAll('th'));
     const keyOf: Record<string, keyof typeof ALERT_COL_W | null> = {
-      'Sev': 'sev', 'CVE / advisory': 'cve', 'Package': null, 'Repo': 'repo', 'Team': 'team', 'Age': 'age', 'Due': 'due', 'Scope': 'scope', 'State': 'state',
+      'Sev': 'sev', 'CVE / advisory': 'cve', 'Package': null, 'Repo': 'repo', 'Owning team': 'team', 'Age': 'age', 'Due': 'due', 'Scope': 'scope', 'State': 'state',
     };
     expect(ths.map(th => th.textContent)).toEqual(Object.keys(keyOf));
     ths.forEach((th, i) => {

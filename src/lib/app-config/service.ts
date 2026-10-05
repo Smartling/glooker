@@ -2,6 +2,7 @@ import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, promptTag, samplin
 import { loadPrompt } from '@/lib/prompt-loader';
 import { createHash } from 'crypto';
 import { isVulnerabilitiesEnabled, getVulnerabilitiesOrg } from '@/lib/vulnerabilities/config';
+import { staleAfterMs, isStale } from '@/lib/runs/staleness';
 
 export interface AppConfig {
   provider: string;
@@ -175,6 +176,55 @@ export async function getLatestReport(): Promise<{ id: string; date: string; org
       date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
       org: r.org,
     };
+  } catch {
+    return null;
+  }
+}
+
+export interface ReportFreshness {
+  latestCompletedAt: string | null;
+  latestRunStatus: string | null;
+  latestRunFailed: boolean;
+  stale: boolean;
+}
+
+export interface VulnerabilityFreshness {
+  lastSuccessfulAt: string | null;
+  stale: boolean;
+  lastStatus: string | null;
+  issue: string | null;
+}
+
+const iso = (v: any): string | null => (v == null ? null : v instanceof Date ? v.toISOString() : String(v));
+
+export async function getReportFreshness(now = new Date()): Promise<ReportFreshness | null> {
+  try {
+    const db = (await import('@/lib/db')).default;
+    const [completed] = await db.execute(
+      `SELECT created_at FROM reports WHERE status = 'completed' ORDER BY created_at DESC LIMIT 1`) as [any[], any];
+    const [latest] = await db.execute(
+      `SELECT status FROM reports WHERE status IN ('completed','failed','stopped') ORDER BY created_at DESC LIMIT 1`) as [any[], any];
+    const [schedules] = await db.execute(`SELECT cron_expr, timezone, enabled FROM schedules WHERE kind = 'report'`) as [any[], any];
+    const latestCompletedAt = iso(completed[0]?.created_at);
+    const latestRunStatus: string | null = latest[0]?.status ?? null;
+    return {
+      latestCompletedAt, latestRunStatus,
+      latestRunFailed: latestRunStatus === 'failed',
+      stale: isStale(latestCompletedAt, staleAfterMs(schedules, now), now),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function getVulnerabilityFreshness(now = new Date()): Promise<VulnerabilityFreshness | null> {
+  if (!isVulnerabilitiesEnabled()) return null;
+  const org = getVulnerabilitiesOrg();
+  if (!org) return null;
+  try {
+    const { getSyncStatus } = await import('@/lib/vulnerabilities/queries');
+    const s = await getSyncStatus(org, now);
+    return { lastSuccessfulAt: s.lastSuccessfulAt, stale: s.stale, lastStatus: s.lastStatus, issue: s.issues?.[0]?.message ?? null };
   } catch {
     return null;
   }

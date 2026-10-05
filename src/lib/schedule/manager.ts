@@ -6,6 +6,8 @@ import { initProgress } from '../progress-store';
 
 // ── Types ──────────────────────────────────────────────────────────
 
+export type ScheduleKind = 'report' | 'vuln_sync';
+
 export interface Schedule {
   id:             string;
   org:            string;
@@ -14,6 +16,8 @@ export interface Schedule {
   timezone:       string;
   enabled:        number;
   test_mode:      number;
+  /** GLOOK-59: 'report' runs a GitHub report; 'vuln_sync' runs the Dependabot alerts sync. */
+  kind:           ScheduleKind;
   last_run_at:    string | null;
   last_report_id: string | null;
   created_at:     string;
@@ -46,7 +50,11 @@ export async function initScheduler(): Promise<void> {
       `SELECT * FROM schedules WHERE enabled = 1`,
     );
 
+    // A vuln_sync row only runs while the feature is enabled; its own init seeds and
+    // registers it (initVulnerabilityScheduler), so skip it here when the feature is off.
+    const vulnOn = await vulnerabilitiesEnabled();
     for (const schedule of rows) {
+      if (schedule.kind === 'vuln_sync' && !vulnOn) continue;
       try {
         registerSchedule(schedule);
       } catch (err) {
@@ -98,7 +106,14 @@ export function getNextRun(cronExpr: string, timezone: string): Date | null {
 
 // ── Trigger logic ─────────────────────────────────────────────────
 
-async function triggerSchedule(schedule: Schedule): Promise<void> {
+async function vulnerabilitiesEnabled(): Promise<boolean> {
+  const { isVulnerabilitiesEnabled } = await import('../vulnerabilities/config');
+  return isVulnerabilitiesEnabled();
+}
+
+/** Exported for tests. Dispatches on the schedule's kind. */
+export async function triggerSchedule(schedule: Schedule): Promise<void> {
+  if (schedule.kind === 'vuln_sync') return triggerVulnSync(schedule);
   const { id, org, period_days, test_mode } = schedule;
 
   try {
@@ -115,7 +130,7 @@ async function triggerSchedule(schedule: Schedule): Promise<void> {
     // Create a new report
     const reportId = uuidv4();
     await db.execute(
-      `INSERT INTO reports (id, org, period_days, status) VALUES (?, ?, ?, 'pending')`,
+      `INSERT INTO reports (id, org, period_days, status, trigger_kind) VALUES (?, ?, ?, 'pending', 'schedule')`,
       [reportId, org, period_days],
     );
     initProgress(reportId);
@@ -142,5 +157,23 @@ async function triggerSchedule(schedule: Schedule): Promise<void> {
     });
   } catch (err) {
     console.error(`[scheduler] Trigger error for schedule ${id}:`, err);
+  }
+}
+
+// The sync itself (single-flight, fetch-then-one-transaction write) is owned by the
+// vulnerabilities module; the scheduler only decides when to call it.
+async function triggerVulnSync(schedule: Schedule): Promise<void> {
+  try {
+    const { startSync } = await import('../vulnerabilities/scheduler');
+    const r = await startSync('schedule', null);
+    if (r.status === 'already-running') {
+      console.log('[scheduler] Dependabot alerts sync skipped: a sync is already running');
+      return;
+    }
+    if (r.status === 'disabled') return;
+    await db.execute(`UPDATE schedules SET last_run_at = NOW() WHERE id = ?`, [schedule.id]);
+    console.log(`[scheduler] Triggered: schedule=${schedule.id}, Dependabot alerts sync=${r.syncId}`);
+  } catch (err) {
+    console.error(`[scheduler] Dependabot alerts sync trigger failed for schedule ${schedule.id}:`, err);
   }
 }

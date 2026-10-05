@@ -36,13 +36,17 @@ beforeEach(() => {
 describe('listReports', () => {
   it('returns rows from DB', async () => {
     const rows = [
-      { id: 'r1', org: 'acme', period_days: 30, status: 'completed', created_at: '2026-01-01', completed_at: '2026-01-01' },
-      { id: 'r2', org: 'acme', period_days: 14, status: 'pending',   created_at: '2026-01-02', completed_at: null },
+      { id: 'r1', org: 'acme', period_days: 30, status: 'completed', created_at: '2026-01-01', completed_at: '2026-01-01', run_metadata: null, trigger_kind: null, triggered_by: null },
+      { id: 'r2', org: 'acme', period_days: 14, status: 'pending',   created_at: '2026-01-02', completed_at: null, run_metadata: null, trigger_kind: null, triggered_by: null },
     ];
     mockDbExecute.mockResolvedValue([rows, null]);
 
     const result = await listReports();
-    expect(result).toEqual(rows);
+    expect(result).toEqual([
+      { id: 'r1', org: 'acme', period_days: 30, status: 'completed', created_at: '2026-01-01', completed_at: '2026-01-01', trigger_kind: null, triggered_by: null, health: null },
+      { id: 'r2', org: 'acme', period_days: 14, status: 'pending',   created_at: '2026-01-02', completed_at: null, trigger_kind: null, triggered_by: null, health: null },
+    ]);
+    expect(result[0]).not.toHaveProperty('run_metadata');
     expect(mockDbExecute).toHaveBeenCalledTimes(1);
   });
 });
@@ -58,7 +62,7 @@ describe('createReport', () => {
     expect(id).toBe('mock-report-id');
     expect(mockDbExecute).toHaveBeenCalledWith(
       expect.stringContaining('INSERT INTO reports'),
-      ['mock-report-id', 'acme', 30],
+      ['mock-report-id', 'acme', 30, 'manual', null],
     );
     expect(mockInitProgress).toHaveBeenCalledWith('mock-report-id');
     expect(mockRunReport).toHaveBeenCalledWith('mock-report-id', 'acme', 30, false, false);
@@ -230,6 +234,13 @@ describe('stopReport', () => {
     mockDbExecute.mockResolvedValue([[], null]);
 
     await expect(stopReport('missing-id')).rejects.toThrow(ReportNotFoundError);
+  });
+
+  it('stops a pending report too', async () => {
+    mockDbExecute.mockResolvedValueOnce([[{ status: 'pending' }], null]).mockResolvedValue([[], null]);
+    await stopReport('r1');
+    expect(mockRequestStop).toHaveBeenCalledWith('r1');
+    expect(mockDbExecute).toHaveBeenCalledWith(expect.stringContaining("status = 'stopped'"), ['r1']);
   });
 
   it('throws ReportNotRunningError when status is not running', async () => {

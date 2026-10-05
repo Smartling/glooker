@@ -10,6 +10,8 @@ import DevTable from './dev-table';
 import type { Developer } from './dev-table';
 import ProjectsCard from '@/components/ProjectsCard';
 import IntegrityBadge from '@/components/IntegrityBadge';
+import PageHeader from '@/components/PageHeader';
+import DataFreshness from '@/components/runs/DataFreshness';
 import type { TeamProject } from '@/lib/team-pulse/types';
 import type { RunMetadata } from '@/lib/report-runner/types';
 import SafeMarkdown from '@/components/SafeMarkdown';
@@ -158,65 +160,64 @@ export default function TeamSummaryPage() {
     });
   }
 
+  const isLatestReport = !!activeReport && latestReportId === params.id;
+
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
-      {/* Historical report notice */}
-      {activeReport && latestReportId && latestReportId !== params.id && (
-        <div className="mb-4 px-4 py-2.5 bg-amber-500/10 border border-amber-500/20 rounded-lg flex items-center gap-2 text-xs text-amber-400">
-          <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          Viewing historical report from {new Date(activeReport.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} — not the latest report.
-        </div>
-      )}
-
       {/* Report header */}
       {activeReport && (
-        <div className="flex items-center justify-between mb-4">
-          <div>
+        <PageHeader
+          title={
             <span
-              className="text-gray-300 font-medium hover:text-accent-light cursor-pointer transition-colors"
+              className="hover:text-accent-light cursor-pointer transition-colors"
               onClick={() => router.push(`/report/${activeReport!.id}/org`)}
             >{activeReport.org}</span>
-            <span className="text-gray-500 text-sm ml-2">
-              last {activeReport.period_days} days &middot; {developers.length} developers
-            </span>
-            {activeReport.run_metadata?.state !== 'failed' && (
-              <IntegrityBadge
-                metadata={activeReport.run_metadata ?? null}
-              />
-            )}
-          </div>
-          <div className="flex items-center gap-3">
-            {developers.length > 0 && activeReport.run_metadata?.state !== 'failed' && (
-              <>
-                <button
-                  onClick={() => exportCsv(developers, activeReport)}
-                  className="px-3 py-1.5 text-xs font-medium bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors"
-                >
-                  Export CSV
-                </button>
-                <button
-                  onClick={() => exportGoogleSheet(developers, activeReport)}
-                  className="px-3 py-1.5 text-xs font-medium bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors"
-                >
-                  Export to Google Sheet
-                </button>
-                <button
-                  onClick={() => window.print()}
-                  className="px-3 py-1.5 text-xs font-medium bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors no-print"
-                >
-                  Download PDF
-                </button>
-              </>
-            )}
-            <span className="text-xs text-gray-600">
-              {activeReport.completed_at
-                ? `Completed ${new Date(activeReport.completed_at).toLocaleString('en-US', { timeZone: 'America/New_York' })}`
-                : ''}
-            </span>
-          </div>
-        </div>
+          }
+          meta={<>last {activeReport.period_days} days &middot; {developers.length} developers</>}
+          badges={activeReport.run_metadata?.state !== 'failed' && (
+            <IntegrityBadge metadata={activeReport.run_metadata ?? null} />
+          )}
+          actions={
+            <div className="flex items-center gap-3">
+              {developers.length > 0 && activeReport.run_metadata?.state !== 'failed' && (
+                <>
+                  <button
+                    onClick={() => exportCsv(developers, activeReport)}
+                    className="px-3 py-1.5 text-xs font-medium bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors"
+                  >
+                    Export CSV
+                  </button>
+                  <button
+                    onClick={() => exportGoogleSheet(developers, activeReport)}
+                    className="px-3 py-1.5 text-xs font-medium bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors"
+                  >
+                    Export to Google Sheet
+                  </button>
+                  <button
+                    onClick={() => window.print()}
+                    className="px-3 py-1.5 text-xs font-medium bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors no-print"
+                  >
+                    Download PDF
+                  </button>
+                </>
+              )}
+              <span className="text-xs text-gray-600">
+                {activeReport.completed_at
+                  ? `Completed ${new Date(activeReport.completed_at).toLocaleString('en-US', { timeZone: 'America/New_York' })}`
+                  : ''}
+              </span>
+            </div>
+          }
+        >
+          <DataFreshness
+            label="report generated"
+            at={activeReport.created_at}
+            stale={isLatestReport ? !!config?.reportFreshness?.stale : false}
+            latestFailed={isLatestReport ? !!config?.reportFreshness?.latestRunFailed : false}
+            failedText="The latest report run failed; showing the last completed report."
+            historicalAt={latestReportId && !isLatestReport ? activeReport.created_at : null}
+          />
+        </PageHeader>
       )}
 
       {/* Tabs */}

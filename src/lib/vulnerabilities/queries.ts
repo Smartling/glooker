@@ -9,7 +9,7 @@ import {
 } from './aggregate';
 import { isInScope } from './codebase';
 import { policyWindows, slaStatus } from './sla';
-import { getNextSyncRun, isSyncRunning } from './scheduler';
+import { getVulnSchedule, isSyncRunning } from './scheduler';
 import type { ParsedFilters } from './filters';
 import type { AlertFact, ConfigError, RepoFact, ResolvedSince, SnapshotRow, TriggerKind } from './types';
 import type { SnapshotSet, SnapshotSetRow } from './aggregate';
@@ -355,7 +355,7 @@ export interface SyncRunRow {
 }
 export type ListSyncsResponse =
   | { available: false; reason: string }
-  | { available: true; running: boolean; schedule: { cron: string; tz: string; next_run: string | null }; syncs: SyncRunRow[] };
+  | { available: true; org: string; running: boolean; schedule: { id: string | null; cron: string; tz: string; enabled: boolean; next_run: string | null }; syncs: SyncRunRow[] };
 
 export async function listSyncs(limit = 30): Promise<ListSyncsResponse> {
   const org = getVulnerabilitiesOrg();
@@ -366,10 +366,16 @@ export async function listSyncs(limit = 30): Promise<ListSyncsResponse> {
   const bound = String(Math.floor(Math.min(Math.max(n, 1), 200)));
   const [rows] = await db.execute<any>(
     `SELECT * FROM vulnerability_syncs WHERE org = ? ORDER BY id DESC LIMIT ?`, [org, bound]);
-  const { cron, tz } = getSyncSchedule();
+  // The managed Settings → Schedules row (GLOOK-59). Before its first seed (initVulnerabilityScheduler
+  // has not run yet in this process) fall back to the env seed values, shown as enabled.
+  const managed = await getVulnSchedule();
+  const fallback = getSyncSchedule();
+  const schedule = managed
+    ? { id: managed.id, cron: managed.cron, tz: managed.tz, enabled: managed.enabled, next_run: managed.next_run }
+    : { id: null, cron: fallback.cron, tz: fallback.tz, enabled: true, next_run: null };
   return {
-    available: true as const, running: isSyncRunning(),
-    schedule: { cron, tz, next_run: getNextSyncRun() },
+    available: true as const, org, running: isSyncRunning(),
+    schedule,
     syncs: rows.map((r: any) => ({
       id: Number(r.id), triggerKind: r.trigger_kind, triggeredBy: r.triggered_by, status: r.status,
       startedAt: r.started_at, finishedAt: r.finished_at, alertsFetched: r.alerts_fetched, reposChecked: r.repos_checked,

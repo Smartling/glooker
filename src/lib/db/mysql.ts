@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS schedules (
   timezone       VARCHAR(50)  NOT NULL DEFAULT 'UTC',
   enabled        TINYINT      NOT NULL DEFAULT 1,
   test_mode      TINYINT      NOT NULL DEFAULT 0,
+  kind           VARCHAR(16)  NOT NULL DEFAULT 'report',
   last_run_at    DATETIME,
   last_report_id VARCHAR(36),
   created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -405,6 +406,18 @@ export function createMySQLDB(): DB {
   // GLOOK-13: report integrity (run_metadata column + skip-allowlist table)
   await pool.execute('ALTER TABLE reports ADD COLUMN run_metadata JSON NULL').catch((err) => {
     if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add run_metadata:', err);
+  });
+  // GLOOK-59: who/what started a report, for the shared run card. NULL on pre-existing rows.
+  await pool.execute('ALTER TABLE reports ADD COLUMN trigger_kind VARCHAR(16) NULL').catch((err) => {
+    if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add trigger_kind:', err);
+  });
+  await pool.execute('ALTER TABLE reports ADD COLUMN triggered_by VARCHAR(255) NULL').catch((err) => {
+    if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add triggered_by:', err);
+  });
+  // GLOOK-59: one schedules table for both run sources. 'report' rows run a GitHub report;
+  // the single 'vuln_sync' row runs the Dependabot alerts sync (period_days/test_mode unused).
+  await pool.execute("ALTER TABLE schedules ADD COLUMN kind VARCHAR(16) NOT NULL DEFAULT 'report'").catch((err) => {
+    if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add schedules.kind:', err);
   });
   // GLOOK-38: per-team board config lives in the jira_projects table.
   // `teams.board_config` never existed outside this branch (added and

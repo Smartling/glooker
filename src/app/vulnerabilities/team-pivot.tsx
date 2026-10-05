@@ -67,7 +67,7 @@ export default function TeamPivot({ rows, total, delta, highSlaActive, resolvedS
   const row = (r: TeamRow, isTotal = false) => (
     <tr key={r.team}
       onClick={isTotal ? undefined : () => onSelectTeam(selectedTeam === r.team ? null : r.team)}
-      className={`border-b border-gray-800/60 ${isTotal ? 'font-semibold' : 'cursor-pointer hover:bg-gray-800/30'} ${selectedTeam === r.team ? 'bg-indigo-500/10' : ''}`}>
+      className={`border-b border-gray-800/60 ${isTotal ? 'font-semibold' : 'cursor-pointer hover:bg-gray-800/30'} ${selectedTeam === r.team ? 'bg-accent/10' : ''}`}>
       <td className="px-2 py-1.5 text-left text-gray-200">
         {r.team}
       </td>
@@ -87,7 +87,7 @@ export default function TeamPivot({ rows, total, delta, highSlaActive, resolvedS
             <th colSpan={highSlaActive ? 5 : 4} className="bg-orange-500/20 text-orange-400 tracking-widest text-[11px] py-1">HIGH</th>
           </tr>
           <tr className="text-gray-400">
-            <th className="px-2 py-1 text-left font-medium">Team</th>
+            <th className="px-2 py-1 text-left font-medium" title="The repository's team custom property — not a Glooker team">Owning team</th>
             {head(C, true, critBaselineCaption, 'critical')}
             <th className="w-3" />
             {head(H, highSlaActive, highBaselineCaption, 'high')}

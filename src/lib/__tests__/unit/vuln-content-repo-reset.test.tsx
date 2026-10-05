@@ -85,7 +85,7 @@ it('changing the team clears repo from the very next alerts request', async () =
     expect(alertsUrls.some(u => urlParam(u, 'repo') === 'acme/one')).toBe(true);
   });
 
-  const teamSelect = screen.getByLabelText('Team') as HTMLSelectElement;
+  const teamSelect = screen.getByLabelText('Owning team') as HTMLSelectElement;
   fireEvent.change(teamSelect, { target: { value: 'Team A' } });
 
   await waitFor(() => {

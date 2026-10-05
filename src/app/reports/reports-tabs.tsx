@@ -3,6 +3,7 @@ import { useRef } from 'react';
 import useSWR from 'swr';
 import { useUrlState } from '@/lib/url-state';
 import { useAuth } from '../auth-context';
+import ReportsTab from './reports-tab';
 import VulnerabilitySyncsTab from './vulnerability-syncs-tab';
 
 const TABS = ['reports', 'syncs'] as const;
@@ -11,22 +12,31 @@ const TABS = ['reports', 'syncs'] as const;
 // returns much more than this; widening it here would just invite drift from the real response.
 interface LlmConfig { vulnerabilities?: { enabled?: boolean } }
 
-export default function ReportsTabs({ reports }: { reports: React.ReactNode }) {
+export default function ReportsTabs() {
   const { canAct } = useAuth();
   const { data: config } = useSWR<LlmConfig>('/api/llm-config');
   const [tab, setTab] = useUrlState<(typeof TABS)[number]>({ key: 'tab', type: 'enum', values: TABS, default: 'reports', history: 'replace' });
-  // Sync ids seen running this page session. Owned here, not by the syncs tab, because the syncs tab
-  // unmounts while Reports is shown, and retention must survive a tab switch like the Reports tab's.
-  const observedRunning = useRef<Set<number>>(new Set());
-  if (!config?.vulnerabilities?.enabled) return <>{reports}</>;
-  const cls = (on: boolean) => `pb-2 text-sm font-medium ${on ? 'text-white border-b-2 border-indigo-500 -mb-px' : 'text-gray-500 hover:text-gray-300'}`;
+  // Ids seen running this page session. Owned here (not by either tab) so retention survives a tab
+  // switch — the inactive tab unmounts while the other is shown.
+  const observedReports = useRef<Set<string>>(new Set());
+  const observedSyncs = useRef<Set<number>>(new Set());
+  // Ids whose finish side effect (list mutate + global SWR cache bust) has already run. Also owned
+  // here, for the same reason: ReportsTab unmounts when the syncs tab is shown, so a per-card ref
+  // inside it would reset and re-fire the bust every time the reports tab remounts.
+  const finishedFired = useRef<Set<string>>(new Set());
+
+  const reportsTab = <ReportsTab canAct={canAct} observedRunning={observedReports.current} finishedFired={finishedFired.current} />;
+
+  if (!config?.vulnerabilities?.enabled) return reportsTab;
+
+  const cls = (on: boolean) => `pb-2 text-sm font-medium ${on ? 'text-white border-b-2 border-accent -mb-px' : 'text-gray-500 hover:text-gray-300'}`;
   return (
     <>
       <div className="flex gap-6 border-b border-gray-800 mb-4">
-        <button className={cls(tab === 'reports')} onClick={() => setTab('reports')}>Reports</button>
-        <button className={cls(tab === 'syncs')} onClick={() => setTab('syncs')}>Vulnerability syncs</button>
+        <button className={cls(tab === 'reports')} onClick={() => setTab('reports')}>Commits &amp; PRs <span className="ml-1 text-[10px] font-normal text-gray-500">GitHub · Jira</span></button>
+        <button className={cls(tab === 'syncs')} onClick={() => setTab('syncs')}>Dependabot alerts <span className="ml-1 text-[10px] font-normal text-gray-500">GitHub</span></button>
       </div>
-      {tab === 'syncs' ? <VulnerabilitySyncsTab canAct={canAct} observedRunning={observedRunning.current} /> : reports}
+      {tab === 'syncs' ? <VulnerabilitySyncsTab canAct={canAct} observedRunning={observedSyncs.current} /> : reportsTab}
     </>
   );
 }

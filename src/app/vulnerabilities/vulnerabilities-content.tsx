@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useUrlState } from '@/lib/url-state';
 import { CODEBASE_GROUPS, CODEBASE_LABELS } from '@/lib/vulnerabilities/codebase-labels';
 import type { CodebaseGroup } from '@/lib/vulnerabilities/types';
+import PageHeader from '@/components/PageHeader';
+import DataFreshness from '@/components/runs/DataFreshness';
 import TeamPivot from './team-pivot';
 import TrendChart from './trend-chart';
 import { assignTeamColors } from './team-colors';
@@ -15,7 +17,7 @@ import { dash, signed, deltaClass, panelError, fetcher, vulnSwrOptions, resolved
 import { addDays } from '@/lib/vulnerabilities/time';
 
 const BASELINES = [['last', 'Last sync'], ['7d', '7 days'], ['30d', '30 days']] as const;
-const chip = (on: boolean) => `px-2.5 py-1 rounded-full text-xs border ${on ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-700 text-gray-400 hover:text-gray-200'}`;
+const chip = (on: boolean) => `px-2.5 py-1 rounded-full text-xs border ${on ? 'bg-accent border-accent text-white' : 'border-gray-700 text-gray-400 hover:text-gray-200'}`;
 const panel = 'border border-gray-800 rounded-lg p-3 mt-3';
 
 // J2-6: timeframe chips on the trend panel. `range` lives in URL state, default 'all'.
@@ -117,11 +119,11 @@ export default function VulnerabilitiesContent() {
     if (info?.known_teams) {
       return (
         <div className="max-w-7xl mx-auto px-4 py-8">
-          <h1 className="text-lg font-semibold text-white">Vulnerabilities</h1>
+          <h1 className="text-lg font-semibold text-white">Security</h1>
           <p className="text-sm text-red-400 mt-2">{info.error}</p>
           <p className="text-xs text-gray-500 mt-1">Known teams: {info.known_teams.join(', ')}</p>
           {team && (
-            <button className="text-xs text-indigo-400 mt-3 inline-block" onClick={() => setTeam(null)}>
+            <button className="text-xs text-accent-light mt-3 inline-block" onClick={() => setTeam(null)}>
               Clear team filter
             </button>
           )}
@@ -134,11 +136,11 @@ export default function VulnerabilitiesContent() {
   if (!summary.available) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-8">
-        <h1 className="text-lg font-semibold text-white">Vulnerabilities</h1>
+        <h1 className="text-lg font-semibold text-white">Security</h1>
         <p className="text-sm text-gray-400 mt-2">{summary.reason}</p>
         <ConfigErrorBanner errors={summary.configErrors} />
         {summary.sync?.lastStatus === 'failed' && <p className="text-sm text-red-400 mt-1">The last sync failed: {summary.sync.issues?.[0]?.message}</p>}
-        <Link href="/reports?tab=syncs" className="text-xs text-indigo-400 mt-3 inline-block">Sync history →</Link>
+        <Link href="/reports?tab=syncs" className="text-xs text-accent-light mt-3 inline-block">Sync history →</Link>
       </div>
     );
   }
@@ -148,14 +150,39 @@ export default function VulnerabilitiesContent() {
   const dcCaption = deltaBaselineCaption(dc);
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
-      <div className="flex flex-wrap items-baseline gap-2">
-        <h1 className="text-lg font-semibold text-white">Vulnerabilities · {s.org}</h1>
-        <span className={`text-xs ${s.sync.stale ? 'text-amber-400' : 'text-gray-500'}`}>last successful sync {s.sync.lastSuccessfulAt}</span>
-        <Link href="/reports?tab=syncs" className="text-xs text-indigo-400">sync history →</Link>
-        {summaryStale && <span className="text-[11px] text-indigo-400">Updating…</span>}
-      </div>
-      <ConfigErrorBanner errors={s.configErrors} />
-      {s.sync.lastStatus === 'failed' && <div className="mt-2 text-xs text-red-400 border border-red-900 rounded p-2">The latest sync failed; showing data from the last good sync. {s.sync.issues?.[0]?.message}</div>}
+      <PageHeader
+        title={`Security · ${s.org}`}
+        freshness={
+          <DataFreshness
+            label="last successful sync"
+            at={s.sync.lastSuccessfulAt}
+            stale={s.sync.stale}
+            // Label only here — this row shares a flex line with `badges` and has no wrap, so the
+            // failed-sync banner is rendered separately below (bannerOnly, in `children`) instead of
+            // being squeezed into this row (GLOOK-59 final fix item 2).
+            latestFailed={false}
+            failedText="The latest sync failed; showing data from the last good sync."
+            failedDetail={s.sync.issues?.[0]?.message}
+          />
+        }
+        badges={
+          <>
+            <Link href="/reports?tab=syncs" className="text-xs text-accent-light">sync history →</Link>
+            {summaryStale && <span className="text-[11px] text-accent-light">Updating…</span>}
+          </>
+        }
+      >
+        <DataFreshness
+          label="last successful sync"
+          at={s.sync.lastSuccessfulAt}
+          stale={s.sync.stale}
+          latestFailed={s.sync.lastStatus === 'failed'}
+          failedText="The latest sync failed; showing data from the last good sync."
+          failedDetail={s.sync.issues?.[0]?.message}
+          bannerOnly
+        />
+        <ConfigErrorBanner errors={s.configErrors} />
+      </PageHeader>
 
       <div className="flex flex-wrap items-center gap-2 mt-4">
         <span className="text-xs text-gray-500">Codebase:</span>
@@ -165,17 +192,17 @@ export default function VulnerabilitiesContent() {
         <input type="date" className="bg-gray-900 border border-gray-700 rounded text-xs text-gray-300 px-2 py-1"
           value={/^\d{4}-\d{2}-\d{2}$/.test(baseline) ? baseline : ''} onChange={e => e.target.value && setBaseline(e.target.value)} />
       </div>
-      {/* Always rendered, same classes and fixed height in both states: the "Filtered to team" line used
+      {/* Always rendered, same classes and fixed height in both states: the "Filtered to owning team" line used
           to appear only with a team set, pushing everything below it down on every team change. The
           name truncates (a long one can't wrap) and the clear button never does. */}
       <div data-testid="team-line" className="mt-2 h-4 flex items-center text-xs leading-4 text-gray-400 whitespace-nowrap">
         {team ? (
           <>
-            <span className="shrink-0 whitespace-pre">Filtered to team </span>
+            <span className="shrink-0 whitespace-pre">Filtered to owning team </span>
             <b className="min-w-0 max-w-[24rem] truncate text-white" title={team}>{team}</b>
-            <button className="ml-1 shrink-0 text-indigo-400" onClick={() => setTeam(null)}>clear</button>
+            <button className="ml-1 shrink-0 text-accent-light" onClick={() => setTeam(null)}>clear</button>
           </>
-        ) : 'Showing all teams'}
+        ) : 'Showing all owning teams'}
       </div>
 
       <div className={`grid grid-cols-2 md:grid-cols-4 gap-3 mt-4${summaryStale ? ' opacity-60' : ''}`}>
@@ -225,7 +252,7 @@ export default function VulnerabilitiesContent() {
       </div>
 
       <div className={panel}>
-        <h2 className="text-sm text-white mb-2">By team <span className="text-xs text-gray-500">(click a row to filter the page)</span></h2>
+        <h2 className="text-sm text-white mb-2">By owning team <span className="text-xs text-gray-500">(click a row to filter the page)</span></h2>
         {(() => {
           const err = panelError(pivotSummaryError, 'team table');
           if (err) return <p className="text-xs text-red-400">{err}</p>;
@@ -249,7 +276,7 @@ export default function VulnerabilitiesContent() {
           {TREND_RANGES.map(([v, l]) => <button key={v} className={chip(range === v)} onClick={() => setRange(v)}>{l}</button>)}
           {(() => {
             const trendErrMsg = panelError(trendError, 'trend');
-            return trendStale && !trendErrMsg ? <span className="text-[11px] text-indigo-400">Updating…</span> : null;
+            return trendStale && !trendErrMsg ? <span className="text-[11px] text-accent-light">Updating…</span> : null;
           })()}
         </div>
         {(() => {
@@ -273,7 +300,7 @@ export default function VulnerabilitiesContent() {
           <div className="flex items-center gap-2 mb-2"><h2 className="text-sm text-white">Coverage gaps</h2>
             {(() => {
               const coverageErrMsg = panelError(coverageError, 'coverage');
-              return coverageStale && !coverageErrMsg ? <span className="text-[11px] text-indigo-400">Updating…</span> : null;
+              return coverageStale && !coverageErrMsg ? <span className="text-[11px] text-accent-light">Updating…</span> : null;
             })()}
           </div>
           {(() => {

@@ -66,7 +66,7 @@ const BADGE = 'rounded text-[10px] leading-none align-middle';
 const repoLabel = (full: string, count: number) => `${full.split('/').pop()} (${count})`;
 
 type SortKey = 'repo' | 'team' | null;
-const chip =(on: boolean) => `px-2 py-0.5 rounded-full text-[11px] border ${on ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-700 text-gray-400'}`;
+const chip =(on: boolean) => `px-2 py-0.5 rounded-full text-[11px] border ${on ? 'bg-accent border-accent text-white' : 'border-gray-700 text-gray-400'}`;
 
 export default function AlertsTable({ rows, totalCount, truncated, filters, onFiltersChange, stale, error, loading, team, teams, onTeamChange, slaStatus, policy, policyInvalid, repos }: {
   rows: AlertRow[]; totalCount: number; truncated: boolean;
@@ -198,9 +198,9 @@ export default function AlertsTable({ rows, totalCount, truncated, filters, onFi
         <input placeholder="Search CVE, GHSA, package, repo" value={qLocal} onChange={e => setQLocal(e.target.value)}
           className="flex-1 min-w-[180px] bg-gray-900 border border-gray-700 rounded text-xs text-gray-200 px-2 py-1" />
         {onTeamChange && (
-          <select aria-label="Team" value={team ?? ''} onChange={e => onTeamChange(e.target.value || null)}
+          <select aria-label="Owning team" value={team ?? ''} onChange={e => onTeamChange(e.target.value || null)}
             className="bg-gray-900 border border-gray-700 rounded text-xs text-gray-300 px-2 py-1">
-            <option value="">All teams</option>
+            <option value="">All owning teams</option>
             {(teams ?? []).map(t => <option key={t} value={t}>{t}</option>)}
           </select>
         )}
@@ -276,7 +276,7 @@ export default function AlertsTable({ rows, totalCount, truncated, filters, onFi
                     <th className={TH}>CVE / advisory</th>
                     <th className={TH}>Package</th>
                     <th className={`${TH} cursor-pointer`} onClick={() => toggleSort('repo')}>Repo{sort === 'repo' ? (dir === 1 ? ' ▲' : ' ▼') : ''}</th>
-                    <th className={`${TH} cursor-pointer`} onClick={() => toggleSort('team')}>Team{sort === 'team' ? (dir === 1 ? ' ▲' : ' ▼') : ''}</th>
+                    <th className={`${TH} cursor-pointer`} onClick={() => toggleSort('team')}>Owning team{sort === 'team' ? (dir === 1 ? ' ▲' : ' ▼') : ''}</th>
                     <th className={TH}>Age</th>
                     <th className={TH}>Due</th>
                     <th className={TH}>Scope</th>
@@ -303,7 +303,7 @@ export default function AlertsTable({ rows, totalCount, truncated, filters, onFi
                         <td className={TD} title={[idText, cvssText].filter(Boolean).join(' ')}>
                           {/* The id is the part that truncates: the CVSS score is shrink-0. */}
                           <div className="flex items-center gap-1 min-w-0">
-                            <a href={r.htmlUrl} target="_blank" rel="noreferrer" className="min-w-0 truncate text-indigo-400 hover:text-indigo-300 underline">{idText}</a>
+                            <a href={r.htmlUrl} target="_blank" rel="noreferrer" className="min-w-0 truncate text-accent-light hover:text-accent-lighter underline">{idText}</a>
                             {cvssText !== null && <span className="shrink-0 text-gray-500">{cvssText}</span>}
                           </div>
                         </td>
@@ -342,7 +342,7 @@ export default function AlertsTable({ rows, totalCount, truncated, filters, onFi
               <>
                 <span>Showing {shown} of {sorted.length}</span>
                 {visible < sorted.length && (
-                  <button className="text-[10px] leading-[14px] text-indigo-400" onClick={() => setVisible(v => Math.min(v + PAGE_ROWS, sorted.length))}>Show 20 more</button>
+                  <button className="text-[10px] leading-[14px] text-accent-light" onClick={() => setVisible(v => Math.min(v + PAGE_ROWS, sorted.length))}>Show 20 more</button>
                 )}
               </>
             )}
@@ -407,7 +407,7 @@ export function AlertsPanel({ data, error, isLoading, filters, onFiltersChange, 
       <div className="flex items-center gap-2 mb-2">
         <h2 className="text-sm text-white">Alerts</h2>
         <span className="text-xs text-gray-500">· filtered by the codebase chips and team row above</span>
-        {stale && <span className="text-[11px] text-indigo-400">Updating…</span>}
+        {stale && <span className="text-[11px] text-accent-light">Updating…</span>}
       </div>
       {/* Wave E / E2 + Wave F / F1: a single AlertsTable slot for the error, loading and data
           cases — AlertsTable is mounted for the panel's whole lifetime, so the search input and

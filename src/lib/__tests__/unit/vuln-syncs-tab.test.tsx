@@ -6,7 +6,7 @@ import { SWRConfig } from 'swr';
 import SWRProvider from '@/lib/swr-provider';
 import VulnerabilitySyncsTab from '@/app/reports/vulnerability-syncs-tab';
 
-const schedule = { cron: '0 6 * * *', tz: 'America/New_York', next_run: '2026-09-23T10:00:00Z' };
+let schedule: any = { id: 'vs1', cron: '0 6 * * *', tz: 'America/New_York', enabled: true, next_run: '2026-09-23T10:00:00Z' };
 
 const succeededFirst = {
   id: 1, triggerKind: 'manual', triggeredBy: 'admin@x', status: 'succeeded',
@@ -31,7 +31,7 @@ const runningSync = {
 };
 
 function listBody(syncs: any[], running = false) {
-  return { available: true, running, schedule, syncs };
+  return { available: true, org: 'acme', running, schedule, syncs };
 }
 
 /** Routes a mocked fetch by URL: the syncs list vs. one card's own `/progress` poll (keyed by
@@ -212,13 +212,54 @@ it('when the progress poll reports the run finished: the bar fills to 100%, poll
   expect(listCalls).toBe(listBefore + 1);
 }, 15000);
 
+it('renders the shared card header: subject line and issue-count health', async () => {
+  (global as any).fetch = mockFetchFor([{ ...failedSync, status: 'partial' }, succeededSecond]);
+  render(wrap(<VulnerabilitySyncsTab canAct={true} />));
+  await waitFor(() => expect(screen.getAllByText('acme · Dependabot critical + high').length).toBe(2));
+  expect(screen.getByText('1 issue')).toBeTruthy();
+});
+
+it('never offers Delete or Stop on sync cards', async () => {
+  (global as any).fetch = mockFetchFor([succeededSecond]);
+  render(wrap(<VulnerabilitySyncsTab canAct={true} />));
+  await waitFor(() => screen.getByText('acme · Dependabot critical + high'));
+  expect(screen.queryByText('Delete')).toBeNull();
+  expect(screen.queryByText('Stop')).toBeNull();
+});
+
+it('shows the next run through the shared formatter', async () => {
+  (global as any).fetch = mockFetchFor([succeededSecond]);
+  render(wrap(<VulnerabilitySyncsTab canAct={false} />));
+  await waitFor(() => expect(screen.getByText(/next run Sep 23, 6:00 AM/)).toBeTruthy());
+});
+
+it('links admins to Settings to manage the schedule, and not viewers', async () => {
+  (global as any).fetch = mockFetchFor([succeededSecond]);
+  const { rerender } = render(wrap(<VulnerabilitySyncsTab canAct={false} />));
+  await waitFor(() => screen.getByText(/next run/));
+  expect(screen.queryByText('Manage schedules')).toBeNull();
+  rerender(wrap(<VulnerabilitySyncsTab canAct />));
+  await waitFor(() => expect(screen.getByText('Manage schedules').getAttribute('href')).toBe('/settings#schedules'));
+});
+
+it('says the schedule is paused instead of showing a next run', async () => {
+  const before = schedule;
+  schedule = { ...schedule, enabled: false, next_run: null };
+  try {
+    (global as any).fetch = mockFetchFor([succeededSecond]);
+    render(wrap(<VulnerabilitySyncsTab canAct={false} />));
+    await waitFor(() => expect(screen.getByText(/Schedule paused/)).toBeTruthy());
+    expect(screen.queryByText(/next run/)).toBeNull();
+  } finally { schedule = before; }
+});
+
 it('hides Sync now from viewers and shows it to admins', async () => {
   (global as any).fetch = mockFetchFor([succeededFirst]);
   const { rerender } = render(wrap(<VulnerabilitySyncsTab canAct={false} />));
   await waitFor(() => screen.getByText('Manual · admin@x'));
-  expect(screen.queryByText('Sync now')).toBeNull();
+  expect(screen.queryByText('Sync alerts')).toBeNull();
   rerender(wrap(<VulnerabilitySyncsTab canAct={true} />));
-  await waitFor(() => expect(screen.getByText('Sync now')).toBeTruthy());
+  await waitFor(() => expect(screen.getByText('Sync alerts')).toBeTruthy());
 });
 
 // the sync tab shares vulnerabilities-content.tsx's panelError helper (format.ts), which
@@ -255,11 +296,11 @@ it('a poll that returns 500 keeps the last good cards visible under the error ba
   render(wrap(<VulnerabilitySyncsTab canAct={true} />));
   await waitFor(() => screen.getByText('Manual · admin@x'));
 
-  fireEvent.click(screen.getByText('Sync now')); // triggers the POST, then mutate() re-fetches (and gets the 500)
+  fireEvent.click(screen.getByText('Sync alerts')); // triggers the POST, then mutate() re-fetches (and gets the 500)
 
   expect(await screen.findByText("Couldn't load vulnerability syncs: Internal Server Error")).toBeTruthy();
   expect(screen.getByText('Manual · admin@x')).toBeTruthy();
-  expect(screen.getByText('Sync now')).toBeTruthy();
+  expect(screen.getByText('Sync alerts')).toBeTruthy();
 });
 
 // a poll that fails after good data was already showing must not blank the cards or hide the
@@ -275,10 +316,10 @@ it('a failed poll after good data shows both the error banner and the last good 
   render(wrap(<VulnerabilitySyncsTab canAct={true} />));
   await waitFor(() => screen.getByText('Manual · admin@x'));
 
-  fireEvent.click(screen.getByText('Sync now')); // triggers the POST, then mutate() re-fetches (and fails)
+  fireEvent.click(screen.getByText('Sync alerts')); // triggers the POST, then mutate() re-fetches (and fails)
 
   expect(await screen.findByText(/Couldn't load vulnerability syncs: network down/)).toBeTruthy();
   // The last good data is still on screen: the card and the Sync now button.
   expect(screen.getByText('Manual · admin@x')).toBeTruthy();
-  expect(screen.getByText('Sync now')).toBeTruthy();
+  expect(screen.getByText('Sync alerts')).toBeTruthy();
 });

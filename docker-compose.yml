@@ -60,6 +60,20 @@ services:
       # Anthropic Analytics API (Claude usage cost ingestion)
       ANTHROPIC_ANALYTICS_API_KEY: ${ANTHROPIC_ANALYTICS_API_KEY:-}
       CC_ANALYTICS_PROVIDER: ${CC_ANALYTICS_PROVIDER:-}
+
+      # Vulnerability tracking (optional — GLOOK-43). Off unless VULNERABILITIES_ORG is set.
+      # Empty values fall back to the module's neutral defaults; real policy and taxonomy
+      # values belong only in the deployment's .env, never in this repo.
+      VULNERABILITIES_ORG: ${VULNERABILITIES_ORG:-}
+      VULN_SYNC_CRON: ${VULN_SYNC_CRON:-}
+      VULN_SYNC_TZ: ${VULN_SYNC_TZ:-}
+      VULNERABILITIES_SLA_POLICY: ${VULNERABILITIES_SLA_POLICY:-}
+      VULN_RESOLVED_SINCE: ${VULN_RESOLVED_SINCE:-}
+      VULN_TEAM_PROPERTY: ${VULN_TEAM_PROPERTY:-}
+      VULN_TIER_PROPERTY: ${VULN_TIER_PROPERTY:-}
+      VULN_TIER_IN_SCOPE: ${VULN_TIER_IN_SCOPE:-}
+      VULN_CODEBASE_PROPERTY: ${VULN_CODEBASE_PROPERTY:-}
+      VULN_CODEBASE_GROUPS: ${VULN_CODEBASE_GROUPS:-}
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
       interval: 30s

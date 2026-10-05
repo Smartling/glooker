@@ -37,6 +37,7 @@ function makeSchedule(overrides: Partial<Schedule> = {}): Schedule {
     id: 'sched-1',
     org: 'test-org',
     period_days: 14,
+    kind: 'report',
     cron_expr: '0 9 * * 1',
     timezone: 'America/New_York',
     enabled: 1,
@@ -174,6 +175,7 @@ describe('schedule-manager', () => {
         (call: any[]) => typeof call[0] === 'string' && call[0].includes('INSERT INTO reports'),
       );
       expect(insertCall).toBeTruthy();
+      expect(insertCall[0]).toContain("'schedule'");
       expect(initProgress).toHaveBeenCalledWith('mock-uuid-1234');
       expect(runReport).toHaveBeenCalled();
     });

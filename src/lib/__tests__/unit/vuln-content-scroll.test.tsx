@@ -80,7 +80,7 @@ it('choosing a team in the alerts Team dropdown replaces the URL with scroll: fa
   (global as any).fetch = fetchMock;
   render(wrap(<VulnerabilitiesContent />));
 
-  const select = await screen.findByLabelText('Team') as HTMLSelectElement;
+  const select = await screen.findByLabelText('Owning team') as HTMLSelectElement;
   fireEvent.change(select, { target: { value: 'Team A' } });
 
   await waitFor(() => {

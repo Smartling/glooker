@@ -16,7 +16,7 @@ import SWRProvider from '@/lib/swr-provider';
 import VulnerabilitySyncsTab from '@/app/reports/vulnerability-syncs-tab';
 
 const body = {
-  available: true, running: false, schedule: { cron: '0 6 * * *', tz: 'America/New_York', next_run: '2026-09-23T10:00:00Z' },
+  available: true, org: 'acme', running: false, schedule: { cron: '0 6 * * *', tz: 'America/New_York', next_run: '2026-09-23T10:00:00Z' },
   syncs: [],
 };
 

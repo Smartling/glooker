@@ -71,23 +71,23 @@ beforeEach(() => {
 });
 
 // Revert: render the line only when a team is set (`{team && <div …>}`).
-it('with no team the line reads "Showing all teams" and has no clear button', async () => {
+it('with no team the line reads "Showing all owning teams" and has no clear button', async () => {
   render(wrap(<VulnerabilitiesContent />));
   const line = await screen.findByTestId('team-line');
-  expect(line.textContent).toBe('Showing all teams');
+  expect(line.textContent).toBe('Showing all owning teams');
   expect(within(line).queryByRole('button')).toBeNull();
 });
 
-// COPY CHANGE: "Showing all teams" is new; "Filtered to team X" + clear is the old text, now inline
+// COPY CHANGE: "Showing all owning teams" is new; "Filtered to team X" + clear is the old text, now inline
 // in a fixed-height line. Revert: drop the `h-4` / nowrap classes or the always-on line.
 it('with a team the line reads "Filtered to team Team A" plus a clear button, with the same className as the no-team line', async () => {
   render(wrap(<VulnerabilitiesContent />));
   const line = await screen.findByTestId('team-line');
   const noTeamClass = line.className;
-  fireEvent.change(await screen.findByLabelText('Team'), { target: { value: 'Team A' } });
-  await waitFor(() => expect(screen.getByTestId('team-line').textContent).toBe('Filtered to team Team Aclear'));
+  fireEvent.change(await screen.findByLabelText('Owning team'), { target: { value: 'Team A' } });
+  await waitFor(() => expect(screen.getByTestId('team-line').textContent).toBe('Filtered to owning team Team Aclear'));
   const withTeam = screen.getByTestId('team-line');
-  expect(withTeam.textContent).toContain('Filtered to team Team A');
+  expect(withTeam.textContent).toContain('Filtered to owning team Team A');
   expect(within(withTeam).getByRole('button', { name: 'clear' })).toBeTruthy();
   expect(withTeam.className).toBe(noTeamClass);
   expect(withTeam.className).toContain('h-4');
@@ -98,8 +98,8 @@ it('with a team the line reads "Filtered to team Team A" plus a clear button, wi
 // then wrap the line, or squeeze the button out).
 it('the team name truncates (title holds the full name) and the clear button never shrinks', async () => {
   render(wrap(<VulnerabilitiesContent />));
-  fireEvent.change(await screen.findByLabelText('Team'), { target: { value: 'Team A' } });
-  await waitFor(() => expect(screen.getByTestId('team-line').textContent).toContain('Filtered to team'));
+  fireEvent.change(await screen.findByLabelText('Owning team'), { target: { value: 'Team A' } });
+  await waitFor(() => expect(screen.getByTestId('team-line').textContent).toContain('Filtered to owning team'));
   const line = screen.getByTestId('team-line');
   const name = within(line).getByText('Team A');
   expect(name.className).toContain('truncate');
@@ -109,10 +109,10 @@ it('the team name truncates (title holds the full name) and the clear button nev
 
 // Revert: make the clear button a no-op, or drop it from the team branch of the line (the line then
 // stays on "Filtered to team Team A", or the button is never found).
-it('the clear button returns the line to "Showing all teams"', async () => {
+it('the clear button returns the line to "Showing all owning teams"', async () => {
   render(wrap(<VulnerabilitiesContent />));
-  fireEvent.change(await screen.findByLabelText('Team'), { target: { value: 'Team A' } });
+  fireEvent.change(await screen.findByLabelText('Owning team'), { target: { value: 'Team A' } });
   const clear = await waitFor(() => within(screen.getByTestId('team-line')).getByRole('button', { name: 'clear' }));
   fireEvent.click(clear);
-  await waitFor(() => expect(screen.getByTestId('team-line').textContent).toBe('Showing all teams'));
+  await waitFor(() => expect(screen.getByTestId('team-line').textContent).toBe('Showing all owning teams'));
 });
