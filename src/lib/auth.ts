@@ -86,6 +86,129 @@ async function albPublicKey(kid: string): Promise<CryptoKey> {
 export function _clearKeyCache(): void {
   albKeyCache.clear();
   jwks = null;
+  oktaJwks = null;
+  oktaJwksUrl = null;
+  oktaUserCache.clear();
+}
+
+// ---------------------------------------------------------------------------
+// Okta access tokens from the MCP sidecar
+// ---------------------------------------------------------------------------
+
+/**
+ * The second identity path. MCP clients authenticate to the mcp-okta-proxy
+ * sidecar with an Okta access token; the sidecar validates it and forwards the
+ * ORIGINAL token to us in `x-okta-access-token` (its
+ * OKTA_MCP_PROXY_ACCESS_TOKEN_HEADER_NAME). We verify that token ourselves
+ * against Okta's JWKS — the sidecar's older synthetic `alg=none` header is
+ * unverifiable by design and is rejected like any other unsigned token.
+ *
+ * Okta's org authorization server issues access tokens without email or groups,
+ * so those come from Okta's /userinfo, called with the verified token (the same
+ * thing the sidecar does). An identity is only ever built from a token whose
+ * signature, issuer, audience and expiry all checked out.
+ *
+ * Accepted only on OKTA_TOKEN_PATHS: proxy.ts strips the header from every other
+ * request (sanitizeIdentityHeaders), so a captured MCP token can't drive the UI.
+ *
+ * Config: AUTH_OKTA_ISSUER + AUTH_OKTA_AUDIENCE (both required, or the path is
+ * off), optional AUTH_OKTA_CLIENT_ID (pins `cid`), AUTH_OKTA_JWKS_URL and
+ * AUTH_OKTA_USERINFO_URL (derived from the issuer when unset),
+ * AUTH_OKTA_TOKEN_HEADER (default x-okta-access-token).
+ */
+export const OKTA_TOKEN_PATHS = ['/api/mcp'] as const;
+
+const OKTA_USERINFO_TIMEOUT_MS = 3_000;
+const OKTA_USER_CACHE_TTL_MS = 5 * 60_000;
+const OKTA_USER_CACHE_MAX = 1_000;
+let oktaJwks: ReturnType<typeof createRemoteJWKSet> | null = null;
+let oktaJwksUrl: string | null = null;
+const oktaUserCache = new Map<string, { user: AuthUser; expiresAt: number }>();
+
+export function oktaTokenHeader(): string {
+  return (process.env.AUTH_OKTA_TOKEN_HEADER || 'x-okta-access-token').toLowerCase();
+}
+
+/** True when `pathname` may carry an Okta token (exact match or a sub-path). */
+export function isOktaTokenPath(pathname: string): boolean {
+  return OKTA_TOKEN_PATHS.some(p => pathname === p || pathname.startsWith(`${p}/`));
+}
+
+/** Drop the Okta token header from any request outside OKTA_TOKEN_PATHS. */
+export function sanitizeIdentityHeaders(headers: Headers, pathname: string): Headers {
+  if (isOktaTokenPath(pathname)) return headers;
+  const out = new Headers(headers);
+  out.delete(oktaTokenHeader());
+  return out;
+}
+
+interface OktaConfig { issuer: string; audience: string; clientId: string | null; jwksUrl: string; userinfoUrl: string }
+
+function oktaConfig(): OktaConfig | null {
+  const issuer = process.env.AUTH_OKTA_ISSUER?.trim().replace(/\/+$/, '');
+  const audience = process.env.AUTH_OKTA_AUDIENCE?.trim();
+  if (!issuer && !audience) return null;
+  if (!issuer || !audience) {
+    console.error('[auth] Okta token verification needs BOTH AUTH_OKTA_ISSUER and AUTH_OKTA_AUDIENCE; Okta tokens are being denied.');
+    return null;
+  }
+  // Okta's org server issues as https://<tenant> but serves its endpoints under
+  // /oauth2/v1; a custom authorization server serves them under its issuer.
+  const base = /\/oauth2\//.test(issuer) ? issuer : `${issuer}/oauth2`;
+  return {
+    issuer,
+    audience,
+    clientId: process.env.AUTH_OKTA_CLIENT_ID?.trim() || null,
+    jwksUrl: process.env.AUTH_OKTA_JWKS_URL?.trim() || `${base}/v1/keys`,
+    userinfoUrl: process.env.AUTH_OKTA_USERINFO_URL?.trim() || `${base}/v1/userinfo`,
+  };
+}
+
+function oktaKeySet(url: string) {
+  if (!oktaJwks || oktaJwksUrl !== url) {
+    oktaJwks = createRemoteJWKSet(new URL(url));
+    oktaJwksUrl = url;
+  }
+  return oktaJwks;
+}
+
+async function tokenCacheKey(token: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+  return Buffer.from(digest).toString('base64');
+}
+
+async function verifyOktaToken(token: string): Promise<AuthUser | null> {
+  const cfg = oktaConfig();
+  if (!cfg) return null;
+
+  const { payload } = await jwtVerify(token, oktaKeySet(cfg.jwksUrl), {
+    // Okta signs access tokens with RS256 only; pinning it means the token can't
+    // pick its own algorithm (alg: none, HMAC-with-public-key, ...).
+    algorithms: ['RS256'],
+    issuer: cfg.issuer,
+    audience: cfg.audience,
+    clockTolerance: 60,
+  });
+  if (cfg.clientId && payload.cid !== cfg.clientId) return null;
+
+  const key = await tokenCacheKey(token);
+  const cached = oktaUserCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.user;
+
+  const res = await fetch(cfg.userinfoUrl, {
+    headers: { authorization: `Bearer ${token}`, accept: 'application/json' },
+    signal: AbortSignal.timeout(OKTA_USERINFO_TIMEOUT_MS),
+  });
+  if (!res.ok) return null;
+  const info = await res.json() as Record<string, unknown>;
+  const user = toAuthUser({ ...info, sub: typeof payload.sub === 'string' ? payload.sub : info.sub } as JWTPayload);
+  if (!user) return null;
+
+  // Never cache past the token's own expiry.
+  const tokenExpiry = typeof payload.exp === 'number' ? payload.exp * 1000 : Date.now();
+  if (oktaUserCache.size >= OKTA_USER_CACHE_MAX) oktaUserCache.delete(oktaUserCache.keys().next().value!);
+  oktaUserCache.set(key, { user, expiresAt: Math.min(Date.now() + OKTA_USER_CACHE_TTL_MS, tokenExpiry) });
+  return user;
 }
 
 // ---------------------------------------------------------------------------
@@ -148,7 +271,17 @@ export async function extractUser(headers: Headers): Promise<AuthUser | null> {
   if (test) return test;
 
   const token = headers.get(process.env.AUTH_HEADER || 'x-amzn-oidc-data');
-  if (!token) return null;
+  if (!token) {
+    // The MCP path: an Okta access token forwarded by the sidecar. Only reaches
+    // here on OKTA_TOKEN_PATHS — proxy.ts strips the header everywhere else.
+    const oktaToken = headers.get(oktaTokenHeader());
+    if (!oktaToken) return null;
+    try {
+      return await verifyOktaToken(oktaToken);
+    } catch {
+      return null;
+    }
+  }
 
   try {
     // Unverified header read, used ONLY to pick a signing key (kid) and to

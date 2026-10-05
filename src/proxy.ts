@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { extractUser, isAuthEnabled } from '@/lib/auth';
+import { extractUser, isAuthEnabled, sanitizeIdentityHeaders } from '@/lib/auth';
 import { buildCsp, newNonce } from '@/lib/csp';
 
 /**
@@ -33,15 +33,18 @@ const PUBLIC_PATHS = new Set<string>([
   '/api/health', // liveness probe: no auth, no DB, no secrets
 ]);
 
+// A 401 renders nothing, so it gets the tightest possible policy.
+const UNAUTHORIZED_CSP = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
+
 function unauthorized(req: NextRequest) {
   // API callers get JSON; page loads get a plain 401 body, because there is no
   // in-app login to redirect to — the edge proxy owns the sign-in flow.
   if (req.nextUrl.pathname.startsWith('/api/')) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: { 'Content-Security-Policy': UNAUTHORIZED_CSP } });
   }
   return new NextResponse('Unauthorized', {
     status: 401,
-    headers: { 'content-type': 'text/plain; charset=utf-8' },
+    headers: { 'content-type': 'text/plain; charset=utf-8', 'Content-Security-Policy': UNAUTHORIZED_CSP },
   });
 }
 
@@ -53,7 +56,9 @@ function unauthorized(req: NextRequest) {
 function next(req: NextRequest) {
   const nonce = newNonce();
   const csp = buildCsp(nonce, { dev: process.env.NODE_ENV !== 'production' });
-  const headers = new Headers(req.headers);
+  // An Okta access token only counts on the MCP route (lib/auth.ts); drop it from
+  // every other request so no handler downstream can ever be shown one.
+  const headers = sanitizeIdentityHeaders(new Headers(req.headers), req.nextUrl.pathname);
   headers.set('x-nonce', nonce);
   headers.set('Content-Security-Policy', csp);
   const res = NextResponse.next({ request: { headers } });
@@ -70,7 +75,7 @@ export async function proxy(req: NextRequest) {
 
   if (PUBLIC_PATHS.has(req.nextUrl.pathname)) return next(req);
 
-  const user = await extractUser(req.headers);
+  const user = await extractUser(sanitizeIdentityHeaders(req.headers, req.nextUrl.pathname));
   if (!user) return unauthorized(req);
 
   return next(req);

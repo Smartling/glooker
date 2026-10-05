@@ -76,6 +76,17 @@ describe('validateEnv: AUTH_TEST_USER alert', () => {
     expect(msg).toBeDefined();
   });
 
+  it.each([['AUTH_OKTA_ISSUER', 'https://x.okta.com'], ['AUTH_OKTA_AUDIENCE', 'https://x.okta.com']])(
+    'errors when only %s is set for the MCP Okta path', (k, v) => {
+      delete process.env.AUTH_OKTA_ISSUER; delete process.env.AUTH_OKTA_AUDIENCE;
+      process.env[k] = v;
+      try {
+        validateEnv();
+        const msg = errorSpy.mock.calls.map((c) => String(c[0])).find((m) => m.includes('AUTH_OKTA_ISSUER / AUTH_OKTA_AUDIENCE'));
+        expect(msg).toBeDefined();
+      } finally { delete process.env[k]; }
+    });
+
   it('does not alert when AUTH_ENABLED=true but AUTH_TEST_USER is unset', () => {
     process.env.AUTH_ENABLED = 'true';
     process.env.AUTH_ADMIN_GROUP = 'admins';

@@ -220,6 +220,17 @@ export function validateEnv(): void {
     warnings.push('  - AUTH_JWKS_URL and AUTH_ALB_REGION are both set; AUTH_JWKS_URL wins and AUTH_ALB_REGION is ignored');
   }
 
+  // The MCP path (Okta access token forwarded by mcp-okta-proxy) needs both an
+  // issuer and an audience; with only one, extractUser() denies Okta tokens.
+  const oktaIss = process.env.AUTH_OKTA_ISSUER?.trim();
+  const oktaAud = process.env.AUTH_OKTA_AUDIENCE?.trim();
+  if (Boolean(oktaIss) !== Boolean(oktaAud)) {
+    errors.push(
+      '  - AUTH_OKTA_ISSUER / AUTH_OKTA_AUDIENCE: only one is set — both are required to verify '
+      + 'Okta access tokens from the MCP sidecar, so MCP requests are being denied',
+    );
+  }
+
   // Authentication is off entirely. Previously silent — a dropped AUTH_ENABLED
   // turned every authorization check in the app into "allow" with no signal at
   // all, which is the failure mode this banner exists to make impossible to miss.

@@ -4,6 +4,15 @@
  * variant of the missing CSRF defence.
  */
 import nextConfig from '../../../../next.config';
+import { NextRequest } from 'next/server';
+import { proxy } from '@/proxy';
+
+// The CSP carries a per-request nonce, so proxy.ts sets it (lib/csp.ts); the
+// remaining headers are static in next.config.ts.
+async function cspFor(path = '/reports'): Promise<string> {
+  const res = await proxy(new NextRequest(new URL(`http://localhost${path}`)));
+  return res.headers.get('Content-Security-Policy')!;
+}
 
 async function headerMap() {
   const sets = await (nextConfig as any).headers();
@@ -15,8 +24,9 @@ async function headerMap() {
 describe('security headers', () => {
   it('sets every header on every path', async () => {
     const h = await headerMap();
+    expect(await cspFor()).toBeTruthy();
     for (const key of [
-      'Content-Security-Policy', 'Strict-Transport-Security', 'X-Content-Type-Options',
+      'Strict-Transport-Security', 'X-Content-Type-Options',
       'X-Frame-Options', 'Referrer-Policy', 'Permissions-Policy', 'Cross-Origin-Opener-Policy',
     ]) {
       expect(h.get(key)).toBeTruthy();
@@ -24,14 +34,47 @@ describe('security headers', () => {
   });
 
   it('blocks inline script, which is what stops an injected handler running', async () => {
-    const csp = (await headerMap()).get('Content-Security-Policy')!;
-    expect(csp).toContain("script-src 'self'");
-    expect(csp).not.toMatch(/script-src[^;]*unsafe-inline/);
-    expect(csp).not.toMatch(/script-src[^;]*unsafe-eval/);
+    const prev = process.env.NODE_ENV;
+    const prevAuth = process.env.AUTH_ENABLED;
+    (process.env as any).NODE_ENV = 'production';
+    process.env.AUTH_ENABLED = 'false';
+    try {
+      const csp = await cspFor();
+      expect(csp).toMatch(/script-src 'self' 'nonce-[A-Za-z0-9+/=]{20,}' 'strict-dynamic'/);
+      expect(csp).not.toMatch(/script-src[^;]*unsafe-inline/);
+      expect(csp).not.toMatch(/script-src[^;]*unsafe-eval/);
+    } finally {
+      (process.env as any).NODE_ENV = prev;
+      if (prevAuth === undefined) delete process.env.AUTH_ENABLED; else process.env.AUTH_ENABLED = prevAuth;
+    }
+  });
+
+  it('a 401 from the gate gets the tightest policy (it renders nothing)', async () => {
+    const prevAuth = process.env.AUTH_ENABLED;
+    const prevRegion = process.env.AUTH_ALB_REGION;
+    process.env.AUTH_ENABLED = 'true';
+    process.env.AUTH_ALB_REGION = 'us-east-1';
+    try {
+      const res = await proxy(new NextRequest(new URL('http://localhost/api/report')));
+      expect(res.status).toBe(401);
+      expect(res.headers.get('Content-Security-Policy')).toContain("default-src 'none'");
+    } finally {
+      if (prevAuth === undefined) delete process.env.AUTH_ENABLED; else process.env.AUTH_ENABLED = prevAuth;
+      if (prevRegion === undefined) delete process.env.AUTH_ALB_REGION; else process.env.AUTH_ALB_REGION = prevRegion;
+    }
+  });
+
+  it('uses a fresh nonce for every request', async () => {
+    const nonce = (csp: string) => csp.match(/'nonce-([^']+)'/)![1];
+    expect(nonce(await cspFor())).not.toBe(nonce(await cspFor()));
+  });
+
+  it('applies the CSP to API routes too, not only pages', async () => {
+    expect(await cspFor('/api/report')).toContain("default-src 'self'");
   });
 
   it('denies framing and restricts form-action, base-uri and object-src', async () => {
-    const csp = (await headerMap()).get('Content-Security-Policy')!;
+    const csp = await cspFor();
     expect(csp).toContain("frame-ancestors 'none'");
     expect(csp).toContain("object-src 'none'");
     expect(csp).toContain("base-uri 'none'");
@@ -40,7 +83,7 @@ describe('security headers', () => {
   });
 
   it('still permits what the dashboards actually need', async () => {
-    const csp = (await headerMap()).get('Content-Security-Policy')!;
+    const csp = await cspFor();
     // developer_stats.avatar_url is rendered throughout.
     expect(csp).toContain('https://avatars.githubusercontent.com');
     // Recharts and the chart CSS-variable block emit inline styles.
@@ -48,7 +91,7 @@ describe('security headers', () => {
   });
 
   it('confines network egress to same-origin', async () => {
-    expect((await headerMap()).get('Content-Security-Policy')).toContain("connect-src 'self'");
+    expect(await cspFor()).toContain("connect-src 'self'");
   });
 
   it('sets a long HSTS max-age', async () => {
