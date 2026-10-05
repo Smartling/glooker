@@ -35,6 +35,8 @@ export interface AppConfig {
     projects: string[];
     storyPointsFields: string[];
     projectsJql: string | null;
+    /** Whether the /projects board is configured — what the NavBar needs, without the JQL. */
+    projectsEnabled: boolean;
     missing: string[];
   };
   vulnerabilities: { enabled: boolean; org: string | null };
@@ -130,6 +132,7 @@ export function getAppConfig(): AppConfig {
       ? process.env.JIRA_STORY_POINTS_FIELDS.split(',').map(p => p.trim()).filter(Boolean)
       : [],
     projectsJql: process.env.JIRA_PROJECTS_JQL || null,
+    projectsEnabled: Boolean(process.env.JIRA_PROJECTS_JQL),
     missing: jiraMissing,
   };
 
@@ -150,6 +153,13 @@ export interface PublicAppConfig {
   ready: boolean;
   promptsDir: never[];
   vulnerabilities: { enabled: boolean; org: string | null };
+  /**
+   * Only what non-admin UI reads: whether Jira is on (Settings/report features),
+   * its host (issue links viewers already see on every page) and whether the
+   * Projects board exists (NavBar). Never the JQL, service-account username or
+   * which credentials are missing.
+   */
+  jira: { enabled: boolean; host: string | null; projectsEnabled: boolean };
 }
 
 export function getPublicAppConfig(): Omit<PublicAppConfig, 'promptsDir'> {
@@ -159,6 +169,11 @@ export function getPublicAppConfig(): Omit<PublicAppConfig, 'promptsDir'> {
     model: full.model,
     ready: full.ready,
     vulnerabilities: full.vulnerabilities,
+    jira: {
+      enabled: full.jira.enabled,
+      host: full.jira.enabled ? full.jira.host : null,
+      projectsEnabled: full.jira.enabled && full.jira.projectsEnabled,
+    },
   };
 }
 
