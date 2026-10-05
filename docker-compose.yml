@@ -52,6 +52,9 @@ services:
       AUTH_ALB_REGION: ${AUTH_ALB_REGION:-}
       AUTH_JWKS_URL: ${AUTH_JWKS_URL:-}
       AUTH_EXPECTED_ISS: ${AUTH_EXPECTED_ISS:-}
+      # Required with AUTH_ALB_REGION (the token's signer) / AUTH_JWKS_URL (audience).
+      AUTH_ALB_ARN: ${AUTH_ALB_ARN:-}
+      AUTH_EXPECTED_AUD: ${AUTH_EXPECTED_AUD:-}
       # MCP identity: Okta access token forwarded by mcp-okta-proxy (see .env.example).
       AUTH_OKTA_ISSUER: ${AUTH_OKTA_ISSUER:-}
       AUTH_OKTA_AUDIENCE: ${AUTH_OKTA_AUDIENCE:-}
@@ -59,6 +62,8 @@ services:
       # Needed to open admin routes with AUTH_ENABLED=false under NODE_ENV=production —
       # i.e. this local compose flow, which has no load balancer to verify a token.
       AUTH_ALLOW_ANONYMOUS_ADMIN: ${AUTH_ALLOW_ANONYMOUS_ADMIN:-}
+      # ...and this to let anything through at all with auth off in production.
+      AUTH_ALLOW_ANONYMOUS: ${AUTH_ALLOW_ANONYMOUS:-}
       # Comma-separated org allowlist; unset accepts any well-shaped org name.
       ALLOWED_ORGS: ${ALLOWED_ORGS:-}
       # AUTH_TEST_USER / AUTH_TEST_EMAIL are deliberately NOT passed through.

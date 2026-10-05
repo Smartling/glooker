@@ -5,8 +5,14 @@ import { requireAllowedOrg } from '@/lib/orgs/guard';
 import { internalError } from '@/lib/api-error';
 
 async function postHandler(req: NextRequest) {
-  const body = await req.json();
-  const { messages, org } = body as { messages: ChatMessage[]; org: string };
+  // A malformed body is the caller's mistake: answer 400, not an unhandled 500.
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: 'request body must be JSON' }, { status: 400 });
+  }
+  const { messages, org } = (body ?? {}) as { messages: ChatMessage[]; org: string };
 
   const orgCheck = requireAllowedOrg(org);
   if (!orgCheck.ok) return orgCheck.res;

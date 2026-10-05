@@ -36,6 +36,15 @@ const PUBLIC_PATHS = new Set<string>([
 // A 401 renders nothing, so it gets the tightest possible policy.
 const UNAUTHORIZED_CSP = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 
+function serviceUnavailable(req: NextRequest) {
+  const msg = 'Authentication is disabled and anonymous access is not allowed (set AUTH_ALLOW_ANONYMOUS=true to permit it).';
+  const headers = { 'Content-Security-Policy': UNAUTHORIZED_CSP };
+  if (req.nextUrl.pathname.startsWith('/api/')) {
+    return NextResponse.json({ error: msg }, { status: 503, headers });
+  }
+  return new NextResponse(msg, { status: 503, headers: { ...headers, 'content-type': 'text/plain; charset=utf-8' } });
+}
+
 function unauthorized(req: NextRequest) {
   // API callers get JSON; page loads get a plain 401 body, because there is no
   // in-app login to redirect to — the edge proxy owns the sign-in flow.
@@ -71,9 +80,18 @@ export async function proxy(req: NextRequest) {
   // else. Note that "off" now means an explicit AUTH_ENABLED=false, or any
   // non-production environment — production defaults to on, and
   // validateEnv() prints a startup banner whenever auth is off at all.
-  if (!isAuthEnabled()) return next(req);
-
   if (PUBLIC_PATHS.has(req.nextUrl.pathname)) return next(req);
+
+  if (!isAuthEnabled()) {
+    // In production, turning auth off must be a deliberate two-step choice:
+    // AUTH_ENABLED=false alone used to open every read route, while
+    // AUTH_ALLOW_ANONYMOUS_ADMIN only governed admin rights. Without the explicit
+    // AUTH_ALLOW_ANONYMOUS=true opt-in the app serves nothing but /api/health.
+    if (process.env.NODE_ENV === 'production' && process.env.AUTH_ALLOW_ANONYMOUS !== 'true') {
+      return serviceUnavailable(req);
+    }
+    return next(req);
+  }
 
   const user = await extractUser(sanitizeIdentityHeaders(req.headers, req.nextUrl.pathname));
   if (!user) return unauthorized(req);

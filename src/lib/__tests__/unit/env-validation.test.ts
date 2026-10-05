@@ -87,6 +87,42 @@ describe('validateEnv: AUTH_TEST_USER alert', () => {
       } finally { delete process.env[k]; }
     });
 
+  const errorsFor = (env: Record<string, string | undefined>, needle: string) => {
+    const keys = Object.keys(env);
+    const prev: Record<string, string | undefined> = {};
+    for (const k of keys) { prev[k] = process.env[k]; if (env[k] === undefined) delete process.env[k]; else process.env[k] = env[k]; }
+    try {
+      validateEnv();
+      return errorSpy.mock.calls.map((c) => String(c[0])).some((m) => m.includes(needle));
+    } finally {
+      for (const k of keys) { if (prev[k] === undefined) delete process.env[k]; else (process.env as any)[k] = prev[k]; }
+    }
+  };
+
+  it.each(['AUTH_ALB_ARN', 'AUTH_EXPECTED_ISS'])('errors when AUTH_ALB_REGION is set without %s', (k) => {
+    const env: Record<string, string | undefined> = { AUTH_ENABLED: 'true', AUTH_ALB_REGION: 'us-east-1', AUTH_JWKS_URL: undefined,
+      AUTH_ALB_ARN: 'arn:x', AUTH_EXPECTED_ISS: 'https://i' };
+    env[k] = undefined;
+    expect(errorsFor(env, `${k}: required with AUTH_ALB_REGION`)).toBe(true);
+  });
+
+  it.each(['AUTH_EXPECTED_ISS', 'AUTH_EXPECTED_AUD'])('errors when AUTH_JWKS_URL is set without %s', (k) => {
+    const env: Record<string, string | undefined> = { AUTH_ENABLED: 'true', AUTH_JWKS_URL: 'https://k', AUTH_EXPECTED_ISS: 'https://i', AUTH_EXPECTED_AUD: 'a' };
+    env[k] = undefined;
+    expect(errorsFor(env, `${k}: required with AUTH_JWKS_URL`)).toBe(true);
+  });
+
+  it('errors when the Okta MCP path has no client id', () => {
+    expect(errorsFor({ AUTH_OKTA_ISSUER: 'https://x.okta.com', AUTH_OKTA_AUDIENCE: 'https://x.okta.com', AUTH_OKTA_CLIENT_ID: undefined },
+      'AUTH_OKTA_CLIENT_ID: required')).toBe(true);
+  });
+
+  it('errors when auth is off in production without AUTH_ALLOW_ANONYMOUS', () => {
+    expect(errorsFor({ NODE_ENV: 'production', AUTH_ENABLED: 'false', AUTH_ALLOW_ANONYMOUS: undefined }, 'AUTH_ALLOW_ANONYMOUS:')).toBe(true);
+    errorSpy.mockClear();
+    expect(errorsFor({ NODE_ENV: 'production', AUTH_ENABLED: 'false', AUTH_ALLOW_ANONYMOUS: 'true' }, 'AUTH_ALLOW_ANONYMOUS:')).toBe(false);
+  });
+
   it('does not alert when AUTH_ENABLED=true but AUTH_TEST_USER is unset', () => {
     process.env.AUTH_ENABLED = 'true';
     process.env.AUTH_ADMIN_GROUP = 'admins';

@@ -60,6 +60,7 @@ beforeEach(() => {
   process.env.AUTH_ADMIN_GROUP = 'glooker-admin';
   process.env.AUTH_OKTA_ISSUER = ISS;
   process.env.AUTH_OKTA_AUDIENCE = AUD;
+  process.env.AUTH_OKTA_CLIENT_ID = 'mcp-client';
   _clearKeyCache();
   userinfo = { status: 200, body: { sub: 'alice@example.com', email: 'alice@example.com', name: 'Alice', groups: ['glooker-admin', 'Everyone'] } };
   userinfoCalls = 0;
@@ -136,8 +137,33 @@ describe('extractUser — Okta access token from the MCP sidecar', () => {
     expect(await extractUser(okta(await oktaToken({}, opts as any)))).toBeNull();
   });
 
-  it('enforces AUTH_OKTA_CLIENT_ID when set', async () => {
-    process.env.AUTH_OKTA_CLIENT_ID = 'mcp-client';
+  // PR #81 review: dev's audience is the org-wide https://<tenant>.okta.com that
+  // every app in the tenant shares, so the cid pin is what stops another app's token.
+  it('requires AUTH_OKTA_CLIENT_ID — without it Okta tokens are denied', async () => {
+    delete process.env.AUTH_OKTA_CLIENT_ID;
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    expect(await extractUser(okta(await oktaToken()))).toBeNull();
+  });
+
+  // PR #81 review: /userinfo's subject must be the token's. Okta's org server puts
+  // the login in the access token's `sub` and the user id in `uid`, while /userinfo
+  // returns sub = user id — so compare against uid when the token has one.
+  it('REJECTS a /userinfo response for a different principal', async () => {
+    userinfo = { status: 200, body: { sub: '00u-someone-else', email: 'mallory@example.com', groups: ['glooker-admin'] } };
+    expect(await extractUser(okta(await oktaToken({ uid: '00u-alice' })))).toBeNull();
+  });
+
+  it("accepts /userinfo whose sub is the token's uid (Okta org-server shape)", async () => {
+    userinfo = { status: 200, body: { sub: '00u-alice', email: 'alice@example.com', groups: [] } };
+    expect(await extractUser(okta(await oktaToken({ uid: '00u-alice' })))).toMatchObject({ email: 'alice@example.com' });
+  });
+
+  it('REJECTS /userinfo with no sub at all', async () => {
+    userinfo = { status: 200, body: { email: 'alice@example.com' } };
+    expect(await extractUser(okta(await oktaToken()))).toBeNull();
+  });
+
+  it('enforces AUTH_OKTA_CLIENT_ID', async () => {
     expect(await extractUser(okta(await oktaToken()))).not.toBeNull();
     expect(await extractUser(okta(await oktaToken({ cid: 'some-other-app' })))).toBeNull();
   });

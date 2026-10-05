@@ -220,6 +220,29 @@ export function validateEnv(): void {
     warnings.push('  - AUTH_JWKS_URL and AUTH_ALB_REGION are both set; AUTH_JWKS_URL wins and AUTH_ALB_REGION is ignored');
   }
 
+  // Each verification mode has settings it cannot work without; extractUser()
+  // denies every token rather than run a weaker check, so these are hard errors.
+  if (process.env.AUTH_ALB_REGION?.trim() && !process.env.AUTH_JWKS_URL?.trim()) {
+    for (const k of ['AUTH_ALB_ARN', 'AUTH_EXPECTED_ISS']) {
+      if (!process.env[k]?.trim()) {
+        errors.push(`  - ${k}: required with AUTH_ALB_REGION — the AWS key host serves keys for every ALB in the region, `
+          + 'so tokens must be pinned to our load balancer and IdP; every browser request is being denied');
+      }
+    }
+  }
+  if (process.env.AUTH_JWKS_URL?.trim()) {
+    for (const k of ['AUTH_EXPECTED_ISS', 'AUTH_EXPECTED_AUD']) {
+      if (!process.env[k]?.trim()) {
+        errors.push(`  - ${k}: required with AUTH_JWKS_URL — otherwise a token the IdP issued for another app `
+          + 'would authenticate; every request is being denied');
+      }
+    }
+  }
+  if (process.env.AUTH_OKTA_ISSUER?.trim() && process.env.AUTH_OKTA_AUDIENCE?.trim() && !process.env.AUTH_OKTA_CLIENT_ID?.trim()) {
+    errors.push('  - AUTH_OKTA_CLIENT_ID: required for the MCP Okta path — Okta\'s org audience is shared by every app '
+      + 'in the tenant, so the cid pin is what rejects other apps\' tokens; MCP requests are being denied');
+  }
+
   // The MCP path (Okta access token forwarded by mcp-okta-proxy) needs both an
   // issuer and an audience; with only one, extractUser() denies Okta tokens.
   const oktaIss = process.env.AUTH_OKTA_ISSUER?.trim();
@@ -236,6 +259,10 @@ export function validateEnv(): void {
   // all, which is the failure mode this banner exists to make impossible to miss.
   const authOn = process.env.AUTH_ENABLED === 'true'
     || (process.env.AUTH_ENABLED !== 'false' && process.env.NODE_ENV === 'production');
+  if (!authOn && process.env.NODE_ENV === 'production' && process.env.AUTH_ALLOW_ANONYMOUS !== 'true') {
+    errors.push('  - AUTH_ALLOW_ANONYMOUS: auth is off in production without this opt-in, so the gate serves '
+      + 'nothing but /api/health (503). Set AUTH_ENABLED=true, or AUTH_ALLOW_ANONYMOUS=true to deliberately run open');
+  }
   if (!authOn) {
     const anonAdmin = process.env.NODE_ENV !== 'production'
       || process.env.AUTH_ALLOW_ANONYMOUS_ADMIN === 'true';

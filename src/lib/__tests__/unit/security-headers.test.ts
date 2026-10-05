@@ -36,8 +36,10 @@ describe('security headers', () => {
   it('blocks inline script, which is what stops an injected handler running', async () => {
     const prev = process.env.NODE_ENV;
     const prevAuth = process.env.AUTH_ENABLED;
+    const prevAnon = process.env.AUTH_ALLOW_ANONYMOUS;
     (process.env as any).NODE_ENV = 'production';
     process.env.AUTH_ENABLED = 'false';
+    process.env.AUTH_ALLOW_ANONYMOUS = 'true'; // production with auth off now needs this opt-in
     try {
       const csp = await cspFor();
       expect(csp).toMatch(/script-src 'self' 'nonce-[A-Za-z0-9+/=]{20,}' 'strict-dynamic'/);
@@ -46,6 +48,7 @@ describe('security headers', () => {
     } finally {
       (process.env as any).NODE_ENV = prev;
       if (prevAuth === undefined) delete process.env.AUTH_ENABLED; else process.env.AUTH_ENABLED = prevAuth;
+      if (prevAnon === undefined) delete process.env.AUTH_ALLOW_ANONYMOUS; else process.env.AUTH_ALLOW_ANONYMOUS = prevAnon;
     }
   });
 
