@@ -68,6 +68,7 @@ export function buildDoneIssuesJql(
 }
 
 import type { JiraClientInterface } from './types';
+import { assertIssueKey } from '@/lib/jira-key-utils';
 
 export class JiraClient implements JiraClientInterface {
   private host: string;
@@ -88,7 +89,15 @@ export class JiraClient implements JiraClientInterface {
   }
 
   private async jiraFetch<T>(path: string, options?: RequestInit): Promise<T> {
-    const res = await fetch(`${this.baseUrl}${path}`, {
+    // Defence in depth against the whole class: the WHATWG URL parser
+    // normalises `..` segments, so an un-encoded path could otherwise climb out
+    // of /rest/api/<v>/ and address an arbitrary Jira endpoint with these
+    // credentials. Worth keeping even though every caller now validates.
+    const url = new URL(`${this.baseUrl}${path}`);
+    if (!url.pathname.startsWith(`/rest/api/${this.apiVersion}/`)) {
+      throw new Error('refusing to call outside the configured Jira API base path');
+    }
+    const res = await fetch(url, {
       ...options,
       headers: {
         'Authorization': this.authHeader,
@@ -99,7 +108,10 @@ export class JiraClient implements JiraClientInterface {
     });
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(`Jira API error (${res.status}): ${text}`);
+      // Bounded: the full body used to reach unauthenticated callers through the
+      // handlers that returned err.message, which made Jira's own parse errors a
+      // feedback channel for probing JQL.
+      throw new Error(`Jira API error (${res.status}): ${text.slice(0, 200)}`);
     }
     return res.json();
   }
@@ -252,13 +264,14 @@ export class JiraClient implements JiraClientInterface {
   }
 
   async getTransitions(issueKey: string): Promise<JiraTransition[]> {
+    const key = encodeURIComponent(assertIssueKey(issueKey));
     const result = await this.jiraFetch<{
       transitions: Array<{
         id: string;
         name: string;
         to?: { name?: string; statusCategory?: { key?: string } };
       }>;
-    }>(`/issue/${issueKey}/transitions`);
+    }>(`/issue/${key}/transitions`);
     return (result.transitions || []).map(t => ({
       id: t.id,
       name: t.name,
@@ -272,7 +285,8 @@ export class JiraClient implements JiraClientInterface {
   }
 
   async transitionIssue(issueKey: string, transitionId: string): Promise<void> {
-    const res = await fetch(`${this.baseUrl}/issue/${issueKey}/transitions`, {
+    const key = encodeURIComponent(assertIssueKey(issueKey));
+    const res = await fetch(`${this.baseUrl}/issue/${key}/transitions`, {
       method: 'POST',
       headers: {
         'Authorization': this.authHeader,
@@ -282,12 +296,16 @@ export class JiraClient implements JiraClientInterface {
     });
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(`Jira API error (${res.status}): ${text}`);
+      // Bounded: the full body used to reach unauthenticated callers through the
+      // handlers that returned err.message, which made Jira's own parse errors a
+      // feedback channel for probing JQL.
+      throw new Error(`Jira API error (${res.status}): ${text.slice(0, 200)}`);
     }
   }
 
   async updateDueDate(issueKey: string, dueDate: string | null): Promise<void> {
-    const res = await fetch(`${this.baseUrl}/issue/${issueKey}`, {
+    const key = encodeURIComponent(assertIssueKey(issueKey));
+    const res = await fetch(`${this.baseUrl}/issue/${key}`, {
       method: 'PUT',
       headers: {
         'Authorization': this.authHeader,
@@ -297,7 +315,10 @@ export class JiraClient implements JiraClientInterface {
     });
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(`Jira API error (${res.status}): ${text}`);
+      // Bounded: the full body used to reach unauthenticated callers through the
+      // handlers that returned err.message, which made Jira's own parse errors a
+      // feedback channel for probing JQL.
+      throw new Error(`Jira API error (${res.status}): ${text.slice(0, 200)}`);
     }
   }
 
@@ -311,7 +332,12 @@ export class JiraClient implements JiraClientInterface {
     resolvedAt: string | null;
     assigneeEmail: string | null;
   }>> {
-    const jql = `"Epic Link" = ${epicKey} OR parent = ${epicKey} ORDER BY resolutiondate DESC`;
+    // Validated and quoted. Unquoted interpolation let the key control JQL
+    // structure, so `X-1 OR project = HR` read across the whole instance with
+    // the integration account's visibility — reachable without credentials via
+    // /api/projects/[key]/stats and /summary.
+    const key = assertIssueKey(epicKey);
+    const jql = `"Epic Link" = "${key}" OR parent = "${key}" ORDER BY resolutiondate DESC`;
     const fields = ['summary', 'status', 'resolutiondate', 'assignee'];
     const allIssues: Array<{
       key: string;

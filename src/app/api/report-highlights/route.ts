@@ -1,15 +1,13 @@
 import { NextResponse } from 'next/server';
 import { getReportHighlights } from '@/lib/report-highlights/service';
 import { withRequestLog } from '@/lib/logger';
+import { internalError } from '@/lib/api-error';
 
 async function getHandler() {
   try {
     return NextResponse.json(await getReportHighlights());
   } catch (err) {
-    return NextResponse.json(
-      { error: `LLM error: ${err instanceof Error ? err.message : String(err)}` },
-      { status: 500 },
-    );
+    return internalError('report-highlights', err);
   }
 }
 

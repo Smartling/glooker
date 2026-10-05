@@ -135,11 +135,17 @@ describe('GET /api/projects', () => {
     expect(mockFetch.mock.calls[0]).toHaveLength(2);
   });
 
-  it('500s with the error message when the fetch throws', async () => {
-    mockFetch.mockRejectedValue(new Error('Jira exploded'));
+  // Was: asserted the raw upstream message reached the client. Jira errors carry
+  // the entire Jira response body, and this route is reachable without
+  // credentials, so that made Jira's own parse errors a probing oracle.
+  it('500s WITHOUT disclosing the upstream error message', async () => {
+    mockFetch.mockRejectedValue(new Error('Jira exploded: field SECRETFIELD does not exist'));
     const res = await GET(req('?org=o'));
     expect(res.status).toBe(500);
-    expect((await res.json()).error).toBe('Jira exploded');
+    const body = await res.json();
+    expect(body.error).toBe('internal_error');
+    expect(JSON.stringify(body)).not.toContain('SECRETFIELD');
+    expect(JSON.stringify(body)).not.toContain('Jira exploded');
   });
 
   describe('isLegacy on the response project', () => {

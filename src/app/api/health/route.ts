@@ -19,10 +19,10 @@ async function getHandler() {
       ...(res.ok ? {} : { error: `HTTP ${res.status}` }),
     };
   } catch (err) {
-    checks.github = {
-      status: 'unreachable',
-      error: err instanceof Error ? err.message : String(err),
-    };
+    // Unauthenticated endpoint: report reachability, not the underlying error,
+    // which can name the proxy, DNS or token state.
+    console.error('[health] github check failed', err);
+    checks.github = { status: 'unreachable' };
   }
 
   return NextResponse.json({

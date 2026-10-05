@@ -9,6 +9,7 @@ import { ClaudeCodeUsageCard, type SkillRow, type ModelRow } from './usage-card'
 import { TimelineChart } from '@/components/charts/timeline-chart';
 import { toNum, weekDomainEndingAt } from '@/components/charts/chart-format';
 import { commitTypeBadge, commitTypeBg, typeEntriesFrom } from '@/components/charts/commit-types';
+import SafeMarkdown from '@/components/SafeMarkdown';
 
 interface DevStats {
   github_login: string; github_name: string; avatar_url: string;
@@ -396,11 +397,9 @@ export default function DevDetailPage() {
           </div>
         )}
         {!summaryLoading && !summaryError && summary && (
-          <div className="prose prose-invert prose-sm max-w-none text-gray-300 [&>p]:mb-3 [&>p:last-child]:mb-0">
-            {summary.split('\n\n').map((para, i) => (
-              <p key={i} dangerouslySetInnerHTML={{ __html: para.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br/>') }} />
-            ))}
-          </div>
+          <SafeMarkdown className="prose prose-invert prose-sm max-w-none text-gray-300 [&>p]:mb-3 [&>p:last-child]:mb-0">
+            {summary}
+          </SafeMarkdown>
         )}
       </div>
 

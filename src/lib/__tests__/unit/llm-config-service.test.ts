@@ -214,10 +214,24 @@ describe('getAppConfig', () => {
       expect(config.analyzer).toEqual({ temperature: 0.1, maxTokens: 512 });
     });
 
-    it('masks secrets showing only last 5 chars', () => {
+    // Was: asserted the last 5 real characters of each secret were returned, from
+    // an endpoint that had no auth gate. A truncated hash identifies the
+    // configured value without disclosing any of it.
+    it('fingerprints secrets instead of revealing a suffix', () => {
       const config = getAppConfig();
-      expect(config.githubToken).toBe('xxxxx12345');
-      expect(config.llmApiKey).toBe('xxxxx12345');
+      expect(config.githubToken).toMatch(/^sha256:[0-9a-f]{8}$/);
+      expect(config.llmApiKey).toMatch(/^sha256:[0-9a-f]{8}$/);
+      expect(config.githubToken).not.toContain('12345');
+      expect(config.llmApiKey).not.toContain('12345');
+    });
+
+    it('fingerprints the Smartling identifiers, which were returned in full', () => {
+      process.env.SMARTLING_ACCOUNT_UID = 'acct-uid-abcdef';
+      process.env.SMARTLING_USER_IDENTIFIER = 'user-ident-abcdef';
+      const config = getAppConfig();
+      expect(config.smartlingAccountUid).toMatch(/^sha256:[0-9a-f]{8}$/);
+      expect(config.smartlingUserIdentifier).toMatch(/^sha256:[0-9a-f]{8}$/);
+      expect(JSON.stringify(config)).not.toContain('abcdef');
     });
 
     it('returns null for unset secrets', () => {
@@ -226,10 +240,10 @@ describe('getAppConfig', () => {
       expect(config.githubToken).toBeNull();
     });
 
-    it('masks short secrets entirely', () => {
+    it('fingerprints short secrets too, with no length signal', () => {
       process.env.LLM_API_KEY = 'abc';
       const config = getAppConfig();
-      expect(config.llmApiKey).toBe('xxxxx');
+      expect(config.llmApiKey).toMatch(/^sha256:[0-9a-f]{8}$/);
     });
   });
 

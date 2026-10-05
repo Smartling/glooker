@@ -14,6 +14,7 @@ import { AnthropicAnalyticsKeyMissingError } from './cc-spend/anthropic-provider
 import { IntegrityTracker } from './report-runner/integrity-tracker';
 import { loadSkipClassifier, evaluateIntegrity } from './report-runner/skip-classifier';
 import { DEFAULT_THRESHOLDS, formatIntegrityAbortReason, type RunMetadata } from './report-runner/types';
+import { logSafe } from '@/lib/logger';
 
 const CONCURRENCY = Number(process.env.LLM_CONCURRENCY || 5);
 
@@ -42,7 +43,9 @@ export async function runReport(
   testMode = false,
 ): Promise<void> {
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-  const log = (msg: string) => { addLog(reportId, msg); console.log(`[${reportId.slice(0,8)}] ${msg}`); };
+  // msg carries integration error text and `org`, both untrusted; logSafe stops
+  // a CR/LF payload forging extra lines in the console stream.
+  const log = (msg: string) => { addLog(reportId, msg); console.log(`[${reportId.slice(0,8)}] ${logSafe(msg, 2000)}`); };
 
   try {
     await db.execute(

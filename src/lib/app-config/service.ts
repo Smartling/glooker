@@ -1,5 +1,6 @@
 import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, promptTag, samplingParams } from '@/lib/llm-provider';
 import { loadPrompt } from '@/lib/prompt-loader';
+import { createHash } from 'crypto';
 import { isVulnerabilitiesEnabled, getVulnerabilitiesOrg } from '@/lib/vulnerabilities/config';
 import { staleAfterMs, isStale } from '@/lib/runs/staleness';
 
@@ -34,6 +35,8 @@ export interface AppConfig {
     projects: string[];
     storyPointsFields: string[];
     projectsJql: string | null;
+    /** Whether the /projects board is configured — what the NavBar needs, without the JQL. */
+    projectsEnabled: boolean;
     missing: string[];
   };
   vulnerabilities: { enabled: boolean; org: string | null };
@@ -47,10 +50,18 @@ export interface LLMConnectionResult {
   error?: string;
 }
 
-function maskSecret(value?: string): string | null {
+/**
+ * Identify a configured secret without disclosing any of it.
+ *
+ * The previous implementation returned `'xxxxx' + value.slice(-5)` — five real
+ * characters of GITHUB_TOKEN, LLM_API_KEY and SMARTLING_USER_SECRET. That is
+ * enough to confirm which token a deployment uses against a dump obtained
+ * elsewhere, and it was served to unauthenticated callers. A truncated hash
+ * answers "is this the token I think it is?" and nothing else.
+ */
+function secretFingerprint(value?: string): string | null {
   if (!value) return null;
-  if (value.length <= 5) return 'xxxxx';
-  return 'xxxxx' + value.slice(-5);
+  return 'sha256:' + createHash('sha256').update(value).digest('hex').slice(0, 8);
 }
 
 export function getAppConfig(): AppConfig {
@@ -94,11 +105,14 @@ export function getAppConfig(): AppConfig {
   config.summary = { temperature: Number(process.env.SUMMARY_TEMPERATURE ?? 0.7), maxTokens: Number(process.env.SUMMARY_MAX_TOKENS ?? 512) };
   config.highlights = { temperature: Number(process.env.HIGHLIGHTS_TEMPERATURE ?? 0.5), maxTokens: Number(process.env.HIGHLIGHTS_MAX_TOKENS ?? 512) };
   config.llmTest = { temperature: Number(process.env.LLM_TEST_TEMPERATURE ?? 0), maxTokens: Number(process.env.LLM_TEST_MAX_TOKENS ?? 32) };
-  config.githubToken = maskSecret(process.env.GITHUB_TOKEN);
-  config.llmApiKey = maskSecret(process.env.LLM_API_KEY);
-  config.smartlingAccountUid = process.env.SMARTLING_ACCOUNT_UID || null;
-  config.smartlingUserIdentifier = process.env.SMARTLING_USER_IDENTIFIER || null;
-  config.smartlingUserSecret = maskSecret(process.env.SMARTLING_USER_SECRET);
+  config.githubToken = secretFingerprint(process.env.GITHUB_TOKEN);
+  config.llmApiKey = secretFingerprint(process.env.LLM_API_KEY);
+  // These two were returned in full. They are credential components, not
+  // display names: together with a leaked userSecret they authenticate
+  // directly against Smartling's auth-api.
+  config.smartlingAccountUid = secretFingerprint(process.env.SMARTLING_ACCOUNT_UID);
+  config.smartlingUserIdentifier = secretFingerprint(process.env.SMARTLING_USER_IDENTIFIER);
+  config.smartlingUserSecret = secretFingerprint(process.env.SMARTLING_USER_SECRET);
 
   const jiraEnabled = process.env.JIRA_ENABLED === 'true';
   const jiraMissing: string[] = [];
@@ -118,12 +132,49 @@ export function getAppConfig(): AppConfig {
       ? process.env.JIRA_STORY_POINTS_FIELDS.split(',').map(p => p.trim()).filter(Boolean)
       : [],
     projectsJql: process.env.JIRA_PROJECTS_JQL || null,
+    projectsEnabled: Boolean(process.env.JIRA_PROJECTS_JQL),
     missing: jiraMissing,
   };
 
   config.vulnerabilities = { enabled: isVulnerabilitiesEnabled(), org: getVulnerabilitiesOrg() };
 
   return config;
+}
+
+/**
+ * The subset safe for any authenticated user. The homepage fetches
+ * /api/llm-config on every load purely for `latestReport.org`, which is why the
+ * full config — hosts, service-account usernames, secret fingerprints — must not
+ * be the default response shape.
+ */
+export interface PublicAppConfig {
+  provider: string;
+  model: string;
+  ready: boolean;
+  promptsDir: never[];
+  vulnerabilities: { enabled: boolean; org: string | null };
+  /**
+   * Only what non-admin UI reads: whether Jira is on (Settings/report features),
+   * its host (issue links viewers already see on every page) and whether the
+   * Projects board exists (NavBar). Never the JQL, service-account username or
+   * which credentials are missing.
+   */
+  jira: { enabled: boolean; host: string | null; projectsEnabled: boolean };
+}
+
+export function getPublicAppConfig(): Omit<PublicAppConfig, 'promptsDir'> {
+  const full = getAppConfig();
+  return {
+    provider: full.provider,
+    model: full.model,
+    ready: full.ready,
+    vulnerabilities: full.vulnerabilities,
+    jira: {
+      enabled: full.jira.enabled,
+      host: full.jira.enabled ? full.jira.host : null,
+      projectsEnabled: full.jira.enabled && full.jira.projectsEnabled,
+    },
+  };
 }
 
 export async function getLatestReport(): Promise<{ id: string; date: string; org: string } | null> {

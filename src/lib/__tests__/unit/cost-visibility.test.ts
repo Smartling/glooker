@@ -9,10 +9,17 @@ const origEnv = { ...process.env };
 beforeEach(() => { mockExecute.mockReset(); process.env = { ...origEnv }; });
 afterAll(() => { process.env = origEnv; });
 
-function headersWithEmail(email: string): Headers {
-  // AUTH_HEADER default x-amzn-oidc-data: unsigned JWT whose payload has `email`.
-  const payload = Buffer.from(JSON.stringify({ email, sub: email })).toString('base64');
-  return new Headers({ 'x-amzn-oidc-data': `h.${payload}.` });
+/**
+ * Identity is injected through the AUTH_TEST_USER path rather than a header.
+ * These cases are about resolveRequester's org-scoped mapping lookup and the
+ * cost predicates; token signature verification is covered in auth.test.ts.
+ * The previous helper built an UNSIGNED token and relied on it being accepted,
+ * which is exactly the behaviour that has been removed.
+ */
+function asUser(email: string, opts: { admin?: boolean } = {}): Headers {
+  process.env.AUTH_TEST_USER = opts.admin ? 'admin' : 'viewer';
+  process.env.AUTH_TEST_EMAIL = email;
+  return new Headers();
 }
 
 describe('resolveRequester', () => {
@@ -32,9 +39,7 @@ describe('resolveRequester', () => {
   it('maps email → github_login and reads admin group membership', async () => {
     process.env.AUTH_ENABLED = 'true';
     process.env.AUTH_ADMIN_GROUP = 'glooker-admin';
-    // extractUser reads groups from the JWT payload; put the admin group in it.
-    const payload = Buffer.from(JSON.stringify({ email: 'a@x.com', sub: 'a@x.com', groups: ['glooker-admin'] })).toString('base64');
-    const headers = new Headers({ 'x-amzn-oidc-data': `h.${payload}.` });
+    const headers = asUser('a@x.com', { admin: true });
     mockExecute.mockResolvedValueOnce([[{ github_login: 'alice' }], null]);
     const r = await resolveRequester(headers);
     expect(r).toEqual({ githubLogin: 'alice', isAdmin: true, authDisabled: false });
@@ -44,14 +49,14 @@ describe('resolveRequester', () => {
     process.env.AUTH_ENABLED = 'true';
     process.env.AUTH_ADMIN_GROUP = 'glooker-admin';
     mockExecute.mockResolvedValueOnce([[{ github_login: 'bob' }], null]);
-    const r = await resolveRequester(headersWithEmail('bob@x.com'));
+    const r = await resolveRequester(asUser('bob@x.com'));
     expect(r).toEqual({ githubLogin: 'bob', isAdmin: false, authDisabled: false });
   });
 
   it('scopes the mapping lookup to org when one is supplied', async () => {
     process.env.AUTH_ENABLED = 'true';
     mockExecute.mockResolvedValueOnce([[{ github_login: 'bob' }], null]);
-    await resolveRequester(headersWithEmail('bob@x.com'), 'acme');
+    await resolveRequester(asUser('bob@x.com'), 'acme');
     const [sql, params] = mockExecute.mock.calls[0];
     expect(sql).toMatch(/org = \?/);
     expect(params).toEqual(['bob@x.com', 'acme']);

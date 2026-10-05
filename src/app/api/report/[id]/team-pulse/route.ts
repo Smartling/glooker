@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withRequestLog } from '@/lib/logger';
 import { getTeamPulse } from '@/lib/team-pulse';
 import db from '@/lib/db';
+import { requireAllowedOrg } from '@/lib/orgs/guard';
+import { internalError } from '@/lib/api-error';
 
 async function getHandler(
   req: NextRequest,
@@ -10,12 +12,15 @@ async function getHandler(
 
   const { id } = await params;
   const team = req.nextUrl.searchParams.get('team');
-  const org = req.nextUrl.searchParams.get('org');
+  const orgParam = req.nextUrl.searchParams.get('org');
   const withProjects = req.nextUrl.searchParams.get('withProjects') === 'true';
 
-  if (!team || !org) {
-    return NextResponse.json({ error: 'team and org query params required' }, { status: 400 });
+  if (!team) {
+    return NextResponse.json({ error: 'team query param required' }, { status: 400 });
   }
+  const orgCheck = requireAllowedOrg(orgParam);
+  if (!orgCheck.ok) return orgCheck.res;
+  const org = orgCheck.org;
 
   // Check report period
   const [reportRows] = await db.execute(
@@ -50,10 +55,7 @@ async function getHandler(
     const result = await getTeamPulse(id, team, org, members, { withProjects });
     return NextResponse.json(result);
   } catch (err) {
-    return NextResponse.json(
-      { error: `Failed to generate team pulse: ${err instanceof Error ? err.message : String(err)}` },
-      { status: 500 },
-    );
+    return internalError('team-pulse', err);
   }
 }
 

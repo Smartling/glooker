@@ -196,19 +196,96 @@ export function validateEnv(): void {
     }
   }
 
-  // Special-case: AUTH_TEST_USER bypass. This skips the ALB OIDC header
-  // entirely and serves a fabricated identity to every request, so if it is
-  // ever active on a deployed environment it must never be silent. Logged
-  // regardless of NODE_ENV — auth.ts is what actually gates whether the
-  // bypass takes effect (see AUTH_TEST_ALLOW_IN_PRODUCTION); this is purely
-  // the "someone left it configured" alarm.
-  if (process.env.AUTH_ENABLED === 'true' && process.env.AUTH_TEST_USER) {
-    const email = process.env.AUTH_TEST_EMAIL || 'testuser@glooker.dev';
+  // No org allowlist: `org` is caller-supplied on ~14 routes, including two that
+  // proxy the server's GitHub PAT at whichever org is named.
+  if (!process.env.ALLOWED_ORGS?.trim()) {
+    warnings.push(
+      '  - ALLOWED_ORGS: not set — any well-shaped org name is accepted, so the GitHub PAT '
+      + 'can be aimed at any organisation and any org in the database can be read',
+    );
+  }
+
+  // Auth is enabled but no way to verify a token's signature is configured.
+  // extractUser() denies every request in that state rather than trusting the
+  // header, so this is a hard error: the app is up but nobody can sign in.
+  if (process.env.AUTH_ENABLED === 'true'
+      && !process.env.AUTH_JWKS_URL?.trim()
+      && !process.env.AUTH_ALB_REGION?.trim()) {
+    errors.push(
+      '  - AUTH_ALB_REGION or AUTH_JWKS_URL: missing (exactly one is required when AUTH_ENABLED=true — '
+      + "without it identity tokens cannot be verified and every request is denied)",
+    );
+  }
+  if (process.env.AUTH_JWKS_URL?.trim() && process.env.AUTH_ALB_REGION?.trim()) {
+    warnings.push('  - AUTH_JWKS_URL and AUTH_ALB_REGION are both set; AUTH_JWKS_URL wins and AUTH_ALB_REGION is ignored');
+  }
+
+  // Each verification mode has settings it cannot work without; extractUser()
+  // denies every token rather than run a weaker check, so these are hard errors.
+  if (process.env.AUTH_ALB_REGION?.trim() && !process.env.AUTH_JWKS_URL?.trim()) {
+    for (const k of ['AUTH_ALB_ARN', 'AUTH_EXPECTED_ISS']) {
+      if (!process.env[k]?.trim()) {
+        errors.push(`  - ${k}: required with AUTH_ALB_REGION — the AWS key host serves keys for every ALB in the region, `
+          + 'so tokens must be pinned to our load balancer and IdP; every browser request is being denied');
+      }
+    }
+  }
+  if (process.env.AUTH_JWKS_URL?.trim()) {
+    for (const k of ['AUTH_EXPECTED_ISS', 'AUTH_EXPECTED_AUD']) {
+      if (!process.env[k]?.trim()) {
+        errors.push(`  - ${k}: required with AUTH_JWKS_URL — otherwise a token the IdP issued for another app `
+          + 'would authenticate; every request is being denied');
+      }
+    }
+  }
+  if (process.env.AUTH_OKTA_ISSUER?.trim() && process.env.AUTH_OKTA_AUDIENCE?.trim() && !process.env.AUTH_OKTA_CLIENT_ID?.trim()) {
+    errors.push('  - AUTH_OKTA_CLIENT_ID: required for the MCP Okta path — Okta\'s org audience is shared by every app '
+      + 'in the tenant, so the cid pin is what rejects other apps\' tokens; MCP requests are being denied');
+  }
+
+  // The MCP path (Okta access token forwarded by mcp-okta-proxy) needs both an
+  // issuer and an audience; with only one, extractUser() denies Okta tokens.
+  const oktaIss = process.env.AUTH_OKTA_ISSUER?.trim();
+  const oktaAud = process.env.AUTH_OKTA_AUDIENCE?.trim();
+  if (Boolean(oktaIss) !== Boolean(oktaAud)) {
+    errors.push(
+      '  - AUTH_OKTA_ISSUER / AUTH_OKTA_AUDIENCE: only one is set — both are required to verify '
+      + 'Okta access tokens from the MCP sidecar, so MCP requests are being denied',
+    );
+  }
+
+  // Authentication is off entirely. Previously silent — a dropped AUTH_ENABLED
+  // turned every authorization check in the app into "allow" with no signal at
+  // all, which is the failure mode this banner exists to make impossible to miss.
+  const authOn = process.env.AUTH_ENABLED === 'true'
+    || (process.env.AUTH_ENABLED !== 'false' && process.env.NODE_ENV === 'production');
+  if (!authOn && process.env.NODE_ENV === 'production' && process.env.AUTH_ALLOW_ANONYMOUS !== 'true') {
+    errors.push('  - AUTH_ALLOW_ANONYMOUS: auth is off in production without this opt-in, so the gate serves '
+      + 'nothing but /api/health (503). Set AUTH_ENABLED=true, or AUTH_ALLOW_ANONYMOUS=true to deliberately run open');
+  }
+  if (!authOn) {
+    const anonAdmin = process.env.NODE_ENV !== 'production'
+      || process.env.AUTH_ALLOW_ANONYMOUS_ADMIN === 'true';
     console.error(
-      `\n[ALERT] Glooker: AUTH_TEST_USER=${process.env.AUTH_TEST_USER} is set with AUTH_ENABLED=true.\n` +
-      `   Every request will be served as the fabricated identity "${email}" — the real ALB OIDC\n` +
-      `   header is never read. AUTH_TEST_USER/AUTH_TEST_EMAIL are for local development only and\n` +
-      `   must never be set in a deployed environment. See .env.example.\n`
+      '\n[ALERT] Glooker: AUTHENTICATION IS DISABLED (AUTH_ENABLED is not "true").\n'
+      + `   Admin-gated routes are ${anonAdmin ? 'OPEN to anonymous callers' : 'denied to everyone'}, and\n`
+      + '   per-developer Claude spend is not redacted. Set AUTH_ENABLED=true in any\n'
+      + '   environment where the app port is network-reachable.\n',
+    );
+  }
+
+  // AUTH_TEST_USER fabricates one identity for every request and never reads the
+  // real token. It is inert under NODE_ENV=production by construction now, but
+  // still worth announcing wherever it IS active.
+  if (process.env.AUTH_TEST_USER) {
+    const email = process.env.AUTH_TEST_EMAIL || 'testuser@glooker.dev';
+    const inert = process.env.NODE_ENV === 'production';
+    console.error(
+      `\n[ALERT] Glooker: AUTH_TEST_USER=${process.env.AUTH_TEST_USER} is set.\n`
+      + (inert
+        ? '   NODE_ENV=production, so this bypass is IGNORED and the real token is used.\n'
+        : `   Every request is served as the fabricated identity "${email}" — the real\n`
+          + '   identity header is never read. Local development only.\n'),
     );
   }
 

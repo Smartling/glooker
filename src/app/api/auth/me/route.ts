@@ -11,7 +11,7 @@ async function getHandler(req: Request) {
 
   const requester = await resolveRequester(req.headers);
   // A null githubLogin with no admin still means "authenticated but unmapped".
-  const user = extractUser(req.headers);
+  const user = await extractUser(req.headers);
   if (!user) {
     return NextResponse.json({ enabled: true, user: null });
   }

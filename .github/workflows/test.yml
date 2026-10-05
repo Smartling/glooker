@@ -5,14 +5,26 @@ on:
   push:
     branches: [main]
 
+# Least privilege for the whole workflow. This job only reads the repo; it
+# never pushes, comments, or publishes. Without this block the job inherits
+# the repository default, which on many orgs is still read/write on all
+# scopes — and this workflow builds untrusted pull-request code.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
-          node-version: 20
+          # Do not leave the job token in .git/config. This workflow runs
+          # pull-request code (npm lifecycle scripts, tests, next build), so a
+          # persisted credential is readable by anything that code invokes.
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 22
           cache: 'npm'
       - run: npm ci
       - name: Detect invisible Unicode in prompts

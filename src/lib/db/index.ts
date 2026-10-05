@@ -15,22 +15,33 @@ export interface DB {
   transaction<T>(fn: (tx: DB) => Promise<T>): Promise<T>;
 }
 
-let dbInstance: DB | null = null;
+// One DB per process, on globalThis — the same pattern as the progress and
+// schedule stores. Next 16 can load this module more than once (startup
+// instrumentation and route handlers are separate bundles); a module-level
+// singleton then created one connection pool per copy, and each ran the boot
+// migrations concurrently, which InnoDB answered with "Deadlock found" on the
+// ALTERs. On a fresh column that would leave it silently missing (initSchema
+// logs and continues). Sharing the promise also covers two first calls racing.
+const g = globalThis as typeof globalThis & { __glooker_db?: Promise<DB> };
 
-async function getDB(): Promise<DB> {
-  if (dbInstance) return dbInstance;
-
-  const dbType = process.env.DB_TYPE || 'sqlite';
-
-  if (dbType === 'mysql') {
-    const { createMySQLDB } = await import('./mysql');
-    dbInstance = createMySQLDB();
-  } else {
-    const { createSQLiteDB } = await import('./sqlite');
-    dbInstance = createSQLiteDB();
+function getDB(): Promise<DB> {
+  if (!g.__glooker_db) {
+    g.__glooker_db = (async () => {
+      const dbType = process.env.DB_TYPE || 'sqlite';
+      if (dbType === 'mysql') {
+        const { createMySQLDB } = await import('./mysql');
+        return createMySQLDB();
+      }
+      const { createSQLiteDB } = await import('./sqlite');
+      return createSQLiteDB();
+    })();
   }
+  return g.__glooker_db;
+}
 
-  return dbInstance;
+/** Drop the shared DB handle. Tests only. */
+export function _resetDBForTests(): void {
+  delete g.__glooker_db;
 }
 
 // Proxy that lazily initializes the DB on first call

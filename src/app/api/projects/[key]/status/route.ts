@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getJiraClient } from '@/lib/jira/client';
 import { requireAdmin } from '@/lib/auth';
 import { withRequestLog } from '@/lib/logger';
+import { isValidIssueKey } from '@/lib/jira-key-utils';
+import { internalError } from '@/lib/api-error';
 
 // GET: fetch available transitions for an epic
 async function getHandler(
@@ -9,6 +11,11 @@ async function getHandler(
   { params }: { params: Promise<{ key: string }> },
 ) {
   const { key } = await params;
+  // Reject at the boundary so a malformed key is a 400 rather than a 500
+  // from deep in the Jira client, and so it never reaches a log line.
+  if (!isValidIssueKey(key)) {
+    return NextResponse.json({ error: 'Invalid Jira issue key' }, { status: 400 });
+  }
   const client = getJiraClient();
   if (!client) {
     return NextResponse.json({ error: 'Jira is not configured' }, { status: 404 });
@@ -22,11 +29,7 @@ async function getHandler(
     const transitions = await client.getTransitions(key);
     return NextResponse.json({ transitions });
   } catch (err) {
-    console.error(`[status] Error fetching transitions for ${key}:`, err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Failed to fetch transitions' },
-      { status: 500 },
-    );
+    return internalError('status-transitions', err);
   }
 }
 
@@ -39,6 +42,11 @@ async function patchHandler(
   if (denied) return denied;
 
   const { key } = await params;
+  // Reject at the boundary so a malformed key is a 400 rather than a 500
+  // from deep in the Jira client, and so it never reaches a log line.
+  if (!isValidIssueKey(key)) {
+    return NextResponse.json({ error: 'Invalid Jira issue key' }, { status: 400 });
+  }
   const body = await req.json();
   const { transitionId } = body;
 
@@ -61,11 +69,7 @@ async function patchHandler(
     // its `toStatusCategory`, and that is what the board classifies against.
     return NextResponse.json({ success: true, key });
   } catch (err) {
-    console.error(`[status] Error transitioning ${key}:`, err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Failed to transition issue' },
-      { status: 500 },
-    );
+    return internalError('status-transition', err);
   }
 }
 

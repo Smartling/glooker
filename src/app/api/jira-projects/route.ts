@@ -3,16 +3,17 @@ import { listJiraProjects, createJiraProject, JiraProjectDuplicateError } from '
 import { JiraProjectError } from '@/lib/jira-projects/types';
 import { requireAdmin } from '@/lib/auth';
 import { withRequestLog } from '@/lib/logger';
+import { requireAllowedOrg } from '@/lib/orgs/guard';
 
 async function getHandler(req: NextRequest) {
-  const org = req.nextUrl.searchParams.get('org');
-  if (!org) return NextResponse.json({ error: 'org query parameter is required' }, { status: 400 });
+  const orgCheck = requireAllowedOrg(req.nextUrl.searchParams.get('org'));
+  if (!orgCheck.ok) return orgCheck.res;
 
   // Pure read — no seeding here. Settings → Projects reloads this list right
   // after a DELETE; migrating on every read would resurrect the last project
   // an admin just deleted. The board (GET /api/projects) still runs the
   // one-time legacy-var migration on first load.
-  return NextResponse.json(await listJiraProjects(org));
+  return NextResponse.json(await listJiraProjects(orgCheck.org));
 }
 
 async function postHandler(req: NextRequest) {
@@ -24,7 +25,8 @@ async function postHandler(req: NextRequest) {
     // that became an unhandled 500 rather than a 400.
     const body = await req.json();
     const { org, ...input } = body ?? {};
-    if (!org) return NextResponse.json({ error: 'org is required' }, { status: 400 });
+    const orgCheck = requireAllowedOrg(org);
+    if (!orgCheck.ok) return orgCheck.res;
 
     return NextResponse.json(await createJiraProject(org, input));
   } catch (err) {

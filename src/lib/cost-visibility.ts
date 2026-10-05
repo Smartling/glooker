@@ -52,7 +52,7 @@ interface CostBearing {
 export async function resolveRequester(headers: Headers, org?: string): Promise<Requester> {
   if (!isAuthEnabled()) return { githubLogin: null, isAdmin: false, authDisabled: true };
 
-  const user = extractUser(headers);
+  const user = await extractUser(headers);
   if (!user) return { githubLogin: null, isAdmin: false, authDisabled: false };
 
   const adminGroup = process.env.AUTH_ADMIN_GROUP;
