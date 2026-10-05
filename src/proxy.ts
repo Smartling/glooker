@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { extractUser, isAuthEnabled } from '@/lib/auth';
+import { buildCsp, newNonce } from '@/lib/csp';
 
 /**
  * Deny-by-default authentication gate.
@@ -44,19 +45,35 @@ function unauthorized(req: NextRequest) {
   });
 }
 
+/**
+ * Pass the request on with a per-request CSP nonce (see lib/csp.ts). The policy goes
+ * on the REQUEST headers so Next can read the nonce and stamp it on its own inline
+ * scripts, and on the response so the browser enforces it.
+ */
+function next(req: NextRequest) {
+  const nonce = newNonce();
+  const csp = buildCsp(nonce, { dev: process.env.NODE_ENV !== 'production' });
+  const headers = new Headers(req.headers);
+  headers.set('x-nonce', nonce);
+  headers.set('Content-Security-Policy', csp);
+  const res = NextResponse.next({ request: { headers } });
+  res.headers.set('Content-Security-Policy', csp);
+  return res;
+}
+
 export async function proxy(req: NextRequest) {
   // When auth is off this gate is inert, matching isAuthEnabled() everywhere
   // else. Note that "off" now means an explicit AUTH_ENABLED=false, or any
   // non-production environment — production defaults to on, and
   // validateEnv() prints a startup banner whenever auth is off at all.
-  if (!isAuthEnabled()) return NextResponse.next();
+  if (!isAuthEnabled()) return next(req);
 
-  if (PUBLIC_PATHS.has(req.nextUrl.pathname)) return NextResponse.next();
+  if (PUBLIC_PATHS.has(req.nextUrl.pathname)) return next(req);
 
   const user = await extractUser(req.headers);
   if (!user) return unauthorized(req);
 
-  return NextResponse.next();
+  return next(req);
 }
 
 export const config = {
