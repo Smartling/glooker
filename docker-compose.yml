@@ -52,6 +52,11 @@ services:
       AUTH_ALB_REGION: ${AUTH_ALB_REGION:-}
       AUTH_JWKS_URL: ${AUTH_JWKS_URL:-}
       AUTH_EXPECTED_ISS: ${AUTH_EXPECTED_ISS:-}
+      # Needed to open admin routes with AUTH_ENABLED=false under NODE_ENV=production —
+      # i.e. this local compose flow, which has no load balancer to verify a token.
+      AUTH_ALLOW_ANONYMOUS_ADMIN: ${AUTH_ALLOW_ANONYMOUS_ADMIN:-}
+      # Comma-separated org allowlist; unset accepts any well-shaped org name.
+      ALLOWED_ORGS: ${ALLOWED_ORGS:-}
       # AUTH_TEST_USER / AUTH_TEST_EMAIL are deliberately NOT passed through.
       # This image runs NODE_ENV=production, where that bypass is now inert by
       # construction; wiring it here is what made a full authentication bypass
