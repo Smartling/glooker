@@ -11,3 +11,6 @@ node_modules/
 /coverage/
 logs/
 .superpowers/
+playwright-report/
+test-results/
+smoke.db

@@ -94,8 +94,57 @@ jobs:
             fi
           fi
           echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+          # The short-SHA tag; the pre-publish scan reads it from the local daemon.
+          echo "image-ref=${IMAGE}:${SHORT_SHA}" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push Docker image
+      # Pre-publish gate: build into the local daemon, scan it, and push only
+      # if the scan passes — a failing scan must leave nothing in GHCR.
+      - name: Build image locally (pre-publish, not pushed)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          load: true
+          push: false
+          tags: ${{ steps.tags.outputs.tags }}
+          build-args: |
+            COMMIT_SHA=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # One Trivy run (one DB download); the gate below reads the same report.
+      - name: Pre-publish scan of the local image (full report)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.tags.outputs.image-ref }}
+          format: json
+          output: trivy.json
+          exit-code: '0'
+
+      - name: Upload scan report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: trivy-report
+          path: trivy.json
+          retention-days: 30
+
+      - name: Pre-publish gate — fail on fixable CRITICAL/HIGH vulnerabilities
+        run: |
+          set -euo pipefail
+          FIXABLE="$(jq -r '[.Results[]? | .Target as $t | .Vulnerabilities[]?
+            | select((.Severity == "CRITICAL" or .Severity == "HIGH") and ((.FixedVersion // "") != ""))
+            | "\(.Severity)\t\(.VulnerabilityID)\t\(.PkgName) \(.InstalledVersion) -> \(.FixedVersion)\t\($t)"]
+            | unique | .[]' trivy.json)"
+          if [[ -n "$FIXABLE" ]]; then
+            echo "::error::Fixable CRITICAL/HIGH vulnerabilities found; image NOT published:"
+            echo "$FIXABLE"
+            exit 1
+          fi
+          echo "No fixable CRITICAL/HIGH vulnerabilities."
+
+      # Same inputs + gha cache, so this rebuild is a cache hit of the image scanned above.
+      - name: Publish image (gate passed)
+        id: push
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
@@ -104,4 +153,21 @@ jobs:
           build-args: |
             COMMIT_SHA=${{ github.sha }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+
+      # Contract with the deploy repo: artifact `image-digest`, file `digest.txt`,
+      # a single line `sha256:<64 hex>` — the registry digest of the pushed image.
+      - name: Record pushed image digest
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          set -euo pipefail
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::unexpected digest '$DIGEST'"; exit 1; }
+          printf '%s\n' "$DIGEST" > digest.txt
+          cat digest.txt
+
+      - name: Upload image digest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: image-digest
+          path: digest.txt
+          retention-days: 90

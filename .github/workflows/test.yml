@@ -26,6 +26,10 @@ jobs:
         with:
           node-version: 22
           cache: 'npm'
+      # Before `npm ci`: a lockfile pointing at a private registry makes `npm ci`
+      # fail with an opaque network error, hiding this clearer message.
+      - name: Lockfile resolves only from the public registry
+        run: node --experimental-strip-types scripts/check-lockfile-registry.ts
       - run: npm ci
       - name: Detect invisible Unicode in prompts
         # Mirror the runtime stripInvisible() character set so the CI gate
@@ -44,3 +48,14 @@ jobs:
         run: npx tsc --noEmit
       - name: Build
         run: npm run build
+      - name: Install Chromium for the smoke test
+        run: npx playwright install --with-deps chromium
+      - name: Real-browser smoke test
+        run: npm run test:smoke
+      - name: Upload smoke report on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
