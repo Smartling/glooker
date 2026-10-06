@@ -32,8 +32,14 @@ RUN npm run build
 
 # Production
 FROM node:22.23.3-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS runner
-# Only the C++ runtime is needed for better-sqlite3 (not the compiler toolchain)
-RUN apk add --no-cache libstdc++ wget
+# Only the C++ runtime is needed for better-sqlite3 (not the compiler toolchain).
+# The server runs `node server.js` and never uses a package manager, so drop the
+# npm/npx/corepack/yarn bundled with the base image: their vendored dependencies were
+# the only fixable HIGH findings in the image scan, and they are attack surface.
+RUN apk add --no-cache libstdc++ wget \
+ && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+           /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+           /opt/yarn-* /usr/local/bin/yarn /usr/local/bin/yarnpkg
 WORKDIR /app
 
 # Standalone output includes server.js + minimal node_modules.
