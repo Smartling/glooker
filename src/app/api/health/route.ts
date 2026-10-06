@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { getBuildInfo } from '@/lib/build-info';
 import { withRequestLog } from '@/lib/logger';
 
 async function getHandler() {
@@ -27,7 +28,7 @@ async function getHandler() {
 
   return NextResponse.json({
     status: 'ok',
-    version: process.env.npm_package_version || 'unknown',
+    ...getBuildInfo(),
     checks,
   });
 }

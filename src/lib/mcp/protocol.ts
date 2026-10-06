@@ -1,10 +1,11 @@
 import { MCP_TOOLS, callTool } from './tools';
+import { getCommit, getVersion } from '@/lib/build-info';
 import type { Requester } from '@/lib/cost-visibility';
 
 export const SUPPORTED_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 export const DEFAULT_PROTOCOL_VERSION = '2025-06-18';
 
-const SERVER_INFO = { name: 'glooker', version: process.env.npm_package_version || '0.1.0' };
+const SERVER_INFO = { name: 'glooker', version: getCommit() !== 'unknown' ? getCommit() : getVersion() };
 
 type RpcResult = { status: number; body: any | null };
 

@@ -10,6 +10,7 @@ import { getReleaseNotes } from '@/lib/release-notes/service';
 import { getReportHighlights } from '@/lib/report-highlights';
 import { getDevSummary } from '@/lib/report/summary';
 import { getTeamPulse } from '@/lib/team-pulse';
+import { getBuildInfo } from '@/lib/build-info';
 import type { Requester } from '@/lib/cost-visibility';
 import { getSummary as getVulnSummary, getTrend as getVulnTrend, getAlerts as getVulnAlerts, getCoverage as getVulnCoverage, REASON_DISABLED as VULN_REASON_DISABLED } from '@/lib/vulnerabilities/queries';
 import { parseVulnFilters } from '@/lib/vulnerabilities/filters';
@@ -283,6 +284,12 @@ export const MCP_TOOLS: McpTool[] = [
     description: VULN_COMMON + 'Repos with open alerts that need tagging (missing tier, codebase-type or team property), repos outside the configured tracking scope, and in-scope repos whose Dependabot status is unmeasured.',
     inputSchema: { type: 'object', properties: { team: VULN_FILTER_PROPS.team } },
     handler: (a) => vulnCall(a, f => getVulnCoverage(f)),
+  },
+  {
+    name: 'get_build_info',
+    description: 'Reports which Glooker build is running: the full commit SHA the image was built from (or "unknown") and the package version. Use it to check what is deployed. Takes no arguments; no data access.',
+    inputSchema: { type: 'object', properties: {} },
+    handler: async () => getBuildInfo(),
   },
 ];
 
