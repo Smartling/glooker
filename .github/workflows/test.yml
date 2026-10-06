@@ -27,6 +27,8 @@ jobs:
           node-version: 22
           cache: 'npm'
       - run: npm ci
+      - name: Lockfile resolves only from the public registry
+        run: npx tsx scripts/check-lockfile-registry.ts
       - name: Detect invisible Unicode in prompts
         # Mirror the runtime stripInvisible() character set so the CI gate
         # and the runtime sanitizer agree. \x{0009}(tab), \x{000A}(LF),
