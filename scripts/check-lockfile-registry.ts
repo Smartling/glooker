@@ -1,5 +1,6 @@
-import fs from 'fs';
-import { findForeignResolved } from '../src/lib/lockfile-registry';
+// Runs before `npm ci` with plain Node (--experimental-strip-types): no deps, explicit .ts import.
+import fs from 'node:fs';
+import { findForeignResolved } from '../src/lib/lockfile-registry.ts';
 
 const foreign = findForeignResolved(JSON.parse(fs.readFileSync('package-lock.json', 'utf8')));
 if (foreign.length) {

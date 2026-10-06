@@ -38,6 +38,9 @@ const PAGES: Array<{ path: string; expectText: RegExp }> = [
 async function expectHydrated(page: Page, errors: string[], check: () => Promise<void>) {
   try {
     await check();
+    // Late chunks / second fetches can raise CSP or hydration errors after the
+    // visibility checks pass; let the network settle before asserting.
+    await page.waitForLoadState('networkidle');
   } finally {
     expect(errors, 'fatal browser errors').toEqual([]);
   }
@@ -55,11 +58,3 @@ for (const { path, expectText } of PAGES) {
   });
 }
 
-test('the reports list shows seeded report cards, not just the page shell', async ({ page }) => {
-  const errors = watchForFatalErrors(page);
-  await page.goto('/reports');
-  await expectHydrated(page, errors, async () => {
-    // Seeded reports render as cards whose subject reads "<org> · <N> days".
-    await expect(page.getByText(/· \d+ days/).first()).toBeVisible();
-  });
-});

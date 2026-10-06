@@ -26,9 +26,11 @@ jobs:
         with:
           node-version: 22
           cache: 'npm'
-      - run: npm ci
+      # Before `npm ci`: a lockfile pointing at a private registry makes `npm ci`
+      # fail with an opaque network error, hiding this clearer message.
       - name: Lockfile resolves only from the public registry
-        run: npx tsx scripts/check-lockfile-registry.ts
+        run: node --experimental-strip-types scripts/check-lockfile-registry.ts
+      - run: npm ci
       - name: Detect invisible Unicode in prompts
         # Mirror the runtime stripInvisible() character set so the CI gate
         # and the runtime sanitizer agree. \x{0009}(tab), \x{000A}(LF),

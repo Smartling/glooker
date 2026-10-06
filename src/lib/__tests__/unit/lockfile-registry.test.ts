@@ -1,6 +1,6 @@
 import { findForeignResolved } from '@/lib/lockfile-registry';
 
-const lock = (packages: Record<string, { resolved?: string }>) => ({ lockfileVersion: 3, packages });
+const lock = (packages: Record<string, { resolved?: string; link?: boolean }>) => ({ lockfileVersion: 3, packages });
 
 describe('findForeignResolved', () => {
   it('accepts a lockfile resolved entirely from the public registry', () => {
@@ -17,8 +17,18 @@ describe('findForeignResolved', () => {
     }))).toEqual(['node_modules/zod -> https://internal.example/npm/zod/-/zod-4.6.5.tgz']);
   });
 
-  it('ignores workspace / link entries that have no resolved URL', () => {
-    expect(findForeignResolved(lock({ '': {}, 'node_modules/local': {} }))).toEqual([]);
+  it('ignores workspace / link entries and file: deps (real npm lockfile shapes)', () => {
+    expect(findForeignResolved(lock({
+      '': {},
+      'node_modules/local': { resolved: 'packages/local', link: true },
+      'node_modules/tarball': { resolved: 'file:../x.tgz' },
+    }))).toEqual([]);
+  });
+
+  it('still checks git URLs', () => {
+    expect(findForeignResolved(lock({
+      'node_modules/g': { resolved: 'git+ssh://git@example.com/x.git#abc' },
+    }))).toHaveLength(1);
   });
 
   it('treats a lookalike host as foreign', () => {

@@ -30,7 +30,8 @@ export default defineConfig({
   timeout: 60_000,
   retries: 0,
   reporter: [['list'], ['html', { open: 'never' }]],
-  use: { baseURL: 'http://127.0.0.1:3100', ...devices['Desktop Chrome'] },
+  // Locale/timezone pinned: page text such as "Team Summary Oct 6" is date-formatted.
+  use: { baseURL: 'http://127.0.0.1:3100', ...devices['Desktop Chrome'], locale: 'en-US', timezoneId: 'UTC' },
   webServer: {
     // scripts/seed.ts refuses NODE_ENV=production, so seed first without it and
     // only then start the production server.
