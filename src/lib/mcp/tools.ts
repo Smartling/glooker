@@ -287,7 +287,7 @@ export const MCP_TOOLS: McpTool[] = [
   },
   {
     name: 'get_build_info',
-    description: 'Reports which Glooker build is running: the full commit SHA the image was built from (or "unknown") and the package version. Use it to check what is deployed. Takes no arguments; no data access.',
+    description: 'Reports which Glooker build is running: the commit SHA the build was made from (full in CI images, may be short in local builds; "unknown" if absent) and the package version. Use it to check what is deployed. Takes no arguments; no data access.',
     inputSchema: { type: 'object', properties: {} },
     handler: async () => getBuildInfo(),
   },
