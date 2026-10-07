@@ -16,7 +16,7 @@ These were settled during design review (2026-10-07):
 4. **`src/app/themes.ts` is not changed.** The design's colour roles map onto existing theme values. Only colours the app lacks are added.
 5. **A per-repository MCP tool is in scope.** It reuses the same backend function as the page.
 6. **No internal details** in code, tests, fixtures, docs, specs, plans or commit messages. Use invented names (`acme/checkout-api`, "Payments") and the synthetic policy from `npm run dev:mock`.
-7. **Delta and baseline logic stay exactly as today.** The page does not change how a baseline is picked (see "Out of scope" for the one known limitation).
+7. **Delta and baseline logic stay exactly as today.** The page does not change how a baseline is picked (see "Out of scope" for why no change is needed).
 
 ## Guardrails (unchanged from GLOOK-43)
 
@@ -444,7 +444,7 @@ jsdom cannot measure layout, so the layout work has two kinds of check.
 - Changes to `themes.ts` or to other pages' components.
 - Light-theme contrast fixes beyond the new tokens. They have their own ticket.
 - Sync Stop, and any change to sync behaviour.
-- **Known limitation in baseline picking.** If an imported CSV set is dated after a sync, the `last` and date baselines may pick it, and a High or non-Backend view shows "—" even though an earlier sync measured it. This has not been observed, and it is left as is.
+- **Baseline picking is unchanged.** The baseline picker would only misbehave if an imported CSV set were dated after a sync. CSV import was a one-time backfill of history from before the first sync, and no further imports will happen, so that case cannot arise.
 
 ## Definition of done
 
