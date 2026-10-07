@@ -141,7 +141,7 @@ Bracketed columns exist only while that severity's SLA policy is active. "Next d
 
 | Table | Columns |
 |---|---|
-| Team table | Owning team \| CRITICAL group: Open, Change vs {baseline date} (or "no measurement"), Resolved (dismissed), % closed, [Overdue] \| HIGH group: the same, with [Overdue] |
+| Team table | Owning team \| CRITICAL group: Open, Change vs {baseline date} (or "No earlier measurement yet" / "No measurement on or before {date}" when there is no baseline), Resolved (dismissed), % closed, [Overdue] \| HIGH group: the same, with [Overdue] |
 | Repositories table | Repository (codebase underneath) \| Owning team \| Open crit \| [Overdue crit] \| Open high \| [Overdue high] \| Oldest open \| [Next due] |
 | Alert list | Sev \| Advisory (CVSS · package) \| Repository (owning team) \| Age \| Due \| State (scope) |
 
@@ -154,7 +154,7 @@ Bracketed columns exist only while that severity's SLA policy is active. "Next d
 
 **Sorting.**
 
-- Click a header to sort, and click again to reverse.
+- Click a header to sort. Each key starts in its natural direction: Age starts descending (oldest first), and every other key starts ascending. Click again to reverse. With no header active (`sort: null`), the alert list is in the server's default order.
 - Sortable headers show ↕. The active header shows ↑ or ↓ in the accent colour.
 - The Total row and unmeasured rows ignore sorting.
 - The Repositories tab has a name filter. Its footer reads "Matching" while the filter is in use.
@@ -209,7 +209,7 @@ interface RepoRow {
 
 1. The sum of the team's repository rows for `open`, `overdue` and `dueSoon` equals that team's pivot cell.
 2. When a severity's SLA is inactive, `overdue` and `dueSoon` are null in both the rows and the pivot.
-3. The number of the team's rows with `unmeasured` set equals the team's `unmeasuredRepos`.
+3. The number of the team's non-archived rows with `unmeasured` set equals the team's `unmeasuredRepos`.
 
 **Tests for the invariant:**
 
@@ -254,7 +254,7 @@ Sorting and slicing stay in memory in `listAlerts`. There is no SQL `LIMIT` or `
 | `getRepos(f)` | `GET /api/vulnerabilities/repos` (new, wrapped in `withRequestLog`) | New. See the envelope below. |
 | `getSummary(f)` | existing | Adds `codebaseCounts` |
 | `getAlerts(f)` | existing | Adds `offset` and `sort`. Both join `ALERT_FILTER_KEYS`, so they appear in `appliedFilters`. |
-| `getCoverage(f)` | `/coverage` (existing) | Adds `codebase` to its inputs and to `appliedFilters` |
+| `getCoverage(f)` | `/coverage` (existing) | Adds `codebase` to its inputs and to `appliedFilters`. Coverage defaults to `backend` like every other route; `codebase=all` restores the previous all-codebases result. |
 
 **`getRepos` envelope.** It matches the other envelopes:
 
@@ -264,7 +264,7 @@ Sorting and slicing stay in memory in `listAlerts`. There is no SQL `LIMIT` or `
 
 - The route uses `withFilters`, so it returns 404 when the feature is off.
 - `prepare()` validates the team. An unknown team returns 400 with the known teams.
-- It accepts `codebase` and `team`, and ignores every other parameter.
+- It uses `codebase` and `team`. The shared parser validates every other parameter (a bad value is a 400) and then ignores it.
 - It returns every row. The page needs all of them, so `limit` does not apply to the HTTP route.
 
 `parseVulnFilters` accepts `offset` and `sort` and validates them, as it does for every other parameter.
@@ -276,13 +276,13 @@ Sorting and slicing stay in memory in `listAlerts`. There is no SQL `LIMIT` or `
 A new tool, `list_vulnerability_repos`, uses `vulnCall(a, f => getRepos(f))`.
 
 - **Inputs:** `codebase` and `team`, from `VULN_FILTER_PROPS`, plus `limit` (default 100, max 500).
-- **Output:** the repository rows in snake_case, and `truncated`.
+- **Output:** the repository rows in snake_case, `total_count` and `truncated`.
 - **Description:** it follows the `VULN_COMMON` conventions. It also states that:
   - a row with `unmeasured` set has `open` equal to the stored count, which may be out of date;
   - `overdue: null` means that severity's SLA isn't active;
   - the difference from `list_vulnerabilities`: its `repos` facet follows all list filters, while these rows give open counts per repository.
 - `list_vulnerabilities` documents its new `offset` and `sort` inputs. Its description states the same difference from the new tool.
-- `get_vulnerability_coverage` gains `codebase` in its inputs and description.
+- `get_vulnerability_coverage` gains `codebase` in its inputs and description. Coverage defaults to `backend` like every other route; `codebase=all` restores the previous all-codebases result.
 
 ### 4. Page (`src/app/vulnerabilities/`)
 
@@ -316,7 +316,8 @@ The new components are page-local. `page.tsx` keeps exporting only its default, 
 
 | Element | Request | Parameters |
 |---|---|---|
-| Header meta line, KPI tiles, SLA tile, Codebase options | `summary` | `codebase`, `team`, `baseline` |
+| KPI tiles, SLA tile, Codebase options | `summary` | `codebase`, `team`, `baseline` |
+| Header meta line | `repos` rows, plus `summary.scope.value` | `codebase`, `team`. The repository count and the number of distinct owning teams (Unassigned counts as one) come from the rows; the scope label comes from `summary.scope.value`. |
 | Header coverage line | `coverage` | `codebase`, `team` |
 | Team table | `summary` (a second key) | `codebase`, `baseline`. It is never scoped to the team, so every team stays listed. |
 | Sparkline | `trend` (its own key) | `codebase`, `severity=kSev`, `since` fixed at 90 days back. No `team`. |
@@ -401,13 +402,13 @@ The new components are page-local. `page.tsx` keeps exporting only its default, 
 
 | Variable | Dark | Light |
 |---|---|---|
-| `--warn` (muted amber for unmeasured and stale) | `#d29922` | `#9a6700` |
+| `--warn` (muted amber for unmeasured and stale) | `#d29922` | `#8f5f00` |
 | `--warn-bg` | `rgba(210,153,34,.11)` | `#fbefc6` |
 | `--warn-line` | `rgba(210,153,34,.45)` | `rgba(154,103,0,.32)` |
 | `--crit-tint` (critical column wash) | `rgba(239,68,68,.045)` | `#fef7f7` |
 | `--high-tint` (high column wash) | `rgba(251,146,60,.04)` | `#fffaf5` |
 
-A new test checks that `--warn` text meets 4.5:1 contrast on `--warn-bg` and on the body backgrounds, in each theme mode. It follows the pattern of `vuln-series-contrast.test.ts`. If the light pair fails, darken the light `--warn`.
+A new test checks that `--warn` text meets 4.5:1 contrast on `--warn-bg` and on the body backgrounds, in each theme mode. It follows the pattern of `vuln-series-contrast.test.ts`. The handoff's light value `#9a6700` measured 4.23:1 on `--warn-bg` (`#fbefc6`), below the 4.5:1 floor, so the light `--warn` is darkened to `#8f5f00` (4.80:1).
 
 ## Testing
 
@@ -421,7 +422,7 @@ jsdom cannot measure layout, so the layout work has two kinds of check.
   - the `--warn` contrast test.
 - **API and MCP:**
   - the repos route returns the envelope, returns 404 when the feature is off, and returns 400 with known teams for an unknown team; `logger-enforcement.test.ts` passes;
-  - `list_vulnerability_repos` returns snake_case rows, `truncated` and `available: false` when the feature is off;
+  - `list_vulnerability_repos` returns snake_case rows, `total_count`, `truncated` and `available: false` when the feature is off;
   - the exact tool-name lists in `mcp-tools.test.ts` and `vuln-mcp.test.ts` are updated for the new tool.
 - **jsdom component tests:**
   - the exported height constants are applied as inline styles in every branch: loading, error, empty and populated;
@@ -434,6 +435,8 @@ jsdom cannot measure layout, so the layout work has two kinds of check.
 - **Guards:** `grep` the diff for internal names before every commit.
 
 ## Documentation
+
+`docs/vulnerabilities-page.md` and `CLAUDE.md` are updated in Wave 5, once the page exists.
 
 - **`docs/vulnerabilities-page.md` is rewritten** for the new page: what it shows, interactions, URL keys, layout stability, the repository rows and their invariant, and the MCP tool. The counting rules section keeps its rules and gains `computeRepoRows`.
 - **`CLAUDE.md`:** the vulnerability entry mentions `computeRepoRows` and the sum invariant.
