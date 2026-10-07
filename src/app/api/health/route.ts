@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { getVersion } from '@/lib/build-info';
 import { withRequestLog } from '@/lib/logger';
 
 async function getHandler() {
@@ -27,7 +28,9 @@ async function getHandler() {
 
   return NextResponse.json({
     status: 'ok',
-    version: process.env.npm_package_version || 'unknown',
+    // Unauthenticated: no commit SHA here (fingerprinting). get_build_info (MCP,
+    // authenticated) reports the running commit.
+    version: getVersion(),
     checks,
   });
 }
