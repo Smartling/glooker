@@ -7,6 +7,7 @@ import TrendCard from '@/app/vulnerabilities/trend-card';
 import { TREND_PLOT_H } from '@/app/vulnerabilities/dimensions';
 import { assignTeamColors } from '@/app/vulnerabilities/team-colors';
 import { dayNumber, trendDomain } from '@/app/vulnerabilities/trend-model';
+import * as labels from '@/app/vulnerabilities/labels';
 import { displayDate } from '@/app/vulnerabilities/labels';
 import { addDays } from '@/lib/vulnerabilities/time';
 import type { SummaryData, TrendData } from '@/app/vulnerabilities/api-types';
@@ -266,6 +267,19 @@ describe('placement by date', () => {
     const { container } = render(<TrendCard {...props(s, { url: { range: '30d' } })} />);
     const [x0, x4] = edges(container);
     expect((dotXs(container)[0] - x0) / (x4 - x0)).toBeCloseTo(10 / 30, 2);
+  });
+});
+
+describe('one "today" for the card (round 2)', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  // Revert: openChange(..., sev) without `today`: the sentence reads its own clock, so across a year boundary it disagrees with the plot's axis.
+  it('the change sentence prints its date against the same day the plot uses', () => {
+    // First read of "today" is 2026-12-31, every later read 2027-06-01: a sentence that read the clock itself would print "Dec 30, 2026".
+    jest.spyOn(labels, 'utcToday').mockReturnValue('2027-06-01').mockReturnValueOnce('2026-12-31');
+    const p = props(SERIES, { summary: { delta: { critical: ovDelta(ovDeltaTeam('Total', 2), { baseline: ovBaseline('2026-12-30') }), high: ovDelta(null) } } });
+    render(<TrendCard {...p} />);
+    expect(screen.getByTestId('trend-change').textContent).toBe('▲ 2 more than on Dec 30');
   });
 });
 

@@ -71,7 +71,7 @@ export default function TrendCard({ summary, data, url }: SecurityViewProps) {
   const legend = series ? buildLegend(series, url.team) : [];
   // A selected team that has no point in the series draws no line at all: say so on one line, instead of a blank plot.
   const teamMissing = series && url.team !== null && !series.some(s => s.team === url.team) ? `No stored measurements for ${url.team}` : null;
-  const change = openChange(summary.delta[sev], sev);
+  const change = openChange(summary.delta[sev], sev, today);
   const heading = `Open ${sev} alerts by owning team`;
   const openNow = `${dash(summary.pivot.total[sev].open)} open now`;
 

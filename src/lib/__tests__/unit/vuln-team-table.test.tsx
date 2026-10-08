@@ -288,6 +288,50 @@ describe('rows', () => {
   });
 });
 
+describe('focus and header spacing (round 2)', () => {
+  // Revert: drop the row's onFocus: Shift+Tab onto the nested badge scrolls only the badge into view and leaves the row's top behind the pinned header.
+  it('focus on the nested unmeasured badge brings the WHOLE row into view, nearest edge, clear of the scroll padding', () => {
+    render(<TeamTable {...table()} />);
+    const row = rowOf('Payments');
+    const spy = jest.fn();
+    row.scrollIntoView = spy;
+    const badge = within(row).getByRole('button', { name: /2 unmeasured/ });
+    fireEvent.focus(badge);
+    expect(spy).toHaveBeenCalledWith({ block: 'nearest' });
+    // and on the row itself; a row with no badge too
+    fireEvent.focus(row);
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  it('a focus on a row does not throw where scrollIntoView does not exist', () => {
+    render(<TeamTable {...table()} />);
+    expect(() => fireEvent.focus(rowOf('Payments'))).not.toThrow();
+  });
+
+  // Revert: every header button without its title (the "% closed" button had none).
+  it('every header button carries a title: its label, or the cell\'s more specific tooltip', () => {
+    render(<TeamTable {...table()} />);
+    const buttons = screen.getAllByRole('columnheader').flatMap(h => Array.from(h.querySelectorAll('button')));
+    expect(buttons.length).toBeGreaterThanOrEqual(9);
+    for (const b of buttons) expect((b.getAttribute('title') ?? '').trim()).not.toBe('');
+    const named = (label: string) => buttons.find(b => b.textContent!.replace(/[↕↑↓]\uFE0E?/g, '').trim().toLowerCase() === label)!;
+    expect(named('% closed').getAttribute('title')).toBe('% closed');
+    expect(named('open').getAttribute('title')).toBe('Open');
+    expect(named('resolved').getAttribute('title')).toMatch(/^Resolved since /); // the cell's own, more specific tooltip is not shadowed
+  });
+
+  // Revert: back to px-2 and gap-1: "RESOLVED ↕" and "% CLOSED ↕" spill about 4px to the left of their cells at 1024px.
+  it('numeric headers keep their right edge (pr-2, as the figures below) and give the left padding and the glyph gap to the label', () => {
+    render(<TeamTable {...table()} />);
+    for (const h of screen.getAllByRole('columnheader').filter(x => x.querySelector('button') && !/Owning team/.test(x.textContent ?? ''))) {
+      expect(h.className).toContain('pl-1');
+      expect(h.className).toContain('pr-2');
+      expect(h.className).not.toMatch(/(^| )px-2( |$)/);
+      expect(h.querySelector('button')!.className).toContain('gap-0.5');
+    }
+  });
+});
+
 describe('unmeasured badge', () => {
   // Revert: put the badge in the critical Open cell, or let the click reach the row.
   it('sits under the team name, opens the drawer with the button, and does not select the team', () => {

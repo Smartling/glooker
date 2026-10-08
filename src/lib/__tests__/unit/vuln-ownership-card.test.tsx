@@ -110,6 +110,19 @@ describe('tabs', () => {
     expect(countOf('repos').className).not.toContain('opacity-60');
   });
 
+  // Revert: leave the hint at full strength beside a dimmed table.
+  it('the hint dims with the table of the tab it describes, and only then', () => {
+    const { rerender } = render(<OwnershipCard {...ovProps({ teamSummary: slot(summaryFixture(), { stale: true }) })} />);
+    expect(screen.getByText(/^Click a team/).className).toContain('opacity-60');
+    rerender(<OwnershipCard {...ovProps()} />);
+    expect(screen.getByText(/^Click a team/).className).not.toContain('opacity-60');
+    // the other tab's slot being stale does not dim this tab's hint
+    rerender(<OwnershipCard {...ovProps({ data: { repos: slot(reposFixture(REPO_ROWS), { stale: true }) } })} />);
+    expect(screen.getByText(/^Click a team/).className).not.toContain('opacity-60');
+    rerender(<OwnershipCard {...ovProps({ url: { own: 'repos' }, data: { repos: slot(reposFixture(REPO_ROWS), { stale: true }) } })} />);
+    expect(screen.getByText(/^Click a repository/).className).toContain('opacity-60');
+  });
+
   it('a failed refresh keeps both counts (the rows are still there)', () => {
     render(<OwnershipCard {...ovProps({ teamSummary: slot(summaryFixture(), { errorText: 'x' }), data: { repos: slot(reposFixture(REPO_ROWS), { errorText: 'x' }) } })} />);
     expect([countOf('teams').textContent, countOf('repos').textContent]).toEqual(['2', '3 + 1 unmeasured']);

@@ -22,6 +22,18 @@ import {
 
 const HIDDEN = '–'; // an en dash: a hidden severity's cell. A missing figure is "—" (em dash) from dash().
 const DIM = 'opacity-[0.35]';
+/**
+ * A numeric header cell is 79px wide at 1024px (with a 15px scrollbar), so its button is 63px at px-2. "RESOLVED ↕" and "% CLOSED ↕"
+ * measure 66.6px and 67.1px with a 4px glyph gap, and a right-aligned flex item that is too wide spills to the LEFT. The left padding
+ * shrinks to 4px (button 67px; the right padding stays 8px so the header's right edge still lines up with the figures below it) and
+ * the glyph gap to 2px (the labels are then 64.6px and 65.1px): about 2px to spare, 4px with overlay scrollbars.
+ */
+const HEAD_PAD = 'pl-1 pr-2';
+/** The name header's tooltip (on the cell and, so the button does not shadow it, on the button). */
+const NAME_TITLE = "The repository's team custom property — not a Glooker team";
+const GLYPH_GAP = 'gap-0.5';
+/** A row that holds a focusable child (the unmeasured badge) scrolls whole into view when that child takes focus. */
+const scrollRowIntoView = (e: { currentTarget: HTMLElement }) => e.currentTarget.scrollIntoView?.({ block: 'nearest' });
 /** A keyboard-focused row: an inset ring, so the scrolling body does not clip it. */
 const ROW_FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50';
 
@@ -126,10 +138,10 @@ export default function TeamTable({ data, url, openDrawer }: SecurityViewProps) 
     const shown = sevShown(url.severity, g.sev);
     const active = shown && shownSort.key === key ? shownSort : null;
     return (
-      <div role="columnheader" aria-sort={active ? (active.dir === 'asc' ? 'ascending' : 'descending') : 'none'} className={`${g.tint} px-2 ${shown ? '' : DIM}`} title={title}>
+      <div role="columnheader" aria-sort={active ? (active.dir === 'asc' ? 'ascending' : 'descending') : 'none'} className={`${g.tint} ${HEAD_PAD} ${shown ? '' : DIM}`} title={title}>
         <button
-          type="button" disabled={!shown}
-          className={`${TYPE.tableHeader} flex w-full items-center justify-end gap-1 whitespace-nowrap ${active ? 'text-white' : 'text-gray-400'} disabled:cursor-default`}
+          type="button" disabled={!shown} title={title ?? label}
+          className={`${TYPE.tableHeader} flex w-full items-center justify-end ${GLYPH_GAP} whitespace-nowrap ${active ? 'text-white' : 'text-gray-400'} disabled:cursor-default`}
           onClick={() => setSort(s => nextSort(shownTeamSort(s, url.severity), key, TEAM_SORT_FIRST[key]))}
         >
           {label}
@@ -174,8 +186,8 @@ export default function TeamTable({ data, url, openDrawer }: SecurityViewProps) 
           {band(GROUPS[1], nH)}
         </div>
         <div role="row" style={{ ...rowStyle, height: TEAM_COLHEAD_H }} className="box-border items-end border-b border-gray-800">
-          <div role="columnheader" aria-sort={nameActive ? (nameActive.dir === 'asc' ? 'ascending' : 'descending') : 'none'} className="px-2 pb-[18px]" title="The repository's team custom property — not a Glooker team">
-            <button type="button" className={`${TYPE.tableHeader} flex items-center gap-1 whitespace-nowrap ${nameActive ? 'text-white' : 'text-gray-400'}`} onClick={() => setSort(s => nextSort(shownTeamSort(s, url.severity), nameKey, TEAM_SORT_FIRST[nameKey]))}>
+          <div role="columnheader" aria-sort={nameActive ? (nameActive.dir === 'asc' ? 'ascending' : 'descending') : 'none'} className="px-2 pb-[18px]" title={NAME_TITLE}>
+            <button type="button" title={NAME_TITLE} className={`${TYPE.tableHeader} flex items-center gap-1 whitespace-nowrap ${nameActive ? 'text-white' : 'text-gray-400'}`} onClick={() => setSort(s => nextSort(shownTeamSort(s, url.severity), nameKey, TEAM_SORT_FIRST[nameKey]))}>
               Owning team
               <span aria-hidden="true" className={nameActive ? 'text-accent-light' : 'text-gray-600'}>{sortGlyph(nameActive)}</span>
             </button>
@@ -195,6 +207,8 @@ export default function TeamTable({ data, url, openDrawer }: SecurityViewProps) 
             className={`cursor-pointer items-center border-b border-gray-800/60 hover:bg-gray-800/30 ${ROW_FOCUS}${selected ? ' bg-accent/10' : ''}`}
             style={{ ...rowStyle, height: TEAM_ROW_H }}
             onClick={() => url.selectTeamRow(r.team)}
+            // Focus on the nested badge scrolls only the badge into view, which can leave the row's top behind the pinned header: bring the whole row (React focus bubbles).
+            onFocus={scrollRowIntoView}
             // A key pressed on the nested badge button belongs to the badge: the row must not preventDefault its click.
             onKeyDown={e => { if (e.target !== e.currentTarget) return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); url.selectTeamRow(r.team); } }}
           >

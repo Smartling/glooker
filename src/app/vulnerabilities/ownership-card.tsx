@@ -75,7 +75,7 @@ export default function OwnershipCard(props: SecurityViewProps) {
             })}
           </div>
           <div className="flex min-w-0 shrink-0 items-center gap-3">
-            {hint && <span className="hidden truncate text-xs text-gray-500 md:block" title={hint}>{hint}</span>}
+            {hint && <span className={`hidden truncate text-xs text-gray-500 md:block${dimmed[url.own] ? ' opacity-60' : ''}`} title={hint}>{hint}</span>}
             {url.own === 'repos' && (
               <input
                 type="search" aria-label="Filter repositories by name" placeholder="Filter repositories by name" value={nameFilter}
