@@ -241,3 +241,23 @@ export function viewProps(over: Partial<SecurityViewProps> = {}): SecurityViewPr
     ...over,
   };
 }
+
+// ── Wave 3 (Overview) fixtures: every name starts with `ov` ───────────────────────────────────────
+import type { DeltaTeam, SnapshotSet } from '@/lib/vulnerabilities/aggregate';
+
+/** A stored measurement taken on `takenOn` (a sync). */
+export const ovBaseline = (takenOn = '2026-09-15'): SnapshotSet => ({
+  source: 'sync', key: `sync:${takenOn}`, takenOn, measuredAt: `${takenOn}T06:00:00Z`,
+});
+
+export const ovDeltaTeam = (team: string, deltaOpen: number, over: Partial<DeltaTeam> = {}): DeltaTeam => ({
+  team, deltaOpen, new: 0, resolved: 0, dismissed: 0, reopened: 0, other: 0, ...over,
+});
+
+/** An available delta with the given total (or, with null, one that has a baseline but no total). */
+export const ovDelta = (total: DeltaTeam | null, over: Partial<DeltaResult> = {}): DeltaResult => ({
+  available: total !== null, baseline: ovBaseline(), reposNotInBaseline: 0, teams: [], total, ...over,
+});
+
+/** A delta with no baseline at all (nothing is old enough to compare against). */
+export const ovNoBaseline = (): DeltaResult => ({ available: false, baseline: null, reposNotInBaseline: 0, teams: [], total: null });
