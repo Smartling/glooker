@@ -406,6 +406,20 @@ describe('legend', () => {
     expect(entry.getAttribute('title')).toBe(long);
   });
 
+  // Revert: drop `shrink-0` from the swatch or `shrink-0 whitespace-nowrap` from the count: with a ~18+ character
+  // team name at 1024 the flex row then shrinks the swatch and wraps "N open", and the legend outgrows its 48px reserve.
+  it('the swatch and the "N open" count never shrink or wrap, so only the label gives way', () => {
+    render(<TrendCard {...props([ovSeries('A fairly long owning team', [[ago(40), 4], [ago(1), 6]])])} />);
+    const [swatch, label, count] = Array.from(legend()[0].children) as HTMLElement[];
+    expect(swatch.tagName).toBe('I');
+    expect(swatch.className).toContain('shrink-0');
+    expect(count.textContent).toBe('6 open');
+    expect(count.className).toContain('shrink-0');
+    expect(count.className).toContain('whitespace-nowrap');
+    expect(label.className).toContain('truncate');
+    expect(label.className).not.toContain('shrink-0');
+  });
+
   // Revert: key the entries by team name.
   it('entries are the same DOM nodes across a series swap, with their text updated', () => {
     const swapped = SERIES.map((s, i) => ({ ...s, team: `Swapped${i}` }));

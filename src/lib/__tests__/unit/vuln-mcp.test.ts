@@ -87,7 +87,7 @@ it('descriptions state the unit is the alert and to check availability and stale
 });
 
 // every vulnerability data response (and Unavailable) carries
-// config_errors through MCP's toSnake — asserted on all four tools, plus the
+// config_errors through MCP's toSnake — asserted on all five tools, plus the
 // resolved_count_start_date: null default (proving a null value survives toSnake, not just a
 // present one).
 it('surfaces config_errors on all five vulnerability tools', async () => {
@@ -308,6 +308,8 @@ describe('list_vulnerabilities offset and sort, and the summary and coverage add
   it('documents offset and sort in the schema and states the facet-versus-rows difference in the description', () => {
     const t = MCP_TOOLS.find(x => x.name === 'list_vulnerabilities')!;
     expect(Object.keys(t.inputSchema.properties)).toEqual(expect.arrayContaining(['offset', 'sort']));
+    // Revert: type `offset` as a bare number again: a client could then send -1 or 2.5 and only the server would say no.
+    expect(t.inputSchema.properties.offset).toMatchObject({ type: 'integer', minimum: 0 });
     expect(t.description).toMatch(/`offset`/);
     expect(t.description).toMatch(/severity, advisory, repo, age, due, state/);
     expect(t.description).toMatch(/always come last/);

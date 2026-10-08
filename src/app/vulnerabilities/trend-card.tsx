@@ -143,9 +143,9 @@ export default function TrendCard({ summary, data, url }: SecurityViewProps) {
               key={i} data-testid="trend-legend-entry" title={e.title} className="flex min-w-0 cursor-default items-center gap-1.5"
               style={{ opacity: e.dimmed ? 0.4 : 1 }}
             >
-              <i aria-hidden="true" className="inline-block h-[3px] w-3 rounded-sm" style={{ background: e.color }} />
+              <i aria-hidden="true" className="inline-block h-[3px] w-3 shrink-0 rounded-sm" style={{ background: e.color }} />
               <span className={`max-w-[160px] truncate text-chart-axis ${e.selected ? 'font-semibold' : ''}`} title={e.title}>{e.label}</span>
-              <span className="text-gray-500">{dash(e.open)} open</span>
+              <span className="shrink-0 whitespace-nowrap text-gray-500">{dash(e.open)} open</span>
             </span>
           ))}
         </div>

@@ -147,7 +147,7 @@ describe('unavailable delta', () => {
 });
 
 describe('fixed shape', () => {
-  // Revert: drop a reserved slot's fixed height (h-4) or let it wrap (truncate) in either branch.
+  // Revert: drop a reserved slot's inline height (style height = KPI_NOTE_H) or let it wrap (truncate) in either branch.
   it('every reserved line has the same height and truncation classes whether the delta is available or not', () => {
     const slots = ['kpi-since-other', 'kpi-since-caption', 'kpi-since-repos'];
     const classes = () => slots.map(id => screen.getByTestId(id).className);
@@ -156,7 +156,8 @@ describe('fixed shape', () => {
     unmount();
     render(<KpiTiles {...withDelta(ovNoBaseline())} />);
     expect(classes()).toEqual(available);
-    for (const c of available) { expect(c).toContain('h-4'); expect(c).toContain('truncate'); }
+    for (const c of available) { expect(c).toContain('truncate'); expect(c).not.toMatch(/\bh-4\b/); }
+    for (const id of slots) expect(screen.getByTestId(id).style.height).toBe(`${KPI_NOTE_H}px`);
   });
 
   // Revert: size a row by its text again (no inline height), or let the label wrap: the tile then changes shape with the figures.

@@ -116,6 +116,6 @@ export const TYPE = {
   card: 'rounded-xl',
   control: 'rounded-md',
   badge: 'rounded',
-  /** Every in-page link: the underline is the non-colour cue (spec, "Colour tokens"). */
+  /** Every in-page link: the underline is the non-colour cue (spec, "§6 Styling"). */
   link: 'text-accent-light underline underline-offset-2 hover:text-accent-lighter',
 } as const;

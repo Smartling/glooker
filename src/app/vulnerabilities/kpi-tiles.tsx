@@ -85,19 +85,19 @@ function SinceTile({ summary, url }: SecurityViewProps) {
       {/* Three reserved one-line slots, whatever the delta holds, so the tile never changes shape. */}
       <div
         data-testid="kpi-since-other" aria-hidden={other ? undefined : true}
-        className="h-4 truncate text-[11px] leading-4 text-gray-400" style={{ height: KPI_NOTE_H }} title={other?.title}
+        className="truncate text-[11px] leading-4 text-gray-400" style={{ height: KPI_NOTE_H }} title={other?.title}
       >
         {other?.text ?? '\u00a0'}
       </div>
       <div
         data-testid="kpi-since-caption" aria-hidden={caption ? undefined : true}
-        className="h-4 truncate text-[11px] leading-4 text-gray-500" style={{ height: KPI_NOTE_H }} title={caption ?? undefined}
+        className="truncate text-[11px] leading-4 text-gray-500" style={{ height: KPI_NOTE_H }} title={caption ?? undefined}
       >
         {caption ?? '\u00a0'}
       </div>
       <div
         data-testid="kpi-since-repos" aria-hidden={notInBaseline ? undefined : true}
-        className="h-4 truncate text-[11px] leading-4 text-gray-500" style={{ height: KPI_NOTE_H }} title={notInBaseline ?? undefined}
+        className="truncate text-[11px] leading-4 text-gray-500" style={{ height: KPI_NOTE_H }} title={notInBaseline ?? undefined}
       >
         {notInBaseline ?? '\u00a0'}
       </div>

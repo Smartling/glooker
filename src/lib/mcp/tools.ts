@@ -274,7 +274,7 @@ export const MCP_TOOLS: McpTool[] = [
       cve: { type: 'string' }, ghsa: { type: 'string' },
       package: { type: 'string', description: 'echoed as applied_filters.package_name' },
       limit: { type: 'number', description: 'default 100, max 500 (per page)' },
-      offset: { type: 'number', description: 'rows to skip before limit applies; default 0' },
+      offset: { type: 'integer', minimum: 0, description: 'rows to skip before limit applies; default 0' },
       sort: { type: 'string', description: 'severity|advisory|repo|age|due|state, then :asc or :desc (for example due:asc). age:desc = oldest first; due:asc = soonest due first; severity:asc = critical first; rows without a value for the key always come last. Default: soonest due, then severity, then newest.' },
     } },
     handler: (a) => vulnCall(a, f => getVulnAlerts(f)),

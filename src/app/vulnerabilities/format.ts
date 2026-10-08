@@ -33,13 +33,13 @@ export function deltaBaselineCaption(delta: DeltaResult | null | undefined, toda
 export const deltaClass = (v: number) => (v > 0 ? 'text-red-400' : v < 0 ? 'text-green-400' : 'text-gray-500');
 
 /**
- * Shared SWR fetcher (GLOOK-43 Wave D / D1, hardened in Wave E / E1): every panel on the
- * Vulnerabilities page and the syncs tab on Report History used a bare
- * `fetch(u).then(r => r.json())`, so an error response body — a route exception's 500
- * `{ error: 'Internal Server Error' }` (`src/lib/logger.ts`), or `withFilters`'s 400 `{ error }`
- * — arrived as SWR **data**, never as SWR `error`. That left the alerts panel stuck on "Loading…"
- * forever (its rows are read from `alerts?.rows`, which is never present on an error
- * body) and let the syncs tab overwrite its last good table with the error object. Throwing here
+ * Shared SWR fetcher for the Security page's views and the syncs tab on the Reports page.
+ * History (GLOOK-43 Wave D / D1, hardened in Wave E / E1): both once used a bare
+ * `fetch(u).then(r => r.json())`. With a bare fetch, an error response body — a route
+ * exception's 500 `{ error: 'Internal Server Error' }` (`src/lib/logger.ts`), or `withFilters`'s
+ * 400 `{ error }` — arrives as SWR **data**, never as SWR `error`: a list reads its rows from
+ * `data?.rows`, which an error body never carries, so it would sit on "Loading…" forever, and the
+ * syncs tab would overwrite its last good table with the error object. Throwing here
  * on `!r.ok` moves both cases onto SWR's `error` channel, where `keepPreviousData` (or SWR's
  * default revalidation behavior) keeps the last good `data` around and callers can show a banner
  * over it instead of blanking the view.
