@@ -84,11 +84,18 @@ async function vulnCall(args: Record<string, unknown>, run: (f: any) => Promise<
 
 // GLOOK-64: the repos tool is the only vulnerability tool whose query returns every row and lets the
 // tool layer cut it (the page's HTTP route needs all rows). `limit` defaults to 100, max 500, like
-// list_vulnerabilities; an unavailable or error result passes through untouched.
-function limitRepoRows(r: any, limit: number | undefined) {
+// list_vulnerabilities, and `offset` (default 0) pages the same way (`truncated` = offset + rows <
+// total_count); an unavailable or error result passes through untouched. The window is echoed in
+// `applied_filters` here only: the query and the HTTP envelope never apply a limit.
+function limitRepoRows(r: any, limit: number | undefined, offset: number | undefined) {
   if (!r || !Array.isArray(r.rows)) return r;
   const n = Math.min(Math.max(limit ?? 100, 1), 500);
-  return { ...r, rows: r.rows.slice(0, n), totalCount: r.rows.length, truncated: r.rows.length > n };
+  const skip = offset ?? 0;
+  const rows = r.rows.slice(skip, skip + n);
+  return {
+    ...r, rows, totalCount: r.rows.length, truncated: skip + rows.length < r.rows.length,
+    appliedFilters: { ...r.appliedFilters, limit: n, offset: skip },
+  };
 }
 
 export const MCP_TOOLS: McpTool[] = [
@@ -267,7 +274,7 @@ export const MCP_TOOLS: McpTool[] = [
       package: { type: 'string', description: 'echoed as applied_filters.package_name' },
       limit: { type: 'number', description: 'default 100, max 500 (per page)' },
       offset: { type: 'number', description: 'rows to skip before limit applies; default 0' },
-      sort: { type: 'string', description: 'severity|advisory|repo|age|due|state, then :asc or :desc (for example due:asc). Default: soonest due, then severity, then newest.' },
+      sort: { type: 'string', description: 'severity|advisory|repo|age|due|state, then :asc or :desc (for example due:asc). age:desc = oldest first; due:asc = soonest due first; severity:asc = critical first; rows without a value for the key always come last. Default: soonest due, then severity, then newest.' },
     } },
     handler: (a) => vulnCall(a, f => getVulnAlerts(f)),
   },
@@ -295,23 +302,24 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: 'get_vulnerability_coverage',
     description: VULN_COMMON + 'Repos with open alerts that need tagging (missing tier, codebase-type or team property), repos outside the configured tracking scope, and in-scope repos whose Dependabot status is unmeasured. '
-      + 'Filtered to the `codebase` group (default backend; pass `all` for every repository); a repository with no codebase type counts under other and all.',
+      + 'Filtered to the `codebase` group (default backend; pass `all` for every repository); a repository with no codebase type is grouped under Other, so it appears only with `codebase=other` or `codebase=all` (the default is `backend`).',
     inputSchema: { type: 'object', properties: { codebase: VULN_FILTER_PROPS.codebase, team: VULN_FILTER_PROPS.team } },
     handler: (a) => vulnCall(a, f => getVulnCoverage(f)),
   },
   {
     name: 'list_vulnerability_repos',
-    description: VULN_COMMON + 'Lists every tracked, non-archived repository in the scope with its owning team, codebase group and, per severity (`critical`, `high`), `open` alerts, `overdue` and `due_soon` counts, `oldest_open_days` and `next_due` ({date, days_remaining}: the earliest due date that is not yet overdue). '
+    description: VULN_COMMON + 'Lists each tracked, non-archived repository in the scope, up to `limit` rows per call, with its owning team, codebase group and, per severity (`critical`, `high`), `open` alerts, `overdue` and `due_soon` counts, `oldest_open_days` and `next_due` ({date, days_remaining}: the earliest due date that is not yet overdue). '
       + 'Repositories with no open alerts are included, with `open: 0`. `overdue: null` (and `due_soon`, `next_due` null) means that severity\'s SLA is not active, not zero. '
       + 'A row with `unmeasured` set (Dependabot status `error` or `dependabot-off`) has `open` equal to the stored count, which may be out of date: report it as unknown, not as a verified number. '
-      + 'Rows are ordered by open critical, then open high, then repo name, with unmeasured rows last; for each team and severity the rows sum to that team\'s open, overdue and due_soon in get_vulnerability_summary. '
+      + 'Rows are ordered by open critical, then open high, then repo name, with unmeasured rows last, so `limit` cuts them first. For each team and severity the rows sum to that team\'s open, overdue and due_soon in get_vulnerability_summary only when `truncated` is false and the same `codebase` and `team` are passed. '
       + 'Differs from list_vulnerabilities: that tool\'s `repos` facet follows all list filters (state, severity, overdue, ...) and counts the alerts matching them, while these rows always give OPEN counts per repository for the codebase and team scope. '
-      + 'Returns `rows`, `total_count` and `truncated` (true when there are more rows than `limit`).',
+      + 'Returns `rows`, `total_count` and `truncated` (true when offset + rows is below total_count); page with `offset`. A repository with no codebase type is grouped under Other, so it appears only with `codebase=other` or `codebase=all` (the default is `backend`).',
     inputSchema: { type: 'object', properties: {
       codebase: VULN_FILTER_PROPS.codebase, team: VULN_FILTER_PROPS.team,
-      limit: { type: 'number', description: 'default 100, max 500' },
+      limit: { type: 'number', description: 'default 100, max 500 (per page)' },
+      offset: { type: 'integer', minimum: 0, description: 'rows to skip; page with offset += limit while truncated is true' },
     } },
-    handler: (a) => vulnCall(a, async f => limitRepoRows(await getVulnRepos(f), f.limit)),
+    handler: (a) => vulnCall(a, async f => limitRepoRows(await getVulnRepos(f), f.limit, f.offset)),
   },
 ];
 

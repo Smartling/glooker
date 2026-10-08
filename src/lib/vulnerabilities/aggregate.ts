@@ -4,10 +4,13 @@ import { computeDue, daysRemaining, slaStatus, resolvedTiming } from './sla';
 import { inCodebaseView, isInScope, codebaseGroupOf, CODEBASE_GROUPS } from './codebase';
 import { diffDays, utcDate, toIsoSecond } from './time';
 import { parseAlertSort } from './alert-sort';
-import type { AlertSortKey, AlertSortSpec } from './alert-sort';
+import type { AlertSortKey, AlertSortSpec, ParsedAlertSort } from './alert-sort';
 import type { AlertFact, RepoFact, CodebaseGroup, Severity, AlertState, SnapshotRow, DependabotStatus } from './types';
 
 export const UNASSIGNED = 'Unassigned';
+/** An open alert whose due date is 0..DUE_SOON_DAYS days away counts as due soon (overdue alerts do not). The pivot,
+ * the repository rows and the alert list's `dueSoon` filter all read this, so they can't drift apart. */
+export const DUE_SOON_DAYS = 7;
 
 export function teamOf(r: RepoFact): string { return r.team ?? UNASSIGNED; }
 export function isOpen(a: AlertFact, r: RepoFact): boolean { return a.state === 'open' && !a.missing && !r.archived; }
@@ -16,7 +19,7 @@ export function isOpen(a: AlertFact, r: RepoFact): boolean { return a.state === 
  * whatever alerts are stored counted (they just can't be trusted to be complete), and both must
  * agree everywhere unmeasured is counted (the pivot's unmeasuredRepos and coverage's unmeasured
  * list), so this is the one place that decides it. */
-export function isUnmeasured(r: RepoFact): boolean { return r.dependabotStatus === 'error' || r.dependabotStatus === 'dependabot-off'; }
+export function isUnmeasured(r: RepoFact): r is RepoFact & { dependabotStatus: 'error' | 'dependabot-off' } { return r.dependabotStatus === 'error' || r.dependabotStatus === 'dependabot-off'; }
 /**
  * `since = null` (VULN_RESOLVED_SINCE unset, or invalid — config.ts folds both to `null`) means
  * "count every resolution, all time": there is no start date to compare against. This is also why
@@ -122,7 +125,7 @@ export function computePivot(alerts: AlertFact[], repos: RepoFact[], opts: { cod
       if (due) {
         const d = daysRemaining(due.dueDate, opts.now);
         if (d < 0) cell.overdue++;
-        else if (d <= 7) cell.dueSoon++;
+        else if (d <= DUE_SOON_DAYS) cell.dueSoon++;
       }
     } else if (isResolvedSinceStart(a)) {
       cell.resolved++;
@@ -188,7 +191,7 @@ export function computeRepoRows(alerts: AlertFact[], repos: RepoFact[], opts: { 
     if (!due) continue;
     const d = daysRemaining(due.dueDate, opts.now);
     if (d < 0) { c.overdue++; continue; }
-    if (d <= 7) c.dueSoon++;
+    if (d <= DUE_SOON_DAYS) c.dueSoon++;
     if (c.next === null || d < c.next.daysRemaining) c.next = { date: due.dueDate, daysRemaining: d };
   }
   const cell = (x: RepoSevAcc, sev: Severity): RepoSevCell => {
@@ -203,7 +206,7 @@ export function computeRepoRows(alerts: AlertFact[], repos: RepoFact[], opts: { 
     return {
       fullName: r.fullName, team: teamOf(r), codebaseGroup: codebaseGroupOf(r.codebaseType),
       critical: cell(x.critical, 'critical'), high: cell(x.high, 'high'),
-      unmeasured: isUnmeasured(r) ? { status: r.dependabotStatus as 'error' | 'dependabot-off', detail: r.dependabotStatusDetail } : null,
+      unmeasured: isUnmeasured(r) ? { status: r.dependabotStatus, detail: r.dependabotStatusDetail } : null,
     };
   });
   const byName = (a: RepoRow, b: RepoRow) => a.fullName.localeCompare(b.fullName);
@@ -275,14 +278,14 @@ export function computeCoverage(alerts: AlertFact[], repos: RepoFact[], opts: { 
   });
   // GLOOK-64: `codebase` is optional here (undefined = every codebase), so direct callers that never
   // scoped by codebase keep their behaviour; getCoverage always passes the parsed filter.
-  const teamOk = (r: RepoFact) => (!opts.team || teamOf(r) === opts.team)
+  const inScopeView = (r: RepoFact) => (!opts.team || teamOf(r) === opts.team)
     && (opts.codebase === undefined || inCodebaseView(r.codebaseType, opts.codebase));
   const byOpen = (a: CoverageRow, b: CoverageRow) => b.openCritical - a.openCritical || b.openHigh - a.openHigh || a.fullName.localeCompare(b.fullName);
   const hasOpen = (r: RepoFact) => open.has(r.repoId);
   return {
-    needsTagging: repos.filter(r => teamOk(r) && hasOpen(r) && (!r.serviceTier || !r.codebaseType || !r.team)).map(toRow).sort(byOpen),
-    excludedByPolicy: repos.filter(r => teamOk(r) && hasOpen(r) && r.serviceTier !== null && !isInScope(r.serviceTier)).map(toRow).sort(byOpen),
-    unmeasured: repos.filter(r => teamOk(r) && isInScope(r.serviceTier) && isUnmeasured(r)).map(toRow).sort(byOpen),
+    needsTagging: repos.filter(r => inScopeView(r) && hasOpen(r) && (!r.serviceTier || !r.codebaseType || !r.team)).map(toRow).sort(byOpen),
+    excludedByPolicy: repos.filter(r => inScopeView(r) && hasOpen(r) && r.serviceTier !== null && !isInScope(r.serviceTier)).map(toRow).sort(byOpen),
+    unmeasured: repos.filter(r => inScopeView(r) && isInScope(r.serviceTier) && isUnmeasured(r)).map(toRow).sort(byOpen),
   };
 }
 
@@ -330,9 +333,9 @@ function matches(a: AlertFact, r: RepoFact, f: AlertFilters, now: Date, ignoreCo
     if (od !== f.overdue) return false;
   }
   if (f.dueSoon !== undefined) {
-    // Same definition as the pivot's dueSoon: open, with a due date 0-7 days out. An overdue
+    // Same definition as the pivot's dueSoon: open, with a due date 0-DUE_SOON_DAYS days out. An overdue
     // alert (negative daysRemaining) does NOT count as due soon.
-    const ds = open && !!due && daysRemaining(due.dueDate, now) >= 0 && daysRemaining(due.dueDate, now) <= 7;
+    const ds = open && !!due && daysRemaining(due.dueDate, now) >= 0 && daysRemaining(due.dueDate, now) <= DUE_SOON_DAYS;
     if (ds !== f.dueSoon) return false;
   }
   if (f.dueBefore && !(open && due && due.dueDate < f.dueBefore)) return false;
@@ -414,7 +417,7 @@ function compareValues(a: string | number, b: string | number): number {
 
 /** The total order for the alert list: the chosen sort (or today's urgency order), then, always last
  * and never reversed, repository full name and alert number, so equal rows never swap between pages. */
-function compareHits(x: Hit, y: Hit, sort: ReturnType<typeof parseAlertSort>): number {
+function compareHits(x: Hit, y: Hit, sort: ParsedAlertSort | null): number {
   if (sort) {
     const a = sortValue(x, sort.key);
     const b = sortValue(y, sort.key);

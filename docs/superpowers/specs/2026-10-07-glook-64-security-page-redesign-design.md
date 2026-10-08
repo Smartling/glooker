@@ -277,8 +277,8 @@ Sorting and slicing stay in memory in `listAlerts`. There is no SQL `LIMIT` or `
 
 A new tool, `list_vulnerability_repos`, uses `vulnCall(a, f => getRepos(f))`.
 
-- **Inputs:** `codebase` and `team`, from `VULN_FILTER_PROPS`, plus `limit` (default 100, max 500).
-- **Output:** the repository rows in snake_case, `total_count` and `truncated`.
+- **Inputs:** `codebase` and `team`, from `VULN_FILTER_PROPS`, plus `limit` (default 100, max 500) and `offset` (rows to skip, default 0). `truncated` is `offset + rows < total_count`, the same rule as `list_vulnerabilities`.
+- **Output:** the repository rows in snake_case, `total_count` and `truncated`. `applied_filters` echoes the `limit` and `offset` applied (MCP only; the HTTP envelope is unchanged).
 - **Description:** it follows the `VULN_COMMON` conventions. It also states that:
   - a row with `unmeasured` set has `open` equal to the stored count, which may be out of date;
   - `overdue: null` means that severity's SLA isn't active;

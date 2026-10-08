@@ -6,7 +6,10 @@ export type AlertSortDir = 'asc' | 'desc';
 /** The one wire format: `<key>:<asc|desc>`, e.g. `due:asc`. */
 export type AlertSortSpec = `${AlertSortKey}:${AlertSortDir}`;
 
-export function parseAlertSort(raw: string): { key: AlertSortKey; dir: AlertSortDir } | null {
+/** A successfully parsed `<key>:<dir>` sort. */
+export type ParsedAlertSort = { key: AlertSortKey; dir: AlertSortDir };
+
+export function parseAlertSort(raw: string): ParsedAlertSort | null {
   const m = /^([a-z]+):(asc|desc)$/.exec(raw);
   if (!m || !(ALERT_SORT_KEYS as readonly string[]).includes(m[1])) return null;
   return { key: m[1] as AlertSortKey, dir: m[2] as AlertSortDir };

@@ -138,7 +138,7 @@ it('VULN_FILTER_PROPS codebase/team descriptions and the coverage tool descripti
     + 'and `sync.stale` (true means the data is over 36h old — tell the user the date of `sync.last_successful_at`). '
     + 'Every data response carries config_errors; non-empty means results may be incomplete. '
     + 'Repos with open alerts that need tagging (missing tier, codebase-type or team property), repos outside the configured tracking scope, and in-scope repos whose Dependabot status is unmeasured. '
-    + 'Filtered to the `codebase` group (default backend; pass `all` for every repository); a repository with no codebase type counts under other and all.',
+    + 'Filtered to the `codebase` group (default backend; pass `all` for every repository); a repository with no codebase type is grouped under Other, so it appears only with `codebase=other` or `codebase=all` (the default is `backend`).',
   );
   expect(coverage.inputSchema.properties.codebase).toBe(list.inputSchema.properties.codebase);
 });
@@ -192,7 +192,7 @@ describe('list_vulnerability_repos', () => {
     expect(out.total_count).toBe(1);
   });
 
-  it('applies limit (default 100, max 500) and reports truncated; the underlying query is never given a limit to apply', async () => {
+  it('cuts rows to limit (default 100, max 500 per page) and reports truncated and the exact total_count', async () => {
     (getRepos as jest.Mock).mockResolvedValue(envelope(repoRows(120)));
     const dflt: any = await callTool('list_vulnerability_repos', {});
     expect(dflt.rows).toHaveLength(100);
@@ -207,6 +207,46 @@ describe('list_vulnerability_repos', () => {
     const capped: any = await callTool('list_vulnerability_repos', { limit: 5000 });
     expect(capped.rows).toHaveLength(500);
     expect(capped.truncated).toBe(true);
+  });
+
+  it('pages with offset: the next rows come back in order, and truncated follows offset + rows < total_count', async () => {
+    (getRepos as jest.Mock).mockResolvedValue(envelope(repoRows(120)));
+    const names = (o: any) => o.rows.map((r: any) => r.full_name);
+    const first: any = await callTool('list_vulnerability_repos', { limit: 50 });
+    const second: any = await callTool('list_vulnerability_repos', { limit: 50, offset: 50 });
+    const third: any = await callTool('list_vulnerability_repos', { limit: 50, offset: 100 });
+    expect(names(first)[0]).toBe('o/r001');
+    expect(names(second)).toHaveLength(50);
+    expect(names(second)[0]).toBe('o/r051');
+    expect(names(second)[49]).toBe('o/r100');
+    expect([first.truncated, second.truncated, third.truncated]).toEqual([true, true, false]);
+    expect(names(third)).toEqual(Array.from({ length: 20 }, (_, i) => `o/r${String(101 + i).padStart(3, '0')}`));
+    expect([first.total_count, second.total_count, third.total_count]).toEqual([120, 120, 120]);
+    // a page that ends exactly on the last row is not truncated
+    const exact: any = await callTool('list_vulnerability_repos', { limit: 20, offset: 100 });
+    expect(exact.rows).toHaveLength(20);
+    expect(exact.truncated).toBe(false);
+  });
+
+  it('returns no rows, truncated false and the exact total_count when offset is at or past the end', async () => {
+    (getRepos as jest.Mock).mockResolvedValue(envelope(repoRows(3)));
+    for (const offset of [3, 50]) {
+      const out: any = await callTool('list_vulnerability_repos', { offset });
+      expect(out.rows).toEqual([]);
+      expect(out.truncated).toBe(false);
+      expect(out.total_count).toBe(3);
+    }
+    expect(await callTool('list_vulnerability_repos', { offset: -1 })).toEqual({ error: expect.stringMatching(/offset/) });
+  });
+
+  it('echoes the applied limit and offset in applied_filters, without handing them to the query', async () => {
+    (getRepos as jest.Mock).mockResolvedValue(envelope(repoRows(3)));
+    const dflt: any = await callTool('list_vulnerability_repos', {});
+    expect(dflt.applied_filters).toEqual({ codebase: 'backend', limit: 100, offset: 0 });
+    const paged: any = await callTool('list_vulnerability_repos', { limit: 2, offset: 1 });
+    expect(paged.applied_filters).toEqual({ codebase: 'backend', limit: 2, offset: 1 });
+    const capped: any = await callTool('list_vulnerability_repos', { limit: 5000 });
+    expect(capped.applied_filters.limit).toBe(500); // the limit actually applied, not the one asked for
   });
 
   it('passes codebase and team to getRepos, and passes unavailable and unknown-team results through', async () => {
@@ -238,7 +278,19 @@ describe('list_vulnerability_repos', () => {
     expect(t.description).toMatch(/`overdue: null`.*SLA is not active/);
     expect(t.description).toMatch(/list_vulnerabilities/);
     expect(t.description).toMatch(/`repos` facet follows all list filters/);
-    expect(Object.keys(t.inputSchema.properties).sort()).toEqual(['codebase', 'limit', 'team']);
+    expect(Object.keys(t.inputSchema.properties).sort()).toEqual(['codebase', 'limit', 'offset', 'team']);
+    expect(t.inputSchema.properties.offset).toMatchObject({ type: 'integer', minimum: 0 });
+    expect(t.inputSchema.properties.offset.description).toMatch(/offset \+= limit while truncated is true/);
+  });
+
+  it('its description says the rows are capped per call, when they sum to the summary, and that unmeasured rows are cut first', () => {
+    const t = MCP_TOOLS.find(x => x.name === 'list_vulnerability_repos')!;
+    expect(t.description).not.toMatch(/every tracked/);
+    expect(t.description).toMatch(/up to `limit` rows per call/);
+    expect(t.description).toMatch(/only when `truncated` is false and the same `codebase` and `team` are passed/);
+    expect(t.description).toMatch(/unmeasured rows last, so `limit` cuts them first/);
+    expect(t.description).toMatch(/`offset`/);
+    expect(t.description).toMatch(/no codebase type is grouped under Other.*`codebase=other` or `codebase=all`.*default is `backend`/);
   });
 });
 
@@ -258,6 +310,15 @@ describe('list_vulnerabilities offset and sort, and the summary and coverage add
     expect(t.description).toMatch(/severity, advisory, repo, age, due, state/);
     expect(t.description).toMatch(/always come last/);
     expect(t.description).toMatch(/use list_vulnerability_repos/);
+  });
+
+  it('the sort schema states what each direction means, so a caller does not have to guess', () => {
+    const t = MCP_TOOLS.find(x => x.name === 'list_vulnerabilities')!;
+    const d: string = t.inputSchema.properties.sort.description;
+    expect(d).toMatch(/age:desc = oldest first/);
+    expect(d).toMatch(/due:asc = soonest due first/);
+    expect(d).toMatch(/severity:asc = critical first/);
+    expect(d).toMatch(/always come last/);
   });
 
   it('get_vulnerability_coverage forwards codebase to getCoverage', async () => {
