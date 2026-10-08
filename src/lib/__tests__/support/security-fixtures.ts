@@ -7,6 +7,7 @@ import { SWRConfig } from 'swr';
 import type { AlertRow, CoverageRow, DeltaResult, RepoRow, RepoSevCell, SevCell, TeamRow } from '@/lib/vulnerabilities/aggregate';
 import type { SyncStatusInfo } from '@/lib/vulnerabilities/queries';
 import type { CodebaseGroup } from '@/lib/vulnerabilities/types';
+import { parseVulnFilters } from '@/lib/vulnerabilities/filters';
 import type { AlertsData, CoverageData, ReposData, Slot, SummaryData, TrendData } from '@/app/vulnerabilities/api-types';
 
 export const SYNC_AT = '2026-09-22T06:00:00Z';
@@ -127,26 +128,38 @@ const scopeApplied = (url: URL): ReposData['appliedFilters'] => {
   return a;
 };
 
-/** What the alerts route echoes: every request parameter under its camelCase name, with the
- * numeric ones as numbers and the flags as booleans. The one cast stands for the server's parser. */
-const alertsApplied = (url: URL): AlertsData['appliedFilters'] => {
-  const out: Record<string, unknown> = {};
-  const camel: Record<string, string> = { due_soon: 'dueSoon', dependency_scope: 'dependencyScope' };
-  url.searchParams.forEach((v, k) => {
-    out[camel[k] ?? k] = k === 'limit' || k === 'offset' ? Number(v) : v === 'true' ? true : v;
-  });
-  return out as AlertsData['appliedFilters'];
+/** The request's query string as the real routes read it, through the one shared parser. */
+const parseRequest = (url: URL) => parseVulnFilters(Object.fromEntries(url.searchParams.entries()));
+
+/** What the real routes answer for a request the parser rejects. */
+const rejected = (error: string): Reply => ({ status: 400, body: { error } });
+
+/** queries.ts's pickApplied: only keys that are set, only the keys the route echoes. */
+const pick = <T extends object>(f: T, keys: readonly (keyof T)[]): Partial<T> => {
+  const out: Partial<T> = {};
+  for (const k of keys) if (f[k] !== undefined) out[k] = f[k];
+  return out;
 };
 
-/** What the trend route echoes: codebase, severity and, when sent, since. */
-const trendApplied = (url: URL): TrendData['appliedFilters'] => {
-  const a: TrendData['appliedFilters'] = {
-    codebase: (url.searchParams.get('codebase') ?? 'backend') as CodebaseGroup,
-    severity: url.searchParams.get('severity') === 'high' ? 'high' : 'critical',
-  };
-  const since = url.searchParams.get('since');
-  if (since) a.since = since;
-  return a;
+/** The key list getAlerts echoes (ALERT_FILTER_KEYS in queries.ts). */
+const ALERT_ECHO_KEYS = [
+  'codebase', 'state', 'team', 'repo', 'severity', 'overdue', 'dueSoon', 'dueBefore', 'createdSince',
+  'resolvedSince', 'dependencyScope', 'cve', 'ghsa', 'packageName', 'q', 'reopened', 'limit', 'offset', 'sort',
+] as const;
+
+/** What the alerts route echoes: the parsed request, picked to the same key list as the real route,
+ * so defaults (codebase, state), camelCase names, numbers and booleans all match what the server sends. */
+const alertsReply = (url: URL): Reply => {
+  const p = parseRequest(url);
+  return p.ok ? { body: alertsFixture([], 0, pick(p.value, ALERT_ECHO_KEYS)) } : rejected(p.error);
+};
+
+/** What the trend route echoes: codebase, team, severity (default critical) and, when sent, since. */
+const trendReply = (url: URL): Reply => {
+  const p = parseRequest(url);
+  if (!p.ok) return rejected(p.error);
+  const applied = pick({ ...p.value, severity: p.value.severity ?? 'critical' }, ['codebase', 'team', 'severity', 'since'] as const);
+  return { body: trendFixture([], applied) };
 };
 
 /**
@@ -160,10 +173,11 @@ export function fetchRouter(routes: Partial<Record<RouteName, Route>> = {}) {
     summary: url => ({ body: summaryFixture({ appliedFilters: { ...scopeApplied(url), baseline: url.searchParams.get('baseline') ?? 'last' } }) }),
     repos: url => ({ body: reposFixture(REPO_ROWS, scopeApplied(url)) }),
     coverage: url => ({ body: coverageFixture({ appliedFilters: scopeApplied(url) }) }),
-    trend: url => ({ body: trendFixture([], trendApplied(url)) }),
-    alerts: url => ({ body: alertsFixture([], 0, alertsApplied(url)) }),
+    trend: trendReply,
+    alerts: alertsReply,
   };
-  const merged = { ...defaults, ...routes };
+  const merged = { ...defaults };
+  for (const [k, v] of Object.entries(routes)) if (v !== undefined) merged[k as RouteName] = v;
   return jest.fn(async (input: string) => {
     const url = new URL(String(input), 'http://localhost');
     const name = url.pathname.split('/').pop() as RouteName;

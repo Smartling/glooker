@@ -22,6 +22,21 @@ describe('createNavigationMock', () => {
     expect(result.current.params.has('view')).toBe(false);
   });
 
+  it('router and params keep their identity across a re-render with no navigation, and params changes identity after a push', () => {
+    const nav = createNavigationMock('a=1');
+    const { result, rerender } = renderHook(() => ({ router: nav.useRouter(), params: nav.useSearchParams() }));
+    const first = result.current;
+    rerender();
+    expect(result.current.router).toBe(first.router);
+    expect(result.current.router.push).toBe(first.router.push);
+    expect(result.current.params).toBe(first.params);
+
+    act(() => result.current.router.push('/vulnerabilities?a=2'));
+    expect(result.current.router).toBe(first.router);
+    expect(result.current.params).not.toBe(first.params);
+    expect(result.current.params.get('a')).toBe('2');
+  });
+
   it('__resetSearch sets the search and clears the recorded calls', () => {
     const nav = createNavigationMock();
     const { result } = renderHook(() => nav.useSearchParams());
@@ -63,6 +78,36 @@ describe('fetchRouter', () => {
     expect(alerts.appliedFilters).toEqual({ codebase: 'frontend', state: 'all', limit: 10, offset: 20, sort: 'due:asc', dueSoon: true });
     const trend = await (await f('/api/vulnerabilities/trend?codebase=shared&severity=high&since=2026-06-25')).json();
     expect(trend.appliedFilters).toEqual({ codebase: 'shared', severity: 'high', since: '2026-06-25' });
+  });
+
+  it('alerts echo: a request with no codebase or state gets the server defaults', async () => {
+    const alerts = await (await fetchRouter()('/api/vulnerabilities/alerts')).json();
+    expect(alerts.appliedFilters).toEqual({ codebase: 'backend', state: 'open' });
+  });
+
+  it('alerts echo: snake_case request names come back camelCase, baseline and since are not echoed, false booleans are kept', async () => {
+    const f = fetchRouter();
+    const a = await (await f('/api/vulnerabilities/alerts?due_before=2026-10-01&overdue=false&package=lodash&created_since=2026-09-01&resolved_since=2026-09-02&dependency_scope=runtime&baseline=7d&since=2026-06-01')).json();
+    expect(a.appliedFilters).toEqual({
+      codebase: 'backend', state: 'open', dueBefore: '2026-10-01', overdue: false, packageName: 'lodash',
+      createdSince: '2026-09-01', resolvedSince: '2026-09-02', dependencyScope: 'runtime',
+    });
+  });
+
+  it('alerts echo: a request the real parser rejects is answered 400, as the route would', async () => {
+    const res = await fetchRouter()('/api/vulnerabilities/alerts?overdue=yes');
+    expect([res.ok, res.status]).toEqual([false, 400]);
+    expect(await res.json()).toEqual({ error: 'overdue must be true, false, 1 or 0' });
+  });
+
+  it('trend echo includes team, and severity defaults to critical', async () => {
+    const t = await (await fetchRouter()('/api/vulnerabilities/trend?team=Payments')).json();
+    expect(t.appliedFilters).toEqual({ codebase: 'backend', team: 'Payments', severity: 'critical' });
+  });
+
+  it('an undefined route entry falls back to the default', async () => {
+    const res = await fetchRouter({ repos: undefined })('/api/vulnerabilities/repos');
+    expect((await res.json()).rows).toHaveLength(REPO_ROWS.length);
   });
 });
 
