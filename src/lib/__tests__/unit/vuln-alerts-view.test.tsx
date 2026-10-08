@@ -28,7 +28,8 @@ function mount(search: string, routes: Parameters<typeof fetchRouter>[0] = {}) {
 }
 const lastAlerts = (f: jest.Mock) => callsTo(f, 'alerts').slice(-1)[0];
 const railRow = (name: string) => screen.getAllByTestId('rail-row').find(el => el.getAttribute('data-repo') === name)!;
-const cves = () => screen.getAllByTestId('alert-row').map(r => within(r).getByRole('link').textContent);
+// The link's visible text; its accessible name also carries the screen-reader-only "(opens in a new tab)".
+const cves = () => screen.getAllByTestId('alert-row').map(r => within(r).getByRole('link').firstChild!.textContent);
 
 describe('one source for every count', () => {
   it('the strip, the rail\'s All row and the Alerts tab count all read the repos rows', async () => {

@@ -13,7 +13,8 @@ import { TEAM_ROW_H, TYPE, Z } from './dimensions';
 import { dash } from './format';
 import { displayDate, unmeasuredReason } from './labels';
 import { slaActive, anySlaActive } from './sla-state';
-import { REFRESH_FAILED_NOTE, slotView } from './slot-view';
+import { slotView } from './slot-view';
+import RefreshNote from './refresh-note';
 import {
   buildRepoView, nextSort, noOpenText, repoDisplay, repoKeySeverity, repoTotals, REPO_SORT_FIRST, sevShown, shownRepoSort, sortGlyph,
   type NextDue, type RepoDisplay, type RepoSortKey, type SortState,
@@ -194,10 +195,11 @@ export default function RepoTable({ summary, data, url, openDrawer, nameFilter }
           <div role="cell" className="col-span-2 min-w-0 px-2">
             <div className={`${TYPE.body} truncate text-white`} title={footLabel}>{footLabel}</div>
             {/* The one reserved line under the label: a failed refresh of these rows comes first, in red, then the scope notes. */}
-            <div data-testid="repo-footer-note" className="h-4 truncate text-xs font-normal leading-4 text-gray-500" aria-hidden={note || view.refreshError ? undefined : true} title={[view.refreshError, note].filter(Boolean).join(' · ') || undefined}>
-              {view.refreshError && <span data-testid="repo-refresh-note" className="text-red-400">{REFRESH_FAILED_NOTE}</span>}
-              {view.refreshError && note ? ' · ' : ''}
-              {note || (view.refreshError ? '' : '\u00a0')}
+            <div data-testid="repo-footer-note" className="flex h-4 min-w-0 items-baseline text-xs font-normal leading-4 text-gray-500">
+              {/* Not live: the Alerts strip announces a failed refresh of the repos slot; the Overview has no other owner of it. */}
+              <RefreshNote error={view.refreshError} testId="repo-refresh-note" className="shrink-0 leading-4" />
+              {view.refreshError && note ? <span className="shrink-0 whitespace-pre"> · </span> : null}
+              <span className="min-w-0 truncate" title={note || undefined}>{note || (view.refreshError ? '' : '\u00a0')}</span>
             </div>
           </div>
           {cols.map(c => {

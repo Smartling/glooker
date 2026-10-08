@@ -10,8 +10,10 @@ import type { SeverityFilter } from './security-state';
 import { slaActive, slaState, slaStateLabel, type SlaSource, type SlaState } from './sla-state';
 import { unmeasuredReason } from './labels';
 import { noOpenText } from './ownership-model';
-import { REFRESH_FAILED_NOTE, slotView } from './slot-view';
-import { RAIL_W, TYPE } from './dimensions';
+import { slotView } from './slot-view';
+import RefreshNote from './refresh-note';
+import SlaInvalidMark from './sla-invalid-mark';
+import { RAIL_FOOT_MIN_H, RAIL_W, TYPE } from './dimensions';
 
 export const RAIL_SORT_NOTE = 'Sorted by overdue, then open critical';
 
@@ -51,27 +53,41 @@ export function railCounts(crit: number, high: number, severity: SeverityFilter)
 
 const SEV_NAMES = { critical: 'critical', high: 'high' } as const;
 
+/** A run of the footer note's text; `invalid` is the part that says the policy cannot be read (drawn red, with the "!" mark). */
+export interface RailNoteSegment { text: string; invalid?: boolean }
+
 /**
  * The footer's second line: which severities the OVERDUE figures include, and why one is missing. It follows
  * Severity: under "Critical only" it never talks about high. The state wording is `slaStateLabel(…, { withSla: true })`,
- * the same as the strip's tails.
+ * the same as the strip's tails. Returned as segments so only the "SLA policy can't be read" part is red.
  */
-export function railSlaNote(sla: SlaSource, severity: SeverityFilter = 'both'): string {
+export function railSlaSegments(sla: SlaSource, severity: SeverityFilter = 'both'): RailNoteSegment[] {
   const considered = (['critical', 'high'] as const).filter(s => severity === 'both' || severity === s);
   const states = considered.map(sev => ({ sev, st: slaState(sev, sla) as SlaState }));
   const active = states.filter(x => x.st.kind === 'active');
   const inactive = states.filter(x => x.st.kind !== 'active');
   const label = (st: SlaState) => slaStateLabel(st, { withSla: true }) ?? '';
   if (inactive.length === 0) {
-    return active.length === 2 ? 'Overdue counts critical and high' : `Overdue counts ${SEV_NAMES[active[0].sev]} only`;
+    return [{ text: active.length === 2 ? 'Overdue counts critical and high' : `Overdue counts ${SEV_NAMES[active[0].sev]} only` }];
   }
   if (active.length === 0) {
     // One label when every state reads the same, otherwise each severity's own.
     const labels = inactive.map(x => label(x.st));
-    const text = new Set(labels).size === 1 ? labels[0] : inactive.map((x, i) => `${x.sev}: ${labels[i]}`).join(' · ');
-    return `${text.charAt(0).toUpperCase()}${text.slice(1)} · no overdue counts`;
+    const parts: RailNoteSegment[] = new Set(labels).size === 1
+      ? [{ text: labels[0], invalid: inactive[0].st.kind === 'invalid' }]
+      : inactive.flatMap((x, i) => [...(i ? [{ text: ' · ' }] : []), { text: `${x.sev}: ${labels[i]}`, invalid: x.st.kind === 'invalid' }]);
+    parts[0] = { ...parts[0], text: `${parts[0].text.charAt(0).toUpperCase()}${parts[0].text.slice(1)}` };
+    return [...parts, { text: ' · no overdue counts' }];
   }
-  return `Overdue counts ${SEV_NAMES[active[0].sev]} only · ${inactive[0].sev}: ${label(inactive[0].st)}`;
+  return [
+    { text: `Overdue counts ${SEV_NAMES[active[0].sev]} only · ${inactive[0].sev}: ` },
+    { text: label(inactive[0].st), invalid: inactive[0].st.kind === 'invalid' },
+  ];
+}
+
+/** The footer note as one string (the segments joined). */
+export function railSlaNote(sla: SlaSource, severity: SeverityFilter = 'both'): string {
+  return railSlaSegments(sla, severity).map(seg => seg.text).join('');
 }
 
 const plural = (n: number, word: string) => `${n.toLocaleString('en-US')} ${word}${n === 1 ? '' : 's'}`;
@@ -94,6 +110,8 @@ export default function RepoRail({ summary, data, url, openDrawer }: SecurityVie
     const st = railStat(r, url.severity, summary);
     return { crit: a.crit + st.crit, high: a.high + st.high };
   }, { crit: 0, high: 0 });
+  const allLabel = url.team ? `All ${url.team} repositories` : 'All repositories';
+  const allCounts = rows ? railCounts(all.crit, all.high, url.severity) : '';
   const meta = rows ? `${plural(measured.length, 'repo')}${unmeasured.length ? ` + ${unmeasured.length} unmeasured` : ''}` : '';
 
   return (
@@ -103,7 +121,7 @@ export default function RepoRail({ summary, data, url, openDrawer }: SecurityVie
       className="flex min-h-0 min-w-0 flex-col border-r border-gray-700"
       style={{ width: RAIL_W }}
     >
-      <div className="flex flex-none flex-col gap-2.5 px-4 pb-2.5 pt-4">
+      <div className="flex flex-none flex-col gap-2.5 px-4 pb-1.5 pt-4">
         <div className="flex min-w-0 flex-col gap-0.5">
           <span className={`${TYPE.sectionLabel} text-gray-300`}>Repositories</span>
           <span data-testid="rail-meta" className="min-h-4 truncate text-xs text-gray-500">{meta || '\u00a0'}</span>
@@ -117,15 +135,14 @@ export default function RepoRail({ summary, data, url, openDrawer }: SecurityVie
         />
         {/* A reserved line (there with or without the note), so "Couldn't refresh · showing last load" moves nothing. */}
         <div data-testid="rail-note-slot" className="-mt-1 h-4 min-w-0">
-          {view.kind === 'data' && view.refreshError && (
-            <span data-testid="rail-refresh-note" title={view.refreshError} className="block truncate text-xs text-red-400">{REFRESH_FAILED_NOTE}</span>
-          )}
+          {/* Not live: the strip announces a failed refresh of the repos slot, and this note reads the same slot. */}
+          <RefreshNote error={view.kind === 'data' ? view.refreshError : null} testId="rail-refresh-note" />
         </div>
       </div>
 
       <div
         data-testid="rail-list"
-        className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 pb-2"
+        className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 pb-2 pt-1"
         style={{ opacity: dimmed ? 0.6 : 1 }}
       >
         <button
@@ -135,10 +152,8 @@ export default function RepoRail({ summary, data, url, openDrawer }: SecurityVie
           onClick={() => url.setRepo(null)}
           className={`flex w-full flex-none flex-col gap-0.5 px-2.5 py-2 text-left ${TYPE.body} ${TYPE.control} ${repo === null ? 'bg-accent/10' : 'hover:bg-gray-800/30'}`}
         >
-          <span className={`truncate ${repo === null ? 'font-semibold text-accent-light' : 'text-gray-200'}`}>
-            {url.team ? `All ${url.team} repositories` : 'All repositories'}
-          </span>
-          <span className="truncate text-xs text-gray-400">{rows ? railCounts(all.crit, all.high, url.severity) : '\u00a0'}</span>
+          <span className={`truncate ${repo === null ? 'font-semibold text-accent-light' : 'text-gray-200'}`} title={allLabel}>{allLabel}</span>
+          <span className="truncate text-xs tabular-nums text-gray-400" title={allCounts || undefined}>{allCounts || '\u00a0'}</span>
         </button>
         <div className="mx-0.5 my-1 h-px flex-none bg-gray-700" aria-hidden="true" />
 
@@ -160,19 +175,21 @@ export default function RepoRail({ summary, data, url, openDrawer }: SecurityVie
               data-testid="rail-row"
               data-repo={row.fullName}
               aria-pressed={selected}
-              title={selected ? 'Show all repositories' : `Show ${row.fullName} alerts`}
+              // The title is the full name (the name truncates); the selected row's accessible name says what a click does.
+              title={selected ? row.fullName : `Show ${row.fullName} alerts`}
+              aria-label={selected ? 'Show all repositories' : undefined}
               onClick={() => url.setRepo(selected ? null : row.fullName)}
               className={`flex w-full flex-none flex-col gap-0.5 px-2.5 py-2 text-left ${TYPE.body} ${TYPE.control} ${selected ? 'bg-accent/10' : 'hover:bg-gray-800/30'}`}
             >
               <span className="flex min-w-0 items-center justify-between gap-2">
-                <span className={`truncate ${selected ? 'font-semibold text-accent-light' : stat.total > 0 ? 'text-gray-200' : 'text-gray-500'}`}>{row.fullName}</span>
+                <span className={`truncate ${selected ? 'font-semibold text-accent-light' : stat.total > 0 ? 'text-gray-200' : 'text-gray-500'}`} title={row.fullName}>{row.fullName}</span>
                 {selected && <span aria-hidden="true" className="shrink-0 text-[15px] leading-none text-accent-light">×</span>}
               </span>
               <span className="flex justify-between gap-2 whitespace-nowrap text-xs text-gray-400">
-                <span data-testid="rail-counts" className="min-w-0 truncate">{railCounts(stat.crit, stat.high, url.severity)}</span>
-                {stat.overdue > 0 && <span data-testid="rail-overdue" className="shrink-0 font-bold text-red-400">{stat.overdue.toLocaleString('en-US')} OVERDUE</span>}
+                <span data-testid="rail-counts" className="min-w-0 truncate tabular-nums" title={railCounts(stat.crit, stat.high, url.severity)}>{railCounts(stat.crit, stat.high, url.severity)}</span>
+                {stat.overdue > 0 && <span data-testid="rail-overdue" className="shrink-0 font-bold tabular-nums text-red-400">{stat.overdue.toLocaleString('en-US')} OVERDUE</span>}
               </span>
-              {!url.team && <span className="truncate text-[11px] text-gray-500">Owning team: {row.team}</span>}
+              {!url.team && <span className="truncate text-[11px] text-gray-500" title={`Owning team: ${row.team}`}>Owning team: {row.team}</span>}
             </button>
           );
         })}
@@ -183,7 +200,7 @@ export default function RepoRail({ summary, data, url, openDrawer }: SecurityVie
             type="button"
             data-testid="rail-unmeasured"
             data-repo={row.fullName}
-            title="Open counts unknown. Resolved alerts and history still count."
+            title={`${row.fullName} · ${unmeasuredReason(row.unmeasured!)}`}
             onClick={e => openDrawer(e.currentTarget)}
             className={`vuln-hatch mt-1 flex w-full flex-none flex-col gap-[3px] border border-warn-line px-2.5 py-2 text-left ${TYPE.body} ${TYPE.control}`}
           >
@@ -196,10 +213,15 @@ export default function RepoRail({ summary, data, url, openDrawer }: SecurityVie
         ))}
       </div>
 
-      <div className="flex flex-none flex-col gap-0.5 border-t border-gray-700 px-4 py-2.5 text-xs text-gray-500">
+      {/* A minimum height for the note's longest wording (three lines), so the list's bottom edge does not move with Severity. */}
+      <div data-testid="rail-foot" className="flex flex-none flex-col gap-0.5 border-t border-gray-700 px-4 py-2.5 text-xs text-gray-500" style={{ minHeight: RAIL_FOOT_MIN_H }}>
         <span>{RAIL_SORT_NOTE}</span>
-        {/* Wraps: the second line explains which overdue counts are included, so it must never be clipped. */}
-        <span data-testid="rail-sla-note" className="whitespace-normal break-words">{railSlaNote(summary, url.severity)}</span>
+        {/* Wraps: the second line explains which overdue counts are included, so it must never be clipped. The unreadable-policy part is red. */}
+        <span data-testid="rail-sla-note" className="whitespace-normal break-words">
+          {railSlaSegments(summary, url.severity).map((seg, i) => seg.invalid
+            ? <span key={i} className="font-bold text-red-400"><SlaInvalidMark /> {seg.text}</span>
+            : <span key={i}>{seg.text}</span>)}
+        </span>
       </div>
     </aside>
   );

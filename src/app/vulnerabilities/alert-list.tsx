@@ -9,7 +9,9 @@ import type { SecurityViewProps } from './view-props';
 import type { AlertSortKey, AlertStatus } from './security-state';
 import { anySlaActive, slaState, slaStateLabel, type SlaSource } from './sla-state';
 import { displayDate } from './labels';
-import { REFRESH_FAILED_NOTE, slotView } from './slot-view';
+import { slotView } from './slot-view';
+import RefreshNote from './refresh-note';
+import SlaInvalidMark from './sla-invalid-mark';
 import Pager, { PAGER_H } from './pager';
 import { ALERT_LIST_H, ALERT_PAGE_SIZE, ALERT_ROW_H, TYPE } from './dimensions';
 
@@ -53,11 +55,14 @@ export function noSlaHint(sla: SlaSource, today?: string): string | null {
   return slaStateLabel({ kind: 'none' }, { withSla: true });
 }
 
+/** Why the time toggles are off under Resolved: the toolbar hint and the disabled toggles' title read the same text. */
+const RESOLVED_HINT = 'Resolved alerts have no due date';
+
 const STATUS_OPTIONS: ReadonlyArray<[AlertStatus, string]> = [['open', 'Open'], ['resolved', 'Resolved'], ['all', 'Open + resolved']];
 
 /** Header copy per sort key. A Record, so a key added to the wire contract without a header fails the type check. */
-const HEAD_COPY: Record<AlertSortKey, { label: string; sub: string; right: boolean }> = {
-  severity: { label: 'Sev', sub: '', right: false },
+const HEAD_COPY: Record<AlertSortKey, { label: string; sub: string; right: boolean; title?: string }> = {
+  severity: { label: 'Sev', sub: '', right: false, title: 'Sort by severity' },
   advisory: { label: 'Advisory', sub: 'CVSS · package', right: false },
   repo: { label: 'Repository', sub: 'owning team', right: false },
   age: { label: 'Age', sub: '', right: true },
@@ -91,6 +96,8 @@ function AlertRowView({ r, sla }: { r: AlertRow; sla: SlaSource }) {
   let due = '—';
   let dueSub = '';
   let overdue = false;
+  // An unreadable policy reads red, with the "!" the strip draws, so it is never mistaken for "no policy".
+  const dueInvalid = r.state === 'open' && st.kind === 'invalid';
   if (r.state === 'open') {
     if (st.kind === 'active') {
       if (r.dueDate) {
@@ -111,7 +118,8 @@ function AlertRowView({ r, sla }: { r: AlertRow; sla: SlaSource }) {
   // The State cell's first line is short enough never to clip: "open", "open ↺" (reopened), or "resolved · {reason}" (truncated
   // at the cell edge). The dates ride in the title and the glyph's aria-label; the second line is the dependency scope.
   const resolvedReason = r.state === 'open' ? null : (r.dismissedReason ?? r.state);
-  const stateText = resolvedReason === null ? 'open' : `resolved · ${resolvedReason}`;
+  // A dismissal reason is an API token ("no_bandwidth"): it reads as words.
+  const stateText = resolvedReason === null ? 'open' : `resolved · ${resolvedReason.replace(/_/g, ' ')}`;
   const reopened = r.reopenedCount > 0;
   const reopenedLabel = `reopened${r.lastReopenedAt ? ` ${displayDate(r.lastReopenedAt)}` : ''}`;
   const stateTitle = [
@@ -123,37 +131,47 @@ function AlertRowView({ r, sla }: { r: AlertRow; sla: SlaSource }) {
   const sub = 'truncate text-xs text-gray-400';
   return (
     <div
+      role="row"
       data-testid="alert-row"
       className="grid box-border border-b border-gray-800/60 text-sm text-gray-200"
       style={{ gridTemplateColumns: ALERT_GRID_COLS, height: ALERT_ROW_H }}
     >
-      <div className="flex items-center">
+      <div role="cell" className="flex items-center">
         <span className={`w-[38px] py-0.5 text-center text-[10px] font-bold tracking-[0.05em] ${TYPE.badge} ${SEV_BADGE[r.severity].cls}`}>{SEV_BADGE[r.severity].label}</span>
       </div>
-      <div className={cell}>
-        <a href={r.htmlUrl} target="_blank" rel="noreferrer" title={idText} className="truncate text-accent-light underline underline-offset-2 hover:text-accent-lighter">{idText}</a>
+      <div role="cell" className={cell}>
+        <a href={r.htmlUrl} target="_blank" rel="noreferrer" title={idText} className="truncate text-accent-light underline underline-offset-2 hover:text-accent-lighter">
+          {idText}
+          <span className="sr-only"> (opens in a new tab)</span>
+        </a>
         <span className={sub} title={advSub || undefined}>{advSub || '\u00a0'}</span>
       </div>
-      <div className={cell}>
+      <div role="cell" className={cell}>
         <span className="truncate" title={r.repo}>{repoShort}</span>
         <span className={sub} title={r.team}>{r.team}</span>
       </div>
-      <div className="flex items-center justify-end px-2.5 text-gray-300 tabular-nums">{r.ageDays}d</div>
-      <div className={`${cell} items-end`}>
+      <div role="cell" className="flex items-center justify-end px-2.5 text-gray-300 tabular-nums">{r.ageDays}d</div>
+      <div role="cell" className={`${cell} items-end`}>
         <span data-testid="alert-due" title={r.dueDate ?? undefined} className={`whitespace-nowrap tabular-nums ${overdue ? 'text-red-400' : 'text-gray-300'}`}>{due}</span>
         {overdue ? (
           // Never clipped: no overflow, no ellipsis, and the track has a pixel minimum (ALERT_DUE_MIN_W).
           <span data-testid="alert-due-sub" className="shrink-0 whitespace-nowrap text-xs font-bold text-red-400">{dueSub}</span>
+        ) : dueInvalid ? (
+          <span className="flex max-w-full min-w-0 items-center gap-1">
+            <SlaInvalidMark />
+            <span data-testid="alert-due-sub" className="truncate text-xs font-bold text-red-400" title={dueSub}>{dueSub}</span>
+          </span>
         ) : (
           <span data-testid="alert-due-sub" className={`${sub} max-w-full`} title={dueSub || undefined}>{dueSub || '\u00a0'}</span>
         )}
       </div>
-      <div className={cell}>
-        <span data-testid="alert-state" className="truncate" title={stateTitle}>
-          {stateText}
-          {reopened && <span data-testid="alert-reopened" role="img" aria-label={reopenedLabel} className="ml-1 text-gray-400">↺</span>}
-        </span>
-        <span className={sub}>{r.scope ?? 'unknown'}</span>
+      <div role="cell" className={cell}>
+        {/* The glyph sits OUTSIDE the truncating text, so a long "resolved · …" is cut and the reopened mark is always there. */}
+        <div className="flex min-w-0 items-center gap-1">
+          <span data-testid="alert-state" className="truncate" title={stateTitle}>{stateText}</span>
+          {reopened && <span data-testid="alert-reopened" role="img" aria-label={reopenedLabel} title={stateTitle} className="shrink-0 text-gray-400">↺</span>}
+        </div>
+        <span className={sub} title={r.scope ?? 'unknown'}>{r.scope ?? 'unknown'}</span>
       </div>
     </div>
   );
@@ -231,7 +249,11 @@ export default function AlertList({ summary, data, url, list: ctl }: SecurityVie
   const loading = !notFound && view.kind === 'loading';
   const pagerTotal = rows ? total : null;
 
-  const timeTitle = l.status === 'resolved' ? 'Resolved alerts have no due date' : (slaHint ?? undefined);
+  const resolved = l.status === 'resolved';
+  const timeTitle = resolved ? RESOLVED_HINT : (slaHint ?? undefined);
+  // The toolbar hint says why the time toggles are off: under Resolved, that there is no due date; otherwise the SLA state (red, with the strip's "!", when the policy cannot be read).
+  const hint = resolved ? RESOLVED_HINT : slaHint;
+  const hintInvalid = !resolved && slaHint !== null && slaState('critical', summary).kind === 'invalid';
   // With no header chosen the server's order is "soonest due first", so Due is drawn as the active header (ascending).
   // The first click on it sorts descending (the list controller's rule), so the arrow always flips.
   const shownSort = l.sort ?? (l.status === 'resolved' ? null : DEFAULT_SORT);
@@ -266,75 +288,88 @@ export default function AlertList({ summary, data, url, list: ctl }: SecurityVie
             {STATUS_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
           </select>
         </div>
-        <div data-testid="alert-toolbar-row2" className="flex items-center gap-2 overflow-hidden" style={{ height: ALERT_TOOLBAR_ROW_H }}>
+        <div data-testid="alert-toolbar-row2" className="flex items-center gap-2 overflow-x-clip" style={{ height: ALERT_TOOLBAR_ROW_H }}>
           <Toggle label="Overdue" on={l.overdue} disabled={!timeEnabled} title={timeTitle} onClick={then(ctl.toggleOverdue)} />
           <Toggle label="Due ≤ 7d" on={l.dueSoon} disabled={!timeEnabled} title={timeTitle} onClick={then(ctl.toggleDueSoon)} />
           <Toggle label="Reopened" on={l.reopened} disabled={false} onClick={then(ctl.toggleReopened)} />
           <Toggle label="Runtime only" on={l.runtimeOnly} disabled={false} onClick={then(ctl.toggleRuntimeOnly)} />
-          {slaHint && <span data-testid="alert-sla-hint" title={slaHint} className="min-w-0 truncate text-xs text-gray-500">{slaHint}</span>}
+          {hint && (
+            <span className="flex min-w-0 items-center gap-1">
+              {hintInvalid && <SlaInvalidMark />}
+              <span data-testid="alert-sla-hint" title={hint} className={`min-w-0 truncate text-xs ${hintInvalid ? 'font-bold text-red-400' : 'text-gray-500'}`}>{hint}</span>
+            </span>
+          )}
           <span className="flex-1" />
           {/* The right end of this fixed-height row is the reserved line for status text, so neither message moves a control or a row. */}
-          {refreshError && <span data-testid="alert-refresh-note" title={refreshError} className="min-w-0 truncate text-[11px] text-red-400">{REFRESH_FAILED_NOTE}</span>}
+          {/* Live: the list owns the announcement for the alerts request. */}
+          <RefreshNote error={refreshError} testId="alert-refresh-note" live />
           {stale && <span data-testid="alert-updating" className="shrink-0 text-[11px] text-accent-light">Updating…</span>}
         </div>
       </div>
 
-      <div
-        role="row"
-        data-testid="alert-list-head"
-        className="grid flex-none box-border border-b border-gray-700"
-        style={{ gridTemplateColumns: ALERT_GRID_COLS, height: ALERT_HEAD_H }}
-      >
-        {HEAD_ORDER.map(key => {
-          const h = { key, ...HEAD_COPY[key] };
-          const active = shownSort?.key === h.key ? shownSort : null;
-          return (
-            <div
-              key={h.key}
-              role="columnheader"
-              aria-sort={active ? (active.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
-              className="min-w-0"
-            >
-              <button
-                type="button"
-                data-testid={`sort-${h.key}`}
-                onClick={then(() => ctl.setSort(h.key))}
-                className={`flex h-full w-full min-w-0 flex-col justify-end gap-px overflow-hidden whitespace-nowrap pb-2 pt-2 ${h.key === 'severity' || h.key === 'age' ? 'pl-0 pr-2.5' : 'px-2.5'} ${h.right ? 'items-end' : 'items-start'} ${TYPE.tableHeader} ${active ? 'text-white' : 'text-gray-400'}`}
-              >
-                <span className="flex max-w-full items-baseline gap-1">
-                  <span className="truncate">{h.label}</span>
-                  <span data-testid={`sort-arrow-${h.key}`} aria-hidden="true" className={`shrink-0 tracking-normal ${active ? 'text-accent-light' : 'text-gray-500'}`}>
-                    {active ? (active.dir === 'asc' ? SORT_ARROW.asc : SORT_ARROW.desc) : SORT_ARROW.none}
-                  </span>
-                </span>
-                <span className="max-w-full truncate text-xs font-medium normal-case tracking-normal text-gray-500">{h.sub || '\u00a0'}</span>
+      {/* The header and the rows are one table; its wrapper keeps the column's gap between them. */}
+      <div role="table" aria-label="Alerts" className="flex flex-none flex-col" style={{ gap: ALERT_COLUMN_GAP }}>
+        <div role="rowgroup">
+          <div
+            role="row"
+            data-testid="alert-list-head"
+            className="grid flex-none box-border border-b border-gray-700"
+            style={{ gridTemplateColumns: ALERT_GRID_COLS, height: ALERT_HEAD_H }}
+          >
+            {HEAD_ORDER.map(key => {
+              const h = { key, ...HEAD_COPY[key] };
+              const active = shownSort?.key === h.key ? shownSort : null;
+              return (
+                <div
+                  key={h.key}
+                  role="columnheader"
+                  aria-sort={active ? (active.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+                  className="min-w-0"
+                >
+                  <button
+                    type="button"
+                    data-testid={`sort-${h.key}`}
+                    title={h.title}
+                    onClick={then(() => ctl.setSort(h.key))}
+                    className={`flex h-full w-full min-w-0 flex-col justify-end gap-px overflow-hidden whitespace-nowrap pb-2 pt-2 ${h.key === 'severity' || h.key === 'age' ? 'pl-0 pr-2.5' : 'px-2.5'} ${h.right ? 'items-end' : 'items-start'} ${TYPE.tableHeader} ${active ? 'text-white' : 'text-gray-400'}`}
+                  >
+                    <span className="flex max-w-full items-baseline gap-1">
+                      <span className="truncate" title={h.label}>{h.label}</span>
+                      <span data-testid={`sort-arrow-${h.key}`} aria-hidden="true" className={`shrink-0 tracking-normal ${active ? 'text-accent-light' : 'text-gray-500'}`}>
+                        {active ? (active.dir === 'asc' ? SORT_ARROW.asc : SORT_ARROW.desc) : SORT_ARROW.none}
+                      </span>
+                    </span>
+                    <span className="max-w-full truncate text-xs font-medium normal-case tracking-normal text-gray-500" title={h.sub || undefined}>{h.sub || '\u00a0'}</span>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div
+          role="rowgroup"
+          data-testid="alert-list-rows"
+          className={`relative flex-none overflow-hidden ${stale ? 'opacity-60' : ''}`}
+          style={{ height: ALERT_LIST_H }}
+          aria-busy={stale || loading ? true : undefined}
+        >
+          {rows?.map((r, i) => <AlertRowView key={i} r={r} sla={summary} />)}
+          {rows && rows.length === 0 && (
+            <div className="absolute inset-0 flex items-center justify-center text-sm text-gray-400">No alerts match these filters.</div>
+          )}
+          {loading && <div className="absolute inset-0 flex items-center justify-center text-sm text-gray-500">Loading…</div>}
+          {unavailable && <div data-testid="alert-unavailable" title={unavailable.title} className="absolute inset-0 flex items-center justify-center text-sm text-gray-500">{unavailable.text}</div>}
+          {errorText && <div role="alert" className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-red-400">{errorText}</div>}
+          {notFound && (
+            <div className="absolute inset-0 flex items-center justify-center gap-1.5 text-sm text-gray-300">
+              <span>Repository not found ·</span>
+              <button type="button" onClick={then(url.clearRepo)} className={TYPE.link}>
+                Show all repositories
               </button>
             </div>
-          );
-        })}
-      </div>
-
-      <div
-        data-testid="alert-list-rows"
-        className={`relative flex-none overflow-hidden ${stale ? 'opacity-60' : ''}`}
-        style={{ height: ALERT_LIST_H }}
-        aria-busy={stale || loading ? true : undefined}
-      >
-        {rows?.map((r, i) => <AlertRowView key={i} r={r} sla={summary} />)}
-        {rows && rows.length === 0 && (
-          <div className="absolute inset-0 flex items-center justify-center text-sm text-gray-400">No alerts match these filters.</div>
-        )}
-        {loading && <div className="absolute inset-0 flex items-center justify-center text-sm text-gray-500">Loading…</div>}
-        {unavailable && <div data-testid="alert-unavailable" title={unavailable.title} className="absolute inset-0 flex items-center justify-center text-sm text-gray-500">{unavailable.text}</div>}
-        {errorText && <div role="alert" className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-red-400">{errorText}</div>}
-        {notFound && (
-          <div className="absolute inset-0 flex items-center justify-center gap-1.5 text-sm text-gray-300">
-            <span>Repository not found ·</span>
-            <button type="button" onClick={then(url.clearRepo)} className={TYPE.link}>
-              Show all repositories
-            </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       <Pager page={l.page} pageSize={ALERT_PAGE_SIZE} totalCount={pagerTotal} onPage={p => { flush(); ctl.setPage(p); }} />

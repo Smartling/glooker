@@ -223,20 +223,25 @@ describe('data source', () => {
   it('the note fills the band row\'s first cell, so the Owning team track caps its width: it truncates and nothing is laid over the bands', () => {
     render(<TeamTable {...ovProps({ teamSummary: slot(summaryFixture(pivot()), { errorText: "Couldn't load team table: x" }) })} />);
     const note = screen.getByTestId('team-table-refresh-note');
-    const bandRow = note.parentElement as HTMLElement;
+    const firstCell = note.parentElement as HTMLElement;
+    const bandRow = firstCell.parentElement as HTMLElement;
     expect(bandRow.getAttribute('role')).toBe('row');
-    expect(bandRow.firstElementChild).toBe(note);
+    expect(bandRow.firstElementChild).toBe(firstCell);
+    expect(firstCell.getAttribute('role')).toBe('cell');         // a row may contain a cell; it may not contain a bare live region
     expect(bandRow.style.height).toBe(`${TEAM_BAND_H}px`);
     expect(bandRow.contains(screen.getByTestId('team-band-critical'))).toBe(true);
-    expect(note.getAttribute('role')).toBe('presentation');
+    expect(note.getAttribute('role')).toBe('status');
     expect(note.className).toContain('min-w-0');
     expect(note.className).toContain('truncate');
     expect(note.className).not.toMatch(/\babsolute\b/);
   });
 
-  it('no note while the refresh has not failed', () => {
+  // Revert: mount the note only while the refresh has failed.
+  it('the note slot is there, empty and live, while the refresh has not failed', () => {
     render(<TeamTable {...ovProps()} />);
-    expect(screen.queryByTestId('team-table-refresh-note')).toBeNull();
+    const note = screen.getByTestId('team-table-refresh-note');
+    expect(note.textContent).toBe('');
+    expect(note.getAttribute('role')).toBe('status');
   });
 
   it('a failed refresh while the next key is loading dims the rows AND shows the note', () => {

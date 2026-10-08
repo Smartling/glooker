@@ -14,7 +14,8 @@ import { dash, deltaBaselineCaption, resolvedCaption } from './format';
 import { unmeasuredBadgeText } from './labels';
 import { baselineUnavailableText, carriedFootnote, carriedTitle } from './overview-format';
 import { slaActive } from './sla-state';
-import { REFRESH_FAILED_NOTE, slotView } from './slot-view';
+import { slotView } from './slot-view';
+import RefreshNote from './refresh-note';
 import {
   deltaOpenFor, hasCarriedFootnote, nextSort, orderTeamRows, sevShown, shownTeamSort, sortGlyph, TEAM_SORT_FIRST,
   type SortState, type TeamSortKey,
@@ -184,11 +185,12 @@ export default function TeamTable({ data, url, openDrawer }: SecurityViewProps) 
       style={{ scrollPaddingTop: TEAM_HEAD_H, scrollPaddingBottom: TEAM_ROW_H + (showFootnote ? TEAM_FOOTNOTE_H : 0) }}>
       <div className="sticky top-0 bg-chart-surface" style={{ zIndex: Z.pinnedRows }}>
         <div role="row" style={{ ...rowStyle, height: TEAM_BAND_H }}>
-          {/* A refresh of this same request failed: the rows stay, and the note fills the band row's empty first cell, so the Owning team
-              track caps its width (it is cut with "…", the error in its title) and nothing moves. */}
-          {view.refreshError
-            ? <div role="presentation" data-testid="team-table-refresh-note" className="min-w-0 truncate px-2 text-[11px] leading-6 text-red-400" title={view.refreshError}>{REFRESH_FAILED_NOTE}</div>
-            : <div role="presentation" />}
+          {/* A refresh of this same request failed: the rows stay, and the note fills the band row's first cell (it was an empty spacer), so
+              the Owning team track caps its width (the note is cut with "…", the error in its title) and nothing moves. A cell, so the live
+              note is something a row may contain. Live: the team table owns the announcement for the teamSummary request. */}
+          <div role="cell" className="min-w-0">
+            <RefreshNote error={view.refreshError} testId="team-table-refresh-note" live className="px-2 leading-6" />
+          </div>
           {band(GROUPS[0], nC)}
           <div role="presentation" />
           {band(GROUPS[1], nH)}

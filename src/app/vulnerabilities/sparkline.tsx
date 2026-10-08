@@ -8,7 +8,7 @@ import type { Severity } from '@/lib/vulnerabilities/types';
 import { diffDays } from '@/lib/vulnerabilities/time';
 import { toNum } from '@/components/charts/chart-format';
 import { SPARK_H } from './dimensions';
-import { REFRESH_FAILED_NOTE } from './slot-view';
+import RefreshNote from './refresh-note';
 import { displayDate } from './labels';
 import { SPARKLINE_DAYS } from './security-state';
 
@@ -87,7 +87,8 @@ export default function Sparkline({ points, sev, today, errorText = null, stale 
   // Own points are never thrown away for an error: "Trend unavailable" covers the slot only when there is no line to draw.
   const failed = !points && !!errorText;
   const refreshFailed = !!points && !!errorText;
-  const caption = failed ? errorText : refreshFailed ? REFRESH_FAILED_NOTE : model?.caption ?? null;
+  // A failed refresh keeps the caption line for its note (RefreshNote, drawn below); otherwise the line holds the caption or the error.
+  const caption = failed ? errorText : refreshFailed ? null : model?.caption ?? null;
   return (
     <div data-testid="sparkline" className={stale ? 'opacity-60' : undefined}>
       <div data-testid="sparkline-slot" className="relative text-gray-400" style={{ height: SPARK_H }}>
@@ -108,11 +109,14 @@ export default function Sparkline({ points, sev, today, errorText = null, stale 
         {failed && <span className="absolute inset-0 flex items-center text-[11px] text-gray-500">Trend unavailable</span>}
         {!points && !errorText && unavailableText && <span className="absolute inset-0 flex items-center text-[11px] text-gray-500">{unavailableText}</span>}
       </div>
+      {/* No aria-hidden here: the line holds the live note, which has to stay in the accessibility tree to be announced. */}
       <div
-        data-testid="sparkline-caption" aria-hidden={caption ? undefined : true}
-        className={`h-4 truncate text-[11px] leading-4 ${failed || refreshFailed ? 'text-red-400' : 'text-gray-500'}`} title={(refreshFailed ? errorText : caption) ?? undefined}
+        data-testid="sparkline-caption"
+        className={`h-4 truncate text-[11px] leading-4 ${failed ? 'text-red-400' : 'text-gray-500'}`} title={(refreshFailed ? errorText : caption) ?? undefined}
       >
-        {caption ?? '\u00a0'}
+        {refreshFailed ? null : (caption ?? '\u00a0')}
+        {/* Live: the sparkline owns the announcement for the sparkline request. */}
+        <RefreshNote error={refreshFailed ? errorText : null} testId="sparkline-refresh-note" live className="leading-4" />
       </div>
     </div>
   );

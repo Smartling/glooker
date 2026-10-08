@@ -40,28 +40,28 @@ describe('pageCount', () => {
 });
 
 describe('Pager', () => {
-  it('shows "Page X of Y" with Previous disabled on the first page and Next reporting page 2', () => {
+  it('shows "Page X of Y" with Previous aria-disabled on the first page and Next reporting page 2', () => {
     const onPage = jest.fn();
     render(<Pager page={1} pageSize={10} totalCount={26} onPage={onPage} />);
     expect(screen.getByText('Page 1 of 3')).toBeTruthy();
-    expect((screen.getByRole('button', { name: /Previous/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: /Previous/ }).getAttribute('aria-disabled')).toBe('true');
     fireEvent.click(screen.getByRole('button', { name: /Next/ }));
     expect(onPage).toHaveBeenCalledWith(2);
   });
 
-  it('Next is disabled on the last page and Previous reports the page before', () => {
+  it('Next is aria-disabled on the last page and Previous reports the page before', () => {
     const onPage = jest.fn();
     render(<Pager page={3} pageSize={10} totalCount={26} onPage={onPage} />);
-    expect((screen.getByRole('button', { name: /Next/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: /Next/ }).getAttribute('aria-disabled')).toBe('true');
     fireEvent.click(screen.getByRole('button', { name: /Previous/ }));
     expect(onPage).toHaveBeenCalledWith(2);
   });
 
-  it('an empty result is "Page 1 of 1" with both buttons disabled', () => {
+  it('an empty result is "Page 1 of 1" with both buttons aria-disabled', () => {
     render(<Pager page={1} pageSize={10} totalCount={0} onPage={jest.fn()} />);
     expect(screen.getByText('Page 1 of 1')).toBeTruthy();
-    expect((screen.getByRole('button', { name: /Previous/ }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole('button', { name: /Next/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: /Previous/ }).getAttribute('aria-disabled')).toBe('true');
+    expect(screen.getByRole('button', { name: /Next/ }).getAttribute('aria-disabled')).toBe('true');
   });
 
   it('a page number ahead of a shrunken result never reads "Page 4 of 3"', () => {
@@ -78,7 +78,7 @@ describe('Pager', () => {
     render(<Pager page={0} pageSize={10} totalCount={26} onPage={onPage} />);
     expect(screen.getByText('Page 1 of 3')).toBeTruthy();
     expect(screen.getByText(`1–10 of 26 alerts · ${NOTE}`)).toBeTruthy();
-    expect((screen.getByRole('button', { name: /Previous/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: /Previous/ }).getAttribute('aria-disabled')).toBe('true');
     fireEvent.click(screen.getByRole('button', { name: /Next/ }));
     expect(onPage).toHaveBeenCalledWith(2);
   });
@@ -127,14 +127,58 @@ describe('Pager', () => {
     expect(screen.getByTestId('alert-pager').className.split(/\s+/)).not.toContain('overflow-hidden');
   });
 
-  it('with no known count it is an aria-hidden blank, never a fake "0 alerts", and both buttons are disabled', () => {
+  it('with no known count the note is an aria-hidden blank, never a fake "0 alerts", and both buttons are aria-disabled', () => {
     render(<Pager page={1} pageSize={10} totalCount={null} onPage={jest.fn()} />);
     const pager = screen.getByTestId('alert-pager');
     expect(pager.textContent).not.toMatch(/alerts/);
     expect(pager.textContent).not.toMatch(/Page/);
-    expect(pager.querySelectorAll('[aria-hidden="true"]').length).toBe(2);
-    expect((screen.getByRole('button', { name: /Previous/ }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole('button', { name: /Next/ }) as HTMLButtonElement).disabled).toBe(true);
+    // The note is hidden; the page indicator is the live region, so it stays in the accessibility tree (a blank reads as nothing).
+    expect(pager.querySelectorAll('[aria-hidden="true"]').length).toBe(1);
+    expect(screen.getByTestId('alert-pager-page').getAttribute('aria-hidden')).toBeNull();
+    expect(screen.getByRole('button', { name: /Previous/ }).getAttribute('aria-disabled')).toBe('true');
+    expect(screen.getByRole('button', { name: /Next/ }).getAttribute('aria-disabled')).toBe('true');
+  });
+});
+
+describe('Pager buttons at the ends (B7)', () => {
+  // Revert: use the `disabled` attribute again: a click that lands on the last page disables the button under focus, and focus drops to <body>.
+  it('Previous and Next are aria-disabled, not disabled, so a focused button keeps focus when its click moves the page to an end', () => {
+    const { rerender } = render(<Pager page={2} pageSize={10} totalCount={26} onPage={jest.fn()} />);
+    const next = screen.getByRole('button', { name: /Next/ }) as HTMLButtonElement;
+    next.focus();
+    rerender(<Pager page={3} pageSize={10} totalCount={26} onPage={jest.fn()} />);
+    expect(screen.getByRole('button', { name: /Next/ })).toBe(next);
+    expect(next.disabled).toBe(false);
+    expect(next.getAttribute('aria-disabled')).toBe('true');
+    expect(document.activeElement).toBe(next);
+    expect((screen.getByRole('button', { name: /Previous/ }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  // Revert: call onPage without the guard.
+  it('a click on an aria-disabled button does nothing', () => {
+    const onPage = jest.fn();
+    const { rerender } = render(<Pager page={1} pageSize={10} totalCount={26} onPage={onPage} />);
+    fireEvent.click(screen.getByRole('button', { name: /Previous/ }));
+    rerender(<Pager page={3} pageSize={10} totalCount={26} onPage={onPage} />);
+    fireEvent.click(screen.getByRole('button', { name: /Next/ }));
+    rerender(<Pager page={1} pageSize={10} totalCount={null} onPage={onPage} />);
+    fireEvent.click(screen.getByRole('button', { name: /Previous/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Next/ }));
+    expect(onPage).not.toHaveBeenCalled();
+  });
+
+  it('an enabled button reads aria-disabled="false" and still pages', () => {
+    const onPage = jest.fn();
+    render(<Pager page={2} pageSize={10} totalCount={26} onPage={onPage} />);
+    expect(screen.getByRole('button', { name: /Previous/ }).getAttribute('aria-disabled')).toBe('false');
+    fireEvent.click(screen.getByRole('button', { name: /Previous/ }));
+    expect(onPage).toHaveBeenCalledWith(1);
+  });
+
+  // Revert: drop aria-live from the indicator.
+  it('"Page X of Y" is a polite live region, so a page change is announced', () => {
+    render(<Pager page={2} pageSize={10} totalCount={26} onPage={jest.fn()} />);
+    expect(screen.getByTestId('alert-pager-page').getAttribute('aria-live')).toBe('polite');
   });
 });
 

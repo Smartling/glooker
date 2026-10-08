@@ -73,9 +73,17 @@ describe('the plot box', () => {
     expect(screen.getByTestId('trend-plot').className).not.toContain('opacity-60');
   });
 
-  it('no refresh note while nothing has failed', () => {
+  it('the note slot is there, empty and live, while nothing has failed', () => {
     render(<TrendCard {...props()} />);
-    expect(screen.queryByTestId('trend-refresh-note')).toBeNull();
+    const note = screen.getByTestId('trend-refresh-note');
+    expect(note.textContent).toBe('');
+    expect(note.getAttribute('role')).toBe('status');
+  });
+
+  // Revert: pointer-events-none on the note: its title (the error text) can never show.
+  it('the note takes pointer events, so the error shows in its title', () => {
+    render(<TrendCard {...branches[6][1]} />);
+    expect(screen.getByTestId('trend-refresh-note').className).not.toContain('pointer-events-none');
   });
 
   // Revert: key the message on `!series` alone: "Loading…" forever for a request that already answered.

@@ -30,6 +30,12 @@ export const ALERT_LIST_H = ALERT_ROW_H * ALERT_PAGE_SIZE; // 560
  * so Previous and Next keep their place when the page count gains a digit. */
 export const PAGER_INDICATOR_W = 112;
 export const RAIL_W = 260;
+/**
+ * The rail footer's minimum height, border-box: its top border (1), vertical padding (2 × 10), the sort-note line (16), the gap (2)
+ * and room for the SLA note's longest wording, three 16px lines at the footer's 228px content width. The note's wording follows
+ * Severity, so a footer that grew and shrank with it would move the list's bottom edge.
+ */
+export const RAIL_FOOT_MIN_H = 1 + 2 * 10 + 16 + 2 + 3 * 16;
 
 // Drawer and header.
 export const DRAWER_W = 460;

@@ -30,13 +30,16 @@ export interface PagerProps {
   onPage: (page: number) => void;
 }
 
-const buttonClass = 'h-7 px-2.5 rounded-md bg-chart-surface text-xs whitespace-nowrap disabled:opacity-40 disabled:cursor-default';
+// aria-disabled, not `disabled`: a disabled button drops focus to the body when its own click moves the page to an end; this one keeps it.
+const buttonClass = 'h-7 px-2.5 rounded-md bg-chart-surface text-xs whitespace-nowrap aria-disabled:opacity-40 aria-disabled:cursor-default';
 
 export default function Pager({ page, pageSize, totalCount, onPage }: PagerProps) {
   const known = totalCount !== null;
   const pages = known ? pageCount(totalCount, pageSize) : 1;
   // While the page number is ahead of a shrunken result, the display never reads "Page 4 of 3".
   const shown = Math.min(Math.max(1, page), pages);
+  const atStart = !known || shown <= 1;
+  const atEnd = !known || shown >= pages;
   return (
     <div
       data-testid="alert-pager"
@@ -47,15 +50,15 @@ export default function Pager({ page, pageSize, totalCount, onPage }: PagerProps
         {known ? pagerText(shown, pageSize, totalCount) : '\u00a0'}
       </span>
       <div className="flex shrink-0 items-center gap-1.5">
-        <button type="button" className={`${buttonClass} text-gray-300`} disabled={!known || shown <= 1} onClick={() => onPage(shown - 1)}>
+        <button type="button" className={`${buttonClass} text-gray-300`} aria-disabled={atStart} onClick={() => { if (!atStart) onPage(shown - 1); }}>
           ‹ Previous
         </button>
         <span
           className="box-border px-1.5 text-center whitespace-nowrap tabular-nums"
           style={{ width: PAGER_INDICATOR_W }}
           data-testid="alert-pager-page"
-          aria-hidden={known ? undefined : true}>{known ? `Page ${shown} of ${pages}` : '\u00a0'}</span>
-        <button type="button" className={`${buttonClass} text-gray-300`} disabled={!known || shown >= pages} onClick={() => onPage(shown + 1)}>
+          aria-live="polite">{known ? `Page ${shown} of ${pages}` : '\u00a0'}</span>
+        <button type="button" className={`${buttonClass} text-gray-300`} aria-disabled={atEnd} onClick={() => { if (!atEnd) onPage(shown + 1); }}>
           Next ›
         </button>
       </div>

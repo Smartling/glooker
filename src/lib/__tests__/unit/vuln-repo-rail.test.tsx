@@ -3,8 +3,8 @@
 // The Alerts view's 260px repository rail: client re-sort, the SLA-gated OVERDUE figure, selection,
 // unmeasured rows, the wrapping footer note (one of the three fixes beyond the handoff).
 import { render, screen, fireEvent, within } from '@testing-library/react';
-import RepoRail, { railSlaNote, railStat, sortRailRows } from '@/app/vulnerabilities/repo-rail';
-import { RAIL_W } from '@/app/vulnerabilities/dimensions';
+import RepoRail, { railSlaNote, railSlaSegments, railStat, sortRailRows } from '@/app/vulnerabilities/repo-rail';
+import { RAIL_FOOT_MIN_H, RAIL_W } from '@/app/vulnerabilities/dimensions';
 import { unmeasuredReason } from '@/app/vulnerabilities/labels';
 import { REFRESH_FAILED_NOTE, UNAVAILABLE_TEXT } from '@/app/vulnerabilities/slot-view';
 import {
@@ -34,6 +34,8 @@ const REPO_ROWS_NO_CRIT = [
   repoRow('acme/ledger', 'Payments', { critical: cell({ open: 0 }), high: cell({ open: 4 }) }),
   repoRow('acme/audit-log', 'Platform', { critical: cell({ open: 0 }), high: cell({ open: 1 }) }),
 ];
+/** The footer note's text without the aria-hidden "!" mark that precedes an unreadable-policy segment. */
+const noteText = () => screen.getByTestId('rail-sla-note').textContent!.replace('! ', '');
 const railNames = () => screen.getAllByTestId('rail-row').map(el => el.getAttribute('data-repo'));
 const row = (name: string) => screen.getAllByTestId('rail-row').find(el => el.getAttribute('data-repo') === name)!;
 
@@ -333,7 +335,7 @@ describe('footer', () => {
   ])('critical %s, high %s: "%s"', (critical, high, expected) => {
     expect(railSlaNote(alSummary({ critical, high }))).toBe(expected);
     render(<RepoRail {...props({ summary: alSummary({ critical, high }) })} />);
-    expect(screen.getByTestId('rail-sla-note').textContent).toBe(expected);
+    expect(noteText()).toBe(expected);
   });
 
   // Revert: ignore Severity in railSlaNote (under "Critical only" the footer would still talk about high).
@@ -350,7 +352,7 @@ describe('footer', () => {
     const sla = alSummary({ critical, high });
     expect(railSlaNote(sla, severity as 'critical' | 'high')).toBe(expected);
     render(<RepoRail {...props({ summary: sla, urlOver: { severity } })} />);
-    expect(screen.getByTestId('rail-sla-note').textContent).toBe(expected);
+    expect(noteText()).toBe(expected);
   });
 });
 
@@ -359,6 +361,117 @@ describe('with the plain REPO_ROWS fixture', () => {
     render(<RepoRail {...props({ rows: REPO_ROWS, summary: alSummary({ critical: 'none', high: 'none' }) })} />);
     expect(railNames()).toEqual(['acme/checkout-api', 'acme/ledger', 'acme/search-index']);
     expect(screen.getAllByTestId('rail-unmeasured')).toHaveLength(1);
+  });
+});
+
+describe('an unreadable SLA policy in the footer note (B3)', () => {
+  const invalid = alSummary({ critical: 'invalid', high: 'invalid' });
+
+  // Revert: draw the whole note in one colour: either the explanation of the other states goes red, or this one stays grey.
+  it('only the "SLA policy can\'t be read" part is red and bold, with the aria-hidden "!" before it; "· no overdue counts" stays grey', () => {
+    render(<RepoRail {...props({ summary: invalid })} />);
+    const note = screen.getByTestId('rail-sla-note');
+    const red = note.querySelector('.text-red-400') as HTMLElement;
+    expect(red.className).toContain('font-bold');
+    expect(red.textContent).toBe("! SLA policy can't be read");
+    expect(red.querySelector('[aria-hidden="true"]')?.textContent).toBe('!');
+    expect(note.textContent).toBe("! SLA policy can't be read · no overdue counts");
+    expect(note.querySelectorAll('.text-red-400')).toHaveLength(1);
+  });
+
+  it.each<[AlSlaKind, AlSlaKind]>([['active', 'active'], ['none', 'none'], ['pending', 'pending'], ['active', 'pending'], ['pending', 'none']])(
+    'critical %s, high %s: nothing in the note is red and there is no "!" mark', (critical, high) => {
+      render(<RepoRail {...props({ summary: alSummary({ critical, high }) })} />);
+      const note = screen.getByTestId('rail-sla-note');
+      expect(note.querySelector('.text-red-400')).toBeNull();
+      expect(note.querySelector('[aria-hidden="true"]')).toBeNull();
+    });
+
+  it('railSlaSegments flags exactly the unreadable-policy segment, and railSlaNote is the segments joined', () => {
+    expect(railSlaSegments(invalid)).toEqual([{ text: "SLA policy can't be read", invalid: true }, { text: ' · no overdue counts' }]);
+    expect(railSlaSegments(alSummary({ critical: 'active', high: 'pending' }))).toEqual([
+      { text: 'Overdue counts critical only · high: ' }, { text: 'SLA starts Feb 1, 2099', invalid: false },
+    ]);
+    expect(railSlaNote(invalid, 'high')).toBe("SLA policy can't be read · no overdue counts");
+    expect(railSlaSegments(invalid, 'high').filter(x => x.invalid)).toHaveLength(1);
+  });
+});
+
+describe('titles, numerals and the footer height (B8, B10, B13)', () => {
+  // Revert: drop the titles on a truncating line.
+  it('every truncating line in a row carries its full text: name, counts, owning team, the All row and the unmeasured row', () => {
+    render(<RepoRail {...props()} />);
+    const r = row('acme/billing-worker');
+    expect(within(r).getByText('acme/billing-worker').getAttribute('title')).toBe('acme/billing-worker');
+    expect(within(r).getByTestId('rail-counts').getAttribute('title')).toBe('2 crit · 1 high open');
+    expect(within(r).getByText('Owning team: Payments').getAttribute('title')).toBe('Owning team: Payments');
+    const all = screen.getByTestId('rail-all');
+    expect(within(all).getByText('All repositories').getAttribute('title')).toBe('All repositories');
+    expect(within(all).getByText('25 crit · 14 high open').getAttribute('title')).toBe('25 crit · 14 high open');
+    for (const el of screen.getAllByTestId('rail-unmeasured')) {
+      const repo = el.getAttribute('data-repo')!;
+      const reason = el.querySelector('.uppercase')!.textContent!.replace(/^Unmeasured · /, '');
+      expect(el.getAttribute('title')).toBe(`${repo} · ${reason}`);
+    }
+  });
+
+  it('with a team filter the All row\'s title is its "All <team> repositories" label', () => {
+    render(<RepoRail {...props({ urlOver: { team: 'Payments' } })} />);
+    expect(within(screen.getByTestId('rail-all')).getByText('All Payments repositories').getAttribute('title')).toBe('All Payments repositories');
+  });
+
+  // Revert: keep "Show all repositories" as the selected row's title: the truncated name cannot be read.
+  it('the selected row\'s title is its full name and "Show all repositories" moves to its accessible name; other rows say what a click does', () => {
+    render(<RepoRail {...props({ effectiveRepo: 'acme/audit-log' })} />);
+    const sel = row('acme/audit-log');
+    expect(sel.getAttribute('title')).toBe('acme/audit-log');
+    expect(sel.getAttribute('aria-label')).toBe('Show all repositories');
+    expect(screen.getByRole('button', { name: 'Show all repositories' })).toBe(sel);
+    expect(row('acme/zeta-jobs').getAttribute('title')).toBe('Show acme/zeta-jobs alerts');
+    expect(row('acme/zeta-jobs').getAttribute('aria-label')).toBeNull();
+  });
+
+  // Revert: drop tabular-nums from a count.
+  it('the counts line and the OVERDUE figure use tabular numerals, in the rows and the All row', () => {
+    render(<RepoRail {...props()} />);
+    const r = row('acme/checkout-api');
+    expect(within(r).getByTestId('rail-counts').className).toContain('tabular-nums');
+    expect(within(r).getByTestId('rail-overdue').className).toContain('tabular-nums');
+    expect(within(screen.getByTestId('rail-all')).getByText('25 crit · 14 high open').className).toContain('tabular-nums');
+  });
+
+  // Revert: drop the minHeight: a wording of one or two lines shrinks the footer, and the list's bottom edge moves with Severity.
+  it('the footer has the one minimum height for its longest wording, whatever Severity says', () => {
+    const heights: string[] = [];
+    for (const severity of ['both', 'critical', 'high']) {
+      const { unmount } = render(<RepoRail {...props({ summary: alSummary({ critical: 'active', high: 'active' }), urlOver: { severity } })} />);
+      heights.push(screen.getByTestId('rail-foot').style.minHeight);
+      unmount();
+    }
+    expect(new Set(heights)).toEqual(new Set([`${RAIL_FOOT_MIN_H}px`]));
+  });
+
+  it('RAIL_FOOT_MIN_H is the border, the padding, the sort line, the gap and three 16px lines', () => {
+    expect(RAIL_FOOT_MIN_H).toBe(1 + 20 + 16 + 2 + 48);
+  });
+
+  it('the list keeps a top padding, so the All row\'s focus ring is not cut by the scroller, and the header gives that room back', () => {
+    render(<RepoRail {...props()} />);
+    expect(screen.getByTestId('rail-list').className.split(/\s+/)).toContain('pt-1');
+    expect(screen.getByTestId('rail-note-slot').closest('[class*="pb-1.5"]')).not.toBeNull();
+  });
+});
+
+describe('the refresh note is silent here (B12)', () => {
+  // Revert: make the rail's note live: the same failure of the repos slot is announced by the strip and again by the rail.
+  it('has no live role: the strip announces a failed refresh of the repos slot', () => {
+    render(<RepoRail {...props({ repos: slot(reposFixture(AL_RAIL_ROWS), { errorText: 'x', error: new Error('x') }) })} />);
+    const note = screen.getByTestId('rail-refresh-note');
+    expect(note.getAttribute('role')).toBeNull();
+    expect(note.getAttribute('title')).toBe('x');
+    expect(note.className).toContain('text-xs');
+    expect(note.className).toContain('truncate');
+    expect(screen.queryAllByRole('status')).toHaveLength(0);
   });
 });
 
@@ -384,7 +497,7 @@ describe('slot view (the standing slot-view rule)', () => {
     render(<RepoRail {...withSlot(slot(reposFixture(AL_RAIL_ROWS), { stale: true, loading: false }))} />);
     expect(railNames()).toHaveLength(6);
     expect(screen.getByTestId('rail-list').style.opacity).toBe('0.6');
-    expect(screen.queryByTestId('rail-refresh-note')).toBeNull();
+    expect(screen.getByTestId('rail-refresh-note').textContent).toBe('');
   });
 
   it('a fresh slot is not dimmed', () => {
@@ -407,7 +520,8 @@ describe('slot view (the standing slot-view rule)', () => {
     const { rerender } = render(<RepoRail {...props()} />);
     const reserved = screen.getByTestId('rail-note-slot');
     expect(reserved.className).toContain('h-4');
-    expect(reserved.children).toHaveLength(0);
+    expect(reserved.children).toHaveLength(1);                          // the always-rendered, empty note
+    expect(screen.getByTestId('rail-refresh-note').textContent).toBe('');
     expect(screen.getByTestId('rail-list').contains(reserved)).toBe(false);
     rerender(<RepoRail {...withSlot(slot(reposFixture(AL_RAIL_ROWS), { errorText: 'x' }))} />);
     expect(screen.getByTestId('rail-note-slot')).toBe(reserved);

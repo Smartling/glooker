@@ -46,6 +46,8 @@ function props(opts: {
   };
 }
 const rowsArea = () => screen.getByTestId('alert-list-rows');
+/** The advisory id of a row: the link's visible text (its accessible name also carries "(opens in a new tab)"). */
+const idOf = (row: HTMLElement) => within(row).getByRole('link').firstChild!.textContent;
 const button = (name: string | RegExp) => screen.getByRole('button', { name });
 
 /** The real controller wired into the list, so behaviour that lives in useAlertList shows through the UI. */
@@ -151,7 +153,7 @@ describe('rows', () => {
     render(<AlertList {...props({ rows: [AL_OVERDUE_ROW] })} />);
     const row = screen.getByTestId('alert-row');
     expect(within(row).getByText('CRIT')).toBeTruthy();
-    const link = within(row).getByRole('link', { name: 'CVE-2026-43102' }) as HTMLAnchorElement;
+    const link = within(row).getByRole('link', { name: 'CVE-2026-43102 (opens in a new tab)' }) as HTMLAnchorElement;
     expect(link.getAttribute('href')).toBe(AL_OVERDUE_ROW.htmlUrl);
     expect(link.target).toBe('_blank');
     expect(link.rel).toContain('noreferrer');
@@ -174,7 +176,7 @@ describe('rows', () => {
   it('renders rows in the order the server sent them, whatever the active sort (the server sorts, the client does not)', () => {
     const rows = [alAlertRow(3, { ageDays: 5 }), alAlertRow(1, { ageDays: 90 }), alAlertRow(2, { ageDays: 40 })];
     render(<AlertList {...props({ rows, list: { sort: { key: 'age', dir: 'desc' } } })} />);
-    const ids = screen.getAllByTestId('alert-row').map(r => within(r).getByRole('link').textContent);
+    const ids = screen.getAllByTestId('alert-row').map(idOf);
     expect(ids).toEqual(['CVE-2026-1003', 'CVE-2026-1001', 'CVE-2026-1002']);
   });
 
@@ -213,7 +215,7 @@ describe('rows', () => {
 
   it('falls back from the CVE id to the GHSA id', () => {
     render(<AlertList {...props({ rows: [alAlertRow(1, { cveId: null, ghsaId: 'GHSA-p3vc-6q8r-22jw' })] })} />);
-    expect(screen.getByRole('link', { name: 'GHSA-p3vc-6q8r-22jw' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'GHSA-p3vc-6q8r-22jw (opens in a new tab)' })).toBeTruthy();
   });
 
   it('the first row is the same DOM node across a rerender with different rows (rows are keyed by position)', () => {
@@ -237,7 +239,7 @@ describe('State column: line 1 is short, the dates ride in titles, line 2 is the
   // Revert: put "↺ reopened {date}" back in the visible text (it was cut to "open · ↺ reopen…").
   it('an open alert that was reopened reads "open ↺"; the glyph carries the date in its aria-label and the cell in its title', () => {
     render(<AlertList {...props({ rows: [alAlertRow(1, { reopenedCount: 2, lastReopenedAt: '2026-08-14T10:30:00Z' })] })} />);
-    expect(state().textContent).toBe('open↺');
+    expect(state().textContent).toBe('open');
     const glyph = screen.getByTestId('alert-reopened');
     expect(glyph.textContent).toBe('↺');
     expect(glyph.getAttribute('aria-label')).toBe('reopened Aug 14');
@@ -248,7 +250,7 @@ describe('State column: line 1 is short, the dates ride in titles, line 2 is the
 
   it('a reopened alert with no recorded date still shows the glyph, and its label says only "reopened"', () => {
     render(<AlertList {...props({ rows: [alAlertRow(1, { reopenedCount: 1, lastReopenedAt: null })] })} />);
-    expect(state().textContent).toBe('open↺');
+    expect(state().textContent).toBe('open');
     expect(screen.getByTestId('alert-reopened').getAttribute('aria-label')).toBe('reopened');
     expect(state().getAttribute('title')).toBe('open · reopened');
   });
@@ -262,14 +264,14 @@ describe('State column: line 1 is short, the dates ride in titles, line 2 is the
   // Revert: print the resolved date or the state word in the visible line again.
   it('a resolved alert reads "resolved · <reason>" (no date on screen), with the dates in the title, and the glyph when it was reopened', () => {
     render(<AlertList {...props({ rows: [AL_RESOLVED_ROW] })} />);
-    expect(state().textContent).toBe('resolved · fixed↺');
+    expect(state().textContent).toBe('resolved · fixed');
     expect(state().getAttribute('title')).toBe('fixed, resolved 2026-09-03 · reopened, last on 2026-08-14');
     expect(screen.getByTestId('alert-reopened').getAttribute('aria-label')).toBe('reopened Aug 14');
   });
 
   it('a dismissed alert reads "resolved · <its reason>", truncating at the cell edge, and names the dismissal and its date in the title', () => {
     render(<AlertList {...props({ rows: [alAlertRow(1, { state: 'dismissed', dismissedReason: 'no_bandwidth', resolvedAt: '2026-09-03T08:00:00Z', dueDate: null, daysRemaining: null })] })} />);
-    expect(state().textContent).toBe('resolved · no_bandwidth');
+    expect(state().textContent).toBe('resolved · no bandwidth');   // the API token reads as words
     expect(state().className).toContain('truncate');
     expect(state().getAttribute('title')).toBe('dismissed (no_bandwidth), resolved 2026-09-03');
   });
@@ -387,10 +389,20 @@ describe('Overdue and Due ≤ 7d toggles: disabled with a hint while no SLA is a
     expect(button('Overdue').getAttribute('aria-pressed')).toBe('false');
   });
 
-  it('Resolved disables both time toggles without printing an SLA hint', () => {
+  // Revert: show the SLA hint only (`slaHint`): under Resolved the toolbar says nothing about why the toggles are off.
+  it('Resolved disables both time toggles, and the toolbar hint says why in the toggles\' own words (grey, never an SLA state)', () => {
     render(<AlertList {...props({ list: { status: 'resolved' } })} />);
     for (const t of timeToggles()) { expect(t.disabled).toBe(true); expect(t.title).toBe('Resolved alerts have no due date'); }
-    expect(screen.queryByTestId('alert-sla-hint')).toBeNull();
+    const hint = screen.getByTestId('alert-sla-hint');
+    expect(hint.textContent).toBe('Resolved alerts have no due date');
+    expect(hint.getAttribute('title')).toBe('Resolved alerts have no due date');
+    expect(hint.className).toContain('text-gray-500');
+  });
+
+  it('Resolved wins over an SLA state in the hint: with no SLA yet it still says "no due date", not "no SLA policy yet"', () => {
+    render(<AlertList {...props({ list: { status: 'resolved' }, summary: alSummary({ critical: 'invalid', high: 'invalid' }) })} />);
+    expect(screen.getByTestId('alert-sla-hint').textContent).toBe('Resolved alerts have no due date');
+    expect(screen.getByTestId('alert-sla-hint').className).not.toContain('text-red-400');
   });
 
   it('active toggles call their handlers', () => {
@@ -748,9 +760,9 @@ describe('stale, loading and error', () => {
     expect(screen.getByTestId('alert-pager').textContent).toContain('1–3 of 3 alerts');
   });
 
-  it('with no failed refresh there is no note, and the second toolbar row is the same fixed height either way', () => {
+  it('with no failed refresh the note slot is empty, and the second toolbar row is the same fixed height either way', () => {
     const { rerender } = render(<AlertList {...props()} />);
-    expect(screen.queryByTestId('alert-refresh-note')).toBeNull();
+    expect(screen.getByTestId('alert-refresh-note').textContent).toBe('');
     const row2 = screen.getByTestId('alert-toolbar-row2');
     expect(row2.style.height).toBe('32px');
     rerender(<AlertList {...props({ alerts: slot(alertsFixture(alAlertRows(10), 10), { error: new Error('x'), errorText: "Couldn't load alerts: x" }) })} />);
@@ -863,6 +875,156 @@ describe('toolbar content', () => {
     expect(button('Reopened').getAttribute('aria-pressed')).toBe('true');
     expect(button('Runtime only').getAttribute('aria-pressed')).toBe('true');
     expect(button('Overdue').getAttribute('aria-pressed')).toBe('false');
+  });
+});
+
+describe('table semantics (B1)', () => {
+  // Revert: drop role="table" (or the rowgroups, rows or cells): the list is a pile of divs to a screen reader.
+  it('the header and the rows form one table named "Alerts": a rowgroup of header cells, a rowgroup of rows of six cells', () => {
+    render(<AlertList {...props({ rows: alAlertRows(3) })} />);
+    const table = screen.getByRole('table', { name: 'Alerts' });
+    const groups = within(table).getAllByRole('rowgroup');
+    expect(groups).toHaveLength(2);
+    // Header: one row of six column headers, each with its sort state.
+    const head = within(groups[0]).getAllByRole('row');
+    expect(head).toHaveLength(1);
+    expect(head[0]).toBe(screen.getByTestId('alert-list-head'));
+    const heads = within(head[0]).getAllByRole('columnheader');
+    expect(heads).toHaveLength(6);
+    for (const h of heads) expect(h.getAttribute('aria-sort')).toMatch(/^(none|ascending|descending)$/);
+    // Body: the rows container is the second rowgroup, each row has six cells.
+    expect(groups[1]).toBe(rowsArea());
+    const rows = within(groups[1]).getAllByRole('row');
+    expect(rows).toHaveLength(3);
+    for (const r of rows) expect(within(r).getAllByRole('cell')).toHaveLength(6);
+  });
+
+  it('the wrapper keeps the column\'s gap between the header and the rows, so the 776px card still adds up', () => {
+    render(<AlertList {...props()} />);
+    const table = screen.getByRole('table', { name: 'Alerts' });
+    expect(table.style.gap).toBe('12px');
+    expect(table.contains(screen.getByTestId('alert-list-head'))).toBe(true);
+    expect(table.contains(rowsArea())).toBe(true);
+    expect(table.contains(screen.getByTestId('alert-pager'))).toBe(false);
+  });
+
+  it('the Sev header, whose label is an abbreviation, names what it sorts by in its title', () => {
+    render(<AlertList {...props()} />);
+    expect(screen.getByTestId('sort-severity').getAttribute('title')).toBe('Sort by severity');
+  });
+
+  // Revert: drop the sr-only suffix: a link that opens a new tab says nothing about it to a screen reader.
+  it('the advisory link announces that it opens in a new tab, in text a sighted user never sees', () => {
+    render(<AlertList {...props({ rows: [alAlertRow(1)] })} />);
+    const link = screen.getByRole('link', { name: 'CVE-2026-1001 (opens in a new tab)' });
+    const hidden = link.querySelector('.sr-only');
+    expect(hidden?.textContent).toBe(' (opens in a new tab)');
+  });
+});
+
+describe('State cell: the reopened glyph is outside the truncating text (B4)', () => {
+  // Revert: put the glyph back inside the truncating span: a long "resolved · …" is cut and takes the glyph with it.
+  it('the glyph is a sibling of the truncating text, shrink-0, so it shows however long the reason is', () => {
+    render(<AlertList {...props({ rows: [alAlertRow(1, { state: 'dismissed', dismissedReason: 'a_very_long_dismissal_reason_indeed', resolvedAt: '2026-09-03T08:00:00Z', dueDate: null, daysRemaining: null, reopenedCount: 1, lastReopenedAt: '2026-08-14T10:30:00Z' })] })} />);
+    const text = screen.getByTestId('alert-state');
+    const glyph = screen.getByTestId('alert-reopened');
+    expect(text.className).toContain('truncate');
+    expect(text.contains(glyph)).toBe(false);
+    expect(glyph.className).toContain('shrink-0');
+    expect(glyph.parentElement).toBe(text.parentElement);
+    // The dates stay in the title and the aria-label.
+    expect(glyph.getAttribute('aria-label')).toBe('reopened Aug 14');
+    expect(text.getAttribute('title')).toContain('reopened');
+  });
+
+  it('the scope under the state carries its text as a title', () => {
+    render(<AlertList {...props({ rows: [alAlertRow(1, { scope: 'development' })] })} />);
+    expect(screen.getByText('development').getAttribute('title')).toBe('development');
+  });
+
+  // Revert: render the reason as it comes from the API.
+  it.each([['auto_dismissed', 'auto dismissed'], ['no_bandwidth', 'no bandwidth'], ['tolerable_risk', 'tolerable risk'], ['fix_started', 'fix started']])(
+    'the dismissal reason "%s" reads "resolved · %s"', (reason, words) => {
+      render(<AlertList {...props({ rows: [alAlertRow(1, { state: 'dismissed', dismissedReason: reason, dueDate: null, daysRemaining: null })] })} />);
+      expect(screen.getByTestId('alert-state').textContent).toBe(`resolved · ${words}`);
+    });
+});
+
+describe('titles on truncating header text (B8)', () => {
+  // Revert: drop the titles on the header's label and second line.
+  it('each header\'s label and second line carry their text as a title', () => {
+    render(<AlertList {...props()} />);
+    const head = screen.getByTestId('alert-list-head');
+    for (const [label, sub] of [['Advisory', 'CVSS · package'], ['Repository', 'owning team'], ['State', 'scope']]) {
+      expect(within(head).getByText(label).getAttribute('title')).toBe(label);
+      expect(within(head).getByText(sub).getAttribute('title')).toBe(sub);
+    }
+    expect(within(head).getByText('Age').getAttribute('title')).toBe('Age');
+  });
+});
+
+describe('an unreadable SLA policy is red wherever the list says it (B3)', () => {
+  const invalid = alSummary({ critical: 'invalid', high: 'invalid' });
+  const markIn = (el: HTMLElement) => el.parentElement!.querySelector('[aria-hidden="true"]');
+
+  // Revert: draw the hint grey for every state.
+  it('the toolbar hint is bold red with the aria-hidden "!" beside it; any other state stays grey with no mark', () => {
+    const { unmount } = render(<AlertList {...props({ summary: invalid })} />);
+    const hint = screen.getByTestId('alert-sla-hint');
+    expect(hint.textContent).toBe("SLA policy can't be read");
+    expect(hint.className).toContain('text-red-400');
+    expect(hint.className).toContain('font-bold');
+    expect(hint.className).not.toContain('text-gray-500');
+    expect(markIn(hint)?.textContent).toBe('!');
+    unmount();
+    render(<AlertList {...props({ summary: alSummary({ critical: 'none', high: 'none' }) })} />);
+    const grey = screen.getByTestId('alert-sla-hint');
+    expect(grey.className).toContain('text-gray-500');
+    expect(grey.className).not.toContain('text-red-400');
+    expect(markIn(grey)).toBeNull();
+  });
+
+  // Revert: keep the Due sub-line grey for the invalid state.
+  it('an open alert\'s Due sub-line is bold red with the "!" mark; with a readable policy it stays grey', () => {
+    const { unmount } = render(<AlertList {...props({ summary: invalid, rows: [alAlertRow(1, { dueDate: null, daysRemaining: null })] })} />);
+    const sub = screen.getByTestId('alert-due-sub');
+    expect(sub.textContent).toBe("SLA policy can't be read");
+    expect(sub.className).toContain('text-red-400');
+    expect(sub.className).toContain('font-bold');
+    expect(markIn(sub)?.textContent).toBe('!');
+    unmount();
+    render(<AlertList {...props({ summary: alSummary({ critical: 'pending', high: 'pending' }), rows: [alAlertRow(1, { dueDate: null, daysRemaining: null })] })} />);
+    const grey = screen.getByTestId('alert-due-sub');
+    expect(grey.className).not.toContain('text-red-400');
+    expect(markIn(grey)).toBeNull();
+  });
+});
+
+describe('the refresh note (B12)', () => {
+  // Revert: render the note only while the refresh has failed (a conditional mount): a screen reader misses it.
+  it('is a live region that is in the page before it has text, and carries the error in its title', () => {
+    const { rerender } = render(<AlertList {...props()} />);
+    const note = screen.getByTestId('alert-refresh-note');
+    expect(note.getAttribute('role')).toBe('status');
+    expect(note.textContent).toBe('');
+    rerender(<AlertList {...props({ alerts: slot(alertsFixture(alAlertRows(10), 10), { error: new Error('x'), errorText: "Couldn't load alerts: x" }) })} />);
+    expect(screen.getByTestId('alert-refresh-note')).toBe(note);
+    expect(note.textContent).toBe(REFRESH_FAILED_NOTE);
+    expect(note.getAttribute('title')).toBe("Couldn't load alerts: x");
+    expect(note.className).toContain('text-xs');
+    expect(note.className).toContain('truncate');
+  });
+});
+
+describe('toolbar focus (B6)', () => {
+  // Revert: overflow-hidden on the toggle row: the toggles' focus rings are cut at the row's edge.
+  it('the toggle row clips only sideways, so a focus ring is not cut above or below', () => {
+    render(<AlertList {...props()} />);
+    const row2 = screen.getByTestId('alert-toolbar-row2');
+    const cls = row2.className.split(/\s+/);
+    expect(cls).toContain('overflow-x-clip');
+    expect(cls).not.toContain('overflow-hidden');
+    expect(row2.style.height).toBe('32px');
   });
 });
 

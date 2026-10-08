@@ -156,11 +156,35 @@ describe('Sparkline component', () => {
     expect(screen.queryByText('Trend unavailable')).toBeNull();
     const cap = screen.getByTestId('sparkline-caption');
     expect(cap.textContent).toBe("Couldn't refresh · showing last load");
-    expect(cap.className).toContain('text-red-400');
+    const note = screen.getByTestId('sparkline-refresh-note');
+    expect(cap.contains(note)).toBe(true);
+    expect(note.className).toContain('text-red-400');
+    expect(note.getAttribute('title')).toBe("Couldn't load trend: HTTP 500");
     expect(cap.getAttribute('title')).toBe("Couldn't load trend: HTTP 500");
     rerender(<Sparkline points={undefined} sev="critical" today={TODAY} errorText="Couldn't load trend: HTTP 500" />);
     expect(container.querySelectorAll('polyline')).toHaveLength(0);
     expect(screen.getByText('Trend unavailable')).toBeTruthy();
+  });
+
+  // Revert: mount the note only while the refresh has failed, or leave the caption aria-hidden around it.
+  it('the refresh note is a live region that is in the page, empty, before any failure, and owns the sparkline request\'s announcement', () => {
+    const { rerender } = render(<Sparkline points={LINE} sev="critical" today={TODAY} />);
+    const note = screen.getByTestId('sparkline-refresh-note');
+    expect(note.getAttribute('role')).toBe('status');
+    expect(note.textContent).toBe('');
+    rerender(<Sparkline points={LINE} sev="critical" today={TODAY} errorText="Couldn't load trend: HTTP 500" />);
+    expect(screen.getByTestId('sparkline-refresh-note')).toBe(note);
+    expect(note.textContent).toBe("Couldn't refresh · showing last load");
+    expect(note.className).toContain('text-xs');
+    expect(note.className).toContain('truncate');
+    // With a failed refresh the caption's own text gives the line to the note.
+    expect(screen.getByTestId('sparkline-caption').textContent).toBe("Couldn't refresh · showing last load");
+  });
+
+  it('a failure with no points is the error itself in the caption (not the refresh note), and keeps the 16px line', () => {
+    render(<Sparkline points={undefined} sev="critical" today={TODAY} errorText="Couldn't load trend: HTTP 500" />);
+    expect(screen.getByTestId('sparkline-refresh-note').textContent).toBe('');
+    expect(screen.getByTestId('sparkline-caption').className).toContain('h-4');
   });
 
   // Revert: drop the dim.
@@ -178,11 +202,12 @@ describe('Sparkline component', () => {
     expect(screen.getByTestId('sparkline-caption').className).toContain('h-4');
   });
 
-  it('while loading the caption is an aria-hidden non-breaking space; after an error it shows the message in red', () => {
+  it('while loading the caption is a non-breaking space; after an error it shows the message in red', () => {
     const { rerender } = render(<Sparkline points={undefined} sev="critical" today={TODAY} />);
     const cap = screen.getByTestId('sparkline-caption');
     expect(cap.textContent).toBe('\u00a0');
-    expect(cap.getAttribute('aria-hidden')).toBe('true');
+    // Not aria-hidden: the line also holds the live refresh note, which has to stay in the accessibility tree.
+    expect(cap.getAttribute('aria-hidden')).toBeNull();
     rerender(<Sparkline points={undefined} sev="critical" today={TODAY} errorText="Couldn't load trend: HTTP 500" />);
     expect(screen.getByTestId('sparkline-caption').textContent).toBe("Couldn't load trend: HTTP 500");
     expect(screen.getByTestId('sparkline-caption').className).toContain('text-red-400');

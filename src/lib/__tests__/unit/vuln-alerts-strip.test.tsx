@@ -143,10 +143,21 @@ describe('scope label and title', () => {
     expect(text('strip-title')).toBe('Payments · all repositories');
   });
 
-  it('a repository: "Repository · owning team <team>" over the repository name', () => {
+  // Revert: print "owning team" in the visible kind line again: the fixed 176px column cuts it ("REPOSITORY · OWNING TEAM PAYM…").
+  it('a repository: "Repository · <team>" over the repository name, with the full sentence in the kind line\'s title', () => {
     render(<AlertsStrip {...props({ effectiveRepo: 'acme/audit-log', urlOver: { repo: 'acme/audit-log' } })} />);
-    expect(text('strip-kind')).toBe('Repository · owning team Platform');
+    expect(text('strip-kind')).toBe('Repository · Platform');
+    expect(screen.getByTestId('strip-kind').getAttribute('title')).toBe('Repository · owning team Platform');
     expect(text('strip-title')).toBe('acme/audit-log');
+  });
+
+  it('the other kind lines carry themselves as their title, and the title column stays at its fixed width for every one', () => {
+    for (const [p, kind] of [[props(), 'All owning teams'], [props({ urlOver: { team: 'Payments' } }), 'Owning team']] as const) {
+      const { unmount } = render(<AlertsStrip {...p} />);
+      expect(screen.getByTestId('strip-kind').getAttribute('title')).toBe(kind);
+      expect(screen.getByTestId('strip-title-col').style.width).toBe(`${ALERTS_STRIP_TITLE_W}px`);
+      unmount();
+    }
   });
 });
 
@@ -305,6 +316,41 @@ describe('figure slots and unclipped SLA labels', () => {
   });
 });
 
+describe('unreadable policy, numerals and the refresh note (B3, B10, B12)', () => {
+  // Revert: replace the shared mark with nothing: the strip's red "SLA policy can't be read" rests on colour alone.
+  it('the "!" mark is aria-hidden and sits in the tail, beside the words', () => {
+    render(<AlertsStrip {...props({ summary: alSummary({ critical: 'invalid', high: 'invalid' }) })} />);
+    for (const sev of ['critical', 'high']) {
+      const mark = screen.getByTestId(`strip-${sev}-tail`).querySelector('[aria-hidden="true"]') as HTMLElement;
+      expect(mark.textContent).toBe('!');
+      expect(mark.className).toContain('bg-red-400');
+    }
+  });
+
+  // Revert: drop tabular-nums from the open figure or the tail.
+  it('the open figure and the overdue tail use tabular numerals', () => {
+    render(<AlertsStrip {...props()} />);
+    for (const sev of ['critical', 'high']) {
+      expect(screen.getByTestId(`strip-${sev}-open`).className).toContain('tabular-nums');
+      expect(screen.getByTestId(`strip-${sev}-tail`).className).toContain('tabular-nums');
+    }
+  });
+
+  // Revert: make the note live in the rail as well, or drop role="status" here: one failure of the repos slot is announced twice or never.
+  it('the strip owns the announcement for the repos slot: its note is a live region, present and empty before the failure', () => {
+    const { rerender } = render(<AlertsStrip {...props()} />);
+    const note = screen.getByTestId('strip-refresh-note');
+    expect(note.getAttribute('role')).toBe('status');
+    expect(note.textContent).toBe('');
+    rerender(<AlertsStrip {...props({ data: { repos: slot(reposFixture(AL_RAIL_ROWS), { errorText: "Couldn't load repositories: boom", error: new Error('boom') }) } })} />);
+    expect(screen.getByTestId('strip-refresh-note')).toBe(note);
+    expect(note.textContent).toBe(REFRESH_FAILED_NOTE);
+    expect(note.getAttribute('title')).toBe("Couldn't load repositories: boom");
+    expect(note.className).toContain('text-xs');
+    expect(note.className).toContain('truncate');
+  });
+});
+
 describe('fixed height', () => {
   it.each([
     ['populated', props()],
@@ -334,7 +380,7 @@ describe('slot-view rule', () => {
     render(<AlertsStrip {...withSlot(slot(reposFixture(AL_RAIL_ROWS), { stale: true, loading: false }))} />);
     expect(text('strip-critical-open')).toBe('25');
     expect(screen.getByTestId('strip-figures').style.opacity).toBe('0.6');
-    expect(screen.queryByTestId('strip-refresh-note')).toBeNull();
+    expect(text('strip-refresh-note')).toBe('');
   });
 
   it('a fresh slot is not dimmed', () => {
@@ -358,7 +404,8 @@ describe('slot-view rule', () => {
     const { rerender } = render(<AlertsStrip {...props()} />);
     const spacer = screen.getByTestId('strip-note-slot');
     expect(spacer.className).toContain('flex-1');
-    expect(spacer.children).toHaveLength(0);
+    expect(spacer.children).toHaveLength(1);                         // the note element is always there, empty
+    expect(text('strip-refresh-note')).toBe('');
     rerender(<AlertsStrip {...withSlot(slot(reposFixture(AL_RAIL_ROWS), { errorText: 'x' }))} />);
     expect(screen.getByTestId('strip-note-slot')).toBe(spacer);
     expect(screen.getByTestId('strip-refresh-note').parentElement).toBe(spacer);

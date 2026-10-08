@@ -10,7 +10,8 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } f
 import { toNum } from '@/components/charts/chart-format';
 import type { SecurityViewProps } from './view-props';
 import { dash } from './format';
-import { REFRESH_FAILED_NOTE, slotView } from './slot-view';
+import { slotView } from './slot-view';
+import RefreshNote from './refresh-note';
 import type { TrendRange } from './security-state';
 import { TREND_PLOT_H, TYPE } from './dimensions';
 import { displayDate, utcToday } from './labels';
@@ -103,9 +104,8 @@ export default function TrendCard({ summary, data, url }: SecurityViewProps) {
           {view.kind === 'error' && <p className="flex h-full items-center justify-center text-xs text-red-400">{view.text}</p>}
           {view.kind === 'loading' && <p className="flex h-full items-center justify-center text-xs text-gray-500">Loading…</p>}
           {view.kind === 'unavailable' && <p data-testid="trend-unavailable" className="flex h-full items-center justify-center text-xs text-gray-500" title={view.title}>{view.text}</p>}
-          {view.kind === 'data' && view.refreshError && (
-            <p data-testid="trend-refresh-note" className="pointer-events-none absolute right-3 top-0 text-xs text-red-400" title={view.refreshError}>{REFRESH_FAILED_NOTE}</p>
-          )}
+          {/* Live: the trend card owns the announcement for the trend request. Pointer events stay on, so the error shows in its title. */}
+          <RefreshNote error={view.kind === 'data' ? view.refreshError : null} testId="trend-refresh-note" live className="absolute right-3 top-0" />
           {series && status?.message && (
             <div data-testid="trend-message" className="flex h-full flex-col items-center justify-center text-center">
               <p className="text-sm font-semibold text-gray-300">{status.message.title}</p>

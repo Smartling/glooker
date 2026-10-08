@@ -10,7 +10,9 @@ import type { SecurityViewProps } from './view-props';
 import { repoFiguresUnknown, scopeOpenCount } from './security-state';
 import { slaState, slaStateLabel } from './sla-state';
 import { unmeasuredBadgeText } from './labels';
-import { REFRESH_FAILED_NOTE, slotView } from './slot-view';
+import { slotView } from './slot-view';
+import RefreshNote from './refresh-note';
+import SlaInvalidMark from './sla-invalid-mark';
 import { ALERTS_STRIP_H, TYPE } from './dimensions';
 
 /** Widths, in px, that keep the CRIT and HIGH blocks where they are whatever the filters. The title column is
@@ -55,7 +57,10 @@ export default function AlertsStrip({ summary, data, url, openDrawer }: Security
   // A selected unmeasured repository: its figures are the stored counts, so they carry a cue and never read as measured.
   const storedCount = !!repoRow?.unmeasured && !unknown;
 
-  const kind = repo ? `Repository · owning team ${repoRow?.team ?? url.team ?? '—'}` : url.team ? 'Owning team' : 'All owning teams';
+  const team = repoRow?.team ?? url.team ?? '—';
+  // The column is fixed at ALERTS_STRIP_TITLE_W, so the kind line is short ("Repository · Payments") and its title keeps the full sentence.
+  const kindFull = repo ? `Repository · owning team ${team}` : url.team ? 'Owning team' : 'All owning teams';
+  const kind = repo ? `Repository · ${team}` : kindFull;
   const title = repo ?? (url.team ? `${url.team} · all repositories` : 'All repositories');
   const unmeasured = rows && !repo ? rows.filter(r => r.unmeasured).length : 0;
 
@@ -67,7 +72,7 @@ export default function AlertsStrip({ summary, data, url, openDrawer }: Security
       style={{ height: ALERTS_STRIP_H }}
     >
       <div data-testid="strip-title-col" className="flex shrink-0 flex-col gap-0.5" style={{ width: ALERTS_STRIP_TITLE_W }}>
-        <span data-testid="strip-kind" className={`${TYPE.tableHeader} text-gray-400 truncate`}>{kind}</span>
+        <span data-testid="strip-kind" title={kindFull} className={`${TYPE.tableHeader} text-gray-400 truncate`}>{kind}</span>
         <span data-testid="strip-title" title={title} className="text-base font-bold text-white truncate">{title}</span>
       </div>
       <div className="h-9 w-px shrink-0 bg-gray-700" aria-hidden="true" />
@@ -95,18 +100,16 @@ export default function AlertsStrip({ summary, data, url, openDrawer }: Security
                 <span className={`w-[34px] shrink-0 py-px text-center text-[10px] font-bold tracking-[0.05em] ${TYPE.badge} ${BADGE[sev].cls}`}>{BADGE[sev].label}</span>
                 <span className="shrink-0">
                   <span data-testid={`strip-${sev}-open-slot`} className="inline-block text-right" style={{ minWidth: ALERTS_STRIP_OPEN_MIN_W }}>
-                    <b data-testid={`strip-${sev}-open`} className="text-white">{open === null ? '—' : open.toLocaleString('en-US')}</b>
+                    <b data-testid={`strip-${sev}-open`} className="tabular-nums text-white">{open === null ? '—' : open.toLocaleString('en-US')}</b>
                   </span>{' '}open
                 </span>
                 <span
                   data-testid={`strip-${sev}-tail`}
-                  className={`flex min-w-0 items-center gap-1 ${st.kind === 'invalid' ? 'font-bold text-red-400' : st.kind === 'active' && overdue > 0 ? 'font-bold text-red-400' : 'text-gray-500'}`}
+                  className={`flex min-w-0 items-center gap-1 tabular-nums ${st.kind === 'invalid' ? 'font-bold text-red-400' : st.kind === 'active' && overdue > 0 ? 'font-bold text-red-400' : 'text-gray-500'}`}
                   style={st.kind === 'active' ? { minWidth: ALERTS_STRIP_OVERDUE_MIN_W } : undefined}
                 >
                   ·
-                  {st.kind === 'invalid' && (
-                    <span aria-hidden="true" className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-red-400 text-[10px] font-bold text-gray-900">!</span>
-                  )}
+                  {st.kind === 'invalid' && <SlaInvalidMark />}
                   <span className="truncate">{!rows || unknown ? '—' : st.kind === 'active' ? `${overdue.toLocaleString('en-US')} overdue` : label}</span>
                 </span>
               </div>
@@ -116,9 +119,8 @@ export default function AlertsStrip({ summary, data, url, openDrawer }: Security
       )}
       {/* The flexible space is also the reserved line for "Couldn't refresh · showing last load", so the note moves nothing. */}
       <div data-testid="strip-note-slot" className="flex min-w-0 flex-1 justify-end">
-        {view.kind === 'data' && view.refreshError && (
-          <span data-testid="strip-refresh-note" title={view.refreshError} className="truncate text-xs text-red-400">{REFRESH_FAILED_NOTE}</span>
-        )}
+        {/* Live: the strip owns the announcement for the repos slot (the rail's note, which reads the same slot, is silent). */}
+        <RefreshNote error={view.kind === 'data' ? view.refreshError : null} testId="strip-refresh-note" live />
       </div>
       {(unmeasured > 0 || storedCount) && (
         <button

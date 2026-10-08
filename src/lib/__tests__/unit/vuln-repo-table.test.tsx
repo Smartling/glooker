@@ -325,9 +325,9 @@ describe('titles on truncating text (B4)', () => {
     expect(sub.getAttribute('title')).toBe(sub.textContent);
     const label = cellsOf(screen.getByTestId('repo-footer'))[0].firstElementChild as HTMLElement;
     expect(label.getAttribute('title')).toBe(label.textContent);
-    const note = screen.getByTestId('repo-footer-note');
+    const note = within(screen.getByTestId('repo-footer-note')).getByText('1 unmeasured: totals include stored counts');
+    expect(note.className).toContain('truncate');
     expect(note.getAttribute('title')).toBe(note.textContent);
-    expect(note.getAttribute('title')).toBe('1 unmeasured: totals include stored counts');
   });
 });
 
@@ -376,7 +376,7 @@ describe('footer', () => {
     render(<RepoTable {...table({ rows: [ROWS[0]] })} />);
     const note = screen.getByTestId('repo-footer-note');
     expect(note.textContent).toBe(NBSP);
-    expect(note.getAttribute('aria-hidden')).toBe('true');
+    expect(note.getAttribute('aria-hidden')).toBeNull();   // not toggled: the line also holds the refresh note
   });
 
   // Revert: leave the label "Total" while a filter is applied.
@@ -525,21 +525,25 @@ describe('states', () => {
     const note = screen.getByTestId('repo-refresh-note');
     expect(note.textContent).toBe("Couldn't refresh · showing last load");
     expect(note.className).toContain('text-red-400');
+    expect(note.getAttribute('title')).toBe("Couldn't load repositories: x");
     const line = screen.getByTestId('repo-footer-note');
-    expect(line.getAttribute('title')).toBe("Couldn't load repositories: x · 1 unmeasured: totals include stored counts");
     // the scope note follows it on the same line (one unmeasured row in ROWS), and the line keeps its fixed height
     expect(line.textContent).toBe("Couldn't refresh · showing last load · 1 unmeasured: totals include stored counts");
+    expect(within(line).getByText('1 unmeasured: totals include stored counts').getAttribute('title')).toBe('1 unmeasured: totals include stored counts');
     expect(line.className).toContain('h-4');
     expect(line.getAttribute('aria-hidden')).toBeNull();
     expect(screen.getByTestId('repo-table').className).not.toContain('opacity-60');
   });
 
-  it('the refresh note alone fills the reserved line when there is no scope note, and is absent while the refresh has not failed', () => {
+  it('the refresh note alone fills the reserved line when there is no scope note, and is an empty, silent slot while the refresh has not failed', () => {
     const { unmount } = render(<RepoTable {...table({ rows: [ROWS[0]], repos: slot(reposFixture([ROWS[0]]), { errorText: "Couldn't load repositories: x" }) })} />);
     expect(screen.getByTestId('repo-footer-note').textContent).toBe("Couldn't refresh · showing last load");
     unmount();
     render(<RepoTable {...table({ rows: [ROWS[0]] })} />);
-    expect(screen.queryByTestId('repo-refresh-note')).toBeNull();
+    expect(screen.getByTestId('repo-refresh-note').textContent).toBe('');
+    // Never aria-hidden (it is not toggled), and not live: the strip announces a failed refresh of the repos slot.
+    expect(screen.getByTestId('repo-footer-note').getAttribute('aria-hidden')).toBeNull();
+    expect(screen.getByTestId('repo-refresh-note').getAttribute('role')).toBeNull();
   });
 
   it('says so when the request answered "not available", instead of loading forever', () => {
