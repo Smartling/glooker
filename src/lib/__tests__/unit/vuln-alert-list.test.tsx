@@ -1126,6 +1126,28 @@ describe('toolbar focus (B6)', () => {
   });
 });
 
+describe('controls and dividers', () => {
+  // Revert: put `bg-chart-surface` back on the search box or the Status select: they are then the card's own colour in an outline, not filled boxes.
+  it('the search box and the Status select are filled (surface-2: bg-gray-800), not the card\'s own colour', () => {
+    render(<AlertList {...props()} />);
+    for (const el of [screen.getByLabelText('Search alerts'), screen.getByLabelText('Status')]) {
+      expect(el.className.split(/\s+/)).toContain('bg-gray-800');
+      expect(el.className).not.toContain('bg-chart-surface');
+    }
+  });
+
+  // Revert: put `border-gray-800/60` back on the rows: the light remap has no rule for that opacity, so the dividers stay near-black in the light theme.
+  it('every alert row\'s divider is a class the light theme remaps (border-gray-800/50), not the unmapped /60', () => {
+    render(<AlertList {...props()} />);
+    const rows = screen.getAllByTestId('alert-row');
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) {
+      expect(r.className.split(/\s+/)).toContain('border-gray-800/50');
+      expect(r.className).not.toContain('border-gray-800/60');
+    }
+  });
+});
+
 describe('light theme', () => {
   // Revert: put the card-shell class on the list, a row, the header or a control: the light remap's border would resize a fixed-height row.
   it.each([

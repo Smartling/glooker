@@ -81,7 +81,7 @@ function MeasuredRow({ d, cols, template, severity, onSelect }: {
   return (
     <div
       role="row" data-testid={`repo-row-${r.fullName}`} tabIndex={0} title={`Open ${r.fullName} alerts`}
-      className={`cursor-pointer items-center border-b border-gray-800/60 hover:bg-gray-800/30 ${ROW_FOCUS}`}
+      className={`cursor-pointer items-center border-b border-gray-800/50 hover:bg-gray-800/30 ${ROW_FOCUS}`}
       style={{ display: 'grid', gridTemplateColumns: template, height: TEAM_ROW_H }}
       onClick={() => onSelect({ fullName: r.fullName, team: r.team })}
       onKeyDown={e => { if (e.target !== e.currentTarget) return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect({ fullName: r.fullName, team: r.team }); } }}
@@ -117,7 +117,7 @@ function UnmeasuredRow({ r, cols, template, onOpen }: { r: RepoRow; cols: Col[];
     <div
       role="row" data-testid={`repo-row-${r.fullName}`} tabIndex={0}
       title={`Open counts unknown${u.detail ? ` (${u.detail})` : ''}. Click for details.`}
-      className={`cursor-pointer items-center border-b border-gray-800/60 ${ROW_FOCUS}`}
+      className={`cursor-pointer items-center border-b border-gray-800/50 ${ROW_FOCUS}`}
       style={{ display: 'grid', gridTemplateColumns: template, height: TEAM_ROW_H }}
       onClick={e => onOpen(e.currentTarget)}
       onKeyDown={e => { if (e.target !== e.currentTarget) return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(e.currentTarget); } }}

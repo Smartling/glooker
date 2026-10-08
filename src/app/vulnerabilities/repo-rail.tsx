@@ -91,6 +91,8 @@ export function railSlaNote(sla: SlaSource, severity: SeverityFilter = 'both'): 
 }
 
 const plural = (n: number, word: string) => `${n.toLocaleString('en-US')} ${word}${n === 1 ? '' : 's'}`;
+/** A keyboard-focused row: an inset ring, so the scrolling list (which has no top padding) cannot clip it. The same ring as the tables' rows. */
+const ROW_FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50';
 
 export default function RepoRail({ summary, data, url, openDrawer }: SecurityViewProps) {
   const [filter, setFilter] = useState('');
@@ -121,19 +123,21 @@ export default function RepoRail({ summary, data, url, openDrawer }: SecurityVie
       className="flex min-h-0 min-w-0 flex-col border-r border-gray-700"
       style={{ width: RAIL_W }}
     >
-      <div className="flex flex-none flex-col gap-2.5 px-4 pb-1.5 pt-4">
+      <div className="flex flex-none flex-col gap-2.5 px-4 pt-4">
         <div className="flex min-w-0 flex-col gap-0.5">
           <span className={`${TYPE.sectionLabel} text-gray-300`}>Repositories</span>
           <span data-testid="rail-meta" className="min-h-4 truncate text-xs text-gray-500">{meta || '\u00a0'}</span>
         </div>
-        {/* The box and its note are one group with their own gap, so the note's place does not lean on the header's gap. */}
-        <div className="flex min-w-0 flex-col gap-1.5">
+        {/* The box and its note are one group with NO gap and no padding round it: the note's reserved line is the only space between the box
+            and the list, so the All row sits one line (16px) under the box, as the mockup's ~10-16px, with the line still reserved. */}
+        <div className="flex min-w-0 flex-col">
+          {/* Filled (the mockup's surface-2), as the Owning teams tab's filter box: a fill and a quiet border, not a card-coloured box in an outline. */}
           <input
             aria-label="Filter by name"
             placeholder="Filter by name"
             value={filter}
             onChange={e => setFilter(e.target.value)}
-            className={`h-[30px] w-full border border-gray-700 bg-chart-surface px-2.5 text-[13px] text-gray-200 ${TYPE.control}`}
+            className={`h-[30px] w-full border border-gray-700 bg-gray-800 px-2.5 text-[13px] text-gray-200 placeholder:text-gray-500 ${TYPE.control}`}
           />
           {/* A reserved line (there with or without the note), so "Couldn't refresh · showing last load" moves nothing. */}
           <div data-testid="rail-note-slot" className="h-4 min-w-0">
@@ -145,7 +149,7 @@ export default function RepoRail({ summary, data, url, openDrawer }: SecurityVie
 
       <div
         data-testid="rail-list"
-        className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 pb-2 pt-1"
+        className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 pb-2"
         style={{ opacity: dimmed ? 0.6 : 1 }}
       >
         <button
@@ -153,7 +157,7 @@ export default function RepoRail({ summary, data, url, openDrawer }: SecurityVie
           data-testid="rail-all"
           aria-pressed={repo === null}
           onClick={() => url.setRepo(null)}
-          className={`flex w-full flex-none flex-col gap-0.5 px-2.5 py-2 text-left ${TYPE.body} ${TYPE.control} ${repo === null ? 'bg-accent/10' : 'hover:bg-gray-800/30'}`}
+          className={`flex w-full flex-none flex-col gap-0.5 px-2.5 py-2 text-left ${TYPE.body} ${TYPE.control} ${ROW_FOCUS} ${repo === null ? 'bg-accent/10' : 'hover:bg-gray-800/30'}`}
         >
           <span className={`truncate ${repo === null ? 'font-semibold text-accent-light' : 'text-gray-200'}`} title={allLabel}>{allLabel}</span>
           <span className="truncate text-xs tabular-nums text-gray-400" title={allCounts || undefined}>{allCounts || '\u00a0'}</span>
@@ -182,7 +186,7 @@ export default function RepoRail({ summary, data, url, openDrawer }: SecurityVie
               title={selected ? row.fullName : `Show ${row.fullName} alerts`}
               aria-label={selected ? 'Show all repositories' : undefined}
               onClick={() => url.setRepo(selected ? null : row.fullName)}
-              className={`flex w-full flex-none flex-col gap-0.5 px-2.5 py-2 text-left ${TYPE.body} ${TYPE.control} ${selected ? 'bg-accent/10' : 'hover:bg-gray-800/30'}`}
+              className={`flex w-full flex-none flex-col gap-0.5 px-2.5 py-2 text-left ${TYPE.body} ${TYPE.control} ${ROW_FOCUS} ${selected ? 'bg-accent/10' : 'hover:bg-gray-800/30'}`}
             >
               <span className="flex min-w-0 items-center justify-between gap-2">
                 <span className={`truncate ${selected ? 'font-semibold text-accent-light' : stat.total > 0 ? 'text-gray-200' : 'text-gray-500'}`} title={row.fullName}>{row.fullName}</span>
@@ -205,7 +209,7 @@ export default function RepoRail({ summary, data, url, openDrawer }: SecurityVie
             data-repo={row.fullName}
             title={`${row.fullName} · ${unmeasuredReason(row.unmeasured!)}`}
             onClick={e => openDrawer(e.currentTarget)}
-            className={`vuln-hatch mt-1 flex w-full flex-none flex-col gap-[3px] border border-warn-line px-2.5 py-2 text-left ${TYPE.body} ${TYPE.control}`}
+            className={`vuln-hatch mt-1 flex w-full flex-none flex-col gap-[3px] border border-warn-line px-2.5 py-2 text-left ${TYPE.body} ${TYPE.control} ${ROW_FOCUS}`}
           >
             <span className="truncate text-gray-200">{row.fullName}</span>
             <span className="flex min-w-0 items-center gap-1.5 text-[11px] font-semibold text-warn">

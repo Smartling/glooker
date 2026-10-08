@@ -171,8 +171,9 @@ export default function SecurityHeader({ summary, repos, coverage, codebase, sum
       >
         <div className="flex flex-col gap-2">
           {failed && (
-            <div role="alert" className="flex items-start gap-2 text-xs text-red-400 border border-red-900 rounded-md p-2">
-              <span aria-hidden="true" className="shrink-0 w-4 h-4 rounded-full border border-red-400 flex items-center justify-center text-[10px] leading-none font-bold">!</span>
+            <div role="alert" className="flex items-start gap-2 text-[13px] text-red-400 border border-red-900 rounded-md p-2">
+              {/* A filled red disc with the "!", as the mockup's (and the strip's, rail's and list's BangMark): an outline ring read as a different, lighter mark. */}
+              <span aria-hidden="true" className="shrink-0 w-4 h-4 rounded-full bg-red-400 flex items-center justify-center text-[11px] leading-none font-bold text-gray-900">!</span>
               <span>The latest sync failed; showing data from the last good sync.{failedMessage ? ` ${failedMessage}` : ''}</span>
             </div>
           )}

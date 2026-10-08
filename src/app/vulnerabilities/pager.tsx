@@ -31,7 +31,8 @@ export interface PagerProps {
 }
 
 // aria-disabled, not `disabled`: a disabled button drops focus to the body when its own click moves the page to an end; this one keeps it.
-const buttonClass = 'h-7 px-2.5 rounded-md bg-chart-surface text-xs whitespace-nowrap aria-disabled:opacity-40 aria-disabled:cursor-default';
+// Filled (the mockup's surface-2), not the card's own colour: on the card, bg-chart-surface made the buttons invisible.
+const buttonClass = 'h-7 px-2.5 rounded-md bg-gray-800 text-xs whitespace-nowrap aria-disabled:opacity-40 aria-disabled:cursor-default';
 
 export default function Pager({ page, pageSize, totalCount, onPage }: PagerProps) {
   const known = totalCount !== null;

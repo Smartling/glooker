@@ -182,6 +182,18 @@ describe('Pager buttons at the ends (B7)', () => {
   });
 });
 
+describe('look', () => {
+  // Revert: put `bg-chart-surface` back on the buttons: on the card they are the card's own colour, i.e. invisible.
+  it('Previous and Next are visibly filled buttons (surface-2: bg-gray-800), not the card\'s own colour', () => {
+    render(<Pager page={2} pageSize={10} totalCount={26} onPage={jest.fn()} />);
+    for (const name of [/Previous/, /Next/]) {
+      const b = screen.getByRole('button', { name });
+      expect(b.className.split(/\s+/)).toContain('bg-gray-800');
+      expect(b.className).not.toContain('bg-chart-surface');
+    }
+  });
+});
+
 describe('light theme', () => {
   // Revert: give the pager (or one of its buttons) the card-shell class: the light remap's 1px border would grow the fixed 28px row.
   it('uses no card-shell class (bg-gray-900), so the light theme\'s border and shadow cannot grow the fixed row', () => {

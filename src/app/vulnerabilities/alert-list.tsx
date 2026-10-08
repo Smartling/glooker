@@ -134,7 +134,7 @@ function AlertRowView({ r, sla }: { r: AlertRow; sla: SlaSource }) {
     <div
       role="row"
       data-testid="alert-row"
-      className="grid box-border border-b border-gray-800/60 text-sm text-gray-200"
+      className="grid box-border border-b border-gray-800/50 text-sm text-gray-200"
       style={{ gridTemplateColumns: ALERT_GRID_COLS, height: ALERT_ROW_H }}
     >
       <div role="cell" className="flex items-center">
@@ -276,14 +276,14 @@ export default function AlertList({ summary, data, url, list: ctl }: SecurityVie
             placeholder="Search CVE, GHSA, package, repo"
             value={typed}
             onChange={e => onType(e.target.value)}
-            className={`min-w-[160px] flex-1 border border-gray-700 bg-chart-surface px-2.5 text-[13px] text-gray-200 ${TYPE.control}`}
+            className={`min-w-[160px] flex-1 border border-gray-700 bg-gray-800 px-2.5 text-[13px] text-gray-200 placeholder:text-gray-500 ${TYPE.control}`}
             style={{ height: ALERT_TOOLBAR_ROW_H }}
           />
           <select
             aria-label="Status"
             value={l.status}
             onChange={e => { flush(); ctl.setStatus(e.target.value as AlertStatus); }}
-            className={`w-[132px] shrink-0 border border-gray-700 bg-chart-surface px-2 text-[13px] text-gray-200 ${TYPE.control}`}
+            className={`w-[132px] shrink-0 border border-gray-700 bg-gray-800 px-2 text-[13px] text-gray-200 ${TYPE.control}`}
             style={{ height: ALERT_TOOLBAR_ROW_H }}
           >
             {STATUS_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}

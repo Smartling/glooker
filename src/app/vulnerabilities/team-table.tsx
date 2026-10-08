@@ -220,7 +220,7 @@ export default function TeamTable({ data, url, openDrawer }: SecurityViewProps) 
           <div
             key={r.team} role="row" data-testid={`team-row-${r.team}`} tabIndex={0} aria-selected={selected}
             title={selected ? 'Clear the Owning team filter' : `Filter the page to ${r.team} and list its repositories`}
-            className={`cursor-pointer items-center border-b border-gray-800/60 hover:bg-gray-800/30 ${ROW_FOCUS}${selected ? ' bg-accent/10' : ''}`}
+            className={`cursor-pointer items-center border-b border-gray-800/50 hover:bg-gray-800/30 ${ROW_FOCUS}${selected ? ' bg-accent/10' : ''}`}
             style={{ ...rowStyle, height: TEAM_ROW_H }}
             onClick={() => url.selectTeamRow(r.team)}
             // Focus on the nested badge scrolls only the badge into view, which can leave the row's top behind the pinned header: bring the whole row (React focus bubbles).

@@ -160,8 +160,8 @@ describe('coverage groups', () => {
     expect(screen.getByText(unmeasuredReason({ status: 'error', detail: null }))).toBeTruthy();
   });
 
-  // Revert: drop the `title` on the truncating spans (or the max-width on the reason): a long name or reason is cut with no way to read it.
-  it('every truncating span carries its full text in a title, and a long reason is capped so the name keeps room', () => {
+  // Revert: put `truncate` (and the 55% cap's `shrink-0` without wrapping) back on a row's text: a long name or reason is cut with "…" instead of wrapping.
+  it('a long name or reason WRAPS inside its row (nothing is truncated), and the reason is capped so the name keeps room', () => {
     const longReason = 'HTTP 500: the status check failed while reading the repository security settings';
     render(<CoverageDrawer {...base({
       coverage: slot(coverageFixture({
@@ -171,22 +171,27 @@ describe('coverage groups', () => {
       })),
     })} />);
     const reason = screen.getByText(longReason);
-    expect(reason.getAttribute('title')).toBe(longReason);
-    expect(reason.className).toContain('truncate');
     expect(reason.className).toContain('max-w-[55%]');
-    expect(screen.getByText('acme/off-repo').closest('span.truncate')!.getAttribute('title')).toBe('acme/off-repo · owning team Platform');
-    expect(screen.getByText('Missing: owning team, service tier').getAttribute('title')).toBe('Missing: owning team, service tier');
-    expect(screen.getByText('1 crit · 0 high').getAttribute('title')).toBe('1 crit · 0 high');
-    expect(screen.getByText('outside scope (staging)').getAttribute('title')).toBe('outside scope (staging)');
-    expect(screen.getByText('acme/untagged').closest('span.truncate')!.getAttribute('title')).toBe('acme/untagged');
-    // Every element that truncates has a title, whatever its text.
+    expect(reason.className).toContain('[overflow-wrap:anywhere]');
+    expect(reason.className).not.toContain('truncate');
+    expect(screen.getByText('acme/off-repo').closest('span.min-w-0')!.className).toContain('[overflow-wrap:anywhere]');
+    expect(screen.getByText('Missing: owning team, service tier').className).toContain('[overflow-wrap:anywhere]');
+    expect(screen.getByText('1 crit · 0 high').className).toContain('[overflow-wrap:anywhere]');
+    expect(screen.getByText('outside scope (staging)').className).toContain('[overflow-wrap:anywhere]');
+    // Nothing in the dialog is cut, so nothing needs a title to make up for it.
     const dialog = screen.getByRole('dialog');
-    for (const el of Array.from(dialog.querySelectorAll('.truncate'))) expect(el.getAttribute('title')).toBeTruthy();
+    expect(dialog.querySelectorAll('.truncate')).toHaveLength(0);
   });
 
-  it('repository links read as links: the shared underline style', () => {
+  // Revert: put `TYPE.link` (underline always) back on the name: the rows are then a list of underlined accent links, not the mockup's plain names.
+  it('a repository name reads as plain text in its row and shows it is a link on hover and keyboard focus (underline on hover)', () => {
     render(<CoverageDrawer {...base({ coverage: slot(coverageFixture({ needsTagging: [row({ repoId: 3, fullName: 'acme/untagged' })] })) })} />);
-    expect(screen.getByRole('link', { name: 'acme/untagged' }).className).toContain('underline');
+    const link = screen.getByRole('link', { name: 'acme/untagged' });
+    expect(link.getAttribute('href')).toBe('https://github.com/acme/untagged');
+    const classes = link.className.split(/\s+/);
+    expect(classes).toEqual(expect.arrayContaining(['text-gray-100', 'hover:underline', 'focus-visible:underline']));
+    expect(classes).not.toContain('underline');
+    expect(classes).not.toContain('text-accent-light');
   });
 
   it('Needs tagging rows name what is missing and show their open counts; Excluded rows say why they are outside the scope', () => {
@@ -340,9 +345,61 @@ describe('useCoverageDrawer', () => {
   });
 });
 
+describe('look (the mockup\'s drawer)', () => {
+  const full = () => slot(coverageFixture({ unmeasured: [row({ repoId: 1 })], needsTagging: [row({ repoId: 2, fullName: 'acme/untagged' })], excludedByPolicy: [row({ repoId: 3, fullName: 'acme/staging-tools' })] }));
+
+  // Revert: give the title `text-base font-semibold` back, or the header `px-5 py-4`.
+  it('the title is 20px / 700 and the panel has 24px padding all round', () => {
+    render(<CoverageDrawer {...base({ coverage: full() })} />);
+    const title = screen.getByRole('heading', { name: 'Coverage & policy' });
+    expect(title.className.split(/\s+/)).toEqual(expect.arrayContaining(['text-xl', 'font-bold']));
+    const header = title.parentElement!.parentElement as HTMLElement;
+    expect(header.className.split(/\s+/)).toEqual(expect.arrayContaining(['px-6', 'pt-6']));
+    const body = screen.getByRole('region', { name: /^Unmeasured/ }).parentElement as HTMLElement;
+    expect(body.className.split(/\s+/)).toEqual(expect.arrayContaining(['px-6', 'pb-6']));
+    expect(screen.getByTestId('drawer-scope').className).toContain('text-[13px]');
+  });
+
+  // Revert: put the bare `px-2 text-lg` close button back.
+  it('the close button is a filled 30 x 30 button', () => {
+    render(<CoverageDrawer {...base({ coverage: full() })} />);
+    expect(screen.getByRole('button', { name: 'Close' }).className.split(/\s+/)).toEqual(expect.arrayContaining(['h-[30px]', 'w-[30px]', 'bg-gray-800', 'rounded-md']));
+  });
+
+  // Revert: put `uppercase tracking-[0.08em]` (the section label type) back on the group headings: they read as small caps labels, not 15px headings.
+  it('group headings are 15px / 600 sentence case; the unmeasured one carries a ▲ outside its name; each group sits under a rule', () => {
+    render(<CoverageDrawer {...base({ coverage: full() })} />);
+    for (const name of [/^Unmeasured/, /^Needs tagging/, /^Excluded by policy/, /^Policy/]) {
+      const region = screen.getByRole('region', { name });
+      const heading = within(region).getByRole('heading');
+      expect(heading.className.split(/\s+/)).toEqual(expect.arrayContaining(['text-[15px]', 'font-semibold']));
+      expect(heading.className).not.toContain('uppercase');
+      expect(region.className.split(/\s+/)).toEqual(expect.arrayContaining(['border-t', 'border-gray-800']));
+    }
+    const mark = within(screen.getByRole('region', { name: /^Unmeasured/ })).getByText('▲');
+    expect(mark.getAttribute('aria-hidden')).toBe('true');
+    expect(screen.getByRole('region', { name: 'Unmeasured 1 repo' })).toBeTruthy();   // the mark is not part of the name
+    expect(within(screen.getByRole('region', { name: /^Needs tagging/ })).queryByText('▲')).toBeNull();
+  });
+
+  // Revert: put `bg-chart-surface` (the drawer's own colour: the row is then invisible) or `text-xs` back on the rows.
+  it('rows are 13px filled boxes: surface-2 (bg-gray-800), and the hatched wash for an unmeasured one', () => {
+    render(<CoverageDrawer {...base({ coverage: full() })} />);
+    const rows = screen.getAllByRole('listitem');
+    expect(rows).toHaveLength(3);
+    for (const r of rows) {
+      expect(r.className.split(/\s+/)).toEqual(expect.arrayContaining(['text-[13px]', 'rounded-md']));
+      expect(r.className).not.toContain('bg-chart-surface');
+    }
+    expect(rows[0].className).toContain('vuln-hatch');
+    expect(rows[1].className).toContain('bg-gray-800');
+    expect(rows[2].className).toContain('bg-gray-800');
+  });
+});
+
 describe('light theme', () => {
   // Revert: give a row or a group the card-shell class: the light remap's border would resize it.
-  it('only the dialog itself uses the card-shell class (bg-gray-900); the rows and groups use the chart surface', () => {
+  it('only the dialog itself uses the card-shell class (bg-gray-900); the rows and groups use surface-2 (bg-gray-800) or no fill', () => {
     const full = slot(coverageFixture({ unmeasured: [row({ repoId: 1 })], needsTagging: [row({ repoId: 2 })], excludedByPolicy: [row({ repoId: 3 })] }));
     render(<CoverageDrawer {...base({ coverage: full })} />);
     const dialog = screen.getByRole('dialog');

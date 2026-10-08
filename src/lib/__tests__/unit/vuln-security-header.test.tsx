@@ -99,6 +99,18 @@ describe('SecurityHeader', () => {
     expect(banner.closest('p')).toBeNull();
   });
 
+  // Revert: put the outlined ring (`border border-red-400`, no fill) back on the "!", or `text-xs` on the banner.
+  it('the banner\'s "!" is a filled red disc (bg-red-400 on text-gray-900), and the banner text is 13px', () => {
+    const failed = syncInfo({ lastStatus: 'failed', issues: [{ kind: 'sync', message: 'token expired' }] });
+    render(<SecurityHeader {...props({ summary: summaryFixture({ sync: failed }) })} />);
+    const banner = screen.getByRole('alert');
+    const mark = within(banner).getByText('!');
+    expect(mark.className.split(' ')).toEqual(expect.arrayContaining(['rounded-full', 'bg-red-400', 'text-gray-900']));
+    expect(mark.className).not.toMatch(/\bborder\b/);
+    expect(banner.className).toContain('text-[13px]');
+    expect(banner.className).not.toContain('text-xs');
+  });
+
   // Revert: print `issues[0].message` unconditionally: an empty issue list leaves a trailing space and the word "undefined" is one refactor away.
   it('a failed sync with no issue message reads as the sentence alone, with no trailing space or "undefined"', () => {
     render(<SecurityHeader {...props({ summary: summaryFixture({ sync: syncInfo({ lastStatus: 'failed', issues: [] }) }) })} />);

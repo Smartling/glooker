@@ -455,20 +455,41 @@ describe('titles, numerals and the footer height (B8, B10, B13)', () => {
     expect(RAIL_FOOT_MIN_H).toBe(1 + 20 + 16 + 2 + 48);
   });
 
-  it('the list keeps a top padding, so the All row\'s focus ring is not cut by the scroller, and the header gives that room back', () => {
+  // Revert: put `pt-1` back on the list (or `pb-1.5` on the header): the All row is then 20px under the filter box, not the one 16px line.
+  it('the list has no top padding and the header no bottom padding: the note\'s reserved line is the only space between the filter box and the All row', () => {
     render(<RepoRail {...props()} />);
-    expect(screen.getByTestId('rail-list').className.split(/\s+/)).toContain('pt-1');
-    expect(screen.getByTestId('rail-note-slot').closest('[class*="pb-1.5"]')).not.toBeNull();
+    const list = screen.getByTestId('rail-list').className.split(/\s+/);
+    expect(list.filter(c => /^pt-/.test(c))).toEqual([]);
+    const header = screen.getByTestId('rail-note-slot').parentElement!.parentElement as HTMLElement;
+    expect(header.className.split(/\s+/).filter(c => /^pb-/.test(c))).toEqual([]);
+    expect(screen.getByTestId('rail-note-slot').className).toContain('h-4');
+  });
+
+  // Revert: drop ROW_FOCUS from the rows: the list has no top padding, so a default outline on the All row is clipped by the scroller.
+  it('every row draws an inset focus ring, so the first row\'s ring is not clipped by the unpadded list', () => {
+    render(<RepoRail {...props()} />);
+    const rows = [screen.getByTestId('rail-all'), ...screen.getAllByTestId('rail-row'), ...screen.queryAllByTestId('rail-unmeasured')];
+    expect(rows.length).toBeGreaterThan(2);
+    for (const r of rows) expect(r.className.split(/\s+/)).toEqual(expect.arrayContaining(['focus-visible:ring-2', 'focus-visible:ring-inset']));
+  });
+
+  // Revert: put `bg-chart-surface` back: the box is the card's own colour, outlined, instead of a filled box.
+  it('the filter box is filled (surface-2: bg-gray-800), not the card\'s own colour', () => {
+    render(<RepoRail {...props()} />);
+    const input = screen.getByLabelText('Filter by name');
+    expect(input.className.split(/\s+/)).toContain('bg-gray-800');
+    expect(input.className).not.toContain('bg-chart-surface');
   });
 });
 
 describe('the note under the filter box (B16)', () => {
-  // Revert: put the note back in the header's own flow with a negative margin: its place then leans on the header's gap.
-  it('the box and the note are one group with its own gap, and the note slot has no negative margin', () => {
+  // Revert: put a gap back between the box and the note (gap-1.5), or give the slot a negative margin: the space round the note is then not just its line.
+  it('the box and the note are one group with NO gap, and the note slot has no negative margin', () => {
     render(<RepoRail {...props()} />);
     const slotEl = screen.getByTestId('rail-note-slot');
     const group = slotEl.parentElement as HTMLElement;
-    expect(group.className.split(/\s+/)).toEqual(expect.arrayContaining(['flex', 'flex-col', 'gap-1.5']));
+    expect(group.className.split(/\s+/)).toEqual(expect.arrayContaining(['flex', 'flex-col']));
+    expect(group.className.split(/\s+/).filter(c => /^gap-/.test(c))).toEqual([]);
     expect(group.contains(screen.getByLabelText('Filter by name'))).toBe(true);
     expect(slotEl.className).not.toMatch(/(^|\s)-m[tbxy]?-/);
     expect(slotEl.className).toContain('h-4');

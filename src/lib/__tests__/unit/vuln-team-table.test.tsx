@@ -372,6 +372,16 @@ describe('header labels clip instead of spilling (round 3)', () => {
   });
 });
 
+describe('row dividers in the light theme', () => {
+  // Revert: put `border-gray-800/60` back: the light remap has no rule for that opacity, so the divider stays the dark theme's near-black in light mode.
+  it('a row\'s divider is a class the light theme remaps (border-gray-800/50), not the unmapped /60', () => {
+    render(<TeamTable {...table()} />);
+    const classes = rowOf('Payments').className.split(/\s+/);
+    expect(classes).toEqual(expect.arrayContaining(['border-b', 'border-gray-800/50']));
+    expect(classes).not.toContain('border-gray-800/60');
+  });
+});
+
 describe('the wash', () => {
   // Revert: drop `self-stretch` (or the flex centring) from a tinted cell: the wash is then only as tall as its figure, a strip inside a taller row.
   it('every tinted cell, in the rows and on the Total row, stretches to the row\'s full height and centres its figure, so the wash is one continuous band', () => {

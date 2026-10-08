@@ -187,6 +187,18 @@ describe('hidden severity', () => {
   });
 });
 
+describe('row dividers in the light theme', () => {
+  // Revert: put `border-gray-800/60` back on a measured or an unmeasured row: the light remap has no rule for it.
+  it('measured and unmeasured rows use the remapped divider class (border-gray-800/50)', () => {
+    render(<RepoTable {...table()} />);
+    for (const name of ['acme/checkout-api', 'acme/invoice-render']) {
+      const classes = rowOf(name).className.split(/\s+/);
+      expect(classes).toContain('border-gray-800/50');
+      expect(classes).not.toContain('border-gray-800/60');
+    }
+  });
+});
+
 describe('column floors and header type', () => {
   // Revert: drop the floor from the Open or Overdue columns (their headers are the longest and are cut below ~1440px), or give the floor to Oldest / Next due.
   it('the Open and Overdue columns have a REPO_NUM_COL_MIN_W floor; Oldest open, Next due and the name keep a zero minimum', () => {

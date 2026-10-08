@@ -43,38 +43,47 @@ const ownerLine = (r: Row) => `owning team ${r.team ?? 'Unassigned'}`;
 /** The tags a repository lacks, which is why it is counted under "Unassigned". */
 const missingTags = (r: Row) =>
   [!r.team && 'owning team', !r.serviceTier && 'service tier', !r.codebaseType && 'codebase type'].filter((x): x is string => !!x).join(', ');
+// The name reads as plain text in the row (the mockup's), and shows it is a link on hover and on keyboard focus.
 const repoLink = (r: Row) => (
-  <a className={TYPE.link} href={`https://github.com/${r.fullName}`} target="_blank" rel="noreferrer">{r.fullName}</a>
+  <a className="text-gray-100 hover:underline focus-visible:underline" href={`https://github.com/${r.fullName}`} target="_blank" rel="noreferrer">{r.fullName}</a>
 );
 const plural = (n: number, word: string) => `${n.toLocaleString('en-US')} ${word}${n === 1 ? '' : 's'}`;
 const openCritical = (rows: readonly Row[]) => `${rows.reduce((n, r) => n + r.openCritical, 0).toLocaleString('en-US')} open critical`;
 
-/** One group: its title, repository count and a right-aligned summary, then the rows, then the counting rule. */
-function Group({ title, count, summary, note, children }: { title: string; count: number; summary: string; note: string; children: React.ReactNode }) {
+/** One group, as the mockup's: a rule above it, its title (15px, sentence case, with a ▲ for the unmeasured group), repository count and a
+ * right-aligned summary, then the rows as filled boxes, then the counting rule. */
+function Group({ title, count, summary, note, mark, children }: { title: string; count: number; summary: string; note: string; mark?: boolean; children: React.ReactNode }) {
   const id = `coverage-group-${title.toLowerCase().replace(/[^a-z]+/g, '-')}`;
   return (
-    <section aria-labelledby={id} className="mb-5">
+    <section aria-labelledby={id} className="flex flex-col gap-2 border-t border-gray-800 pt-4">
       <div className="flex items-baseline justify-between gap-3">
-        <h3 id={id} className={`${TYPE.sectionLabel} text-gray-300`}>
-          {title} <span className="ml-1 font-normal normal-case tracking-normal text-gray-500">{plural(count, 'repo')}</span>
+        <h3 id={id} className="text-[15px] font-semibold text-white">
+          {mark && <span aria-hidden="true" className="mr-2 text-warn">▲</span>}
+          {title} <span className="ml-1 font-normal text-gray-400">{plural(count, 'repo')}</span>
         </h3>
-        <span data-testid={`${id}-summary`} className="shrink-0 text-xs text-gray-500">{summary}</span>
+        <span data-testid={`${id}-summary`} className="shrink-0 text-[13px] text-gray-300">{summary}</span>
       </div>
-      <ul className="mt-2 space-y-1.5">
-        {count === 0 ? <li className="text-xs text-gray-500">None</li> : children}
+      <ul className="flex flex-col gap-2">
+        {count === 0 ? <li className="text-[13px] text-gray-500">None</li> : children}
       </ul>
-      <p className="mt-2 text-xs text-gray-500">{note}</p>
+      <p className="text-xs text-gray-500">{note}</p>
     </section>
   );
 }
 
-/** A row's left text and its right-aligned reason, on one line each. Both truncate, so both carry their full text in a `title`;
- * the reason is capped at 55% so a long one cannot push the repository name out. */
-function RowLine({ left, leftTitle, reason, reasonClass = 'text-gray-400' }: { left: React.ReactNode; leftTitle: string; reason: string; reasonClass?: string }) {
+/** One row's box: filled (the hatched wash for an unmeasured row), 13px, with a little room round the text. */
+const ROW_BOX = `px-2.5 py-2 text-[13px] ${TYPE.control}`;
+const ROW_FILL = `bg-gray-800 ${ROW_BOX}`;
+const ROW_HATCH = `vuln-hatch border border-warn-line ${ROW_BOX}`;
+/** Text that may be long (a repository name, a reason) wraps inside its box and breaks anywhere, instead of being cut. */
+const WRAP = '[overflow-wrap:anywhere]';
+
+/** A row's left text and its right-aligned reason. Both WRAP (nothing is cut, so nothing needs a `title`); the reason is capped at 55% so a long one cannot squeeze the name out. */
+function RowLine({ left, reason, reasonClass = 'text-gray-400' }: { left: React.ReactNode; reason: string; reasonClass?: string }) {
   return (
     <div className="flex items-baseline justify-between gap-3">
-      <span className="min-w-0 truncate" title={leftTitle}>{left}</span>
-      <span className={`max-w-[55%] shrink-0 truncate ${reasonClass}`} title={reason}>{reason}</span>
+      <span className={`min-w-0 ${WRAP}`}>{left}</span>
+      <span className={`max-w-[55%] shrink-0 text-right ${WRAP} ${reasonClass}`}>{reason}</span>
     </div>
   );
 }
@@ -151,30 +160,35 @@ export default function CoverageDrawer({ open, onClose, opener, coverage, summar
         className="absolute right-0 top-0 bottom-0 flex flex-col bg-gray-900 border-l border-gray-800 shadow-xl"
         style={{ width: DRAWER_W, maxWidth: DRAWER_MAX_W }}
       >
-        <div className="flex items-start justify-between px-5 py-4 border-b border-gray-800">
+        <div className="flex flex-none items-start justify-between gap-4 px-6 pb-[22px] pt-6">
           <div className="min-w-0">
-            <h2 id={TITLE_ID} className="text-base font-semibold text-white">Coverage &amp; policy</h2>
-            <p data-testid="drawer-scope" className="mt-0.5 text-xs text-gray-500">
+            <h2 id={TITLE_ID} className="text-xl font-bold text-white">Coverage &amp; policy</h2>
+            <p data-testid="drawer-scope" className="mt-1 text-[13px] text-gray-400">
               {codebase ? CODEBASE_LABELS[codebase] : 'All codebases'} · Owning team: {summary.appliedFilters.team ?? 'all'} · follows the page filters
             </p>
           </div>
-          <button ref={closeRef} type="button" aria-label="Close" onClick={onClose} className="px-2 text-lg leading-none text-gray-400 hover:text-white">×</button>
+          {/* A filled 30 x 30 button, as the mockup's. */}
+          <button
+            ref={closeRef} type="button" aria-label="Close" onClick={onClose}
+            className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-md bg-gray-800 text-lg leading-none text-gray-300 hover:bg-gray-700 hover:text-white"
+          >
+            ×
+          </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4">
+        <div className="flex flex-1 flex-col gap-[22px] overflow-y-auto px-6 pb-6">
           {coverage.errorText ? (
-            <p className="text-xs text-red-400">{coverage.errorText}</p>
+            <p className="text-[13px] text-red-400">{coverage.errorText}</p>
           ) : !c ? (
-            <p className="text-xs text-gray-500">Loading…</p>
+            <p className="text-[13px] text-gray-500">Loading…</p>
           ) : (
             <>
-              <Group title="Unmeasured" count={c.unmeasured.length} summary="open counts unknown"
+              <Group title="Unmeasured" mark count={c.unmeasured.length} summary="open counts unknown"
                 note="Open counts unknown, not zero. Their resolved alerts and measured history still count.">
                 {c.unmeasured.map(r => (
-                  <li key={r.repoId} className={`vuln-hatch border border-warn-line px-2.5 py-2 text-xs ${TYPE.control}`}>
+                  <li key={r.repoId} className={ROW_HATCH}>
                     <RowLine
                       left={<>{repoLink(r)} <span className="text-gray-400">· {ownerLine(r)}</span></>}
-                      leftTitle={`${r.fullName} · ${ownerLine(r)}`}
                       reason={unmeasuredReason({ status: r.dependabotStatus ?? 'error', detail: r.detail ?? null })}
                       reasonClass="font-semibold text-warn"
                     />
@@ -183,33 +197,32 @@ export default function CoverageDrawer({ open, onClose, opener, coverage, summar
               </Group>
               <Group title="Needs tagging" count={c.needsTagging.length} summary={openCritical(c.needsTagging)} note="Counted under “Unassigned” until tagged.">
                 {c.needsTagging.map(r => (
-                  <li key={r.repoId} className={`bg-chart-surface px-2.5 py-2 text-xs ${TYPE.control}`}>
-                    <RowLine left={repoLink(r)} leftTitle={r.fullName} reason={`${r.openCritical} crit · ${r.openHigh} high`} reasonClass="text-gray-300" />
-                    <div className="truncate text-gray-400" title={`Missing: ${missingTags(r)}`}>Missing: {missingTags(r)}</div>
+                  <li key={r.repoId} className={ROW_FILL}>
+                    <RowLine left={repoLink(r)} reason={`${r.openCritical} crit · ${r.openHigh} high`} reasonClass="text-gray-300" />
+                    <div className={`text-gray-400 ${WRAP}`}>Missing: {missingTags(r)}</div>
                   </li>
                 ))}
               </Group>
               <Group title="Excluded by policy" count={c.excludedByPolicy.length} summary={openCritical(c.excludedByPolicy)} note="Not counted anywhere on this page.">
                 {c.excludedByPolicy.map(r => (
-                  <li key={r.repoId} className={`bg-chart-surface px-2.5 py-2 text-xs ${TYPE.control}`}>
+                  <li key={r.repoId} className={ROW_FILL}>
                     <RowLine
                       left={<>{repoLink(r)} <span className="text-gray-400">· {ownerLine(r)}</span></>}
-                      leftTitle={`${r.fullName} · ${ownerLine(r)}`}
                       reason={`outside scope (${r.serviceTier ?? 'no tier'})`}
                     />
-                    <div className="truncate text-gray-400" title={`${r.openCritical} crit · ${r.openHigh} high`}>{`${r.openCritical} crit · ${r.openHigh} high`}</div>
+                    <div className={`text-gray-400 ${WRAP}`}>{`${r.openCritical} crit · ${r.openHigh} high`}</div>
                   </li>
                 ))}
               </Group>
             </>
           )}
 
-          <section aria-labelledby="coverage-policy-title" className="mt-2">
+          <section aria-labelledby="coverage-policy-title" className="flex flex-col gap-2.5 border-t border-gray-800 pt-4">
             <div className="flex items-baseline justify-between gap-3">
-              <h3 id="coverage-policy-title" className={`${TYPE.sectionLabel} text-gray-300`}>Policy</h3>
+              <h3 id="coverage-policy-title" className="text-[15px] font-semibold text-white">Policy</h3>
               <span className="text-xs text-gray-500">From deployment configuration</span>
             </div>
-            <dl className="mt-2 grid gap-x-3 gap-y-1.5 text-xs" style={{ gridTemplateColumns: `${POLICY_LABEL_W}px minmax(0, 1fr)` }}>
+            <dl className="grid gap-x-4 gap-y-2 text-[13px]" style={{ gridTemplateColumns: `${POLICY_LABEL_W}px minmax(0, 1fr)` }}>
               {([
                 ['critical', 'Critical SLA', slaValue('critical', summary)],
                 ['high', 'High SLA', slaValue('high', summary)],
@@ -225,7 +238,7 @@ export default function CoverageDrawer({ open, onClose, opener, coverage, summar
                 </div>
               ))}
             </dl>
-            <p className="mt-3 text-xs text-gray-500">Archiving a repository drops its open alerts but keeps its resolved ones, which raises % closed.</p>
+            <p className="text-xs text-gray-500">Archiving a repository drops its open alerts but keeps its resolved ones, which raises % closed.</p>
           </section>
         </div>
       </aside>
