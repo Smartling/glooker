@@ -4,7 +4,7 @@ import { getVulnerabilitiesOrg, getSyncSchedule, getVulnConfig } from './config'
 import { getSyncProgress, type SyncProgress } from './progress';
 import { rowToAlertFact, rowToRepoFact } from './db-helpers';
 import {
-  computePivot, computeKpi, computeCoverage, listAlerts, computeDelta, computeTrend, snapshotSets, pickBaseline, knownTeams, teamOf, setKey,
+  computePivot, computeKpi, computeCoverage, computeCodebaseCounts, listAlerts, computeDelta, computeTrend, snapshotSets, pickBaseline, knownTeams, teamOf, setKey,
   pickTrendSets,
 } from './aggregate';
 import { isInScope } from './codebase';
@@ -303,6 +303,8 @@ export async function getSummary(f: ParsedFilters, now: Date = new Date()) {
     slaStatus: { critical: slaStatus('critical', now), high: slaStatus('high', now) },
     pivot: computePivot(p.alerts, p.repos, { codebase: f.codebase, team: f.team, now }),
     kpi: computeKpi(p.alerts, p.repos, { codebase: f.codebase, team: f.team, now }),
+    // GLOOK-64: open critical/high per codebase group, ignoring `codebase` (every option shows its own count), honouring `team`.
+    codebaseCounts: computeCodebaseCounts(p.alerts, p.repos, { team: f.team, now }),
     delta: {
       critical: computeDelta(p.alerts, p.repos, baselineRows, baseline, { codebase: f.codebase, team: f.team, severity: 'critical' }),
       high: computeDelta(p.alerts, p.repos, baselineRows, baseline, { codebase: f.codebase, team: f.team, severity: 'high' }),

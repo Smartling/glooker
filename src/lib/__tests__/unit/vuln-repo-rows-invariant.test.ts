@@ -2,8 +2,9 @@
 // filter combination. Fixtures are invented (no real org data) and cover every row kind: a
 // zero-alert repo, an unmeasured repo that still has stored open alerts, an archived repo with
 // alerts, an out-of-scope repo, a repo with no team and a repo with no codebase type.
-import { computePivot, computeRepoRows, listAlerts } from '@/lib/vulnerabilities/aggregate';
+import { computePivot, computeRepoRows, computeCodebaseCounts, listAlerts } from '@/lib/vulnerabilities/aggregate';
 import { __clearVulnConfigCache } from '@/lib/vulnerabilities/config';
+import { CODEBASE_GROUPS } from '@/lib/vulnerabilities/codebase-labels';
 import type { AlertFact, RepoFact, CodebaseGroup, Severity } from '@/lib/vulnerabilities/types';
 
 const NOW = new Date('2026-09-22T12:00:00Z');
@@ -161,5 +162,27 @@ describe('independent cross-check through listAlerts', () => {
         expect(listed.totalCount).toBe(r[sev].overdue);
       }
     }
+  });
+});
+
+describe('computeCodebaseCounts', () => {
+  it.each(TEAMS)('team=%s: counts[c] equals the pivot total open for codebase c, for both severities', (team) => {
+    const counts = computeCodebaseCounts(ALERTS, REPOS, { team, now: NOW });
+    expect(Object.keys(counts).sort()).toEqual([...CODEBASE_GROUPS].sort());
+    for (const c of CODEBASES) {
+      const { total } = computePivot(ALERTS, REPOS, { codebase: c, team, now: NOW });
+      expect(counts[c]).toEqual({ critical: total.critical.open, high: total.high.open });
+    }
+  });
+
+  it('ignores the codebase filter but honours team, and counts a null codebase type under other and all', () => {
+    const unassigned = computeCodebaseCounts(ALERTS, REPOS, { team: 'Unassigned', now: NOW });
+    // acme/orphan (backend) and acme/untyped (no codebase type) are the Unassigned repos.
+    expect(unassigned.backend.critical + unassigned.backend.high).toBeGreaterThan(0);
+    expect(unassigned.other.critical + unassigned.other.high).toBeGreaterThan(0); // acme/untyped
+    expect(unassigned.frontend).toEqual({ critical: 0, high: 0 });
+    const all = computeCodebaseCounts(ALERTS, REPOS, { now: NOW });
+    expect(all.all.critical).toBe(all.backend.critical + all.frontend.critical + all.shared.critical + all.other.critical);
+    expect(all.all.high).toBe(all.backend.high + all.frontend.high + all.shared.high + all.other.high);
   });
 });

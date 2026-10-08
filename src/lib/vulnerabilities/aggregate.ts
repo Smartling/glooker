@@ -1,7 +1,7 @@
 // Pure aggregation. Every number the UI and MCP show is computed here, from stored rows.
 import { getVulnConfig } from './config';
 import { computeDue, daysRemaining, slaStatus, resolvedTiming } from './sla';
-import { inCodebaseView, isInScope, codebaseGroupOf } from './codebase';
+import { inCodebaseView, isInScope, codebaseGroupOf, CODEBASE_GROUPS } from './codebase';
 import { diffDays, utcDate, toIsoSecond } from './time';
 import type { AlertFact, RepoFact, CodebaseGroup, Severity, AlertState, SnapshotRow, DependabotStatus } from './types';
 
@@ -224,6 +224,27 @@ export function computeKpi(alerts: AlertFact[], repos: RepoFact[], opts: { codeb
     if (a.severity === 'critical' && isOpen(a, r)) n++;
   }
   return { openCriticalOtherCodebases: n };
+}
+
+export type CodebaseCounts = Record<CodebaseGroup, { critical: number; high: number }>;
+
+/**
+ * GLOOK-64: open critical and high alerts per codebase group, for the page's Codebase options.
+ * It ignores the `codebase` filter (every option must show its own count) and honours `team`.
+ * A repository with no codebase type counts under `other` and `all`, exactly as `inCodebaseView`
+ * places it, so `counts[c]` equals the pivot's total open for `codebase = c`.
+ */
+export function computeCodebaseCounts(alerts: AlertFact[], repos: RepoFact[], opts: { team?: string; now: Date }): CodebaseCounts {
+  const counts = Object.fromEntries(CODEBASE_GROUPS.map(g => [g, { critical: 0, high: 0 }])) as CodebaseCounts;
+  const byId = new Map(repos.map(r => [r.repoId, r]));
+  for (const a of alerts) {
+    const r = byId.get(a.repoId);
+    if (!r || !isInScope(r.serviceTier) || !isOpen(a, r)) continue;
+    if (opts.team && teamOf(r) !== opts.team) continue;
+    counts[codebaseGroupOf(r.codebaseType)][a.severity]++;
+    counts.all[a.severity]++;
+  }
+  return counts;
 }
 
 export interface CoverageRow {

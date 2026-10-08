@@ -420,3 +420,29 @@ describe('configErrors channel', () => {
     expect(unknownRepo).not.toHaveProperty('configErrors');
   });
 });
+
+// ---------- GLOOK-64 helpers and tests ----------
+const repoRowSql = (id: number, name: string, over: { team?: string | null; tier?: string; codebase?: string | null; archived?: number; status?: string; detail?: string | null } = {}) => db.execute(
+  `INSERT INTO vulnerability_repos (repo_id, org, full_name, team, service_tier, codebase_type, archived, dependabot_status, dependabot_status_detail, first_seen_at, last_seen_at)
+   VALUES (?,'o',?,?,?,?,?,?,?,'2026-09-22T10:00:00Z','2026-09-22T10:00:00Z')`,
+  [id, name, over.team === undefined ? 'T1' : over.team, over.tier ?? 'production', over.codebase === undefined ? 'backend' : over.codebase,
+    over.archived ?? 0, over.status ?? 'ok', over.detail ?? null]);
+const alertSql = (repoId: number, n: number, severity: 'critical' | 'high' = 'critical', createdAt = '2026-09-01T00:00:00Z') => db.execute(
+  `INSERT INTO vulnerability_alerts (repo_id, number, org, html_url, state, severity, created_at, first_seen_sync_id, last_seen_sync_id)
+   VALUES (?,?,'o',?,'open',?,?,1,1)`, [repoId, n, `u${repoId}-${n}`, severity, createdAt]);
+
+describe('getSummary codebaseCounts', () => {
+  it('counts open critical and high per codebase group, ignores the codebase filter and honours team; a null codebase type counts under other and all', async () => {
+    await seedOk(); // o/r1: T1 backend, 1 critical
+    await repoRowSql(2, 'o/r2', { team: 'T2', codebase: 'frontend' }); await alertSql(2, 1, 'high');
+    await repoRowSql(3, 'o/r3', { team: 'T1', codebase: null }); await alertSql(3, 1);
+    const zero = { critical: 0, high: 0 };
+    const all = await q.getSummary(f({ codebase: 'frontend' }), NOW); // the filter must not change the counts
+    expect(all.codebaseCounts).toEqual({
+      backend: { critical: 1, high: 0 }, frontend: { critical: 0, high: 1 }, shared: zero, other: { critical: 1, high: 0 }, all: { critical: 2, high: 1 },
+    });
+    expect((await q.getSummary(f({ team: 'T1' }), NOW)).codebaseCounts).toEqual({
+      backend: { critical: 1, high: 0 }, frontend: zero, shared: zero, other: { critical: 1, high: 0 }, all: { critical: 2, high: 0 },
+    });
+  });
+});
