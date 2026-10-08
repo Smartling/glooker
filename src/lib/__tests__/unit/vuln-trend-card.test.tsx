@@ -300,6 +300,28 @@ describe('history messages', () => {
   });
 });
 
+describe('a selected team with no point in the series (B14)', () => {
+  // Revert: drop the note: the plot is then empty with no word on why, and every legend entry is dimmed.
+  it('says so in one line over the plot, and not when the team has points', () => {
+    const { rerender } = render(<TrendCard {...props(SERIES, { url: { team: 'Nobody' } })} />);
+    const note = screen.getByTestId('trend-team-missing');
+    expect(note.textContent).toBe('No stored measurements for Nobody');
+    expect(note.getAttribute('title')).toBe(note.textContent);
+    expect(note.className).toContain('truncate');
+    expect(note.parentElement).toBe(screen.getByTestId('trend-plot'));
+    rerender(<TrendCard {...props(SERIES, { url: { team: 'TeamA' } })} />);
+    expect(screen.queryByTestId('trend-team-missing')).toBeNull();
+    rerender(<TrendCard {...props()} />);
+    expect(screen.queryByTestId('trend-team-missing')).toBeNull();
+  });
+
+  it('does not stack on top of the "No measurements yet" message, which already explains an empty plot', () => {
+    render(<TrendCard {...props([], { url: { team: 'Nobody' } })} />);
+    expect(screen.queryByTestId('trend-team-missing')).toBeNull();
+    expect(screen.getByTestId('trend-message')).toBeTruthy();
+  });
+});
+
 describe('legend', () => {
   const many = Array.from({ length: 15 }, (_, i) => ovSeries(`Team ${String(i + 1).padStart(2, '0')}`, [[ago(40), 15 - i], [ago(1), 15 - i]]));
 

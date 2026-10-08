@@ -18,7 +18,9 @@ const LABEL = `${TYPE.sectionLabel} truncate text-gray-400`;
 
 function OpenTile({ summary, data, url }: SecurityViewProps) {
   const sev = url.kSev;
-  const change = openChange(summary.delta[sev], sev);
+  // One "today" for the whole tile: the change sentence and the sparkline caption must print dates against the same year.
+  const today = utcToday();
+  const change = openChange(summary.delta[sev], sev, today);
   const spark = slotView(data.sparkline);
   return (
     <div data-testid="kpi-open" className={TILE}>
@@ -32,7 +34,7 @@ function OpenTile({ summary, data, url }: SecurityViewProps) {
         <Sparkline
           points={spark.kind === 'data' ? sparkPoints(spark.data.series, url.team) : undefined}
           sev={sev}
-          today={utcToday()}
+          today={today}
           errorText={spark.kind === 'error' ? spark.text : spark.kind === 'data' ? spark.refreshError : null}
           stale={spark.kind === 'data' && spark.dimmed}
           unavailableText={spark.kind === 'unavailable' ? spark.text : null}
@@ -63,7 +65,8 @@ function SinceTile({ summary, url }: SecurityViewProps) {
   // caption says why there is no figure instead.
   const caption = total ? null : baselineUnavailableText(d);
   const sinceLabel = `${sev} since ${d?.baseline ? displayDate(d.baseline.takenOn) : 'baseline'}`;
-  const notInBaseline = d?.available && d.reposNotInBaseline > 0 ? `${d.reposNotInBaseline} repos not in baseline` : null;
+  // Only beside figures that can be trusted: without a usable total the tile shows dashes and says why, not a count of repositories.
+  const notInBaseline = total && d && d.reposNotInBaseline > 0 ? `${dash(d.reposNotInBaseline)} repos not in baseline` : null;
   const other = total && total.other !== 0
     ? { text: `other ${signed(total.other)}`, title: `other ${signed(total.other)}: change in open alerts not explained by new, resolved or reopened` }
     : null;
@@ -74,7 +77,7 @@ function SinceTile({ summary, url }: SecurityViewProps) {
       </div>
       <div className="mt-1">
         <CountRow label="new" value={total ? total.new : null} />
-        <CountRow label="resolved" note={total ? `(${total.dismissed} dismissed)` : undefined} value={total ? total.resolved : null} />
+        <CountRow label="resolved" note={total ? `(${dash(total.dismissed)} dismissed)` : undefined} value={total ? total.resolved : null} />
         <CountRow label="reopened" value={total ? total.reopened : null} />
       </div>
       {/* Three reserved one-line slots, whatever the delta holds, so the tile never changes shape. */}
@@ -108,7 +111,7 @@ function ResolvedTile({ summary, url }: SecurityViewProps) {
   const raised = c.open + (c.resolved ?? 0);
   const closedLine = c.resolved === null
     ? `${dash(c.pctClosed, '%')} closed`
-    : raised === 0 ? 'None raised yet' : `${dash(c.pctClosed, '%')} of ${raised} raised are closed`;
+    : raised === 0 ? 'None raised yet' : `${dash(c.pctClosed, '%')} of ${dash(raised)} raised are closed`;
   const footnote = carried > 0 ? carriedFootnote(carried) : null;
   const sinceText = `${dash(c.dismissed)} dismissed · ${resolvedCaption(summary.resolvedSince)}`;
   return (

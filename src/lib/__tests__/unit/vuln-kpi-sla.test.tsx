@@ -59,8 +59,9 @@ describe.each([['critical', 'high'], ['high', 'critical']] as const)('%s row in 
     expect(state.textContent).toBe('Starts Feb 1, 2099');
     expect(state.className).toContain('col-span-2');
     expect(state.className).not.toContain('text-red-400');
-    expect(within(row(sev)).queryByText('15')).toBeNull();
-    expect(within(row(other)).getByText(other === 'critical' ? '2' : '4')).toBeTruthy();
+    // the row's OWN figures (critical 15 overdue / 2 due soon, high 13 / 4) are gone; the other severity's are still there
+    for (const own of sev === 'critical' ? ['15', '2'] : ['13', '4']) expect(within(row(sev)).queryByText(own)).toBeNull();
+    for (const theirs of other === 'critical' ? ['15', '2'] : ['13', '4']) expect(within(row(other)).getByText(theirs)).toBeTruthy();
   });
 
   it('none: "No SLA policy yet", never the invalid message', () => {

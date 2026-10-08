@@ -29,10 +29,10 @@ const ROW_FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible
 const REPO_HEAD_H = 40;
 const REPO_FOOT_H = TEAM_ROW_H + 1;
 
-interface Col { key: RepoSortKey; label: string; width: string; align: 'right' }
+interface Col { key: RepoSortKey; label: string; width: string }
 
 function columns(src: SecurityViewProps['summary']): Col[] {
-  const num = (key: RepoSortKey, label: string): Col => ({ key, label, width: 'minmax(0, 0.8fr)', align: 'right' });
+  const num = (key: RepoSortKey, label: string): Col => ({ key, label, width: 'minmax(0, 0.8fr)' });
   return [
     num('openCrit', 'Open crit'),
     ...(slaActive('critical', src) ? [num('overCrit', 'Overdue crit')] : []),
@@ -45,14 +45,19 @@ function columns(src: SecurityViewProps['summary']): Col[] {
 
 const nextText = (n: NextDue) => ({ date: displayDate(n.date), sub: n.daysRemaining === 0 ? 'today' : `in ${n.daysRemaining}d` });
 
-/** The text of one numeric cell (or footer cell) for a column; null for a hidden severity. */
+/**
+ * The text and classes of one numeric cell (a row's, or with `bold` the footer's) for a column. A hidden severity's column
+ * never gets here: the caller draws "–" for it. A missing figure (null overdue, no oldest, no due date) reads "—".
+ */
 function figure(col: Col, v: { openCrit: number; openHigh: number; overCrit: number | null; overHigh: number | null; oldest: number | null; next: NextDue | null }, bold: boolean) {
+  // A zero (or missing) figure is grey in a row and white in the footer, which is bold throughout.
+  const quiet = bold ? 'text-white' : 'text-gray-600';
   switch (col.key) {
-    case 'openCrit': return { text: dash(v.openCrit), cls: v.openCrit ? 'text-white' : 'text-gray-600', weight: true };
-    case 'openHigh': return { text: dash(v.openHigh), cls: v.openHigh ? 'text-white' : 'text-gray-600', weight: true };
+    case 'openCrit': return { text: dash(v.openCrit), cls: v.openCrit ? 'text-white' : quiet, weight: true };
+    case 'openHigh': return { text: dash(v.openHigh), cls: v.openHigh ? 'text-white' : quiet, weight: true };
     // A null overdue (no figure) reads "—", never a zero it does not know.
-    case 'overCrit': return { text: dash(v.overCrit), cls: v.overCrit ? 'font-bold text-red-400' : 'text-gray-600', weight: false };
-    case 'overHigh': return { text: dash(v.overHigh), cls: v.overHigh ? 'font-bold text-red-400' : 'text-gray-600', weight: false };
+    case 'overCrit': return { text: dash(v.overCrit), cls: v.overCrit ? 'font-bold text-red-400' : quiet, weight: false };
+    case 'overHigh': return { text: dash(v.overHigh), cls: v.overHigh ? 'font-bold text-red-400' : quiet, weight: false };
     case 'oldest': return { text: v.oldest === null ? '—' : `${v.oldest}d`, cls: bold ? 'text-white' : 'text-gray-300', weight: false };
     default: return { text: v.next ? nextText(v.next).date : '—', cls: 'text-gray-300', weight: false, sub: v.next ? nextText(v.next).sub : undefined };
   }
@@ -111,7 +116,7 @@ function UnmeasuredRow({ r, cols, template, onOpen }: { r: RepoRow; cols: Col[];
         <div className="truncate text-xs text-gray-500" title={CODEBASE_LABELS[r.codebaseGroup]}>{CODEBASE_LABELS[r.codebaseGroup]}</div>
       </div>
       <div role="cell" className={`${TYPE.body} min-w-0 truncate px-2 text-gray-300`} title={r.team}>{r.team}</div>
-      <div role="cell" data-testid="repo-unmeasured-band" className="vuln-hatch mx-2 min-w-0 truncate rounded border border-warn-line px-2 py-1 text-xs font-semibold text-warn" style={{ gridColumn: `span ${cols.length}` }}>
+      <div role="cell" data-testid="repo-unmeasured-band" title={text} className="vuln-hatch mx-2 min-w-0 truncate rounded border border-warn-line px-2 py-1 text-xs font-semibold text-warn" style={{ gridColumn: `span ${cols.length}` }}>
         {text}
       </div>
     </div>
@@ -183,7 +188,8 @@ export default function RepoTable({ summary, data, url, openDrawer, nameFilter }
       {repoView.measured.map(d => <MeasuredRow key={d.row.fullName} d={d} cols={cols} template={template} severity={url.severity} onSelect={url.selectRepoRow} />)}
       {repoView.unmeasured.map(r => <UnmeasuredRow key={r.fullName} r={r} cols={cols} template={template} onOpen={openDrawer} />)}
 
-      <div className="sticky bottom-0 border-t border-gray-700 bg-chart-surface" style={{ zIndex: Z.pinnedRows }}>
+      {/* The shadow above the pinned footer says more rows are scrolled out of sight behind it, as on the team table's Total row. */}
+      <div className="sticky bottom-0 border-t border-gray-700 bg-chart-surface shadow-[0_-6px_6px_-6px_rgba(0,0,0,0.45)]" style={{ zIndex: Z.pinnedRows }}>
         <div role="row" data-testid="repo-footer" className="items-center font-bold" style={{ display: 'grid', gridTemplateColumns: template, minHeight: TEAM_ROW_H }}>
           <div role="cell" className="col-span-2 min-w-0 px-2">
             <div className={`${TYPE.body} truncate text-white`} title={footLabel}>{footLabel}</div>
@@ -199,7 +205,7 @@ export default function RepoTable({ summary, data, url, openDrawer, nameFilter }
             if (sev && !sevShown(url.severity, sev)) return <div key={c.key} role="cell" className="px-2 text-right text-gray-600">{HIDDEN}</div>;
             const f = figure(c, totals, true);
             return (
-              <div key={c.key} role="cell" className={`px-2 text-right tabular-nums ${f.cls.replace('text-gray-600', 'text-white')}`}>
+              <div key={c.key} role="cell" className={`px-2 text-right tabular-nums ${f.cls}`}>
                 {f.text}
                 {'sub' in f && f.sub && <span className="ml-1 text-xs font-normal text-gray-500">{f.sub}</span>}
               </div>

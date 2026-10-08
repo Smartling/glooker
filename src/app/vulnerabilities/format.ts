@@ -16,7 +16,7 @@ export function resolvedCaption(r: ResolvedSince, today?: string): string {
   if (r.invalid) return 'since —';
   return r.date === null ? 'all time' : `since ${displayDate(r.date, today)}`;
 }
-export const signed = (v: number) => (v > 0 ? `+${v}` : `${v}`);
+export const signed = (v: number) => (v > 0 ? `+${dash(v)}` : dash(v));
 
 /**
  * When a delta is available, names the baseline date it's measured against — a snapshot-history

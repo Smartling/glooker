@@ -37,6 +37,17 @@ function compareValues(a: string | number | null, b: string | number | null, dir
 // ── Team table ─────────────────────────────────────────────────────────────────────────────────────
 
 /**
+ * Whether the † footnote sits under the Total row: the total's critical resolved count includes carried-over CSV history
+ * (it is null, and nothing carried can be trusted, while the resolved start date is invalid) and the critical column is
+ * shown. The footnote is about the critical Resolved column, so "High only" has none. The table draws it, pads its
+ * scroller by it, and the card sizes the room for the rows by it (teamRowsOverflow): all three read this one rule.
+ */
+export function hasCarriedFootnote(summary: { pivot: { total: TeamRow } }, severity: SeverityFilter): boolean {
+  const c = summary.pivot.total.critical;
+  return sevShown(severity, 'critical') && c.resolved !== null && c.carriedResolved > 0;
+}
+
+/**
  * True when `rowCount` team rows do not all fit between the pinned header and the pinned Total row (and the † footnote
  * under it, when there is one), so the body scrolls. The card appends "· scroll for more" to its hint then.
  */

@@ -11,7 +11,7 @@ const repo = (repoId: number, fullName: string, team: string, over: Partial<Repo
   dependabotStatus: 'ok', dependabotStatusDetail: null, carriedResolvedCritical: 0, ...over,
 });
 
-const alert = (repoId: number, number: number, severity: Severity, over: Partial<AlertFact> = {}): AlertFact => ({
+export const alertFact = (repoId: number, number: number, severity: Severity, over: Partial<AlertFact> = {}): AlertFact => ({
   repoId, number, htmlUrl: `https://example.test/${repoId}/${number}`, state: 'open', severity, severityChangedAt: null,
   ghsaId: `GHSA-${repoId}-${number}`, cveId: `CVE-${repoId}-${number}`, summary: null, cvssScore: 9, epssPercentage: null, withdrawn: false,
   packageName: 'pkg', ecosystem: 'npm', manifestPath: 'package.json', relationship: 'direct', scope: 'runtime',
@@ -21,7 +21,7 @@ const alert = (repoId: number, number: number, severity: Severity, over: Partial
 
 /** `n` open alerts of one severity in one repository. */
 const open = (repoId: number, severity: Severity, n: number, first = 1): AlertFact[] =>
-  Array.from({ length: n }, (_, i) => alert(repoId, first + i, severity, { createdAt: `2026-09-${String(1 + ((first + i) % 20)).padStart(2, '0')}T00:00:00Z` }));
+  Array.from({ length: n }, (_, i) => alertFact(repoId, first + i, severity, { createdAt: `2026-09-${String(1 + ((first + i) % 20)).padStart(2, '0')}T00:00:00Z` }));
 
 export const OV_REPOS: RepoFact[] = [
   repo(1, 'acme/checkout-api', 'Payments'),
@@ -34,7 +34,7 @@ export const OV_REPOS: RepoFact[] = [
 
 export const OV_ALERTS: AlertFact[] = [
   ...open(1, 'critical', 3), ...open(1, 'high', 2, 10),
-  ...open(2, 'critical', 1), alert(2, 50, 'critical', { state: 'fixed', resolvedAt: '2026-09-12T00:00:00Z' }),
+  ...open(2, 'critical', 1), alertFact(2, 50, 'critical', { state: 'fixed', resolvedAt: '2026-09-12T00:00:00Z' }),
   ...open(4, 'critical', 2), ...open(4, 'high', 4, 10),
   ...open(5, 'critical', 3), ...open(5, 'high', 1, 10),
   ...open(6, 'critical', 4), ...open(6, 'high', 3, 10),

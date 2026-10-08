@@ -4,7 +4,7 @@ import {
   buildLegend, dayNumber, isoOfDay, trendDomain, trendRows, trendStatus, trendTicks, SHORT_HISTORY_DAYS, TREND_MIN_SPAN_DAYS,
 } from '@/app/vulnerabilities/trend-model';
 import { addDays } from '@/lib/vulnerabilities/time';
-import { OTHER_TEAM_COLOR } from '@/app/vulnerabilities/team-colors';
+import { assignTeamColors, latestOpen, OTHER_TEAM_COLOR } from '@/app/vulnerabilities/team-colors';
 import { ovSeries } from '../support/security-fixtures';
 
 const TODAY = '2026-09-30';
@@ -60,6 +60,14 @@ describe('ticks and day numbers', () => {
   it('honours the count', () => {
     const d = dayNumber('2026-09-01');
     expect(trendTicks('2026-09-01', '2026-09-08', 3)).toEqual([d, d + 4, d + 7]);
+  });
+
+  // Revert: drop the guard: count 1 divides by zero (NaN ticks), and count 0 or less builds nothing meaningful.
+  it('fewer than two ticks never divides by zero: one is the start, none is none', () => {
+    expect(trendTicks('2026-09-01', '2026-09-08', 1)).toEqual([dayNumber('2026-09-01')]);
+    expect(trendTicks('2026-09-01', '2026-09-08', 0)).toEqual([]);
+    expect(trendTicks('2026-09-01', '2026-09-08', -3)).toEqual([]);
+    expect(trendTicks('2026-09-01', '2026-09-08', 2)).toEqual([dayNumber('2026-09-01'), dayNumber('2026-09-08')]);
   });
 });
 
@@ -125,6 +133,27 @@ describe('trendStatus', () => {
     expect(s.note).toBe('History starts Dec 30, 2030 (first sync) · 2 measurements');
     const same = trendStatus([ovSeries('A', [['2031-01-01', 1], ['2031-01-02', 2]])], 'all', '2031-01-05');
     expect(same.note).toBe('History starts Jan 1 (first sync) · 2 measurements');
+  });
+});
+
+describe('the legend and the colours rank by the same "latest point" (latestOpen)', () => {
+  // Revert: give buildLegend (or assignTeamColors) its own copy that reads a different point, or does not coerce a string count.
+  it('a team\'s latest point decides both its colour slot and its legend count, with string counts coerced and an empty series 0', () => {
+    const series = [
+      ovSeries('Gamma', [['2026-09-01', 50], ['2026-09-29', 1]]),
+      { team: 'Beta', points: [{ date: '2026-09-01', open: 1 }, { date: '2026-09-29', open: '9' as unknown as number }] },
+      ovSeries('Alpha', []),
+    ];
+    expect(latestOpen(series[0])).toBe(1);
+    expect(latestOpen(series[1])).toBe(9);
+    expect(latestOpen(series[2])).toBe(0);
+    expect(buildLegend(series, null).map(e => [e.label, e.open])).toEqual([['Beta', 9], ['Gamma', 1], ['Alpha', 0]]);
+    // 13 teams: the one with the smallest latest count falls out of the 12 coloured slots, the same one the legend ranks last
+    const many = Array.from({ length: 13 }, (_, i) => ovSeries(`T${String(i).padStart(2, '0')}`, [['2026-09-01', 99], ['2026-09-29', i + 1]]));
+    const colors = assignTeamColors(many);
+    const legend = buildLegend(many, null);
+    expect(colors['T00']).toBe(OTHER_TEAM_COLOR);
+    expect(legend[legend.length - 1].teams).toEqual(['T00']);
   });
 });
 

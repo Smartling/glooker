@@ -11,8 +11,6 @@ import {
   ovBaseline, ovCell, ovDelta, ovDeltaTeam, ovNoBaseline, ovProps, ovTeam, slot, summaryFixture,
 } from '../support/security-fixtures';
 
-const NBSP = '\u00a0';
-
 // Dates print through displayDate, whose "current year" is the clock's: pin it so the literal fixture dates read the same every year.
 let nowSpy: jest.SpyInstance;
 beforeEach(() => { nowSpy = jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-30T12:00:00Z')); });
@@ -132,6 +130,21 @@ describe('layout', () => {
     for (const c of ['focus-visible:outline-none', 'focus-visible:ring-2', 'focus-visible:ring-inset', 'focus-visible:ring-accent/50']) expect(cls).toContain(c);
   });
 
+  // Revert: leave the bare <div /> spacers: a row then has children that are neither cells nor headers.
+  it('every child of every row is a cell or a column header, or a presentation spacer', () => {
+    render(<TeamTable {...table()} />);
+    const rows = screen.getAllByRole('row');
+    expect(rows.length).toBeGreaterThan(3);
+    for (const row of rows) {
+      for (const child of Array.from(row.children)) {
+        expect(['cell', 'columnheader', 'presentation']).toContain(child.getAttribute('role'));
+      }
+    }
+    // the 8px spacer between the two severity groups is one of them, in the band, header, body and Total rows alike
+    expect(within(rowOf('Payments')).getAllByRole('presentation').length).toBeGreaterThan(0);
+    expect(within(screen.getByTestId('team-total-row')).getAllByRole('presentation').length).toBeGreaterThan(0);
+  });
+
   it('numeric cells use tabular digits', () => {
     render(<TeamTable {...table()} />);
     for (const c of cellsOf(rowOf('Payments')).slice(1, 5)) expect(c.className).toContain('tabular-nums');
@@ -204,6 +217,21 @@ describe('data source', () => {
     expect(note.getAttribute('title')).toBe("Couldn't load team table: x");
     expect(note.className).toContain('text-red-400');
     expect(screen.getByTestId('team-table').className).not.toContain('opacity-60');
+  });
+
+  // Revert: put the note in an absolutely positioned element wider than the Owning team track: it then runs onto the CRITICAL band at 1024px.
+  it('the note fills the band row\'s first cell, so the Owning team track caps its width: it truncates and nothing is laid over the bands', () => {
+    render(<TeamTable {...ovProps({ teamSummary: slot(summaryFixture(pivot()), { errorText: "Couldn't load team table: x" }) })} />);
+    const note = screen.getByTestId('team-table-refresh-note');
+    const bandRow = note.parentElement as HTMLElement;
+    expect(bandRow.getAttribute('role')).toBe('row');
+    expect(bandRow.firstElementChild).toBe(note);
+    expect(bandRow.style.height).toBe(`${TEAM_BAND_H}px`);
+    expect(bandRow.contains(screen.getByTestId('team-band-critical'))).toBe(true);
+    expect(note.getAttribute('role')).toBe('presentation');
+    expect(note.className).toContain('min-w-0');
+    expect(note.className).toContain('truncate');
+    expect(note.className).not.toMatch(/\babsolute\b/);
   });
 
   it('no note while the refresh has not failed', () => {
@@ -461,9 +489,10 @@ describe('† marker and footnote', () => {
     },
   };
 
-  it('a † with the carry title after the critical Resolved number of a row whose carriedResolved > 0', () => {
+  it('a † with the carry title after the critical Resolved number of a row whose carriedResolved > 0, in the warning colour', () => {
     render(<TeamTable {...table(withCarry)} />);
     expect(within(rowOf('Payments')).getByText('†').getAttribute('title')).toBe(CARRY);
+    expect(within(rowOf('Payments')).getByText('†').className).toContain('text-warn');
     expect(within(rowOf('Unassigned')).queryByText('†')).toBeNull();
   });
 
@@ -475,6 +504,17 @@ describe('† marker and footnote', () => {
     // A fixed one-line height, so the overflow rule's arithmetic (and the pinned footer's height) holds.
     expect(note.style.height).toBe(`${TEAM_FOOTNOTE_H}px`);
     expect(note.className).toContain('truncate');
+  });
+
+  // Revert: gate the footnote on the total alone: under "High only" the critical Resolved column reads – and the note explains nothing.
+  it('no footnote under "High only" (the critical Resolved column is not shown), and the scroller\'s padding follows', () => {
+    const { rerender } = render(<TeamTable {...table(withCarry, { severity: 'critical', kSev: 'critical' })} />);
+    expect(screen.getByTestId('team-table-footnote')).toBeTruthy();
+    expect(screen.getByTestId('team-table').style.scrollPaddingBottom).toBe(`${TEAM_ROW_H + TEAM_FOOTNOTE_H}px`);
+    rerender(<TeamTable {...table(withCarry, { severity: 'high', kSev: 'high' })} />);
+    expect(screen.queryByTestId('team-table-footnote')).toBeNull();
+    expect(screen.queryByText('†')).toBeNull();
+    expect(screen.getByTestId('team-table').style.scrollPaddingBottom).toBe(`${TEAM_ROW_H}px`);
   });
 
   it('neither marker nor footnote when nothing carries', () => {

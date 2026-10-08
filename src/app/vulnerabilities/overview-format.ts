@@ -3,13 +3,14 @@
 // place so the Open tile and the trend header cannot disagree. Pure: no React, no server imports.
 import type { DeltaResult, DeltaTeam } from '@/lib/vulnerabilities/aggregate';
 import type { Severity } from '@/lib/vulnerabilities/types';
+import { dash } from './format';
 import { displayDate } from './labels';
 
 /** "▲ 2 more than on Sep 29", "▼ 1 fewer than on Sep 29" or "Same as on Sep 29". The date reads through `displayDate`. */
 export function changeSentence(delta: number, baselineDate: string, today?: string): string {
   const on = displayDate(baselineDate, today);
-  if (delta > 0) return `▲ ${delta} more than on ${on}`;
-  if (delta < 0) return `▼ ${-delta} fewer than on ${on}`;
+  if (delta > 0) return `▲ ${dash(delta)} more than on ${on}`;
+  if (delta < 0) return `▼ ${dash(-delta)} fewer than on ${on}`;
   return `Same as on ${on}`;
 }
 

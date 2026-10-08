@@ -69,6 +69,18 @@ describe('"N repos not in baseline"', () => {
     expect(screen.getByTestId('kpi-since-repos').hasAttribute('aria-hidden')).toBe(false);
   });
 
+  // Revert: gate the line on `d.available` alone: a delta that says available but has no total (dashes in the tile) still printed a count.
+  it('is not shown when the delta has no usable total (available, but no total or no baseline), whatever count it carries', () => {
+    const noTotal = ovDelta(null, { available: true, reposNotInBaseline: 4 });
+    const noBaseline = ovDelta(total(), { baseline: null, reposNotInBaseline: 4 });
+    for (const d of [noTotal, noBaseline]) {
+      const { unmount } = render(<KpiTiles {...withDelta(d)} />);
+      expect(screen.getByTestId('kpi-since-repos').textContent).toBe(NBSP);
+      expect(screen.getByTestId('kpi-since-repos').getAttribute('aria-hidden')).toBe('true');
+      unmount();
+    }
+  });
+
   // Revert: show the count for an unavailable delta too.
   it('is not shown when the delta is unavailable, even if it carries a count', () => {
     render(<KpiTiles {...withDelta(ovDelta(null, { available: false, reposNotInBaseline: 5 }))} />);
@@ -85,6 +97,14 @@ describe('"other ±N"', () => {
     expect(el.className).toContain('truncate');
     expect(el.getAttribute('title')).toBe('other +4: change in open alerts not explained by new, resolved or reopened');
     expect(el.hasAttribute('aria-hidden')).toBe(false);
+  });
+
+  // Revert: print the raw numbers (signed(), dismissed, repos not in baseline) instead of going through dash().
+  it('every count in the tile is grouped: dismissed, "other" and repositories not in baseline', () => {
+    render(<KpiTiles {...withDelta(ovDelta(total({ dismissed: 1234, resolved: 2345, other: 3456 }), { reposNotInBaseline: 4567 }))} />);
+    expect(tile().textContent).toContain('resolved(1,234 dismissed)2,345');
+    expect(screen.getByTestId('kpi-since-other').textContent).toBe('other +3,456');
+    expect(screen.getByTestId('kpi-since-repos').textContent).toBe('4,567 repos not in baseline');
   });
 
   it('shows the sign of a negative remainder', () => {

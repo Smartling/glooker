@@ -69,6 +69,8 @@ export default function TrendCard({ summary, data, url }: SecurityViewProps) {
   const today = utcToday();
   const status = series ? trendStatus(series, url.range, today) : null;
   const legend = series ? buildLegend(series, url.team) : [];
+  // A selected team that has no point in the series draws no line at all: say so on one line, instead of a blank plot.
+  const teamMissing = series && url.team !== null && !series.some(s => s.team === url.team) ? `No stored measurements for ${url.team}` : null;
   const change = openChange(summary.delta[sev], sev);
   const heading = `Open ${sev} alerts by owning team`;
   const openNow = `${dash(summary.pivot.total[sev].open)} open now`;
@@ -114,6 +116,9 @@ export default function TrendCard({ summary, data, url }: SecurityViewProps) {
             <>
               <Plot series={series} team={url.team} range={url.range} today={today} />
               {status.note && <p data-testid="trend-note" className="pointer-events-none absolute left-9 top-0 text-[11px] text-gray-500">{status.note}</p>}
+              {teamMissing && (
+                <p data-testid="trend-team-missing" className="pointer-events-none absolute inset-x-12 top-1/2 -translate-y-1/2 truncate text-center text-xs text-gray-400" title={teamMissing}>{teamMissing}</p>
+              )}
             </>
           )}
         </div>
@@ -127,7 +132,7 @@ export default function TrendCard({ summary, data, url }: SecurityViewProps) {
               style={{ opacity: e.dimmed ? 0.4 : 1 }}
             >
               <i aria-hidden="true" className="inline-block h-[3px] w-3 rounded-sm" style={{ background: e.color }} />
-              <span className={`max-w-[160px] truncate text-chart-axis ${e.selected ? 'font-semibold' : ''}`}>{e.label}</span>
+              <span className={`max-w-[160px] truncate text-chart-axis ${e.selected ? 'font-semibold' : ''}`} title={e.title}>{e.label}</span>
               <span className="text-gray-500">{dash(e.open)} open</span>
             </span>
           ))}

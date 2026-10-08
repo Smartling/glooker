@@ -44,7 +44,7 @@ const SLA_BOTH: Partial<SummaryData> = {
 };
 
 const text = (el: Element) => el.textContent ?? '';
-const headerLabels = (row: HTMLElement) => Array.from(row.querySelectorAll('[role="columnheader"]')).map(h => text(h).replace(/[↕↑↓]︎?/g, '').replace(/\(dismissed\)|vs .*|No earlier.*/g, '').trim());
+const headerLabels = (row: HTMLElement) => Array.from(row.querySelectorAll('[role="columnheader"]')).map(h => text(h).replace(/[↕↑↓]\uFE0E?/g, '').replace(/\(dismissed\)|vs .*|No earlier.*/g, '').trim());
 const cellsOf = (el: HTMLElement) => Array.from(el.querySelectorAll('[role="cell"]')).map(text);
 
 function renderOverview(team: string | null, severity: SeverityFilter) {

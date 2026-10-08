@@ -14,6 +14,12 @@ describe('changeSentence', () => {
     expect(changeSentence(0, '2031-09-29', TODAY)).toBe('Same as on Sep 29');
   });
 
+  // Revert: print the raw number: the Open tile and the trend header then read "▲ 1234" under counts that read "1,234".
+  it('groups thousands like every other count on the page', () => {
+    expect(changeSentence(1234, '2031-09-29', TODAY)).toBe('▲ 1,234 more than on Sep 29');
+    expect(changeSentence(-5678, '2031-09-29', TODAY)).toBe('▼ 5,678 fewer than on Sep 29');
+  });
+
   // Revert: print the ISO date, or drop the year rule.
   it('writes the date as a display date: no year in the current year, the year in any other, UTC', () => {
     expect(changeSentence(0, '2031-01-01', TODAY)).toBe('Same as on Jan 1');

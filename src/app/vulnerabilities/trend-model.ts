@@ -7,7 +7,7 @@ import { addDays, diffDays } from '@/lib/vulnerabilities/time';
 import { toNum } from '@/components/charts/chart-format';
 import type { TrendRange } from './security-state';
 import { displayDate } from './labels';
-import { assignTeamColors, OTHER_TEAM_COLOR } from './team-colors';
+import { assignTeamColors, latestOpen, OTHER_TEAM_COLOR } from './team-colors';
 
 const DAY_MS = 86_400_000;
 
@@ -44,6 +44,8 @@ export function trendDomain(range: TrendRange, series: readonly TrendSeries[], t
 
 /** Evenly spaced whole-day ticks across the domain, first and last included. */
 export function trendTicks(start: string, end: string, count = 5): number[] {
+  // One tick is the start itself (i / (count - 1) would divide by zero); none is none.
+  if (count < 2) return count < 1 ? [] : [dayNumber(start)];
   const a = dayNumber(start);
   const b = dayNumber(end);
   return Array.from({ length: count }, (_, i) => Math.round(a + ((b - a) * i) / (count - 1)));
@@ -111,8 +113,6 @@ export interface LegendEntry {
   dimmed: boolean;
   selected: boolean;
 }
-
-const latestOpen = (s: TrendSeries): number => toNum(s.points[s.points.length - 1]?.open);
 
 /**
  * Every owning team, always: the top 12 by open count (the ones assignTeamColors gives a colour) each

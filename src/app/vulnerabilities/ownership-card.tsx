@@ -11,7 +11,7 @@ import { dash } from './format';
 import { slotView } from './slot-view';
 import TeamTable from './team-table';
 import RepoTable from './repo-table';
-import { teamRowsOverflow } from './ownership-model';
+import { hasCarriedFootnote, teamRowsOverflow } from './ownership-model';
 
 /** Every tab's count sits in a slot at least this wide, so a count going from one digit to two (a
  * filter changes the number of owning teams) does not move the tab after it. */
@@ -31,8 +31,7 @@ export default function OwnershipCard(props: SecurityViewProps) {
   const teamsView = slotView(data.teamSummary);
   const teamsSrc = teamsView.kind === 'data' ? teamsView.data : null;
   const teamCount = teamsSrc ? teamsSrc.pivot.rows.length : null;
-  const carriedTotal = teamsSrc && teamsSrc.pivot.total.critical.resolved !== null ? teamsSrc.pivot.total.critical.carriedResolved : 0;
-  const teamsScroll = teamCount !== null && teamRowsOverflow(teamCount, carriedTotal > 0);
+  const teamsScroll = teamsSrc !== null && teamRowsOverflow(teamsSrc.pivot.rows.length, hasCarriedFootnote(teamsSrc, url.severity));
   const reposView = slotView(data.repos);
   const repoRows = reposView.kind === 'data' ? reposView.data.rows : null;
   const unmeasured = repoRows ? repoRows.filter(r => r.unmeasured).length : 0;
@@ -67,7 +66,7 @@ export default function OwnershipCard(props: SecurityViewProps) {
                   {/* The pressed tab is semibold. The invisible ::after copy of the label is semibold on both tabs, so
                       each tab is as wide as its bold label and switching tabs does not move the other one. */}
                   <span
-                    data-testid={`ownership-tab-label-${t.id}`} data-label={t.label}
+                    data-testid={`ownership-tab-label-${t.id}`} data-label={t.label} title={t.label}
                     className="truncate after:invisible after:block after:h-0 after:overflow-hidden after:font-semibold after:content-[attr(data-label)]"
                   >{t.label}</span>
                   <span data-testid={`ownership-tab-count-${t.id}`} className={`shrink-0 text-xs font-normal text-gray-500${dimmed[t.id] ? ' opacity-60' : ''}`} style={{ minWidth: OWN_TAB_COUNT_MIN_W }}>{counts[t.id]}</span>
@@ -76,7 +75,7 @@ export default function OwnershipCard(props: SecurityViewProps) {
             })}
           </div>
           <div className="flex min-w-0 shrink-0 items-center gap-3">
-            {hint && <span className="hidden truncate text-xs text-gray-500 md:block">{hint}</span>}
+            {hint && <span className="hidden truncate text-xs text-gray-500 md:block" title={hint}>{hint}</span>}
             {url.own === 'repos' && (
               <input
                 type="search" aria-label="Filter repositories by name" placeholder="Filter repositories by name" value={nameFilter}

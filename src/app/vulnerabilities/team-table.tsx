@@ -16,7 +16,7 @@ import { baselineUnavailableText, carriedFootnote, carriedTitle } from './overvi
 import { slaActive } from './sla-state';
 import { REFRESH_FAILED_NOTE, slotView } from './slot-view';
 import {
-  deltaOpenFor, nextSort, orderTeamRows, sevShown, shownTeamSort, sortGlyph, TEAM_SORT_FIRST,
+  deltaOpenFor, hasCarriedFootnote, nextSort, orderTeamRows, sevShown, shownTeamSort, sortGlyph, TEAM_SORT_FIRST,
   type SortState, type TeamSortKey,
 } from './ownership-model';
 
@@ -114,7 +114,9 @@ export default function TeamTable({ data, url, openDrawer }: SecurityViewProps) 
   });
   const critBaseline = baselineOf(deltas.critical);
   const highBaseline = baselineOf(deltas.high);
-  const carriedTotal = total.critical.resolved !== null ? total.critical.carriedResolved : 0;
+  const carriedTotal = total.critical.carriedResolved;
+  // The † footnote: only while the critical Resolved column it explains is shown (the same rule the card sizes the rows by).
+  const showFootnote = hasCarriedFootnote(src, url.severity);
   // The sort the rows are in: with no header chosen it is the server's order, drawn as "Open ↓" on the Open column of the severity the tiles follow.
   const shownSort = shownTeamSort(sort, url.severity);
   const totalLabel = url.team ? 'Total · all owning teams' : 'Total';
@@ -159,16 +161,16 @@ export default function TeamTable({ data, url, openDrawer }: SecurityViewProps) 
     // The scrollbar gutter is reserved, so a table that starts to scroll does not narrow its columns.
     <div role="table" aria-label="Owning teams" data-testid="team-table" className={`h-full overflow-auto [scrollbar-gutter:stable]${view.dimmed ? ' opacity-60' : ''}`}
       // A row focused with the keyboard scrolls into view clear of the pinned header above it and the pinned Total row (and its footnote) below it.
-      style={{ scrollPaddingTop: TEAM_HEAD_H, scrollPaddingBottom: TEAM_ROW_H + (carriedTotal > 0 ? TEAM_FOOTNOTE_H : 0) }}>
+      style={{ scrollPaddingTop: TEAM_HEAD_H, scrollPaddingBottom: TEAM_ROW_H + (showFootnote ? TEAM_FOOTNOTE_H : 0) }}>
       <div className="sticky top-0 bg-chart-surface" style={{ zIndex: Z.pinnedRows }}>
-        {/* A refresh of this same request failed: the rows stay, and this note sits over the band row's empty first cell (no layout change). */}
-        {view.refreshError && (
-          <p data-testid="team-table-refresh-note" className="absolute left-2 top-0 max-w-[40%] truncate text-[11px] leading-6 text-red-400" title={view.refreshError}>{REFRESH_FAILED_NOTE}</p>
-        )}
         <div role="row" style={{ ...rowStyle, height: TEAM_BAND_H }}>
-          <div />
+          {/* A refresh of this same request failed: the rows stay, and the note fills the band row's empty first cell, so the Owning team
+              track caps its width (it is cut with "…", the error in its title) and nothing moves. */}
+          {view.refreshError
+            ? <div role="presentation" data-testid="team-table-refresh-note" className="min-w-0 truncate px-2 text-[11px] leading-6 text-red-400" title={view.refreshError}>{REFRESH_FAILED_NOTE}</div>
+            : <div role="presentation" />}
           {band(GROUPS[0], nC)}
-          <div />
+          <div role="presentation" />
           {band(GROUPS[1], nH)}
         </div>
         <div role="row" style={{ ...rowStyle, height: TEAM_COLHEAD_H }} className="box-border items-end border-b border-gray-800">
@@ -179,7 +181,7 @@ export default function TeamTable({ data, url, openDrawer }: SecurityViewProps) 
             </button>
           </div>
           {groupHeader(GROUPS[0], critBaseline, columns.critical.overdue)}
-          <div />
+          <div role="presentation" />
           {groupHeader(GROUPS[1], highBaseline, columns.high.overdue)}
         </div>
       </div>
@@ -204,7 +206,7 @@ export default function TeamTable({ data, url, openDrawer }: SecurityViewProps) 
               {r.unmeasuredRepos > 0 && <UnmeasuredBadge n={r.unmeasuredRepos} onOpen={openDrawer} />}
             </div>
             <GroupCells row={r} g={GROUPS[0]} ctx={ctx} />
-            <div />
+            <div role="presentation" />
             <GroupCells row={r} g={GROUPS[1]} ctx={ctx} />
           </div>
         );
@@ -219,10 +221,10 @@ export default function TeamTable({ data, url, openDrawer }: SecurityViewProps) 
             {total.unmeasuredRepos > 0 && <UnmeasuredBadge n={total.unmeasuredRepos} onOpen={openDrawer} />}
           </div>
           <GroupCells row={total} g={GROUPS[0]} ctx={ctx} />
-          <div />
+          <div role="presentation" />
           <GroupCells row={total} g={GROUPS[1]} ctx={ctx} />
         </div>
-        {carriedTotal > 0 && (
+        {showFootnote && (
           <p data-testid="team-table-footnote" className="truncate px-2 text-[11px] leading-5 text-gray-500" style={{ height: TEAM_FOOTNOTE_H }} title={carriedFootnote(carriedTotal)}>
             {carriedFootnote(carriedTotal)}
           </p>

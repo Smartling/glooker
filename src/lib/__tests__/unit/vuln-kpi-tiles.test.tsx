@@ -4,6 +4,7 @@
 // sparkline. The other three tiles have their own files (vuln-kpi-since, -resolved, -sla).
 import { render, screen, within } from '@testing-library/react';
 import KpiTiles from '@/app/vulnerabilities/kpi-tiles';
+import * as labels from '@/app/vulnerabilities/labels';
 import type { SummaryData, TrendData } from '@/app/vulnerabilities/api-types';
 import { KPI_ROW_H, SPARK_H } from '@/app/vulnerabilities/dimensions';
 import {
@@ -41,6 +42,26 @@ describe('the row', () => {
     expect(screen.getByTestId('kpi-tiles').className).toContain('opacity-60');
     rerender(<KpiTiles {...ovProps()} />);
     expect(screen.getByTestId('kpi-tiles').className).not.toContain('opacity-60');
+  });
+});
+
+describe('one "today" for the whole Open tile', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  // Revert: call utcToday() again for the sparkline (or let openChange read its own): when the clock crosses a year, the two
+  // dates in one tile print against different years.
+  it('the change sentence and the sparkline caption print dates against the same day, however the clock moves between calls', () => {
+    // The first read of "today" is 2026-12-31; every later read says 2027-06-01. Dates from December 2026 print without a year
+    // against the first and with it against the second, so a tile that reads the clock twice shows one of each.
+    const spy = jest.spyOn(labels, 'utcToday').mockReturnValue('2027-06-01').mockReturnValueOnce('2026-12-31');
+    const p = ovProps({
+      summary: { delta: { critical: ovDelta(ovDeltaTeam('Total', 2), { baseline: ovBaseline('2026-12-30') }), high: ovNoBaseline() } },
+      data: { sparkline: slot(trendFixture([ovSeries('Payments', [['2026-12-29', 3]])])) },
+    });
+    render(<KpiTiles {...p} />);
+    expect(spy.mock.calls.length).toBeGreaterThan(0);
+    expect(screen.getByTestId('kpi-open-change').textContent).toBe('▲ 2 more than on Dec 30');
+    expect(screen.getByTestId('sparkline-caption').textContent).toBe('1 measurement so far (Dec 29)');
   });
 });
 
@@ -82,6 +103,11 @@ describe('Open tile: count and severity', () => {
 
 describe('Open tile: the change sentence', () => {
   // Revert: use one tone for all deltas (the old deltaClass rule: red up, green down, grey flat).
+  it('a large change is grouped', () => {
+    render(<KpiTiles {...ovProps({ summary: { delta: { critical: criticalDelta(1234), high: ovNoBaseline() } } })} />);
+    expect(screen.getByTestId('kpi-open-change').textContent).toBe('▲ 1,234 more than on Sep 15');
+  });
+
   it('is red for more alerts, green for fewer and grey for no change, each with its arrow and date', () => {
     const cases: Array<[number, string, string]> = [
       [5, '▲ 5 more than on Sep 15', 'text-red-400'],
@@ -185,9 +211,10 @@ describe('Open tile: the sparkline', () => {
     expect(within(screen.getByTestId('sparkline-slot')).getByText('Not available yet')).toBeTruthy();
   });
 
-  it('a failed trend request shows its message in the caption and leaves the rest of the tile alone', () => {
+  it('a failed trend request shows its message in the caption, "Trend unavailable" in the slot, and leaves the rest of the tile alone', () => {
     render(<KpiTiles {...ovProps({ data: { sparkline: slot<TrendData>(undefined, { error: new Error('x'), errorText: "Couldn't load trend: x", loading: false }) } })} />);
     expect(screen.getByTestId('sparkline-caption').textContent).toBe("Couldn't load trend: x");
+    expect(within(screen.getByTestId('sparkline-slot')).getByText('Trend unavailable')).toBeTruthy();
     expect(within(openTile()).getByText('10')).toBeTruthy();
   });
 });

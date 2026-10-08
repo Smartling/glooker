@@ -112,7 +112,7 @@ export default function Sparkline({ points, sev, today, errorText = null, stale 
         data-testid="sparkline-caption" aria-hidden={caption ? undefined : true}
         className={`h-4 truncate text-[11px] leading-4 ${failed || refreshFailed ? 'text-red-400' : 'text-gray-500'}`} title={(refreshFailed ? errorText : caption) ?? undefined}
       >
-        {caption ?? ' '}
+        {caption ?? '\u00a0'}
       </div>
     </div>
   );

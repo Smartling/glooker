@@ -1,8 +1,8 @@
 // src/lib/__tests__/unit/vuln-ownership-model.test.ts
 // The ownership card's pure rules: hidden severity, header sorting, repository rows under Severity.
 import {
-  buildRepoView, deltaOpenFor, nextSort, noOpenText, orderTeamRows, repoDisplay, repoTotals, sevShown, shownRepoSort, shownTeamSort, sortGlyph, teamRowsOverflow, teamRowsRoom,
-  type RepoSortKey, type SortState, type TeamSortKey,
+  buildRepoView, deltaOpenFor, hasCarriedFootnote, nextSort, noOpenText, orderTeamRows, repoDisplay, repoTotals, sevShown, shownRepoSort, shownTeamSort, sortGlyph, teamRowsOverflow, teamRowsRoom,
+  REPO_SORT_FIRST, TEAM_SORT_FIRST, type RepoSortKey, type SortState, type TeamSortKey,
 } from '@/app/vulnerabilities/ownership-model';
 import { OWNERSHIP_BODY_H, TEAM_FOOTNOTE_H, TEAM_HEAD_H, TEAM_ROW_H } from '@/app/vulnerabilities/dimensions';
 import { cell, ovCell, ovDelta, ovDeltaTeam, ovNoBaseline, ovTeam, repoRow } from '../support/security-fixtures';
@@ -23,6 +23,55 @@ describe('nextSort and sevShown', () => {
     expect(sevShown('both', 'critical') && sevShown('both', 'high')).toBe(true);
     expect([sevShown('critical', 'critical'), sevShown('critical', 'high')]).toEqual([true, false]);
     expect([sevShown('high', 'critical'), sevShown('high', 'high')]).toEqual([false, true]);
+  });
+});
+
+describe('first sort directions (TEAM_SORT_FIRST, REPO_SORT_FIRST)', () => {
+  // Revert: change any one value: this table names every key, so a key added without a decision here fails the completeness check.
+  const TEAM: Record<TeamSortKey, SortState<string>['dir']> = {
+    name: 'asc',
+    cOpen: 'desc', cChange: 'desc', cResolved: 'desc', cPct: 'desc', cOverdue: 'desc',
+    hOpen: 'desc', hChange: 'desc', hResolved: 'desc', hPct: 'desc', hOverdue: 'desc',
+  };
+  const REPO: Record<RepoSortKey, SortState<string>['dir']> = {
+    name: 'asc', team: 'asc', next: 'asc', // names A-Z, and the soonest due date first
+    openCrit: 'desc', overCrit: 'desc', openHigh: 'desc', overHigh: 'desc', oldest: 'desc', // numbers: the largest first
+  };
+
+  it.each(Object.entries(TEAM))('team table: %s starts %s', (key, dir) => {
+    expect(TEAM_SORT_FIRST[key as TeamSortKey]).toBe(dir);
+  });
+  it.each(Object.entries(REPO))('repositories table: %s starts %s', (key, dir) => {
+    expect(REPO_SORT_FIRST[key as RepoSortKey]).toBe(dir);
+  });
+
+  it('names no key the table above does not, and omits none', () => {
+    expect(Object.keys(TEAM_SORT_FIRST).sort()).toEqual(Object.keys(TEAM).sort());
+    expect(Object.keys(REPO_SORT_FIRST).sort()).toEqual(Object.keys(REPO).sort());
+  });
+
+  // The keys no other test sorts by: each is sorted in its FIRST direction and must put the expected row first.
+  it('team columns Resolved, Change and % closed (the high ones too) put the largest first in their first direction', () => {
+    const rows = [
+      ovTeam('Alpha', ovCell(1, { resolved: 2 }), ovCell(1, { resolved: 9, pctClosed: 10 })),
+      ovTeam('Beta', ovCell(1, { resolved: 8 }), ovCell(1, { resolved: 1, pctClosed: 90 })),
+    ];
+    const deltas = { critical: ovNoBaseline(), high: ovDelta(ovDeltaTeam('Total', 0), { teams: [ovDeltaTeam('Alpha', 7), ovDeltaTeam('Beta', -1)] }) };
+    const first = (key: TeamSortKey) => names(orderTeamRows(rows, { key, dir: TEAM_SORT_FIRST[key] }, deltas, 'both'))[0];
+    expect(first('cResolved')).toBe('Beta');
+    expect(first('hResolved')).toBe('Alpha');
+    expect(first('hChange')).toBe('Alpha');
+    expect(first('hPct')).toBe('Beta');
+  });
+
+  it('repository columns Owning team and Next due start A-Z and soonest-first', () => {
+    const rows = [
+      repoRow('acme/a', 'Search', { critical: cell({ open: 1, nextDue: { date: '2026-10-09', daysRemaining: 9 } }) }),
+      repoRow('acme/b', 'Payments', { critical: cell({ open: 1, nextDue: { date: '2026-10-02', daysRemaining: 2 } }) }),
+    ];
+    const first = (key: RepoSortKey) => repoNames(buildRepoView(rows, 'both', { key, dir: REPO_SORT_FIRST[key] }, ''))[0];
+    expect(first('team')).toBe('acme/b'); // Payments before Search
+    expect(first('next')).toBe('acme/b'); // Oct 2 before Oct 9
   });
 });
 
@@ -197,6 +246,26 @@ describe('repoTotals', () => {
     expect(repoTotals(buildRepoView(rows, 'both', null, '').measured).overHigh).toBeNull();
   });
 
+  // Revert: derive the high figures from the critical ones, or null one severity's overdue because the other's is null.
+  it('each severity is summed on its own: an inactive critical SLA leaves overCrit null while overHigh is still summed, and the other way round', () => {
+    const mixed = (crit: number | null, high: number | null) => [
+      repoRow('acme/a', 'Payments', { critical: cell({ open: 2, overdue: crit }), high: cell({ open: 1, overdue: high }) }),
+      repoRow('acme/b', 'Payments', { critical: cell({ open: 3, overdue: crit }), high: cell({ open: 4, overdue: high }) }),
+    ];
+    const totals = (rs: ReturnType<typeof mixed>) => { const v = buildRepoView(rs, 'both', null, ''); return repoTotals(v.measured, v.unmeasured.map(r => repoDisplay(r, 'both'))); };
+    expect(totals(mixed(null, 2))).toMatchObject({ openCrit: 5, openHigh: 5, overCrit: null, overHigh: 4 });
+    expect(totals(mixed(1, null))).toMatchObject({ openCrit: 5, openHigh: 5, overCrit: 2, overHigh: null });
+  });
+
+  it('a hidden severity does not change the other severity\'s totals (Severity only decides what the footer shows)', () => {
+    const v = (sev: 'both' | 'critical' | 'high') => buildRepoView(rows, sev, null, '').measured;
+    const both = repoTotals(v('both'));
+    for (const sev of ['critical', 'high'] as const) {
+      const t = repoTotals(v(sev));
+      expect([t.openCrit, t.openHigh, t.overCrit, t.overHigh]).toEqual([both.openCrit, both.openHigh, both.overCrit, both.overHigh]);
+    }
+  });
+
   it('no rows: zero count, nothing oldest, nothing due', () => {
     expect(repoTotals([])).toEqual({ count: 0, openCrit: 0, openHigh: 0, overCrit: null, overHigh: null, oldest: null, next: null });
   });
@@ -208,6 +277,19 @@ describe('noOpenText', () => {
     expect(noOpenText('both')).toBe('no open alerts');
     expect(noOpenText('critical')).toBe('no open critical alerts');
     expect(noOpenText('high')).toBe('no open high alerts');
+  });
+});
+
+describe('hasCarriedFootnote', () => {
+  const total = (resolved: number | null, carried: number) => ({ pivot: { total: ovTeam('Total', ovCell(5, { resolved, carriedResolved: carried }), ovCell(0)) } });
+
+  // Revert: drop a clause: the footnote would show without carried history, with an untrusted resolved count, or under "High only".
+  it('is true only with carried history in a trusted critical Resolved count while the critical column is shown', () => {
+    expect(hasCarriedFootnote(total(8, 3), 'both')).toBe(true);
+    expect(hasCarriedFootnote(total(8, 3), 'critical')).toBe(true);
+    expect(hasCarriedFootnote(total(8, 0), 'both')).toBe(false);
+    expect(hasCarriedFootnote(total(null, 3), 'both')).toBe(false);
+    expect(hasCarriedFootnote(total(8, 3), 'high')).toBe(false);
   });
 });
 

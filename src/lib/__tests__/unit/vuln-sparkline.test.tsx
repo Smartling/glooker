@@ -181,7 +181,7 @@ describe('Sparkline component', () => {
   it('while loading the caption is an aria-hidden non-breaking space; after an error it shows the message in red', () => {
     const { rerender } = render(<Sparkline points={undefined} sev="critical" today={TODAY} />);
     const cap = screen.getByTestId('sparkline-caption');
-    expect(cap.textContent).toBe(' ');
+    expect(cap.textContent).toBe('\u00a0');
     expect(cap.getAttribute('aria-hidden')).toBe('true');
     rerender(<Sparkline points={undefined} sev="critical" today={TODAY} errorText="Couldn't load trend: HTTP 500" />);
     expect(screen.getByTestId('sparkline-caption').textContent).toBe("Couldn't load trend: HTTP 500");

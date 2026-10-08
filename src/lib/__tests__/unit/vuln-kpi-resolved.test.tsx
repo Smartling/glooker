@@ -4,7 +4,10 @@
 // † for carried-over CSV history and the "% of N raised are closed" line.
 import { render, screen, within } from '@testing-library/react';
 import KpiTiles from '@/app/vulnerabilities/kpi-tiles';
+import { computePivot } from '@/lib/vulnerabilities/aggregate';
+import { __clearVulnConfigCache } from '@/lib/vulnerabilities/config';
 import { ovCell, ovProps, ovTeam } from '../support/security-fixtures';
+import { alertFact, OV_ALERTS, OV_FACTS_NOW, OV_REPOS } from '../support/security-overview-facts';
 
 const tile = () => screen.getByTestId('kpi-resolved');
 const NBSP = '\u00a0';
@@ -24,6 +27,12 @@ describe('count and caption', () => {
   it('with no resolved-count start date it reads "N dismissed · all time"', () => {
     render(<KpiTiles {...ovProps({ summary: { resolvedSince: { date: null, invalid: false }, ...pivot(ovCell(2, { resolved: 6, dismissed: 1, pctClosed: 75 })) } })} />);
     expect(screen.getByTestId('kpi-resolved-since').textContent).toBe('1 dismissed · all time');
+  });
+
+  // Revert: print the raw count of raised alerts.
+  it('the raised count in the % closed line is grouped', () => {
+    render(<KpiTiles {...ovProps({ summary: pivot(ovCell(1000, { resolved: 234, dismissed: 1, pctClosed: 19 })) })} />);
+    expect(screen.getByTestId('kpi-resolved-closed').textContent).toBe('19% of 1,234 raised are closed');
   });
 
   // Revert: render a number for a null resolved, or keep the date for an invalid start.
@@ -77,6 +86,42 @@ describe('† marker and footnote', () => {
     render(<KpiTiles {...ovProps({ summary: { resolvedSince: { date: null, invalid: true }, ...pivot(ovCell(12, { resolved: null, dismissed: null, pctClosed: null, carriedResolved: 7 })) } })} />);
     expect(screen.queryByText('†')).toBeNull();
     expect(screen.getByTestId('kpi-resolved-footnote').textContent).toBe(NBSP);
+  });
+});
+
+describe('"— of N raised are closed" cannot be reached', () => {
+  const ENV = process.env.VULN_RESOLVED_SINCE;
+  afterEach(() => {
+    if (ENV === undefined) delete process.env.VULN_RESOLVED_SINCE; else process.env.VULN_RESOLVED_SINCE = ENV;
+    __clearVulnConfigCache();
+  });
+
+  // The tile prints "— of N raised" only for resolved !== null, raised > 0 and a null pctClosed. The aggregate emits a null
+  // pctClosed only when resolved is null (an invalid start date) or nothing was raised (open + resolved = 0), so the branch is
+  // dead. This pins that on real computePivot output: if the aggregate ever starts returning null for another reason, this fails
+  // and the tile needs a guard.
+  it.each([['a valid start date', '2020-01-08'], ['no start date', undefined], ['an invalid start date', 'not-a-date']] as const)('computePivot with %s', (_name, since) => {
+    if (since === undefined) delete process.env.VULN_RESOLVED_SINCE; else process.env.VULN_RESOLVED_SINCE = since;
+    __clearVulnConfigCache();
+    const alerts = [
+      ...OV_ALERTS,
+      alertFact(1, 90, 'critical', { state: 'fixed', resolvedAt: '2026-09-12T00:00:00Z' }),
+      alertFact(4, 91, 'high', { state: 'dismissed', resolvedAt: '2026-09-11T00:00:00Z', dismissedReason: 'tolerable_risk' }),
+    ];
+    const repos = [...OV_REPOS, { ...OV_REPOS[0], repoId: 7, fullName: 'acme/empty', team: 'Docs' }]; // a team with nothing raised at all
+    for (const team of [undefined, 'Payments', 'Docs']) {
+      const { rows, total } = computePivot(alerts, repos, { codebase: 'backend', team, now: OV_FACTS_NOW });
+      for (const row of [...rows, total]) {
+        for (const sev of ['critical', 'high'] as const) {
+          const c = row[sev];
+          if (c.pctClosed === null) expect(c.resolved === null || c.open + c.resolved === 0).toBe(true);
+          // and the tile, given this very cell, never prints the dead branch
+          const { unmount } = render(<KpiTiles {...ovProps({ url: { severity: sev, kSev: sev }, summary: { pivot: { rows: [], total: { ...total, [sev]: c } } } })} />);
+          expect(screen.getByTestId('kpi-resolved-closed').textContent).not.toMatch(/^—.* of /);
+          unmount();
+        }
+      }
+    }
   });
 });
 

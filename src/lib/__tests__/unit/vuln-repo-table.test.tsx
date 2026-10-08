@@ -387,6 +387,26 @@ describe('footer', () => {
     expect(order()).toEqual(['ledger-service']);
   });
 
+  // Revert: drop the shadow class (jsdom cannot paint, so the class is what is checked; headless runs check the paint).
+  it('has the same soft shadow on its top edge as the team table\'s Total row, so scrolled-away rows show', () => {
+    render(<RepoTable {...table()} />);
+    expect((footer().parentElement as HTMLElement).className).toMatch(/shadow-\[0_-\d+px/);
+  });
+
+  // Revert: derive the footer's colour with a string replace on the row's class (a zero and a "—" lose their grey by accident).
+  it('the footer is white and bold for every figure: a zero and a missing figure too; a row greys the same ones', () => {
+    const rows = [repoRow('acme/quiet', 'Payments', { critical: cell({ open: 0, overdue: 0 }), high: cell({ open: 0, overdue: null }) })];
+    render(<RepoTable {...table({ rows })} />);
+    const foot = cellsOf(footer());
+    // [label, open crit, overdue crit, open high, overdue high, oldest, next due]
+    for (const c of foot.slice(1, 5)) {
+      expect(c.className).toContain('text-white');
+      expect(c.className).not.toContain('text-gray-600');
+    }
+    expect(foot[4].textContent).toBe('—');
+    for (const c of cellsOf(rowOf('acme/quiet')).slice(2, 6)) expect(c.className).toContain('text-gray-600');
+  });
+
   it('is pinned to the bottom of the scrolling body on the chart surface, above the rows', () => {
     render(<RepoTable {...table()} />);
     const pinned = footer().parentElement as HTMLElement;
