@@ -228,6 +228,17 @@ describe('useAlertList', () => {
     expect(result.current.list.sort).toEqual({ key: 'due', dir: 'asc' });
   });
 
+  // Revert: drop `s.status !== 'resolved'` from the setSort condition: under Resolved nothing is drawn, so Due must start in its own (ascending) direction.
+  it('under Resolved no header is drawn, so the first click on Due sorts ascending (its own first direction); the next flips it', () => {
+    const { result } = renderHook(() => useAlertList(scope));
+    act(() => result.current.setStatus('resolved'));
+    expect(result.current.list.sort).toBeNull();
+    act(() => result.current.setSort('due'));
+    expect(result.current.list.sort).toEqual({ key: 'due', dir: 'asc' });
+    act(() => result.current.setSort('due'));
+    expect(result.current.list.sort).toEqual({ key: 'due', dir: 'desc' });
+  });
+
   it('every list-filter setter resets the page to 1; setPage does not', () => {
     const { result } = renderHook(() => useAlertList(scope));
     const calls: Array<[string, () => void]> = [

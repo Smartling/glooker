@@ -26,6 +26,14 @@ function props(opts: { rows?: Parameters<typeof reposFixture>[0]; urlOver?: Reco
     data: { ...base.data, repos: opts.repos ?? slot(reposFixture(opts.rows ?? AL_RAIL_ROWS)), effectiveRepo: opts.effectiveRepo ?? null },
   } as ReturnType<typeof viewProps>;
 }
+const REPO_ROWS_NO_HIGH = [
+  repoRow('acme/ledger', 'Payments', { critical: cell({ open: 5 }), high: cell({ open: 0 }) }),
+  repoRow('acme/audit-log', 'Platform', { critical: cell({ open: 2 }), high: cell({ open: 0 }) }),
+];
+const REPO_ROWS_NO_CRIT = [
+  repoRow('acme/ledger', 'Payments', { critical: cell({ open: 0 }), high: cell({ open: 4 }) }),
+  repoRow('acme/audit-log', 'Platform', { critical: cell({ open: 0 }), high: cell({ open: 1 }) }),
+];
 const railNames = () => screen.getAllByTestId('rail-row').map(el => el.getAttribute('data-repo'));
 const row = (name: string) => screen.getAllByTestId('rail-row').find(el => el.getAttribute('data-repo') === name)!;
 
@@ -44,6 +52,28 @@ describe('structure', () => {
     unmount();
     render(<RepoRail {...props({ urlOver: { team: 'Payments' } })} />);
     expect(screen.getByTestId('rail-all').textContent).toContain('All Payments repositories');
+  });
+
+  // Revert: feed the All row scopeOpenCount(rows, 'critical'/'high', null) regardless of Severity: under "High only" the row reads "0 high open" over hidden critical alerts.
+  it.each([
+    ['high', 'No open high alerts', 'no open high alerts', REPO_ROWS_NO_HIGH],
+    ['critical', 'No open critical alerts', 'no open critical alerts', REPO_ROWS_NO_CRIT],
+  ] as const)('the All row zeroes the hidden severity like the rows do: Severity "%s only" with none open reads "%s"', (severity, _l, expected, rows) => {
+    render(<RepoRail {...props({ rows, urlOver: { severity } })} />);
+    expect(screen.getByTestId('rail-all').textContent).toContain(expected);
+    expect(screen.getByTestId('rail-all').textContent).not.toMatch(/\d+ (crit|high)/);
+    // The rows read the same words.
+    for (const r of screen.getAllByTestId('rail-counts')) expect(r.textContent).toBe(expected);
+  });
+
+  it('the All row under a narrowed Severity counts only that severity', () => {
+    const { unmount } = render(<RepoRail {...props({ urlOver: { severity: 'critical' } })} />);
+    expect(screen.getByTestId('rail-all').textContent).toContain('25 crit open');
+    expect(screen.getByTestId('rail-all').textContent).not.toContain('high');
+    unmount();
+    render(<RepoRail {...props({ urlOver: { severity: 'high' } })} />);
+    expect(screen.getByTestId('rail-all').textContent).toContain('14 high open');
+    expect(screen.getByTestId('rail-all').textContent).not.toContain('crit');
   });
 
   it.each([

@@ -7,7 +7,7 @@ import { render, screen, fireEvent, waitFor, within, act } from '@testing-librar
 import VulnerabilitiesContent from '@/app/vulnerabilities/vulnerabilities-content';
 import { SEARCH_DEBOUNCE_MS } from '@/app/vulnerabilities/alert-list';
 import {
-  SwrFresh, fetchRouter, callsTo, reposFixture, REPO_ROWS, AL_RAIL_ROWS, alAlertRows, alAlertsRoute, alSummary, summaryFixture,
+  SwrFresh, fetchRouter, callsTo, reposFixture, repoRow, cell, REPO_ROWS, AL_RAIL_ROWS, alAlertRows, alAlertsRoute, alSummary, summaryFixture,
 } from '../support/security-fixtures';
 
 jest.mock('next/navigation', () => require('../support/security-nav-mock').createNavigationMock());
@@ -48,6 +48,30 @@ describe('one source for every count', () => {
     expect(screen.getByTestId('strip-title').textContent).toBe('Payments · all repositories');
     expect(screen.getByTestId('rail-all').textContent).toContain('All Payments repositories');
     expect(callsTo(f, 'repos')[0].searchParams.get('team')).toBe('Payments');
+  });
+});
+
+describe('a selected repository while its scope loads', () => {
+  // Revert: decide the strip and the tab count with different predicates: the strip keeps the old scope's figure (dimmed) while the tab is blank, or one of them reads 0.
+  it('the strip and the Alerts tab agree: both show no number until the new rows arrive, then both show the repository\'s own', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>(r => { release = r; });
+    mount('view=alerts&repo=acme%2Fledger', {
+      repos: async url => {
+        const frontend = url.searchParams.get('codebase') === 'frontend';
+        if (frontend) await gate;
+        return { body: reposFixture(frontend ? [repoRow('acme/ledger', 'Payments', { critical: cell({ open: 7 }) })] : REPO_ROWS, { codebase: frontend ? 'frontend' : 'backend' }) };
+      },
+    });
+    await waitFor(() => expect(screen.getByTestId('strip-critical-open').textContent).toBe('2'));
+    expect(screen.getByTestId('alerts-tab-count').textContent).toBe('2 open');
+    act(() => { nav().__resetSearch('view=alerts&codebase=frontend&repo=acme%2Fledger'); });
+    await waitFor(() => expect(screen.getByTestId('alerts-tab-count').textContent).toBe(''));
+    expect(screen.getByTestId('strip-critical-open').textContent).toBe('—');
+    expect(screen.getByTestId('strip-high-open').textContent).toBe('—');
+    await act(async () => { release(); });
+    await waitFor(() => expect(screen.getByTestId('strip-critical-open').textContent).toBe('7'));
+    expect(screen.getByTestId('alerts-tab-count').textContent).toBe('7 open');
   });
 });
 

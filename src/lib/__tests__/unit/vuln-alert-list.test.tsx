@@ -49,11 +49,11 @@ const rowsArea = () => screen.getByTestId('alert-list-rows');
 const button = (name: string | RegExp) => screen.getByRole('button', { name });
 
 /** The real controller wired into the list, so behaviour that lives in useAlertList shows through the UI. */
-function Harness({ summary = active, onList }: { summary?: SecurityViewProps['summary']; onList?: (l: AlertListState) => void }) {
+function Harness({ summary = active, onList, total }: { summary?: SecurityViewProps['summary']; onList?: (l: AlertListState) => void; total?: number }) {
   const ctl = useAlertList({ codebase: 'backend', team: null, repo: null, severity: 'both' });
   const effective = sanitiseAlertList(ctl.list, { anySlaActive: anySlaActive(summary) });
   onList?.(effective);
-  const base = props({ summary });
+  const base = props({ summary, total });
   return <AlertList {...base} list={{ ...ctl, list: effective }} />;
 }
 
@@ -579,6 +579,43 @@ describe('search', () => {
     expect(p.list.setQuery).toHaveBeenCalledTimes(1);
   });
 
+  // Revert: pass `onPage={p => ctl.setPage(p)}` straight through (no flush): the typed text is applied after the page, or never within the window.
+  it('the pager flushes the typed text first, then pages: setQuery is called before setPage', () => {
+    const p = props({ rows: alAlertRows(10), total: 26 });
+    render(<AlertList {...p} />);
+    type('lodash');
+    fireEvent.click(button(/Next/));
+    expect(p.list.setQuery).toHaveBeenCalledWith('lodash');
+    expect(p.list.setPage).toHaveBeenCalledWith(2);
+    expect((p.list.setQuery as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan((p.list.setPage as jest.Mock).mock.invocationCallOrder[0]);
+    advance(SEARCH_DEBOUNCE_MS * 3);
+    expect(p.list.setQuery).toHaveBeenCalledTimes(1);
+  });
+
+  // Revert: as above. Without the flush the page moves to 2 now and the search lands later, so the user pages through the OLD query.
+  it('with the real controller, Next inside the debounce window lands on page 1 of the new search (the search resets the page)', () => {
+    const seen: AlertListState[] = [];
+    render(<Harness onList={l => seen.push(l)} total={26} />);
+    type('lodash');
+    fireEvent.click(button(/Next/));
+    expect(seen[seen.length - 1]).toMatchObject({ q: 'lodash', page: 1 });
+    advance(SEARCH_DEBOUNCE_MS * 3);
+    expect(seen[seen.length - 1]).toMatchObject({ q: 'lodash', page: 1 });
+  });
+
+  // Revert: send `typedRef.current` untrimmed: "lodash " and "lodash" become two searches (two requests), and a blank box sends a query of spaces.
+  it('applies the search trimmed, and a box of only spaces applies nothing', () => {
+    const p = props();
+    render(<AlertList {...p} />);
+    type('  lodash  '); advance(SEARCH_DEBOUNCE_MS);
+    expect(p.list.setQuery).toHaveBeenCalledTimes(1);
+    expect(p.list.setQuery).toHaveBeenLastCalledWith('lodash');
+    type('lodash   '); advance(SEARCH_DEBOUNCE_MS);
+    expect(p.list.setQuery).toHaveBeenCalledTimes(1);
+    type('    '); advance(SEARCH_DEBOUNCE_MS);
+    expect(p.list.setQuery).toHaveBeenLastCalledWith('');
+  });
+
   it.each([
     ['the Status select', () => fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'all' } })],
     ['a sort header', () => fireEvent.click(screen.getByTestId('sort-due'))],
@@ -759,6 +796,19 @@ describe('repository not found', () => {
     expect(p.url.clearRepo).toHaveBeenCalledTimes(1);
   });
 
+  // Revert: `onClick={() => url.clearRepo()}` (no flush): the typed search is applied after the repository is cleared, or dropped.
+  it('"Show all repositories" applies the typed search first', () => {
+    jest.useFakeTimers();
+    try {
+      const p = notFound();
+      render(<AlertList {...p} />);
+      fireEvent.change(screen.getByLabelText('Search alerts'), { target: { value: 'lodash' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Show all repositories' }));
+      expect(p.list.setQuery).toHaveBeenCalledWith('lodash');
+      expect((p.list.setQuery as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan((p.url.clearRepo as jest.Mock).mock.invocationCallOrder[0]);
+    } finally { jest.useRealTimers(); }
+  });
+
   it('is checked before loading and empty: the empty alerts slot of this state is not "No alerts match"', () => {
     const p = props({ alerts: slot<AlertsData>(undefined, { loading: true }), data: { repoStatus: 'not-found', effectiveRepo: null } as Partial<SecurityViewProps['data']> });
     render(<AlertList {...p} />);
@@ -803,7 +853,7 @@ describe('pager and the page clamp', () => {
 describe('toolbar content', () => {
   it('has the search box with its placeholder, the Status select and the four toggles', () => {
     render(<AlertList {...props()} />);
-    expect(screen.getByPlaceholderText('Search CVE, GHSA, package')).toBeTruthy();
+    expect(screen.getByPlaceholderText('Search CVE, GHSA, package, repo')).toBeTruthy();
     expect(screen.getByLabelText('Status')).toBeTruthy();
     for (const name of ['Overdue', 'Due ≤ 7d', 'Reopened', 'Runtime only']) expect(button(name)).toBeTruthy();
   });

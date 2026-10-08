@@ -81,6 +81,55 @@ describe('figures', () => {
   });
 });
 
+describe('a selected repository whose row is not in the rows', () => {
+  // Revert: read `rows` without `repoFiguresUnknown`: stale rows of another team count 0 for the repository, and the strip says "0 open · 0 overdue".
+  it('reads "—" for open and overdue, never 0, for both severities', () => {
+    const stale = slot(reposFixture(REPO_ROWS), { stale: true, loading: false });
+    render(<AlertsStrip {...props({ effectiveRepo: 'acme/other', urlOver: { repo: 'acme/other' }, data: { repos: stale, repoStatus: 'pending' } })} />);
+    for (const sev of ['critical', 'high']) {
+      expect(text(`strip-${sev}-open`)).toBe('—');
+      expect(text(`strip-${sev}-tail`)).toContain('—');
+      expect(text(`strip-${sev}-tail`)).not.toMatch(/\b0\b/);
+    }
+  });
+
+  it('reads "—" while the rows are the previous key\'s even when they hold the repository (its old figure belongs to another scope)', () => {
+    const stale = slot(reposFixture(AL_RAIL_ROWS), { stale: true, loading: false });
+    render(<AlertsStrip {...props({ effectiveRepo: 'acme/audit-log', urlOver: { repo: 'acme/audit-log' }, data: { repos: stale } })} />);
+    expect(text('strip-critical-open')).toBe('—');
+    expect(text('strip-high-open')).toBe('—');
+  });
+
+  it('a measured repository whose row IS in the fresh rows still reads its figure', () => {
+    render(<AlertsStrip {...props({ effectiveRepo: 'acme/audit-log', urlOver: { repo: 'acme/audit-log' } })} />);
+    expect(text('strip-critical-open')).toBe('2');
+  });
+});
+
+describe('a selected unmeasured repository', () => {
+  // Revert: show no badge for a selected repository (the old "absent when a repository is selected"): the stored count reads as measured.
+  it('shows its stored figure with the "▲ unmeasured · stored count" badge in place of "N unmeasured repos"', () => {
+    const p = props({ effectiveRepo: 'acme/invoice-render', urlOver: { repo: 'acme/invoice-render' } });
+    render(<AlertsStrip {...p} />);
+    expect(text('strip-critical-open')).toBe('7');
+    expect(text('strip-critical-tail')).toContain('2 overdue');
+    const badge = screen.getByTestId('strip-unmeasured');
+    expect(badge.textContent).toBe('▲ unmeasured · stored count');
+    expect(badge.className).toContain('vuln-hatch');
+    expect(badge.textContent).not.toMatch(/\d+ unmeasured repos?/);
+    fireEvent.click(badge);
+    expect(p.openDrawer).toHaveBeenCalledWith(badge);
+  });
+
+  it('a repository that is not unmeasured shows no badge, and whole-scope view keeps "N unmeasured repos"', () => {
+    const { unmount } = render(<AlertsStrip {...props({ effectiveRepo: 'acme/audit-log', urlOver: { repo: 'acme/audit-log' } })} />);
+    expect(screen.queryByTestId('strip-unmeasured')).toBeNull();
+    unmount();
+    render(<AlertsStrip {...props()} />);
+    expect(text('strip-unmeasured')).toBe('▲ 2 unmeasured repos');
+  });
+});
+
 describe('scope label and title', () => {
   it('no team: "All owning teams" over "All repositories"', () => {
     render(<AlertsStrip {...props()} />);

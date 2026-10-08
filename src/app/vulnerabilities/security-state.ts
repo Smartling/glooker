@@ -65,6 +65,16 @@ export function scopeOpenCount(rows: readonly RepoRow[], severity: SeverityFilte
   return n;
 }
 
+/**
+ * True when a repository is selected and its figures cannot be read from `rows`: its row is not among them (the previous
+ * scope's rows while a new one loads, a repository the response does not hold), or the rows are the previous key's
+ * (`stale`), whose count for it belongs to another scope. The strip and the Alerts tab count both decide with this, so
+ * neither shows a 0 for a repository whose figure is merely unknown.
+ */
+export function repoFiguresUnknown(rows: readonly RepoRow[], repo: string | null, stale: boolean): boolean {
+  return repo !== null && (stale || !rows.some(r => r.fullName === repo));
+}
+
 const TREND_RANGE_DAYS = { '30d': 30, '90d': 90, '1y': 365 } as const;
 /** `all` sends no `since`; every other range is today minus 30/90/365 days (UTC). */
 export function trendSince(range: TrendRange, now: Date): string | null {
@@ -277,7 +287,7 @@ export interface AlertListController {
   toggleRuntimeOnly(): void;
   /** Call after the caller's own debounce; this hook does not debounce. */
   setQuery(q: string): void;
-  /** The same key flips the direction; a new key starts in its ALERT_SORT_FIRST_DIR direction, except that with no header chosen the first click on `due` sorts descending (the list draws the default order as "Due ↑"). */
+  /** The same key flips the direction; a new key starts in its ALERT_SORT_FIRST_DIR direction, except that with no header chosen (and a status other than Resolved) the first click on `due` sorts descending: only then does the list draw the default order as "Due ↑". */
   setSort(key: AlertSortKey): void;
   setPage(page: number): void;
 }
@@ -317,12 +327,13 @@ export function useAlertList(scope: { codebase: CodebaseGroup; team: string | nu
     toggleRuntimeOnly: () => setStored(s => ({ ...s, runtimeOnly: !s.runtimeOnly })),
     setQuery: q => setStored(s => ({ ...s, q })),
     // With no header active the list is in the server's default order (soonest due first), and the list draws "Due ↑" as its
-    // active header. So the first click on Due reverses it (due:desc); any other first click starts in the key's own direction.
+    // active header, except under Resolved (no due dates: nothing is drawn). So the first click on Due reverses the drawn arrow
+    // (due:desc) only while "Due ↑" is drawn; any other first click starts in the key's own direction.
     setSort: key => setStored(s => ({
       ...s,
       sort: s.sort?.key === key
         ? { key, dir: s.sort.dir === 'asc' ? 'desc' : 'asc' }
-        : { key, dir: s.sort === null && key === 'due' ? 'desc' : ALERT_SORT_FIRST_DIR[key] },
+        : { key, dir: s.sort === null && s.status !== 'resolved' && key === 'due' ? 'desc' : ALERT_SORT_FIRST_DIR[key] },
     })),
     // A non-finite page (NaN from a bad input) is page 1, as sanitiseAlertList reads it.
     setPage: page => setStored(s => ({ ...s, page: Number.isFinite(page) ? Math.max(1, Math.floor(page)) : 1 })),

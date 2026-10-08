@@ -151,24 +151,31 @@ export function useSecurityData(scope: SecurityScope, listState: AlertListState)
   // the previous scope's rows, and judging by them would mark a valid repo as not found.
   const rowsAreForThisScope = !!reposSlot.data && !reposSlot.stale
     && applied?.codebase === scope.codebase && (applied?.team ?? null) === scope.team;
-  let repoStatus: RepoStatus = 'none';
+  // The status the alerts key is built from: what is known BEFORE this render's alerts response is read. The final
+  // status (below) adds the one thing only that response can say, so the key never depends on its own answer.
+  let keyStatus: RepoStatus = 'none';
   if (scope.repo) {
-    if (repoKey !== null && rejected.has(repoKey)) repoStatus = 'not-found';
-    else if (rowsAreForThisScope) repoStatus = reposSlot.data!.rows.some(r => r.fullName === scope.repo) ? 'ok' : 'not-found';
-    else repoStatus = 'pending';
+    if (repoKey !== null && rejected.has(repoKey)) keyStatus = 'not-found';
+    else if (rowsAreForThisScope) keyStatus = reposSlot.data!.rows.some(r => r.fullName === scope.repo) ? 'ok' : 'not-found';
+    else keyStatus = 'pending';
   }
 
-  const alertsKey = repoStatus === 'not-found'
+  const alertsKey = keyStatus === 'not-found'
     ? null
     : `${BASE}/alerts?${alertsQueryString({
         codebase: scope.codebase, team: scope.team, repo: scope.repo, severity: scope.severity,
         list: effectiveList, anySlaActive: slaActive,
       })}`;
   const alerts = useSWR(alertsKey, fetcher, SWR_OPTS);
-  const alertsSlot: Slot<AlertsData> = alertsKey === null ? EMPTY_SLOT : toSlot<AlertsData>('alerts', alerts, ownsData(alertsKey));
+  // A repository the alerts API rejects reads as not found in the SAME render its error arrives: the effect below only
+  // persists that (so the key goes null and the request is never repeated). Deriving it here, not from the effect's
+  // state, keeps the list from rendering the 400's text for the one render in between.
+  const alertsError = alerts.error;
+  const rejectedNow = !!repoKey && alertsKey !== null && isRepoRejection(alertsError);
+  const repoStatus: RepoStatus = rejectedNow ? 'not-found' : keyStatus;
+  const alertsSlot: Slot<AlertsData> = alertsKey === null || rejectedNow ? EMPTY_SLOT : toSlot<AlertsData>('alerts', alerts, ownsData(alertsKey));
 
   // Remember a repo the API rejected, per scope, so it is never sent again.
-  const alertsError = alerts.error;
   useEffect(() => {
     if (repoKey && alertsKey && isRepoRejection(alertsError)) {
       setRejected(m => (m.has(repoKey) ? m : new Map(m).set(repoKey, alertsKey)));

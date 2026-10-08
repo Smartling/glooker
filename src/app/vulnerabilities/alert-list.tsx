@@ -194,9 +194,11 @@ export default function AlertList({ summary, data, url, list: ctl }: SecurityVie
   ctlRef.current = ctl;
   const flush = useRef(() => {
     if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
-    if (typedRef.current !== sentRef.current) {
-      sentRef.current = typedRef.current;
-      ctlRef.current.setQuery(typedRef.current);
+    // The applied text is trimmed: "foo " and "foo" are one search (one request).
+    const q = typedRef.current.trim();
+    if (q !== sentRef.current) {
+      sentRef.current = q;
+      ctlRef.current.setQuery(q);
     }
   }).current;
   const onType = (v: string) => {
@@ -248,7 +250,7 @@ export default function AlertList({ summary, data, url, list: ctl }: SecurityVie
         <div className="flex items-center gap-2" style={{ height: ALERT_TOOLBAR_ROW_H }}>
           <input
             aria-label="Search alerts"
-            placeholder="Search CVE, GHSA, package"
+            placeholder="Search CVE, GHSA, package, repo"
             value={typed}
             onChange={e => onType(e.target.value)}
             className={`min-w-[160px] flex-1 border border-gray-700 bg-chart-surface px-2.5 text-[13px] text-gray-200 ${TYPE.control}`}
@@ -328,14 +330,14 @@ export default function AlertList({ summary, data, url, list: ctl }: SecurityVie
         {notFound && (
           <div className="absolute inset-0 flex items-center justify-center gap-1.5 text-sm text-gray-300">
             <span>Repository not found ·</span>
-            <button type="button" onClick={() => url.clearRepo()} className={TYPE.link}>
+            <button type="button" onClick={then(url.clearRepo)} className={TYPE.link}>
               Show all repositories
             </button>
           </div>
         )}
       </div>
 
-      <Pager page={l.page} pageSize={ALERT_PAGE_SIZE} totalCount={pagerTotal} onPage={p => ctl.setPage(p)} />
+      <Pager page={l.page} pageSize={ALERT_PAGE_SIZE} totalCount={pagerTotal} onPage={p => { flush(); ctl.setPage(p); }} />
     </section>
   );
 }

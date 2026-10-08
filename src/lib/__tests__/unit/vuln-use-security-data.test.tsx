@@ -14,6 +14,7 @@ import { SwrFresh, fetchRouter, callsTo, summaryFixture, reposFixture, alertsFix
 jest.mock('next/navigation', () => require('../support/security-nav-mock').createNavigationMock());
 const nav = () => jest.requireMock('next/navigation') as any;
 
+const renders: SecurityData[] = [];   // every render's data, so a state that lasts one render is still seen
 let latest: { url: SecurityUrl; list: AlertListController; data: SecurityData; mutate: ReturnType<typeof useSWRConfig>['mutate'] };
 function Probe() {
   const url = useSecurityUrl();
@@ -21,10 +22,12 @@ function Probe() {
   const data = useSecurityData(url, list.list);
   const { mutate } = useSWRConfig();
   latest = { url, list, data, mutate };
+  renders.push(data);
   return null;
 }
 
 function mount(search = '', routes: Parameters<typeof fetchRouter>[0] = {}, swr?: SWRConfiguration) {
+  renders.length = 0;
   nav().__resetSearch(search);
   const fetchMock = fetchRouter(routes);
   (global as any).fetch = fetchMock;
@@ -296,6 +299,26 @@ describe('the stale-repository state', () => {
     act(() => { latest.list.toggleRuntimeOnly(); });
     await act(async () => { await new Promise(r => setTimeout(r, 20)); });
     expect(callsTo(f, 'alerts')).toHaveLength(before);
+  });
+
+  // Revert: build repoStatus only from the rejected-repo state (set by the effect, a render later): one render shows the 400's text.
+  it('a rejected repository reads not-found in the very render its error arrives: no render ever carries the 400 text', async () => {
+    mount('repo=acme%2Fledger', { alerts: { status: 400, body: { error: 'unknown repo' } } });
+    await waitFor(() => expect(latest.data.repoStatus).toBe('not-found'));
+    await act(async () => { await new Promise(r => setTimeout(r, 30)); });
+    expect(renders.some(d => d.alerts.error !== undefined)).toBe(false);
+    expect(renders.filter(d => d.alerts.errorText !== null)).toEqual([]);
+    // Every render that has the rejection also reads it as not-found, with no effective repository: no render has an alerts slot that
+    // is blank (not loading, no rows, no error) under any other status, which the list would draw as an endless "Loading…".
+    expect(renders.filter(d => d.repoStatus === 'not-found').every(d => d.effectiveRepo === null)).toBe(true);
+    expect(renders.filter(d => !d.alerts.loading && d.alerts.data === undefined && d.alerts.errorText === null && d.repoStatus !== 'not-found')).toEqual([]);
+  });
+
+  it('a plain alerts failure (not a repo rejection) still shows its text and does not read as not-found', async () => {
+    mount('repo=acme%2Fledger', { alerts: { status: 500, body: { error: 'Internal Server Error' } } });
+    await waitFor(() => expect(latest.data.alerts.errorText).toMatch(/Couldn't load alerts/));
+    expect(latest.data.repoStatus).toBe('ok');
+    expect(latest.data.effectiveRepo).toBe('acme/ledger');
   });
 
   it('a new sync clears the rejection AND the cached 4xx: the repo is requested again under the app\'s own SWR settings and its rows show', async () => {

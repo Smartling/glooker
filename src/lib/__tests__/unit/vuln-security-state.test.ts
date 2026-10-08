@@ -2,7 +2,7 @@
 import { readValue } from '@/lib/url-state';
 import {
   VIEW_SCHEMA, OWN_SCHEMA, CODEBASE_SCHEMA, TEAM_SCHEMA, REPO_SCHEMA, SEVERITY_SCHEMA, BASELINE_SCHEMA, RANGE_SCHEMA,
-  kSev, codebaseOptionCount, scopeOpenCount, trendSince, sparklineSince, sanitiseBaseline, keepTopDelta,
+  kSev, codebaseOptionCount, scopeOpenCount, repoFiguresUnknown, trendSince, sparklineSince, sanitiseBaseline, keepTopDelta,
   DEFAULT_ALERT_LIST, sanitiseAlertList, alertsQueryString, ALERT_SORT_KEYS, ALERT_SORT_FIRST_DIR, type AlertListState,
 } from '@/app/vulnerabilities/security-state';
 import { ALERT_SORT_KEYS as SERVER_SORT_KEYS, parseAlertSort } from '@/lib/vulnerabilities/alert-sort';
@@ -103,6 +103,23 @@ describe('scopeOpenCount (the Alerts tab count)', () => {
   it('narrows to the selected repository', () => {
     expect(scopeOpenCount(rows, 'both', 'acme/checkout-api')).toBe(4);
     expect(scopeOpenCount(rows, 'critical', 'acme/legacy-batch')).toBe(4);
+  });
+});
+
+describe('repoFiguresUnknown (one predicate for the Alerts tab count and the strip)', () => {
+  const rows = [repoRow('acme/checkout-api', 'Payments', { critical: cell({ open: 3 }) })];
+  it('is false with no repository selected, whatever the rows are', () => {
+    expect(repoFiguresUnknown(rows, null, false)).toBe(false);
+    expect(repoFiguresUnknown([], null, true)).toBe(false);
+  });
+  it('is false when the selected repository has a row among current rows', () => {
+    expect(repoFiguresUnknown(rows, 'acme/checkout-api', false)).toBe(false);
+  });
+  it('is true when the selected repository has no row (rows of another scope would count 0 for it)', () => {
+    expect(repoFiguresUnknown(rows, 'acme/other', false)).toBe(true);
+  });
+  it('is true while the rows are stale, even when the old rows hold the repository (its old count belongs to another scope)', () => {
+    expect(repoFiguresUnknown(rows, 'acme/checkout-api', true)).toBe(true);
   });
 });
 

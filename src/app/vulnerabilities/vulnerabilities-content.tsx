@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { addDays } from '@/lib/vulnerabilities/time';
 import { panelError } from './format';
 import { localToday } from './labels';
-import { keepTopDelta, scopeOpenCount, useAlertList, useSecurityUrl } from './security-state';
+import { keepTopDelta, repoFiguresUnknown, scopeOpenCount, useAlertList, useSecurityUrl } from './security-state';
 import { useSecurityData } from './use-security-data';
 import SecurityHeader, { ConfigErrorBanner } from './security-header';
 import FilterBar from './filter-bar';
@@ -99,8 +99,9 @@ export default function VulnerabilitiesContent() {
     list: { ...alertList, list: data.effectiveList },
     openDrawer: drawer.openDrawer,
   };
-  // With a repository selected, the previous scope's rows (stale) do not contain it: they would count 0 for it. No number until the new rows arrive.
-  const alertsCount = data.repos.data && !(data.effectiveRepo !== null && data.repos.stale)
+  // With a repository selected, rows that do not hold it (or the previous scope's rows, while the new ones load) would count 0 for it:
+  // no number until its own row arrives. The strip decides with the same predicate.
+  const alertsCount = data.repos.data && !repoFiguresUnknown(data.repos.data.rows, data.effectiveRepo, data.repos.stale)
     ? scopeOpenCount(data.repos.data.rows, url.severity, data.effectiveRepo)
     : null;
   const baselinePrefill = s.delta[url.kSev].baseline?.takenOn ?? addDays(localToday(), -7);

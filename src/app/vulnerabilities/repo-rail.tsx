@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import type { RepoRow } from '@/lib/vulnerabilities/aggregate';
 import type { SecurityViewProps } from './view-props';
-import { scopeOpenCount, type SeverityFilter } from './security-state';
+import type { SeverityFilter } from './security-state';
 import { slaActive, slaState, slaStateLabel, type SlaSource, type SlaState } from './sla-state';
 import { unmeasuredReason } from './labels';
 import { noOpenText } from './ownership-model';
@@ -89,8 +89,11 @@ export default function RepoRail({ summary, data, url, openDrawer }: SecurityVie
   const measured = sortRailRows(matching, url.severity, summary);
   const unmeasured = matching.filter(r => r.unmeasured).sort((a, b) => a.fullName.localeCompare(b.fullName));
 
-  const allCrit = rows ? scopeOpenCount(rows, 'critical', null) : 0;
-  const allHigh = rows ? scopeOpenCount(rows, 'high', null) : 0;
+  // The All row counts like the rows do: a hidden severity is zero, so "no open critical alerts" reads the same on both.
+  const all = (rows ?? []).reduce((a, r) => {
+    const st = railStat(r, url.severity, summary);
+    return { crit: a.crit + st.crit, high: a.high + st.high };
+  }, { crit: 0, high: 0 });
   const meta = rows ? `${plural(measured.length, 'repo')}${unmeasured.length ? ` + ${unmeasured.length} unmeasured` : ''}` : '';
 
   return (
@@ -135,7 +138,7 @@ export default function RepoRail({ summary, data, url, openDrawer }: SecurityVie
           <span className={`truncate ${repo === null ? 'font-semibold text-accent-light' : 'text-gray-200'}`}>
             {url.team ? `All ${url.team} repositories` : 'All repositories'}
           </span>
-          <span className="truncate text-xs text-gray-400">{rows ? railCounts(allCrit, allHigh, url.severity) : '\u00a0'}</span>
+          <span className="truncate text-xs text-gray-400">{rows ? railCounts(all.crit, all.high, url.severity) : '\u00a0'}</span>
         </button>
         <div className="mx-0.5 my-1 h-px flex-none bg-gray-700" aria-hidden="true" />
 

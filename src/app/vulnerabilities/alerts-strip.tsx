@@ -7,7 +7,7 @@
 import type { RepoRow } from '@/lib/vulnerabilities/aggregate';
 import type { Severity } from '@/lib/vulnerabilities/types';
 import type { SecurityViewProps } from './view-props';
-import { scopeOpenCount } from './security-state';
+import { repoFiguresUnknown, scopeOpenCount } from './security-state';
 import { slaState, slaStateLabel } from './sla-state';
 import { unmeasuredBadgeText } from './labels';
 import { REFRESH_FAILED_NOTE, slotView } from './slot-view';
@@ -24,6 +24,8 @@ export const ALERTS_STRIP_TITLE_W = 176;
 export const ALERTS_STRIP_OPEN_MIN_W = 36;
 export const ALERTS_STRIP_OVERDUE_MIN_W = 96;
 
+/** The badge for a selected unmeasured repository: its figures are the stored counts, not a measurement. */
+const STORED_COUNT_BADGE = '▲ unmeasured · stored count';
 const SEVERITIES: readonly Severity[] = ['critical', 'high'];
 const BADGE: Record<Severity, { label: string; cls: string }> = {
   critical: { label: 'CRIT', cls: 'bg-red-500/15 text-red-400' },
@@ -48,6 +50,10 @@ export default function AlertsStrip({ summary, data, url, openDrawer }: Security
   const dimmed = view.kind === 'data' && view.dimmed;
   const repo = data.effectiveRepo;          // not url.repo: a repository that was not found is not the scope
   const repoRow = repo && rows ? rows.find(r => r.fullName === repo) : undefined;
+  // A selected repository whose row is not (yet) in the rows reads "—", never 0: the same predicate as the Alerts tab count.
+  const unknown = !!rows && repoFiguresUnknown(rows, repo, dimmed);
+  // A selected unmeasured repository: its figures are the stored counts, so they carry a cue and never read as measured.
+  const storedCount = !!repoRow?.unmeasured && !unknown;
 
   const kind = repo ? `Repository · owning team ${repoRow?.team ?? url.team ?? '—'}` : url.team ? 'Owning team' : 'All owning teams';
   const title = repo ?? (url.team ? `${url.team} · all repositories` : 'All repositories');
@@ -73,7 +79,7 @@ export default function AlertsStrip({ summary, data, url, openDrawer }: Security
         <div data-testid="strip-figures" className="flex min-w-0 items-center gap-3" style={{ opacity: dimmed ? 0.6 : 1 }}>
           {SEVERITIES.map(sev => {
             const st = slaState(sev, summary);
-            const open = rows ? scopeOpenCount(rows, sev, repo) : null;
+            const open = rows && !unknown ? scopeOpenCount(rows, sev, repo) : null;
             const overdue = rows ? scopeOverdue(rows, sev, repo) : 0;
             // No SLA header sits above these figures, so the state names the SLA itself ("SLA starts Feb 1, 2099").
             const label = slaStateLabel(st, { withSla: true });
@@ -101,7 +107,7 @@ export default function AlertsStrip({ summary, data, url, openDrawer }: Security
                   {st.kind === 'invalid' && (
                     <span aria-hidden="true" className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-red-400 text-[10px] font-bold text-gray-900">!</span>
                   )}
-                  <span className="truncate">{!rows ? '—' : st.kind === 'active' ? `${overdue.toLocaleString('en-US')} overdue` : label}</span>
+                  <span className="truncate">{!rows || unknown ? '—' : st.kind === 'active' ? `${overdue.toLocaleString('en-US')} overdue` : label}</span>
                 </span>
               </div>
             );
@@ -114,15 +120,15 @@ export default function AlertsStrip({ summary, data, url, openDrawer }: Security
           <span data-testid="strip-refresh-note" title={view.refreshError} className="truncate text-xs text-red-400">{REFRESH_FAILED_NOTE}</span>
         )}
       </div>
-      {unmeasured > 0 && (
+      {(unmeasured > 0 || storedCount) && (
         <button
           type="button"
           data-testid="strip-unmeasured"
-          title="Open counts for these repositories are unknown. Click for details."
+          title={storedCount ? 'Open counts for this repository are unknown; these are the last stored counts. Click for details.' : 'Open counts for these repositories are unknown. Click for details.'}
           onClick={e => openDrawer(e.currentTarget)}
           className={`vuln-hatch flex h-6 shrink-0 items-center gap-1.5 border border-warn-line px-2 text-xs font-semibold text-warn ${TYPE.badge}${dimmed ? ' opacity-60' : ''}`}
         >
-          {unmeasuredBadgeText(unmeasured)}
+          {storedCount ? STORED_COUNT_BADGE : unmeasuredBadgeText(unmeasured)}
         </button>
       )}
     </section>
