@@ -239,7 +239,7 @@ describe('list_vulnerability_repos', () => {
     expect(await callTool('list_vulnerability_repos', { offset: -1 })).toEqual({ error: expect.stringMatching(/offset/) });
   });
 
-  it('echoes the applied limit and offset in applied_filters, without handing them to the query', async () => {
+  it('echoes the applied limit (capped, not as requested) and offset in applied_filters', async () => {
     (getRepos as jest.Mock).mockResolvedValue(envelope(repoRows(3)));
     const dflt: any = await callTool('list_vulnerability_repos', {});
     expect(dflt.applied_filters).toEqual({ codebase: 'backend', limit: 100, offset: 0 });
