@@ -30,7 +30,7 @@
 
 - **Commands** are written as plain `npx jest <path> --maxWorkers=3` (one file), `npx jest --maxWorkers=3` (the full suite; CI uses 3 workers), `npx tsc --noEmit` and `npm run build`. This plan names no Node version and no filesystem path. The implementer's brief supplies the local environment.
 - **Commit messages** start with `GLOOK-64: ` and a one-line summary. Append the attribution trailer your harness specifies.
-- **Internal-name guard.** Step 5 of every task runs this line after `git add` and before `git commit`: `: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1`. Each wave's exit check runs the same line over the whole wave, with `git diff origin/main...HEAD` in place of `git diff --cached`. `INTERNAL_NAMES` is the maintainers' private pattern of company, host and people names and real policy values. It lives in the implementer's environment and is never written in this plan or in the repository. The guard passes only when `grep` finds nothing (exit status 1). Run the Step 5 lines one at a time: if the guard fails, do not run `git commit`.
+- **Internal-name guard.** Step 5 of every task runs two guard lines after `git add` and before `git commit`: `: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"` (stops the block when the variable is unset) and `git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }`. The guard is a hard stop: when `grep` finds a match the block prints "internal name found" and exits, so `git commit` does not run. Run each Step 5 block as one script (or in a subshell), so the `exit` ends the block and not your terminal. Each wave's exit check runs the same two lines over the whole wave, with `git diff origin/main...HEAD` in place of `git diff --cached`. `INTERNAL_NAMES` is the maintainers' private pattern of company, host and people names and real policy values. It lives in the implementer's environment and is never written in this plan or in the repository.
 
 ## Review Focus
 
@@ -42,7 +42,7 @@ Five situations decide whether this change is right. Each names the task that bu
 2. **More than 500 alerts under Resolved or Open + resolved, paged with tied due dates**, produce no duplicated or skipped rows across pages.
    - Task 1.7, `vuln-aggregate.test.ts` › "listAlerts pages never repeat or skip a row (more than 500 matches, tied due dates)" for Open, and "listAlerts pages never repeat or skip a row under Resolved and Open + resolved (more than 500 matches, tied values)" for the other two states (620 alerts, every sort key in both directions, input order reversed). Task 4.7, `vuln-alerts-view.test.tsx` › "a page past the end after the result shrank lands on the last page" covers the client side of the same paging.
 3. **A deployment with no SLA policy, a pending one, or an invalid one** shows the state on every SLA surface; the Overdue and Due ≤ 7d toggles are disabled with the hint; no overdue figure is printed.
-   - Task 2.3, `vuln-sla-state.test.ts` (the one definition of the four states); Task 3.6, `vuln-kpi-sla.test.tsx` › "active policy", "pending", "none", "invalid"; Task 3.8, `vuln-team-table.test.tsx` › "Overdue columns per SLA state"; Task 3.9, `vuln-repo-table.test.tsx` › "columns follow the SLA state"; Task 4.3, `vuln-alerts-strip.test.tsx` › "the SLA tail, per state, for each severity"; Task 4.4, `vuln-repo-rail.test.tsx` › "the OVERDUE figure" and "footer"; Task 4.5, `vuln-alert-list.test.tsx` › "Due column, per SLA state" and "Overdue and Due ≤ 7d toggles: disabled with a hint while no SLA is active"; Task 4.7, `vuln-alerts-view.test.tsx` › "SLA states reach every Alerts-view consumer from one summary".
+   - Task 2.3, `vuln-sla-state.test.ts` (the one definition of the four states); Task 3.6, `vuln-kpi-sla.test.tsx` › "active policy" and "%s row in a non-active state while %s stays active" (its "pending", "none" and "invalid" tests), then "state wording and tone"; Task 3.8, `vuln-team-table.test.tsx` › "Overdue columns per SLA state" (seven cases, high-only included, each asserting where the Overdue header sits); Task 3.9, `vuln-repo-table.test.tsx` › "columns follow the SLA state"; Task 4.3, `vuln-alerts-strip.test.tsx` › "the SLA tail, per state, for each severity"; Task 4.4, `vuln-repo-rail.test.tsx` › "the OVERDUE figure" and "footer" (the ten state pairs and the narrowed-Severity pairs); Task 4.5, `vuln-alert-list.test.tsx` › "Due column, per SLA state" and "Overdue and Due ≤ 7d toggles: disabled with a hint while no SLA is active"; Task 4.7, `vuln-alerts-view.test.tsx` › "SLA states reach every Alerts-view consumer from one summary".
 4. **A team with an unmeasured repository that still holds stored alerts** reads the same open count in the team row, the Alerts strip, the rail's "All" row, the Alerts tab, the Repositories footer and the list total.
    - Task 1.3, `vuln-repo-rows-invariant.test.ts` › "independent cross-check through listAlerts" (the rows sum to the pivot, and each repository's `open` equals the `totalCount` of its own alert list, with an unmeasured repository that has stored alerts), and Task 1.11, `vuln-seed-repo-rows.test.ts` › "independent cross-check: each row's open equals getAlerts' open total for that repo, unmeasured repos included"; Task 3.7, `vuln-ownership-model.test.ts` › repoTotals › "with the unmeasured rows passed too, open and overdue include their stored counts; count, oldest and next due do not"; Task 3.9, `vuln-repo-table.test.tsx` › footer › "reads "Total · N repos" with no team and sums open and overdue over every row, the unmeasured one's stored counts included"; Task 3.10, `vuln-ownership-card.test.tsx` › "a team with an unmeasured repository that still holds stored alerts reads the same open counts in its team row and in the Repositories footer"; Task 4.7, `vuln-alerts-view.test.tsx` › "one source for every count" (strip, rail "All" row and Alerts tab read the same rows, an unmeasured row's stored count included).
 5. **Light theme at 1024px**: the fixed heights hold (a card's border and shadow must not grow the rows inside it), and there is no horizontal scroll.
@@ -185,7 +185,8 @@ Expected: PASS (the pivot's existing overdue/dueSoon tests are the regression gu
 
 ```bash
 git add src/lib/vulnerabilities/aggregate.ts src/lib/__tests__/unit/vuln-aggregate.test.ts
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: extract the shared SLA-active gate"
 ```
 
@@ -473,7 +474,8 @@ Expected: PASS (41 tests in the file at this point: 31 before the wave, plus 2 f
 
 ```bash
 git add src/lib/vulnerabilities/aggregate.ts src/lib/__tests__/unit/vuln-aggregate.test.ts
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: computeRepoRows, one row per repository with per-severity SLA figures"
 ```
 
@@ -686,7 +688,8 @@ Expected: PASS.
 
 ```bash
 git add src/lib/__tests__/unit/vuln-repo-rows-invariant.test.ts
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: pin the repository-row sum invariant and its listAlerts cross-check"
 ```
 
@@ -832,7 +835,8 @@ Expected: PASS and no type errors.
 
 ```bash
 git add src/lib/vulnerabilities/aggregate.ts src/lib/vulnerabilities/queries.ts src/lib/__tests__/unit/vuln-repo-rows-invariant.test.ts src/lib/__tests__/unit/vuln-queries.test.ts
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: per-codebase open counts on the summary"
 ```
 
@@ -990,7 +994,8 @@ Expected: PASS (the aggregate tests that call `computeCoverage(alerts, repos, {}
 
 ```bash
 git add src/lib/vulnerabilities/aggregate.ts src/lib/vulnerabilities/queries.ts src/lib/__tests__/unit/vuln-aggregate.test.ts src/lib/__tests__/unit/vuln-queries.test.ts
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: scope the coverage lists by codebase"
 ```
 
@@ -1078,7 +1083,8 @@ Expected: PASS and no type errors.
 
 ```bash
 git add src/lib/vulnerabilities/aggregate.ts src/lib/__tests__/unit/vuln-aggregate.test.ts src/lib/__tests__/unit/vuln-mcp.test.ts src/lib/__tests__/unit/vuln-alerts-table.test.tsx
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: alert rows carry lastReopenedAt"
 ```
 
@@ -1381,7 +1387,8 @@ Expected: PASS and no type errors. The existing test `listAlerts urgency order` 
 
 ```bash
 git add src/lib/vulnerabilities/alert-sort.ts src/lib/vulnerabilities/aggregate.ts src/lib/__tests__/unit/vuln-aggregate.test.ts
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: sort and offset for the alert list, with a total order"
 ```
 
@@ -1509,7 +1516,8 @@ Expected: PASS and no type errors.
 
 ```bash
 git add src/lib/vulnerabilities/filters.ts src/lib/vulnerabilities/queries.ts src/lib/__tests__/unit/vuln-filters.test.ts src/lib/__tests__/unit/vuln-queries.test.ts
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: validate and echo offset and sort for the alerts query"
 ```
 
@@ -1704,7 +1712,8 @@ Expected: PASS (`logger-enforcement.test.ts` confirms the new route imports `wit
 
 ```bash
 git add src/lib/vulnerabilities/queries.ts src/app/api/vulnerabilities/repos/route.ts src/lib/__tests__/unit/vuln-queries.test.ts src/lib/__tests__/unit/vuln-api.test.ts
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: getRepos and GET /api/vulnerabilities/repos"
 ```
 
@@ -2005,7 +2014,8 @@ Expected: PASS and no type errors.
 
 ```bash
 git add src/lib/mcp/tools.ts src/lib/__tests__/unit/vuln-mcp.test.ts src/lib/__tests__/unit/mcp-tools.test.ts
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: MCP list_vulnerability_repos, offset/sort docs, coverage codebase"
 ```
 
@@ -2264,7 +2274,8 @@ Expected: PASS (20 tests at plan time: 8 in the provider file, 10 in the new see
 
 ```bash
 git add scripts/mock-identities.ts scripts/seed-vulnerabilities.ts src/lib/github-mock.ts src/lib/__tests__/unit/vuln-mock-provider.test.ts src/lib/__tests__/unit/vuln-seed-repo-rows.test.ts
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: mock fixtures for zero-alert, unmeasured-with-alerts and 13 owning teams plus Unassigned"
 ```
 
@@ -2292,7 +2303,7 @@ Run from the repository root.
 1. `npx tsc --noEmit` returns no output. (Run `npx tsc --noEmit` before the full suite: `next build` type-checks test files, and ts-jest does not.)
 2. `npx jest src/lib/__tests__/unit/vuln src/lib/__tests__/unit/mcp-tools.test.ts src/lib/__tests__/unit/logger-enforcement.test.ts src/lib/__tests__/unit/seed-vulnerabilities.test.ts --maxWorkers=3` passes. At plan time this command matched 51 suites and 645 tests including the new ones.
 3. `npx jest --maxWorkers=3` passes in full (at plan time, against the tree this wave was built on: 210 suites, 2219 tests; counts will differ if `main` moved).
-4. The internal-name guard on the whole wave: `: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff origin/main...HEAD | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1` succeeds (grep finds nothing). `INTERNAL_NAMES` is the maintainers' private list of company, host and people names and real policy values; it lives in the implementer's environment and is never written in this plan or in the repository. The invented names used here are `acme/*`, `o/*`, `mock-org`, and the owning teams `Payments`, `Search`, `Identity`, `Messaging`, `Observability`, `Analytics`, `Media`, `Storage`, `Mobile`, `Compliance`.
+4. The internal-name guard on the whole wave: `: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"` then `git diff origin/main...HEAD | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }` prints nothing and the shell stays open. `INTERNAL_NAMES` is the maintainers' private list of company, host and people names and real policy values; it lives in the implementer's environment and is never written in this plan or in the repository. The invented names used here are `acme/*`, `o/*`, `mock-org`, and the owning teams `Payments`, `Search`, `Identity`, `Messaging`, `Observability`, `Analytics`, `Media`, `Storage`, `Mobile`, `Compliance`.
 5. `git diff origin/main...HEAD -- src/lib/vulnerabilities/aggregate.ts` shows no change inside `pickBaseline`, `snapshotSets`, `pickTrendSets`, `computeDelta`, `computeTrend` (Decision 7).
 6. `git diff origin/main...HEAD --stat -- src/lib/vulnerabilities/sync.ts` prints nothing (the sync is untouched: two-phase sync, `missing_since`, the completeness guard and `withheld_since` keep their behaviour).
 7. `rm -rf .next && npm run build` succeeds (adds the repos route; not run during planning because Wave 1 does not touch any page).
@@ -2300,7 +2311,7 @@ Run from the repository root.
 
 ## Wave 2: Page shell, state and data modules, URL state, styling tokens
 
-**Goal.** Replace the page's composer (`vulnerabilities-content.tsx`) with a thin one built on four new foundations: the theme tokens and utilities (Task 2.1), the layout constants (2.2), the URL/list state (2.4, 2.6) and the data hook that owns every SWR key (2.7). On top of them this wave builds the page-wide chrome: the sticky filter bar with view tabs (2.8), the coverage drawer (2.9) and the header children (2.10). It also creates the six **slot modules** that Waves 3 and 4 fill (2.11). After this wave the page is fully navigable: filters, view switching, header, drawer, error and recovery states all work, and the Overview and Alerts views render reserved-height boxes where Waves 3 and 4 put their content. The old `team-pivot.tsx`, `trend-chart.tsx` and `alerts-table.tsx` are left in place and untouched (Waves 3 and 4 delete them with their tests); `coverage-panel.tsx` and `policy-panel.tsx` are deleted here. Waves 1-5 ship as one PR; do not merge or deploy between Wave 2 and Wave 4, because the page is a shell until Waves 3-4 fill it.
+**Goal.** Replace the page's composer (`vulnerabilities-content.tsx`) with a thin one built on four new foundations: the theme tokens and utilities (Task 2.1), the layout constants (2.2), the URL/list state (2.4, 2.6) and the data hook that owns every SWR key (2.7). On top of them this wave builds the page-wide chrome: the sticky filter bar with view tabs (2.8), the coverage drawer (2.9) and the header children (2.10). It also creates the six **slot modules** that Waves 3 and 4 fill (2.11). After this wave the page is fully navigable: filters, view switching, header, drawer, error and recovery states all work, and the Overview and Alerts views render reserved-height boxes where Waves 3 and 4 put their content. The old `team-pivot.tsx`, `trend-chart.tsx` and `alerts-table.tsx` are left in place and untouched (Waves 3 and 4 delete them with their tests; the one change is Task 2.3's five date expectations in the old pivot's test, because the shared captions it prints now read as display dates); `coverage-panel.tsx` and `policy-panel.tsx` are deleted here. Waves 1-5 ship as one PR; do not merge or deploy between Wave 2 and Wave 4, because the page is a shell until Waves 3-4 fill it.
 
 **Assumptions about Wave 1 (state them when reviewing).** Wave 1 delivers exactly the spec's Architecture sections 1 to 3. This wave therefore assumes:
 
@@ -2348,10 +2359,28 @@ The composer lays the views out. Overview is `<KpiTiles/> <OwnershipCard/> <Tren
 **Types (`api-types.ts`, Task 2.5).** `SummaryData`, `ReposData`, `CoverageData`, `AlertsData`, `TrendData` (each the `available: true` member of the matching `queries.ts` function's return type), `UnavailableData` and `Slot<T>` (re-exported by `use-security-data.ts`).
 
 **`dimensions.ts` (Task 2.2).** Named constants, all in px unless noted:
-`PAGE_MAX_W` 1280, `PAGE_PAD` `{ top: 32, x: 24, bottom: 40 }`, `PAGE_GAP` 24, `KPI_ROW_H` 178, `OWNERSHIP_BODY_H` 330, `TEAM_ROW_H` 50, `ALERTS_STRIP_H` 72, `ALERTS_CARD_H` 776, `ALERT_ROW_H` 56, `ALERT_PAGE_SIZE` 10, `ALERT_LIST_H` 560, `RAIL_W` 260, `TREND_PLOT_H` 220, `SPARK_H` 24, `DRAWER_W` 460, `DRAWER_MAX_W` `'92vw'`, `COVERAGE_LINE_MIN_H` 22, `SELECT_W` `{ codebase: 220, team: 170, severity: 140, baseline: 118, date: 128 }`, `FILTER_ROW_GAP` 8, `COMPARE_LABEL_W` 68, `BAR_ROW_H` 36, `BAR_PAD_Y` 6, `FILTER_BAR_H` 84, `RESET_SLOT_W` 116, `FILTER_ROW_W` (sum of the filter row), `Z` `{ pinnedRows: 10, stickyBar: 20, drawer: 40 }`, and `TYPE` (class-string constants for the typography table: `title`, `kpiValue`, `sectionLabel`, `tableHeader`, `body`, `secondary`, `card`, `control`, `badge`).
+`PAGE_MAX_W` 1280, `PAGE_PAD` `{ top: 32, x: 24, bottom: 40 }`, `PAGE_GAP` 24, `KPI_ROW_H` 178, `OWNERSHIP_BODY_H` 330, `TEAM_ROW_H` 50, `TEAM_BAND_H` 24, `TEAM_COLHEAD_H` 32, `TEAM_HEAD_H` (band plus column row, 56), `TEAM_FOOTNOTE_H` 20, `ALERTS_STRIP_H` 72, `ALERTS_CARD_H` 776, `ALERT_ROW_H` 56, `ALERT_PAGE_SIZE` 10, `ALERT_LIST_H` 560, `RAIL_W` 260, `TREND_PLOT_H` 220, `SPARK_H` 24, `DRAWER_W` 460, `DRAWER_MAX_W` `'92vw'`, `COVERAGE_LINE_MIN_H` 22, `SELECT_W` `{ codebase: 220, team: 170, severity: 140, baseline: 118, date: 128 }`, `FILTER_ROW_GAP` 8, `BAR_ROW_H` 36 (the view tabs' row), `FILTER_CAPTION_H` 14, `FILTER_CAPTION_GAP` 4, `FILTER_SELECT_H` 28, `FILTER_ROW_H` (caption, gap and select, 46), `BAR_PAD_Y` 6, `FILTER_BAR_H` (tabs row plus filter row plus two paddings, 94), `RESET_SLOT_W` 116, `FILTER_ROW_W` (the four selects, the date slot and the Reset slot, plus 5 gaps: 932), `Z` `{ pinnedRows: 10, stickyBar: 20, drawer: 40 }`, and `TYPE` (class-string constants for the typography table: `title`, `kpiValue`, `sectionLabel`, `tableHeader`, `body`, `secondary`, `card`, `control`, `badge`, `link`). `TYPE.link` is the one class for every in-page link: accent colour plus an underline, because the underline is the cue that does not rely on colour.
+The sticky bar is two fixed rows. Row 1 holds the view tabs only. Row 2 is the filter row: each of the four selects sits under a visible caption (`FILTER_CAPTION_H`), then the date slot, then the "Reset filters" slot at the right end of the same row. That slot is always reserved (hidden, never removed), so the row does not move when a filter changes. The `Team*` constants size the Owning teams table's pinned header and its footnote (Wave 3).
 Waves 3 and 4 apply heights as inline `style` from these constants, on the element named in the slot table's Carries column, in every branch (loading, error, empty, populated). Pinned table headers and Total rows use `zIndex: Z.pinnedRows`.
 
-**`sla-state.ts` (Task 2.3).** The one place the four SLA states are decided and worded, so the tile, strip, rail, columns and drawer cannot disagree.
+**`labels.ts` (Task 2.3).** Wording that more than one component prints, defined once so the surfaces cannot drift apart. Pure: no React, no server imports.
+
+```ts
+export const utcToday: () => string;                      // today's date, YYYY-MM-DD, UTC; reads Date.now(), so a test pins the clock with a spy
+export function displayDate(iso: string, today?: string): string;
+   // "Oct 4" in the current year, "Jan 8, 2020" in any other year; UTC; an unparseable value comes back as it came.
+   // `today` (YYYY-MM-DD) defaults to utcToday().
+export interface UnmeasuredWhy { status: string; detail: string | null }
+export function unmeasuredReason(u: UnmeasuredWhy): string;   // "Dependabot off", else the detail, else "Status check failed"
+export const unmeasuredCountText: (n: number) => string;      // "2 unmeasured repos", "1 unmeasured repo"
+export const unmeasuredBadgeText: (n: number) => string;      // "▲ 2 unmeasured repos"
+```
+
+**The date rule.** Every date a person reads on the page goes through `displayDate`. The ISO form (`2099-01-01`) survives only inside `title` attributes. Waves 3 and 4 do not define their own date formatter. `unmeasuredReason` is the coverage drawer's wording and the only definition of it: the rail, the Repositories band and the drawer all call it. `unmeasuredBadgeText` is the one badge phrase for the header coverage line, the Alerts strip and the team table.
+
+**`format.ts` (existing file; Task 2.3 changes two functions).** `resolvedCaption(r, today?)` now reads "since Jan 8, 2020" (was "since 2020-01-08"), and `deltaBaselineCaption(delta, today?)` reads "vs Jan 1" (was "vs 2099-01-01"). Both print the date through `displayDate`. A caller that needs the ISO date for a `title` reads `delta.baseline.takenOn`.
+
+**`sla-state.ts` (Task 2.3).** The one place the four SLA states are decided, and the one definition of how each is worded, so the tile, strip, rail, columns and drawer cannot disagree.
 
 ```ts
 export type SlaState =
@@ -2359,17 +2388,25 @@ export type SlaState =
   | { kind: 'pending'; startsOn: string | null }
   | { kind: 'none' }
   | { kind: 'invalid' };
-export const SLA_NONE_LABEL = 'No SLA policy yet';
-export const SLA_INVALID_LABEL = "SLA policy can't be read";
-export const slaPendingLabel = (startsOn: string | null) => `Starts ${startsOn ?? 'later'}`;
 export function slaState(sev: Severity, s: SlaSource): SlaState;          // invalid wins over none
-export function slaStateLabel(st: SlaState): string | null;               // null when active
+export function slaStateLabel(st: SlaState, opts: { withSla: boolean; today?: string }): string | null;   // null when active; opts is required
 export function slaActive(sev: Severity, s: SlaSource): boolean;          // overdue/due columns exist only when true
 export function anySlaActive(s: SlaSource): boolean;                      // "Next due" column; time toggles
 // SlaSource = { slaStatus: Record<Severity, 'pending'|'active'|'none'>; slaPolicyInvalid: boolean;
 //               policy: Array<{ severity: string; effectiveFrom: string; pending: boolean }> }  (a SummaryData satisfies it)
 ```
 The invalid state renders in red (`text-red-400`); the others in muted grey.
+
+**One definition, two wordings.** `slaStateLabel` is the only place the state wording is written. A surface chooses between two wordings with `withSla`, because the SLA tile's header already says "SLA" and the other surfaces have no such header:
+
+| State | `withSla: false` (the SLA tile) | `withSla: true` (strip tail, rail note, Due sub-line, toggle hint) |
+|---|---|---|
+| active | null | null |
+| pending | "Starts {display date}", or "Starts later" with no date | "SLA starts {display date}", or "SLA starts later" |
+| none | "No SLA policy yet" | "no SLA policy yet" |
+| invalid | "Policy error" (the tile draws a red "!" icon before it; its `title` holds the full sentence "SLA policy can't be read: ...") | "SLA policy can't be read" |
+
+The date in a pending label is a `displayDate`: no year in the current year, the year in any other. `today` (YYYY-MM-DD) exists so a test can fix which year is "current".
 
 **`security-state.ts` (Tasks 2.4 and 2.6).**
 
@@ -2383,6 +2420,8 @@ export const VIEW_SCHEMA, OWN_SCHEMA, CODEBASE_SCHEMA, TEAM_SCHEMA, REPO_SCHEMA,
 export const kSev: (s: SeverityFilter) => Severity;       // 'high' only for 'high', else 'critical'
 export type { CodebaseCounts };            // re-exported from @/lib/vulnerabilities/aggregate (Wave 1), never redefined
 export const codebaseOptionCount: (c: CodebaseCounts | undefined, g: CodebaseGroup, s: SeverityFilter) => number | null;
+   // the open count of kSev(s): critical, or high under "High only" (NOT the sum of both). The filter bar
+   // (Task 2.8) writes the matching unit after it: "Backend · 8 open crit" or "Backend · 3 open high".
 export const scopeOpenCount: (rows: readonly RepoRow[], s: SeverityFilter, repo: string | null) => number;
    // sums open counts under Severity, INCLUDING an unmeasured row's stored count, so it equals the alert
    // list's totalCount when status is open and no other list filter is set
@@ -2431,7 +2470,8 @@ export interface AlertListController {    // useAlertList(scope)
   toggleDueSoon(): void;                  // turning on clears overdue
   toggleReopened(): void; toggleRuntimeOnly(): void;
   setQuery(q: string): void;              // call after the debounce; the hook does not debounce
-  setSort(key: AlertSortKey): void;       // same key flips direction; a new key starts in ALERT_SORT_FIRST_DIR[key]
+  setSort(key: AlertSortKey): void;       // same key flips direction; a new key starts in ALERT_SORT_FIRST_DIR[key],
+                                          // EXCEPT the first click on 'due' while sort is null: that sorts descending (due:desc)
   setPage(page: number): void;
 }
 // Every setter except setPage resets page to 1. A scope change (codebase, team, repo, severity) resets it in
@@ -2441,7 +2481,7 @@ export function useAlertList(scope: { codebase: CodebaseGroup; team: string | nu
 
 A name Wave 1 defines (`ALERT_SORT_KEYS`, `AlertSortKey`, `AlertSortDir`, `AlertSortSpec`, `CodebaseCounts`) is imported or re-exported by this wave, never redefined; the wire `sort` value is built as an `AlertSortSpec`.
 
-`sort: null` means the server's default order (soonest due, then severity, then newest) with no active header. The first click on a header uses `ALERT_SORT_FIRST_DIR`: Age starts descending (oldest alert first), every other key ascending; clicking the active header again reverses it.
+`sort: null` means the server's default order (soonest due, then severity, then newest) with no active header. The first click on a header uses `ALERT_SORT_FIRST_DIR`: Age starts descending (oldest alert first), every other key ascending; clicking the active header again reverses it. One exception: with `sort: null` the alert list draws the server's default order as the Due header sorted ascending ("Due ↑"), so the first click on Due sorts DESCENDING (`due:desc`), the reverse of what the header shows. Task 2.6's `setSort` implements this; Wave 4's `AlertList` draws the "Due ↑" header.
 
 URL keys (spec section 5): `view` (overview|alerts, push), `own` (teams|repos, push), `codebase` (replace), `team` (replace), `repo` (replace), `severity` (both|critical|high, replace), `baseline` (last|7d|30d|YYYY-MM-DD, replace), `range` (30d|90d|1y|all, replace). Every schema is declared `scroll: false`. The old `sev` key is not read anywhere.
 
@@ -2461,17 +2501,20 @@ export interface SecurityData {
   summary: Slot<SummaryData>;             // codebase, team, baseline
   teamSummary: Slot<SummaryData>;         // codebase, baseline (never team): the team table
   coverage: Slot<CoverageData>;           // codebase, team
-  repos: Slot<ReposData>;                 // codebase, team: Repositories tab, rail, strip, tab count, header meta
+  repos: Slot<ReposData>;                 // codebase, team: Repositories tab, rail, strip, tab count
+  metaRepos: Slot<ReposData>;             // codebase only, never team: the header meta line ("N repositories · N owning teams")
   trend: Slot<TrendData>;                 // codebase, severity=kSev, since from range; no team
   sparkline: Slot<TrendData>;             // codebase, severity=kSev, since = today-90d; no team
   alerts: Slot<AlertsData>;               // undefined data while repoStatus is 'not-found'
   repoStatus: 'none' | 'pending' | 'ok' | 'not-found';
   effectiveRepo: string | null;           // repo when status is pending or ok, else null
   effectiveList: AlertListState;          // the sanitised list actually sent
-  keys: { summary: string; teamSummary: string; coverage: string; repos: string; trend: string; sparkline: string; alerts: string | null };
+  keys: { summary: string; teamSummary: string; coverage: string; repos: string; metaRepos: string; trend: string; sparkline: string; alerts: string | null };
 }
 export function useSecurityData(scope: SecurityScope, listState: AlertListState): SecurityData;
 ```
+
+`metaRepos` exists so that choosing an owning team does not change the header's "N production repositories · N owning teams": that line describes the codebase, not the team filter. With no team selected its key string equals `repos`, so SWR sends one request for both; with a team selected there are two repos requests. `securityKeys()` therefore builds seven keys, and the sync-time reconciliation effect watches the `metaRepos` slot as well.
 
 Wave 4 renders the inline "Repository not found · Show all repositories" state when `data.repoStatus === 'not-found'` (button calls `url.clearRepo()`), and never shows a page-level error for it. The sparkline is summed by Wave 3 (`sparkline.tsx`) from `data.sparkline.data.series`, filtered to `url.team` when set.
 
@@ -2486,8 +2529,9 @@ Wave 4 renders the inline "Repository not found · Show all repositories" state 
 **Hand-off checklist for Waves 3 and 4.** Task 2.11 deletes the old composer's tests, so each sub-case below has no test until the named wave writes it. The old assertions stay readable with `git show main:<path>`.
 
 *Wave 3 (`kpi-tiles`, `ownership-card`):*
-- "N repos not in baseline" on its own line under the new / resolved / reopened tile, only when the delta is available and `reposNotInBaseline > 0`; the caption beside it ("vs {date}") stays unchanged.
-- The unavailable-baseline caption, with the new copy: "No earlier measurement yet" when `delta.baseline` is null (this is the null-baseline fallback: it names no date), and "No measurement on or before {date}" when a baseline date is known but the delta has no total. It replaces the old "no measurement for this view before {date}".
+- "N repos not in baseline" on its own line under the since tile (new / resolved / reopened), only when the delta is available and `reposNotInBaseline > 0`.
+- The since tile has NO "vs {date}" caption. Its label carries the baseline date as a display date ("{severity} since {display date}"), and the label's `title` holds the ISO date ("Compared with the measurement taken on {ISO date}"). The caption slot stays reserved (an `aria-hidden` non-breaking space), so the tile keeps its height.
+- The unavailable-baseline caption, in that reserved slot, with the new copy: "No earlier measurement yet" when `delta.baseline` is null (this is the null-baseline fallback: it names no date), and "No measurement on or before {date}" when a baseline date is known but the delta has no total ({date} is a display date). It replaces the old "no measurement for this view before {date}".
 - The null-total guard: an `available` delta whose `total` is null renders the unavailable caption and a dash, and never throws or prints NaN.
 - The "other ±N" suffix on the new / resolved / reopened figures: shown only when `total.other !== 0`, kept to one line (truncated), with the full text in the element's `title`.
 - The † marker and footnote (ownership card, and the Resolved KPI tile): the marker with the carry title on a row whose `carriedResolved > 0`; the footnote under the table when the Total's `carriedResolved > 0`; neither when `resolved` is null (invalid start date) or nothing carries.
@@ -2495,7 +2539,10 @@ Wave 4 renders the inline "Repository not found · Show all repositories" state 
 *Consumers of `sla-state` (every consumer has a test per SLA state: active, pending, none, invalid):*
 - Wave 3: the SLA tile, and the overdue columns of both tables (Owning teams and Repositories).
 - Wave 4: the alerts strip, the rail, the alert list's Due column, and the Overdue and Due ≤ 7d toggles.
-- The toggles keep today's disabled-with-hint behaviour while no severity's SLA is active. The hint comes from the SLA state (invalid first, then pending, then none): pending reads "Due dates start {date}" (the earliest start), none reads "No SLA policy yet", invalid reads `slaStateLabel`'s "SLA policy can't be read". The toggles are also cleared (by `sanitiseAlertList`) when no SLA is active, so a disabled toggle never reads as on.
+- The toggles keep today's disabled-with-hint behaviour while no severity's SLA is active. The hint comes from the SLA state (invalid first, then pending, then none): pending reads "Due dates start {display date}" (the earliest start), none reads "no SLA policy yet", invalid reads "SLA policy can't be read" (the last two are `slaStateLabel(st, { withSla: true })`). The toggles are also cleared (by `sanitiseAlertList`) when no SLA is active, so a disabled toggle never reads as on.
+- Surfaces that have no "SLA" header of their own (the strip tail, the rail note, the Due sub-line, the toggle hint) call `slaStateLabel(st, { withSla: true })`. The SLA tile, whose header says SLA, calls it with `withSla: false`.
+
+*Consumers of `labels.ts` (Waves 3 and 4):* every visible date goes through `displayDate` (never a local date formatter, never a raw ISO string on screen). The unmeasured reason comes from `unmeasuredReason` and the unmeasured badge text from `unmeasuredBadgeText`; no component keeps its own copy of either.
 
 *Wave 4 (`alert-list`):* typed search text is applied, not dropped, when the user switches view or clicks a chip inside the 300ms debounce window, and a pending debounce flushes on unmount.
 
@@ -2787,7 +2834,8 @@ Expected: PASS (all five files). Reverting the light `--warn` to `#9a6700` fails
 
 ```bash
 git add src/app/globals.css src/lib/__tests__/unit/vuln-security-tokens-css.test.ts src/lib/__tests__/unit/vuln-warn-contrast.test.ts
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: Security page theme tokens, utilities and --warn contrast guard"
 ```
 
@@ -2801,8 +2849,12 @@ git commit -m "GLOOK-64: Security page theme tokens, utilities and --warn contra
 - Consumes: nothing.
 - Produces: the constants listed under "`dimensions.ts`" in the Wave 2 public interface (exact names below).
 
-This module exists so the spec's Dimensions table is written once. Every layout test in Waves 2 to 4 compares a rendered inline style against these names, so a height can only change in one place. The test below pins the values to the spec table: changing a constant fails it until the spec changes too. That is a deliberate drift guard, not a behaviour test, and it also checks two relationships that are behaviour (the filter row fits at 1024px; the z-index layers stack in the order the spec requires).
+This module exists so the spec's Dimensions table is written once. Every layout test in Waves 2 to 4 compares a rendered inline style against these names, so a height can only change in one place. The test below pins the values to the spec table: changing a constant fails it until the spec changes too. That is a deliberate drift guard, not a behaviour test, and it also checks three relationships that are behaviour:
+1. The sticky bar's height is built from its parts: `FILTER_BAR_H` = the view-tabs row (`BAR_ROW_H`, 36) + the filter row (`FILTER_ROW_H`, 46 = a 14px caption, a 4px gap and a 28px select) + two paddings (`BAR_PAD_Y`, 6 each) = 94px.
+2. The filter row fits on one line at a 1024px viewport. `FILTER_ROW_W` counts the four selects, the date slot, the "Reset filters" slot (`RESET_SLOT_W`) at the END of the row, and 5 gaps: 932px, against 1024 minus page padding minus a 15px scrollbar. The Reset slot is part of the sum because it is reserved even while hidden.
+3. The z-index layers stack in the order the spec requires.
 
+The constants also carry the sizes later waves need: the Owning teams table's pinned header (`TEAM_BAND_H` 24 over `TEAM_COLHEAD_H` 32, `TEAM_HEAD_H` 56) and its † footnote (`TEAM_FOOTNOTE_H` 20), and `TYPE.link`, the one class for every in-page link (accent colour plus an underline, so a link is not told apart by colour alone).
 - [ ] **Step 1: Write the failing test**
 
 ```ts
@@ -2810,8 +2862,8 @@ This module exists so the spec's Dimensions table is written once. Every layout 
 import {
   PAGE_MAX_W, PAGE_PAD, PAGE_GAP, KPI_ROW_H, OWNERSHIP_BODY_H, TEAM_ROW_H, ALERTS_STRIP_H, ALERTS_CARD_H,
   ALERT_ROW_H, ALERT_PAGE_SIZE, ALERT_LIST_H, RAIL_W, TREND_PLOT_H, SPARK_H, DRAWER_W, DRAWER_MAX_W,
-  COVERAGE_LINE_MIN_H, SELECT_W, FILTER_ROW_GAP, COMPARE_LABEL_W, BAR_ROW_H, BAR_PAD_Y, FILTER_BAR_H,
-  RESET_SLOT_W, FILTER_ROW_W, Z, TYPE,
+  COVERAGE_LINE_MIN_H, SELECT_W, FILTER_ROW_GAP, BAR_ROW_H, FILTER_CAPTION_H, FILTER_CAPTION_GAP, FILTER_SELECT_H, FILTER_ROW_H,
+  BAR_PAD_Y, FILTER_BAR_H, RESET_SLOT_W, FILTER_ROW_W, Z, TYPE,
 } from '@/app/vulnerabilities/dimensions';
 
 it('matches the spec Dimensions table', () => {
@@ -2839,15 +2891,15 @@ it('derives the list area from the row height and page size (56px x 10 = 560px)'
   expect(ALERT_LIST_H).toBe(ALERT_ROW_H * ALERT_PAGE_SIZE);
 });
 
-it('the sticky bar is two fixed rows plus its padding', () => {
-  expect(FILTER_BAR_H).toBe(2 * BAR_ROW_H + 2 * BAR_PAD_Y);
+it('the sticky bar is two fixed rows plus its padding, and the filter row is a caption over a select', () => {
+  expect(FILTER_ROW_H).toBe(FILTER_CAPTION_H + FILTER_CAPTION_GAP + FILTER_SELECT_H);
+  expect(FILTER_BAR_H).toBe(BAR_ROW_H + FILTER_ROW_H + 2 * BAR_PAD_Y);
 });
 
-it('the filter row (selects, the Compare to label, the date slot and the gaps) fits one line at a 1024px viewport minus page padding and a 15px scrollbar', () => {
-  const sum = SELECT_W.codebase + SELECT_W.team + SELECT_W.severity + COMPARE_LABEL_W + SELECT_W.baseline + SELECT_W.date + 5 * FILTER_ROW_GAP;
+it('the filter row (four selects, the date slot, the Reset slot at its right end and the gaps) fits one line at a 1024px viewport minus page padding and a 15px scrollbar', () => {
+  const sum = SELECT_W.codebase + SELECT_W.team + SELECT_W.severity + SELECT_W.baseline + SELECT_W.date + RESET_SLOT_W + 5 * FILTER_ROW_GAP;
   expect(FILTER_ROW_W).toBe(sum);
   expect(FILTER_ROW_W).toBeLessThanOrEqual(1024 - 2 * PAGE_PAD.x - 15);
-  expect(RESET_SLOT_W).toBeGreaterThan(0);
 });
 
 it('layers stack as the spec requires: pinned table rows < sticky bar < drawer', () => {
@@ -2866,6 +2918,8 @@ it('typography classes carry the spec sizes, weights, tracking and radii', () =>
   expect(TYPE.card).toBe('rounded-xl');                                // 12px
   expect(TYPE.control).toBe('rounded-md');                             // 6px
   expect(TYPE.badge).toBe('rounded');                                  // 4px
+  expect(TYPE.link.split(' ')).toContain('underline');                 // the non-colour cue for a link
+  expect(TYPE.link.split(' ')).toContain('text-accent-light');
 });
 ```
 
@@ -2891,6 +2945,11 @@ export const PAGE_GAP = 24;
 export const KPI_ROW_H = 178;
 export const OWNERSHIP_BODY_H = 330;   // tables scroll inside it; header row and Total row stay pinned
 export const TEAM_ROW_H = 50;
+// The Owning teams table's pinned header (a band row over a column-header row) and the † footnote under its Total row.
+export const TEAM_BAND_H = 24;
+export const TEAM_COLHEAD_H = 32;
+export const TEAM_HEAD_H = TEAM_BAND_H + TEAM_COLHEAD_H;
+export const TEAM_FOOTNOTE_H = 20;
 export const TREND_PLOT_H = 220;
 export const SPARK_H = 24;
 
@@ -2908,16 +2967,20 @@ export const DRAWER_MAX_W = '92vw';
 export const COVERAGE_LINE_MIN_H = 22;
 
 // Sticky bar. Selects have fixed widths; each is shrink-0 and truncates with a title attribute.
+// Two fixed rows: the view tabs, then the filters, each under its own caption.
 export const SELECT_W = { codebase: 220, team: 170, severity: 140, baseline: 118, date: 128 } as const;
 export const FILTER_ROW_GAP = 8;
-export const COMPARE_LABEL_W = 68;
-export const BAR_ROW_H = 36;
+export const BAR_ROW_H = 36;                  // the view tabs' row
+export const FILTER_CAPTION_H = 14;           // "CODEBASE", "OWNING TEAM", ...: 10.5px uppercase, one line
+export const FILTER_CAPTION_GAP = 4;
+export const FILTER_SELECT_H = 28;
+export const FILTER_ROW_H = FILTER_CAPTION_H + FILTER_CAPTION_GAP + FILTER_SELECT_H; // 46
 export const BAR_PAD_Y = 6;
-export const FILTER_BAR_H = 2 * BAR_ROW_H + 2 * BAR_PAD_Y; // 84: view tabs row + filters row
+export const FILTER_BAR_H = BAR_ROW_H + FILTER_ROW_H + 2 * BAR_PAD_Y; // 94: tabs row + filters row
 export const RESET_SLOT_W = 116;
-/** Codebase, Owning team, Severity, "Compare to" label, Compare select, date slot, and 5 gaps. */
+/** The four selects, the date slot, the "Reset filters" slot at the row's right end, and the 5 gaps between them. */
 export const FILTER_ROW_W =
-  SELECT_W.codebase + SELECT_W.team + SELECT_W.severity + COMPARE_LABEL_W + SELECT_W.baseline + SELECT_W.date + 5 * FILTER_ROW_GAP;
+  SELECT_W.codebase + SELECT_W.team + SELECT_W.severity + SELECT_W.baseline + SELECT_W.date + RESET_SLOT_W + 5 * FILTER_ROW_GAP;
 
 /** Layer order: tables' pinned rows < sticky bar < drawer. Apply as inline `zIndex`. */
 export const Z = { pinnedRows: 10, stickyBar: 20, drawer: 40 } as const;
@@ -2933,6 +2996,8 @@ export const TYPE = {
   card: 'rounded-xl',
   control: 'rounded-md',
   badge: 'rounded',
+  /** Every in-page link: the underline is the non-colour cue (spec, "Colour tokens"). */
+  link: 'text-accent-light underline underline-offset-2 hover:text-accent-lighter',
 } as const;
 ```
 
@@ -2945,27 +3010,105 @@ Expected: PASS (6 tests).
 
 ```bash
 git add src/app/vulnerabilities/dimensions.ts src/lib/__tests__/unit/vuln-security-dimensions.test.ts
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: Security page layout constants"
 ```
 
-### Task 2.3: SLA state helper (the four states, one definition)
+### Task 2.3: Shared wording (`labels.ts`) and the SLA state helper
 
 **Files:**
+- Create: `src/app/vulnerabilities/labels.ts`
+- Create: `src/lib/__tests__/unit/vuln-labels.test.ts`
 - Create: `src/app/vulnerabilities/sla-state.ts`
-- Test: `src/lib/__tests__/unit/vuln-sla-state.test.ts`
+- Create: `src/lib/__tests__/unit/vuln-sla-state.test.ts`
+- Modify: `src/app/vulnerabilities/format.ts` (the import line, `resolvedCaption` and `deltaBaselineCaption`)
+- Modify: `src/lib/__tests__/unit/vuln-format.test.ts` (the import line, the `deltaBaselineCaption` test, a new `resolvedCaption` describe)
+- Modify: `src/lib/__tests__/unit/vuln-team-pivot.test.tsx` (five date expectations; the old component still prints these captions through the shared helpers, and Task 3.13 deletes the file)
 
 **Interfaces:**
-- Consumes: `Severity` from `@/lib/vulnerabilities/types`.
-- Produces: `SlaState`, `SlaSource`, `slaState`, `slaStateLabel`, `slaActive`, `anySlaActive`, `SLA_NONE_LABEL`, `SLA_INVALID_LABEL`, `slaPendingLabel` (signatures in the Wave 2 public interface).
+- Consumes: `Severity` from `@/lib/vulnerabilities/types`; `ResolvedSince` (types) and `DeltaResult` (aggregate) already imported by `format.ts`.
+- Produces: from `labels.ts`: `utcToday`, `displayDate`, `UnmeasuredWhy`, `unmeasuredReason`, `unmeasuredCountText`, `unmeasuredBadgeText`. From `sla-state.ts`: `SlaState`, `SlaSource`, `SlaLabelOptions`, `slaState`, `slaStateLabel`, `slaActive`, `anySlaActive`. From `format.ts`: `resolvedCaption(r, today?)` and `deltaBaselineCaption(delta, today?)` gain a display-date wording and an optional `today` argument. Signatures are in the Wave 2 public interface.
 
-The spec requires four SLA states (active, pending "Starts {date}", none "No SLA policy yet", invalid "SLA policy can't be read" in red) on the SLA tile, the strip, the rail, the overdue columns and the drawer. Without one helper, five components would each re-derive them. The rule the old page already encoded and this keeps: an invalid `VULNERABILITIES_SLA_POLICY` parses to an empty policy, so `slaStatus` reads `'none'` for both severities. `slaPolicyInvalid` must therefore be checked first, so an invalid policy never reads as merely empty.
+The two helpers belong in one task because the SLA wording prints a date, and the date rule lives in `labels.ts`: `sla-state.ts` imports `displayDate` from it. `labels.ts` comes first.
 
-- [ ] **Step 1: Write the failing test**
+**Decisions.**
+- **One date rule.** Every date a person reads is `displayDate(iso, today = utcToday())`: "Oct 4" within the current year, "Jan 8, 2020" in any other year, read in UTC, and an unparseable value comes back as it was given. The ISO form stays only in `title` attributes. `utcToday` reads `Date.now()` (not `new Date()`), so a test pins "today" with `jest.spyOn(Date, 'now')` and needs no fake timers.
+- **One definition of "why unmeasured".** `unmeasuredReason` returns "Dependabot off", else the status check's own detail, else "Status check failed". This is the coverage drawer's wording. The rail and the Repositories band upper-case it where their style needs it; they do not keep their own copy.
+- **One badge phrase.** `unmeasuredBadgeText(n)` ("▲ 2 unmeasured repos", singular for one) is what the header coverage line, the Alerts strip and the team table all print.
+- **One definition of the SLA state wording, two wordings by surface.** The spec requires four SLA states on the SLA tile, the strip, the rail, the overdue columns and the drawer. Without one helper, five components would each re-derive them. `slaStateLabel(st, { withSla, today? })` has a required second argument: the SLA tile's header already says "SLA", so it passes `withSla: false` ("Starts {date}", "No SLA policy yet", "Policy error"); every other surface passes `withSla: true` ("SLA starts {date}", "no SLA policy yet", "SLA policy can't be read"). The full table is in the Wave 2 public interface.
+- **Invalid wins over none.** An invalid `VULNERABILITIES_SLA_POLICY` parses to an empty policy, so `slaStatus` reads `'none'` for both severities. `slaPolicyInvalid` is therefore checked first, so an invalid policy never reads as merely empty.
+- **`format.ts` dates.** `resolvedCaption` reads "since Jan 8, 2020" and `deltaBaselineCaption` reads "vs Jan 1" (the ISO dates they printed before are now `displayDate`s). Both take an optional `today` so a test can fix the current year.
+
+- [ ] **Step 1: Write the failing tests**
+
+Four test changes. First, create the labels test.
+
+```ts
+// src/lib/__tests__/unit/vuln-labels.test.ts
+import { displayDate, utcToday, unmeasuredBadgeText, unmeasuredCountText, unmeasuredReason } from '@/app/vulnerabilities/labels';
+
+describe('displayDate', () => {
+  it('drops the year within the current year and keeps it in any other year', () => {
+    expect(displayDate('2026-10-04', '2026-10-07')).toBe('Oct 4');
+    expect(displayDate('2026-01-01', '2026-12-31')).toBe('Jan 1');
+    expect(displayDate('2020-01-08', '2026-10-07')).toBe('Jan 8, 2020');
+    expect(displayDate('2027-02-03', '2026-10-07')).toBe('Feb 3, 2027');
+  });
+
+  it('reads an ISO instant in UTC, so a late-evening instant stays on its UTC day', () => {
+    expect(displayDate('2026-08-14T23:30:00Z', '2026-10-07')).toBe('Aug 14');
+    expect(displayDate('2025-12-31T23:59:59Z', '2026-10-07')).toBe('Dec 31, 2025');
+    // Just after UTC midnight: a local-time reading west of UTC would still be on the day before.
+    expect(displayDate('2026-08-14T00:30:00Z', '2026-10-07')).toBe('Aug 14');
+    expect(displayDate('2026-01-01T00:00:00Z', '2026-10-07')).toBe('Jan 1');
+  });
+
+  it('returns anything unparseable as it came', () => {
+    expect(displayDate('not a date', '2026-10-07')).toBe('not a date');
+    expect(displayDate('', '2026-10-07')).toBe('');
+  });
+
+  it('defaults "today" to the UTC date of Date.now(), so the current year follows the clock', () => {
+    const spy = jest.spyOn(Date, 'now');
+    try {
+      spy.mockReturnValue(Date.parse('2031-06-15T12:00:00Z'));
+      expect(utcToday()).toBe('2031-06-15');
+      expect(displayDate('2031-03-02')).toBe('Mar 2');
+      expect(displayDate('2030-03-02')).toBe('Mar 2, 2030');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe('unmeasuredReason', () => {
+  it('Dependabot off, else the check\'s own detail, else "Status check failed"', () => {
+    expect(unmeasuredReason({ status: 'dependabot-off', detail: null })).toBe('Dependabot off');
+    expect(unmeasuredReason({ status: 'dependabot-off', detail: 'ignored' })).toBe('Dependabot off');
+    expect(unmeasuredReason({ status: 'error', detail: 'HTTP 500' })).toBe('HTTP 500');
+    expect(unmeasuredReason({ status: 'error', detail: null })).toBe('Status check failed');
+  });
+});
+
+describe('the unmeasured badge phrase', () => {
+  it('counts "repo" and "repos" and starts with the ▲ glyph', () => {
+    expect(unmeasuredCountText(1)).toBe('1 unmeasured repo');
+    expect(unmeasuredCountText(2)).toBe('2 unmeasured repos');
+    expect(unmeasuredBadgeText(1)).toBe('▲ 1 unmeasured repo');
+    expect(unmeasuredBadgeText(12)).toBe('▲ 12 unmeasured repos');
+    expect(unmeasuredBadgeText(1234)).toBe('▲ 1,234 unmeasured repos');
+  });
+});
+```
+
+Second, create the SLA state test.
 
 ```ts
 // src/lib/__tests__/unit/vuln-sla-state.test.ts
-import { slaState, slaStateLabel, slaActive, anySlaActive, SLA_NONE_LABEL, SLA_INVALID_LABEL, slaPendingLabel, type SlaSource } from '@/app/vulnerabilities/sla-state';
+import { slaState, slaStateLabel, slaActive, anySlaActive, type SlaSource } from '@/app/vulnerabilities/sla-state';
+
+const TODAY = '2099-06-01';
 
 const src = (over: Partial<SlaSource> = {}): SlaSource => ({
   slaStatus: { critical: 'active', high: 'none' },
@@ -2974,21 +3117,22 @@ const src = (over: Partial<SlaSource> = {}): SlaSource => ({
   ...over,
 });
 
-it('active: no label, and the overdue columns exist', () => {
+it('active: no label in either wording, and the overdue columns exist', () => {
   expect(slaState('critical', src())).toEqual({ kind: 'active' });
-  expect(slaStateLabel(slaState('critical', src()))).toBeNull();
+  expect(slaStateLabel(slaState('critical', src()), { withSla: false })).toBeNull();
+  expect(slaStateLabel(slaState('critical', src()), { withSla: true })).toBeNull();
   expect(slaActive('critical', src())).toBe(true);
 });
 
-it('none: "No SLA policy yet", and no overdue column', () => {
+it('none: "No SLA policy yet" where the header says SLA, "no SLA policy yet" where it does not, and no overdue column', () => {
   const st = slaState('high', src());
   expect(st).toEqual({ kind: 'none' });
-  expect(slaStateLabel(st)).toBe(SLA_NONE_LABEL);
-  expect(SLA_NONE_LABEL).toBe('No SLA policy yet');
+  expect(slaStateLabel(st, { withSla: false })).toBe('No SLA policy yet');
+  expect(slaStateLabel(st, { withSla: true })).toBe('no SLA policy yet');
   expect(slaActive('high', src())).toBe(false);
 });
 
-it('pending: "Starts <earliest pending effectiveFrom for THAT severity>"', () => {
+it('pending: the earliest pending effectiveFrom for THAT severity, written as a display date', () => {
   const s = src({
     slaStatus: { critical: 'active', high: 'pending' },
     policy: [
@@ -2998,20 +3142,29 @@ it('pending: "Starts <earliest pending effectiveFrom for THAT severity>"', () =>
       { severity: 'critical', effectiveFrom: '2098-01-01', pending: true },
     ],
   });
-  expect(slaState('high', s)).toEqual({ kind: 'pending', startsOn: '2099-02-01' });
-  expect(slaStateLabel(slaState('high', s))).toBe('Starts 2099-02-01');
-  expect(slaPendingLabel('2099-02-01')).toBe('Starts 2099-02-01');
+  const st = slaState('high', s);
+  expect(st).toEqual({ kind: 'pending', startsOn: '2099-02-01' });
+  expect(slaStateLabel(st, { withSla: false, today: TODAY })).toBe('Starts Feb 1');
+  expect(slaStateLabel(st, { withSla: true, today: TODAY })).toBe('SLA starts Feb 1');
+  // A start date in another year than today's carries its year.
+  expect(slaStateLabel(st, { withSla: true, today: '2098-06-01' })).toBe('SLA starts Feb 1, 2099');
   expect(slaActive('high', s)).toBe(false);
+});
+
+it('pending with no pending entry for the severity reads "later"', () => {
+  expect(slaStateLabel({ kind: 'pending', startsOn: null }, { withSla: false })).toBe('Starts later');
+  expect(slaStateLabel({ kind: 'pending', startsOn: null }, { withSla: true })).toBe('SLA starts later');
 });
 
 it('invalid wins over none for BOTH severities: an invalid policy never reads as merely empty', () => {
   const s = src({ slaStatus: { critical: 'none', high: 'none' }, slaPolicyInvalid: true, policy: [] });
   for (const sev of ['critical', 'high'] as const) {
-    expect(slaState(sev, s)).toEqual({ kind: 'invalid' });
-    expect(slaStateLabel(slaState(sev, s))).toBe(SLA_INVALID_LABEL);
+    const st = slaState(sev, s);
+    expect(st).toEqual({ kind: 'invalid' });
+    expect(slaStateLabel(st, { withSla: false })).toBe('Policy error');
+    expect(slaStateLabel(st, { withSla: true })).toBe("SLA policy can't be read");
     expect(slaActive(sev, s)).toBe(false);
   }
-  expect(SLA_INVALID_LABEL).toBe("SLA policy can't be read");
 });
 
 it('anySlaActive is true when either severity is active, false otherwise (pending counts as not active)', () => {
@@ -3022,12 +3175,88 @@ it('anySlaActive is true when either severity is active, false otherwise (pendin
 });
 ```
 
-- [ ] **Step 2: Run it and confirm it fails**
+Fourth, the OLD team pivot (`team-pivot.tsx`, kept until Task 3.13) prints its Resolved and Change captions through `resolvedCaption` and `deltaBaselineCaption`, so its test must follow the new wording or it fails the moment `format.ts` changes. In `src/lib/__tests__/unit/vuln-team-pivot.test.tsx` change five expectations and nothing else: `'since 2020-01-08'` becomes `'since Jan 8, 2020'` (two places) and `'vs 2099-01-01'` becomes `'vs Jan 1, 2099'` (three places). Both dates are far from the current year, so the expectations hold in every year.
 
-Run: `npx jest src/lib/__tests__/unit/vuln-sla-state.test.ts --maxWorkers=3`
-Expected: FAIL with "Cannot find module '@/app/vulnerabilities/sla-state'".
+Third, change the existing format test in `src/lib/__tests__/unit/vuln-format.test.ts` in three places.
+
+1. The import line also imports `resolvedCaption`. It becomes `import { fetcher, shouldRetryVulnFetch, deltaBaselineCaption, resolvedCaption } from '@/app/vulnerabilities/format';`.
+2. In `describe('deltaBaselineCaption')`, replace the first `it` (the one that expects "vs 2099-01-01") with the test below. It now expects a display date and checks the other-year form. The other tests in that describe return `null` and stay as they are.
+
+```ts
+  it('returns "vs <takenOn as a display date>" for an available delta with a baseline', () => {
+    const delta: DeltaResult = { available: true, baseline: baseline('2099-01-01'), reposNotInBaseline: 0, teams: [], total: null };
+    expect(deltaBaselineCaption(delta, '2099-06-01')).toBe('vs Jan 1');
+    expect(deltaBaselineCaption(delta, '2100-06-01')).toBe('vs Jan 1, 2099');
+```
+
+3. After the closing `});` of that describe, add a new describe. The snippet stops at its last expectation; close the `it` with `  });` and the describe with `});`.
+
+```ts
+describe('resolvedCaption', () => {
+  it('reads "since <display date>", "all time" with no start date, and "since —" when the value is invalid', () => {
+    // "today" is in 2031, a year the suite never runs in, so a caption that ignored the argument would fail.
+    expect(resolvedCaption({ date: '2020-01-08', invalid: false }, '2031-10-07')).toBe('since Jan 8, 2020');
+    expect(resolvedCaption({ date: '2031-03-02', invalid: false }, '2031-10-07')).toBe('since Mar 2');
+    expect(resolvedCaption({ date: null, invalid: false })).toBe('all time');
+    expect(resolvedCaption({ date: '2020-01-08', invalid: true })).toBe('since —');
+```
+
+- [ ] **Step 2: Run them and confirm they fail**
+
+Run: `npx jest src/lib/__tests__/unit/vuln-labels.test.ts src/lib/__tests__/unit/vuln-sla-state.test.ts src/lib/__tests__/unit/vuln-format.test.ts src/lib/__tests__/unit/vuln-team-pivot.test.tsx --maxWorkers=3`
+Expected: all four files FAIL, each for its own reason.
+- `vuln-labels.test.ts`: "Cannot find module '@/app/vulnerabilities/labels'".
+- `vuln-sla-state.test.ts`: "Cannot find module '@/app/vulnerabilities/sla-state'".
+- `vuln-team-pivot.test.tsx`: its five changed expectations fail against the old wording until Step 3 (tests that still pass in the file are unchanged).
+- `vuln-format.test.ts`: the module already exists, so the file loads, and exactly two tests fail on their changed expectations. The `deltaBaselineCaption` display-date test receives "vs 2099-01-01" where it expects "vs Jan 1". The `resolvedCaption` test receives "since 2020-01-08" where it expects "since Jan 8, 2020" (it stops at that first expectation, so its "all time" and "since —" lines are not reached). Every other test in the file still passes. A type-checking run may also report the new `today` argument as a compile error; the file fails either way.
 
 - [ ] **Step 3: Implement**
+
+Create `labels.ts` first, because `sla-state.ts` imports it.
+
+```ts
+// src/app/vulnerabilities/labels.ts
+// GLOOK-64: wording that more than one component prints, defined once so the surfaces cannot drift
+// apart: how a date reads, why a repository is unmeasured, and the unmeasured badge. Pure: no React,
+// no server imports.
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** Today's date, YYYY-MM-DD, in UTC. Reads `Date.now()` so a test can pin the clock without fake timers. */
+export const utcToday = (): string => new Date(Date.now()).toISOString().slice(0, 10);
+
+/**
+ * The one way a date is shown on the page: "Oct 4" within the current year, "Jan 8, 2020" in any other
+ * year. `iso` is a YYYY-MM-DD date or an ISO instant, read in UTC; anything unparseable is returned as
+ * it came. The ISO form stays only in `title` attributes.
+ */
+export function displayDate(iso: string, today: string = utcToday()): string {
+  const d = new Date(iso.length === 10 ? `${iso}T00:00:00Z` : iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const monthDay = `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
+  return d.getUTCFullYear() === Number(today.slice(0, 4)) ? monthDay : `${monthDay}, ${d.getUTCFullYear()}`;
+}
+
+/** The two facts that say why a repository's open count is unknown (a `RepoRow.unmeasured`, or a coverage row's status and detail). */
+export interface UnmeasuredWhy { status: string; detail: string | null }
+
+/**
+ * Why a repository is unmeasured, in the coverage drawer's wording: "Dependabot off", else the
+ * status check's own detail, else "Status check failed". The Repositories band and the rail upper-case
+ * it where their style needs it.
+ */
+export function unmeasuredReason(u: UnmeasuredWhy): string {
+  return u.status === 'dependabot-off' ? 'Dependabot off' : (u.detail ?? 'Status check failed');
+}
+
+/** "2 unmeasured repos", "1 unmeasured repo". */
+export const unmeasuredCountText = (n: number): string => `${n.toLocaleString('en-US')} unmeasured ${n === 1 ? 'repo' : 'repos'}`;
+
+/** The unmeasured badge's one phrase: the header's coverage line, the Alerts strip and the team table all print it. */
+export const unmeasuredBadgeText = (n: number): string => `▲ ${unmeasuredCountText(n)}`;
+```
+
+Then create the SLA state helper.
 
 ```ts
 // src/app/vulnerabilities/sla-state.ts
@@ -3035,6 +3264,7 @@ Expected: FAIL with "Cannot find module '@/app/vulnerabilities/sla-state'".
 // severity"). The SLA tile, the alerts strip, the rail, the overdue/due columns and the coverage
 // drawer all read it, so they cannot disagree. Pure: no React, no server imports.
 import type { Severity } from '@/lib/vulnerabilities/types';
+import { displayDate } from './labels';
 
 export type SlaState =
   | { kind: 'active' }
@@ -3049,10 +3279,6 @@ export interface SlaSource {
   policy: Array<{ severity: string; effectiveFrom: string; pending: boolean }>;
 }
 
-export const SLA_NONE_LABEL = 'No SLA policy yet';
-export const SLA_INVALID_LABEL = "SLA policy can't be read";
-export const slaPendingLabel = (startsOn: string | null) => `Starts ${startsOn ?? 'later'}`;
-
 export function slaState(sev: Severity, s: SlaSource): SlaState {
   // An invalid VULNERABILITIES_SLA_POLICY parses to an empty policy, so slaStatus reads 'none' for
   // both severities. Check invalid first or it would read as merely empty.
@@ -3066,13 +3292,27 @@ export function slaState(sev: Severity, s: SlaSource): SlaState {
   return { kind: 'none' };
 }
 
-/** The user-facing text for a non-active state; null when active (the caller shows figures). */
-export function slaStateLabel(st: SlaState): string | null {
+export interface SlaLabelOptions {
+  /**
+   * false: a surface whose header already says "SLA" (the SLA tile): "Starts Feb 1, 2099", "No SLA policy yet",
+   * "Policy error". true: a surface with no such context (the Alerts strip, the rail note, the Due
+   * sub-line, the toggle hint): "SLA starts Feb 1, 2099", "no SLA policy yet", "SLA policy can't be read".
+   */
+  withSla: boolean;
+  /** YYYY-MM-DD; defaults to today (UTC). Only decides whether the date carries its year. */
+  today?: string;
+}
+
+/** The user-facing text for a non-active state; null when active (the caller shows figures). The one definition of the state wording. */
+export function slaStateLabel(st: SlaState, { withSla, today }: SlaLabelOptions): string | null {
   switch (st.kind) {
     case 'active': return null;
-    case 'pending': return slaPendingLabel(st.startsOn);
-    case 'none': return SLA_NONE_LABEL;
-    case 'invalid': return SLA_INVALID_LABEL;
+    case 'pending': {
+      const when = st.startsOn ? displayDate(st.startsOn, today) : 'later';
+      return withSla ? `SLA starts ${when}` : `Starts ${when}`;
+    }
+    case 'none': return withSla ? 'no SLA policy yet' : 'No SLA policy yet';
+    case 'invalid': return withSla ? "SLA policy can't be read" : 'Policy error';
   }
 }
 
@@ -3087,17 +3327,54 @@ export function anySlaActive(s: SlaSource): boolean {
 }
 ```
 
-- [ ] **Step 4: Run the test and confirm it passes**
+Last, change `src/app/vulnerabilities/format.ts`. The snippet below shows the changed region of the file, from the new import line down to the `export const deltaClass` line (shown only as the end marker). It replaces three things: it adds the import `import { displayDate } from './labels';` after the two existing `import type` lines, and it rewrites the two functions `resolvedCaption` and `deltaBaselineCaption` (both now print their date through `displayDate` and take an optional `today`). `dash` and `signed` (which sit between those parts) and `deltaClass` (after them) do not change.
 
-Run: `npx jest src/lib/__tests__/unit/vuln-sla-state.test.ts --maxWorkers=3`
-Expected: PASS (5 tests). Removing the `slaPolicyInvalid` check fails the invalid test.
+```ts
+import { displayDate } from './labels';
+
+export const dash = (v: number | null | undefined, suffix = '') => (v === null || v === undefined ? '—' : `${v.toLocaleString()}${suffix}`);
+
+/**
+ * GLOOK-43 Wave P: the one place that turns a `ResolvedSince` (config.ts's parsed
+ * VULN_RESOLVED_SINCE) into the caption every "resolved since" figure renders through — the team
+ * table, the Resolved KPI tile and the coverage drawer. `invalid` wins over `date` (an
+ * invalid value never leaves a stale date on screen); `date === null` means the variable is unset,
+ * i.e. "count all time". The date reads through `displayDate` ("since Jan 8, 2020"), like every other
+ * date on the page.
+ */
+export function resolvedCaption(r: ResolvedSince, today?: string): string {
+  if (r.invalid) return 'since —';
+  return r.date === null ? 'all time' : `since ${displayDate(r.date, today)}`;
+}
+export const signed = (v: number) => (v > 0 ? `+${v}` : `${v}`);
+
+/**
+ * When a delta is available, names the baseline date it's measured against — a snapshot-history
+ * gap can make e.g. "7 days" silently resolve to a measurement many weeks old, and without this a
+ * delta figure reads as fresher than it is. Uses `takenOn` (the date the trend card plots), not
+ * `measuredAt`, so the caption matches what the rest of the page calls that snapshot's date. The
+ * date reads through `displayDate` ("vs Sep 29"); a caller that wants the ISO date for a `title`
+ * reads `delta.baseline.takenOn`.
+ */
+export function deltaBaselineCaption(delta: DeltaResult | null | undefined, today?: string): string | null {
+  if (!delta?.available || !delta.baseline) return null;
+  return `vs ${displayDate(delta.baseline.takenOn, today)}`;
+}
+export const deltaClass = (v: number) => (v > 0 ? 'text-red-400' : v < 0 ? 'text-green-400' : 'text-gray-500');
+```
+
+- [ ] **Step 4: Run the tests and confirm they pass**
+
+Run: `npx jest src/lib/__tests__/unit/vuln-labels.test.ts src/lib/__tests__/unit/vuln-sla-state.test.ts src/lib/__tests__/unit/vuln-format.test.ts src/lib/__tests__/unit/vuln-team-pivot.test.tsx --maxWorkers=3`
+Expected: PASS (all three files: 6 labels tests, 6 SLA state tests and 11 format tests, plus the old pivot test below). Removing the `slaPolicyInvalid` check fails the SLA state "invalid wins over none" test. Reverting `displayDate` to return the ISO string fails the labels test and every display-date expectation in the other two files.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/app/vulnerabilities/sla-state.ts src/lib/__tests__/unit/vuln-sla-state.test.ts
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
-git commit -m "GLOOK-64: shared SLA state helper for the four policy states"
+git add src/app/vulnerabilities/labels.ts src/lib/__tests__/unit/vuln-labels.test.ts src/app/vulnerabilities/sla-state.ts src/lib/__tests__/unit/vuln-sla-state.test.ts src/app/vulnerabilities/format.ts src/lib/__tests__/unit/vuln-format.test.ts src/lib/__tests__/unit/vuln-team-pivot.test.tsx
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
+git commit -m "GLOOK-64: shared wording (dates, unmeasured reason) and the SLA state helper"
 ```
 
 ### Task 2.4: `security-state.ts`, pure part: URL schemas, `kSev`, sanitising rules, query builder
@@ -3114,11 +3391,13 @@ git commit -m "GLOOK-64: shared SLA state helper for the four policy states"
 
 Rules carried over from today's page and encoded here:
 - Overdue and Due ≤ 7d are mutually exclusive (both set keeps `overdue`).
-- Sorting: each header key has a first direction (`ALERT_SORT_FIRST_DIR`: Age starts descending, so the oldest alert comes first; every other key starts ascending), and `sort: null` means the server's default order with no active header.
+- Sorting: each header key has a first direction (`ALERT_SORT_FIRST_DIR`: Age starts descending, so the oldest alert comes first; every other key starts ascending), and `sort: null` means the server's default order with no active header. (`ALERT_SORT_FIRST_DIR` is the table; the one exception, the first click on Due while `sort` is null, lives in the `setSort` hook in Task 2.6.)
 - Resolved status disables and clears both time toggles.
 - Both time toggles are cleared when no SLA is active.
 - A hand-edited `?baseline=` that is not `last`, `7d`, `30d` or a real calendar date becomes `last`. The summary route answers an invalid baseline with a 400, which the page treats as a full-page error, so the URL value must never reach the request. The calendar check is re-implemented here because `filters.ts` imports server config.
 - The page never sends `severity=both`. The old `?sev=` key is never read.
+
+One rule is new on this page: **`codebaseOptionCount(counts, group, severity)` returns ONE severity's open count, the `kSev` one** (critical, or high under "High only"), not the sum of critical and high. The number next to a Codebase option must match the KPI tile it leads to, and that tile counts one severity. The function returns only the number; the unit after it ("open crit" or "open high", as in "Backend · 8 open crit") is written by the filter bar in Task 2.8. It returns `null` while the counts have not loaded.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -3196,16 +3475,17 @@ describe('trendSince and sparklineSince (UTC day arithmetic)', () => {
   });
 });
 
-describe('codebaseOptionCount follows Severity (the count shown on each Codebase option)', () => {
+describe('codebaseOptionCount is the kSev count (the number shown on each Codebase option, next to the KPI tile it matches)', () => {
   const counts = {
     backend: { critical: 5, high: 3 }, frontend: { critical: 2, high: 0 }, shared: { critical: 0, high: 0 },
     other: { critical: 1, high: 1 }, all: { critical: 8, high: 4 },
   };
-  it('both sums critical and high; critical-only and high-only pick one', () => {
-    expect(codebaseOptionCount(counts, 'backend', 'both')).toBe(8);
+  it('both and critical-only read the critical count; high-only reads the high count', () => {
+    expect(codebaseOptionCount(counts, 'backend', 'both')).toBe(5);
     expect(codebaseOptionCount(counts, 'backend', 'critical')).toBe(5);
     expect(codebaseOptionCount(counts, 'backend', 'high')).toBe(3);
-    expect(codebaseOptionCount(counts, 'all', 'both')).toBe(12);
+    expect(codebaseOptionCount(counts, 'all', 'both')).toBe(8);
+    expect(codebaseOptionCount(counts, 'all', 'high')).toBe(4);
   });
   it('is null while the counts have not loaded', () => {
     expect(codebaseOptionCount(undefined, 'backend', 'both')).toBeNull();
@@ -3394,11 +3674,14 @@ export const RANGE_SCHEMA: UrlSchema<TrendRange> = { key: 'range', type: 'enum',
 /** The severity the KPI tiles, sparkline and trend use: critical, unless Severity is "High only". */
 export const kSev = (s: SeverityFilter): Severity => (s === 'high' ? 'high' : 'critical');
 
-/** The count on a Codebase option: follows Severity (and, server-side, the Owning team). */
+/**
+ * The count on a Codebase option: the open count of `kSev` (critical, or high under "High only") and, server-side,
+ * of the Owning team. It is the number the KPI tile reads, and the option writes its unit ("open crit" / "open high").
+ */
 export function codebaseOptionCount(counts: CodebaseCounts | undefined, group: CodebaseGroup, severity: SeverityFilter): number | null {
   const c = counts?.[group];
   if (!c) return null;
-  return severity === 'critical' ? c.critical : severity === 'high' ? c.high : c.critical + c.high;
+  return kSev(severity) === 'high' ? c.high : c.critical;
 }
 
 /** Open alerts under Severity for the rows in scope (optionally one repository). An unmeasured
@@ -3524,7 +3807,8 @@ Expected: PASS; `tsc` clean. (`tsc` needs Wave 1's `RepoRow` export in `aggregat
 
 ```bash
 git add src/app/vulnerabilities/security-state.ts src/lib/__tests__/unit/vuln-security-state.test.ts src/lib/__tests__/support/security-fixtures.ts
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: Security URL schemas, severity rule and alert query builder"
 ```
 
@@ -3910,7 +4194,8 @@ Expected: PASS (the state test still passes with the full fixtures file); `tsc` 
 
 ```bash
 git add src/app/vulnerabilities/api-types.ts src/lib/__tests__/support/security-nav-mock.ts src/lib/__tests__/support/security-fixtures.ts src/lib/__tests__/unit/vuln-security-support.test.tsx
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: reactive navigation mock, response types and typed fixtures for Security page tests"
 ```
 
@@ -3931,6 +4216,7 @@ Behaviour the tests pin (each from the spec's Interactions table or "Stale repos
 4. `setRepo` selects a repository from inside the Alerts view (a rail row) as a replace that writes only `repo`. `selectRepoRow` always writes `view`, and `useUrlBatch` pushes whenever a push-declared key is written (even with an unchanged value), so using it for rail clicks would add a history entry per click and Back would walk through every repository the user clicked.
 5. `resetFilters` resets Codebase, Owning team, Severity, Compare to and the repository, and never changes `view`, `own` or `range`.
 6. The list resets to page 1 for any list-filter change, and for any scope change in the same render (a state adjustment during render, not an effect), so the first alerts request after a scope change already has `offset=0`.
+7. (A plan decision: the list draws its default order as "Due ↑".) `setSort` clicks a header in its own first direction, with one exception. While no header has been chosen (`sort === null`) the list draws the server's default order as "Due ↑" (Wave 4 `alert-list`), so the first click on Due sorts descending (`due:desc`) and the next click flips it to ascending. A first click on any other header still starts in that key's own direction (`ALERT_SORT_FIRST_DIR`), and once any header is active (Age, say) Due starts ascending like the rest. Clicking the active header flips its direction.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -4142,17 +4428,28 @@ describe('useAlertList', () => {
     act(() => result.current.setSort('age'));
     expect(result.current.list.sort).toEqual({ key: 'age', dir: 'asc' });
     act(() => result.current.setSort('due'));
-    expect(result.current.list.sort).toEqual({ key: 'due', dir: 'asc' });
+    expect(result.current.list.sort).toEqual({ key: 'due', dir: 'asc' });   // a header was active (Age), so Due starts in its own direction
     act(() => result.current.setSort('age'));
     expect(result.current.list.sort).toEqual({ key: 'age', dir: 'desc' });   // back to Age: first direction again, not the old one
   });
 
-  it.each([['severity', 'asc'], ['advisory', 'asc'], ['repo', 'asc'], ['age', 'desc'], ['due', 'asc'], ['state', 'asc']] as const)(
+  it.each([['severity', 'asc'], ['advisory', 'asc'], ['repo', 'asc'], ['age', 'desc'], ['state', 'asc']] as const)(
     'the first click on %s sorts %s', (key, dir) => {
       const { result } = renderHook(() => useAlertList(scope));
       act(() => result.current.setSort(key));
       expect(result.current.list.sort).toEqual({ key, dir });
     });
+
+  // Revert: drop the `s.sort === null && key === 'due'` case in setSort. The list draws "Due ↑" while no header is chosen, so a
+  // first click that sorted ascending would change nothing visible.
+  it('with no header chosen the list is drawn as Due ascending, so the first click on Due sorts descending; the next click flips it', () => {
+    const { result } = renderHook(() => useAlertList(scope));
+    expect(result.current.list.sort).toBeNull();
+    act(() => result.current.setSort('due'));
+    expect(result.current.list.sort).toEqual({ key: 'due', dir: 'desc' });
+    act(() => result.current.setSort('due'));
+    expect(result.current.list.sort).toEqual({ key: 'due', dir: 'asc' });
+  });
 
   it('every list-filter setter resets the page to 1; setPage does not', () => {
     const { result } = renderHook(() => useAlertList(scope));
@@ -4338,7 +4635,7 @@ export interface AlertListController {
   toggleRuntimeOnly(): void;
   /** Call after the caller's own debounce; this hook does not debounce. */
   setQuery(q: string): void;
-  /** The same key flips the direction; a new key starts in its ALERT_SORT_FIRST_DIR direction. */
+  /** The same key flips the direction; a new key starts in its ALERT_SORT_FIRST_DIR direction, except that with no header chosen the first click on `due` sorts descending (the list draws the default order as "Due ↑"). */
   setSort(key: AlertSortKey): void;
   setPage(page: number): void;
 }
@@ -4376,9 +4673,13 @@ export function useAlertList(scope: { codebase: CodebaseGroup; team: string | nu
     toggleReopened: () => setStored(s => ({ ...s, reopened: !s.reopened, page: 1 })),
     toggleRuntimeOnly: () => setStored(s => ({ ...s, runtimeOnly: !s.runtimeOnly, page: 1 })),
     setQuery: q => patch({ q }),
+    // With no header active the list is in the server's default order (soonest due first), and the list draws "Due ↑" as its
+    // active header. So the first click on Due reverses it (due:desc); any other first click starts in the key's own direction.
     setSort: key => setStored(s => ({
       ...s, page: 1,
-      sort: s.sort?.key === key ? { key, dir: s.sort.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: ALERT_SORT_FIRST_DIR[key] },
+      sort: s.sort?.key === key
+        ? { key, dir: s.sort.dir === 'asc' ? 'desc' : 'asc' }
+        : { key, dir: s.sort === null && key === 'due' ? 'desc' : ALERT_SORT_FIRST_DIR[key] },
     })),
     setPage: page => setStored(s => ({ ...s, page: Math.max(1, Math.floor(page)) })),
   };
@@ -4388,13 +4689,14 @@ export function useAlertList(scope: { codebase: CodebaseGroup; team: string | nu
 - [ ] **Step 4: Run the tests and confirm they pass**
 
 Run: `npx jest src/lib/__tests__/unit/vuln-security-hooks.test.tsx src/lib/__tests__/unit/vuln-security-state.test.ts src/lib/__tests__/unit/url-state-hook.test.ts --maxWorkers=3 && npx tsc --noEmit`
-Expected: PASS; `tsc` clean. Reverting any of these fails a named test: dropping `setRepoRaw(null)` from `setCodebase` fails "setCodebase writes the codebase and clears repo in the same replace"; calling the wrapped `setTeam` inside `selectRepoRow` fails "selectRepoRow is one push"; replacing the render-time reset with an effect fails the "SAME render" test; making every new key start 'asc' fails "the first click on age sorts desc".
+Expected: PASS; `tsc` clean. Reverting any of these fails a named test: dropping `setRepoRaw(null)` from `setCodebase` fails "setCodebase writes the codebase and clears repo in the same replace"; calling the wrapped `setTeam` inside `selectRepoRow` fails "selectRepoRow is one push"; replacing the render-time reset with an effect fails the "SAME render" test; making every new key start 'asc' fails "the first click on age sorts desc"; dropping the `s.sort === null && key === 'due'` case from `setSort` fails "with no header chosen the list is drawn as Due ascending, so the first click on Due sorts descending; the next click flips it". Task 2.7's "list filters, page and sort reach the alerts request ..." test expects `sort=due:desc` for the same reason.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/app/vulnerabilities/security-state.ts src/lib/__tests__/unit/vuln-security-hooks.test.tsx
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: useSecurityUrl clearing handlers and useAlertList"
 ```
 
@@ -4406,9 +4708,9 @@ git commit -m "GLOOK-64: useSecurityUrl clearing handlers and useAlertList"
 
 **Interfaces:**
 - Consumes: `fetcher`, `vulnSwrOptions`, `panelError` from `./format` (existing, unchanged); `SecurityScope`, `AlertListState`, `alertsQueryString`, `sanitiseAlertList`, `kSev`, `trendSince`, `sparklineSince` from `./security-state` (Tasks 2.4, 2.6); `anySlaActive` from `./sla-state` (Task 2.3); `SummaryData`, `ReposData`, `CoverageData`, `AlertsData`, `TrendData`, `UnavailableData`, `Slot` from `./api-types` (Task 2.5); the `repos` route (Wave 1).
-- Produces: `Slot<T>` (re-exported from `./api-types`), `SecurityKeys`, `SecurityData`, `securityKeys(scope, now)`, `useSecurityData(scope, listState)` (shapes in the Wave 2 public interface).
+- Produces: `Slot<T>` (re-exported from `./api-types`), `SecurityKeys` (seven keys, the new one being `metaRepos`), `SecurityData` (seven data slots plus `alerts`, `repoStatus`, `effectiveRepo`, `effectiveList` and `keys`; the new slot is `metaRepos`), `securityKeys(scope, now)`, `useSecurityData(scope, listState)` (shapes in the Wave 2 public interface).
 
-The spec's data-flow table, as keys (all with `keepPreviousData`):
+The spec's data-flow table, as keys (all with `keepPreviousData`). `securityKeys()` builds SEVEN of these keys, every row except `alerts` (which depends on the alert list's state); `metaRepos` is the one the page header needs (see "Header meta rows" below).
 
 | Slot | Request | Parameters |
 |---|---|---|
@@ -4416,13 +4718,15 @@ The spec's data-flow table, as keys (all with `keepPreviousData`):
 | `teamSummary` | `/summary` | `codebase`, `baseline` (never `team`; with no team its key is byte-identical to `summary`'s, so the two dedupe into one request) |
 | `coverage` | `/coverage` | `codebase`, `team` |
 | `repos` | `/repos` | `codebase`, `team` |
+| `metaRepos` | `/repos` | `codebase` only, never `team`; with no team its key is byte-identical to `repos`'s, so the two dedupe into one request (with a team there are two `/repos` requests) |
 | `trend` | `/trend` | `codebase`, `severity=kSev`, `since` from `range` (none for `all`); no `team` |
 | `sparkline` | `/trend` | `codebase`, `severity=kSev`, `since` = today minus 90 days; no `team` |
 | `alerts` | `/alerts` | `codebase`, `team`, `repo`, `severity` (omitted for both), list filters, `limit=10`, `offset`, `sort`; `null` while the repo is `not-found` |
 
 Behaviours beyond the keys, each pinned by a test below:
 - **Stale repository.** `repoStatus` is `none` (no repo), `pending` (rows not yet authoritative for this scope; alerts are requested), `ok`, or `not-found`. "Absent from the loaded rows" only counts when the `repos` envelope's `appliedFilters` match the current codebase and team and the slot is not stale. `keepPreviousData` shows the previous scope's rows while the new ones load, and judging by those would mark a valid repo as not found after a Back navigation. A repo the alerts API rejects (`error.info.error` of `unknown repo` or `repo not tracked`) is remembered per `codebase + team + repo`, so the page never sends it again; the memory is cleared when the sync time changes. In both cases the alerts key becomes `null` and nothing raises the page-level error.
-- **Refetch on sync change.** The summary, the team table and the repos rows are separate requests; a sync landing between them leaves them disagreeing. When their settled responses carry different `sync.lastSuccessfulAt`, the older ones are refetched, once per distinct disagreement (so a server that keeps answering with an old time cannot loop). The `handled` signature is belt and braces for a disagreement that reappears after a transient flip; the test below pins the no-loop outcome, not that internal guard.
+- **Header meta rows.** `metaRepos` is the same `/repos` request as `repos` but without the owning team. The page header counts "N production repositories · N owning teams" from it (Task 2.10 and the composer in Task 2.11), so choosing an owning team no longer changes that line: it describes the codebase, not the filter. The keys tests pin it: "default scope: ..." expects one `/repos` request and `keys.metaRepos` equal to `keys.repos`; "with a team: ..." expects two `/repos` requests (the scoped one and the codebase-only one). `repos` stays team-scoped and still feeds the Alerts tab count, the stale-repository check and every other consumer (the ownership card, the Alerts strip and the repository rail read `data.repos`).
+- **Refetch on sync change.** The summary, the team table, the repos rows and the header meta rows are separate requests; a sync landing between them leaves them disagreeing. When their settled responses carry different `sync.lastSuccessfulAt`, the older ones are refetched, once per distinct disagreement (so a server that keeps answering with an old time cannot loop). The refetches are keyed by SWR key, so keys that are byte-identical (the two summaries, or the two repos requests, when no team is selected) are refreshed once, not twice. The `handled` signature is belt and braces for a disagreement that reappears after a transient flip; the test below pins the no-loop outcome, not that internal guard.
 - **Sanitising at key-build time.** The effective list (`effectiveList`) is what is sent, and the baseline arrives already sanitised from `useSecurityUrl`.
 
 - [ ] **Step 1: Write the failing test**
@@ -4472,7 +4776,9 @@ describe('keys (the spec data-flow table)', () => {
     await allLoaded();
     expect(searches(f, 'summary')).toEqual(['?codebase=backend&baseline=last']);
     expect(searches(f, 'coverage')).toEqual(['?codebase=backend']);
+    // The header's meta line asks for the same rows (codebase only), and with no team that is the same URL: one request.
     expect(searches(f, 'repos')).toEqual(['?codebase=backend']);
+    expect(latest.data.keys.metaRepos).toBe(latest.data.keys.repos);
     expect(searches(f, 'trend').sort()).toEqual([
       '?codebase=backend&severity=critical',
       `?codebase=backend&severity=critical&since=${sparklineSince(new Date())}`,
@@ -4480,7 +4786,7 @@ describe('keys (the spec data-flow table)', () => {
     expect(searches(f, 'alerts')).toEqual(['?codebase=backend&state=open&limit=10&offset=0']);
   });
 
-  it('with a team: summary, coverage, repos and alerts carry it; the team table summary, trend and sparkline never do', async () => {
+  it('with a team: summary, coverage, repos and alerts carry it; the team table summary, the header meta rows, trend and sparkline never do', async () => {
     const f = mount('team=Payments');
     await allLoaded();
     expect(searches(f, 'summary').sort()).toEqual([
@@ -4488,7 +4794,11 @@ describe('keys (the spec data-flow table)', () => {
       '?codebase=backend&baseline=last&team=Payments',
     ]);
     expect(searches(f, 'coverage')).toEqual(['?codebase=backend&team=Payments']);
-    expect(searches(f, 'repos')).toEqual(['?codebase=backend&team=Payments']);
+    // Two repos requests: the scoped one, and the codebase-only one the header meta line counts its repositories and owning teams from.
+    expect(searches(f, 'repos').sort()).toEqual(['?codebase=backend', '?codebase=backend&team=Payments']);
+    expect(latest.data.keys.metaRepos).toMatch(/\/repos\?codebase=backend$/);
+    expect(latest.data.keys.repos).toMatch(/\/repos\?codebase=backend&team=Payments$/);
+    expect(latest.data.metaRepos.data?.appliedFilters).toEqual({ codebase: 'backend' });
     for (const u of callsTo(f, 'trend')) expect(u.searchParams.has('team')).toBe(false);
     expect(callsTo(f, 'alerts')[0].searchParams.get('team')).toBe('Payments');
   });
@@ -4546,7 +4856,7 @@ describe('keys (the spec data-flow table)', () => {
     await waitFor(() => expect(callsTo(f, 'alerts').some(u => u.searchParams.get('offset') === '20')).toBe(true));
     const last = callsTo(f, 'alerts').find(u => u.searchParams.get('offset') === '20')!;
     expect(last.searchParams.get('reopened')).toBe('true');
-    expect(last.searchParams.get('sort')).toBe('due:asc');
+    expect(last.searchParams.get('sort')).toBe('due:desc');   // no header was chosen, so the first click on Due reverses the default order
     expect(last.searchParams.get('limit')).toBe('10');
   });
 
@@ -4750,6 +5060,8 @@ export interface SecurityKeys {
   teamSummary: string;
   coverage: string;
   repos: string;
+  /** The header meta line's repository and team counts: repos scoped by codebase only, never by team. */
+  metaRepos: string;
   trend: string;
   sparkline: string;
 }
@@ -4761,6 +5073,8 @@ export interface SecurityData {
   teamSummary: Slot<SummaryData>;
   coverage: Slot<CoverageData>;
   repos: Slot<ReposData>;
+  /** The same rows without the owning team: the header's "N repositories · N owning teams" describes the codebase, not the filter. */
+  metaRepos: Slot<ReposData>;
   trend: Slot<TrendData>;
   sparkline: Slot<TrendData>;
   alerts: Slot<AlertsData>;
@@ -4770,7 +5084,7 @@ export interface SecurityData {
   keys: SecurityKeys & { alerts: string | null };
 }
 
-/** The six keys that do not depend on the alert list. Pure, so tests can compute expectations. */
+/** The seven keys that do not depend on the alert list. Pure, so tests can compute expectations. */
 export function securityKeys(scope: SecurityScope, now: Date): SecurityKeys {
   const sev = kSev(scope.severity);
 
@@ -4783,6 +5097,7 @@ export function securityKeys(scope: SecurityScope, now: Date): SecurityKeys {
   const summary = `${BASE}/summary?${summaryParams.toString()}`;
 
   const scoped = new URLSearchParams({ codebase: scope.codebase });
+  const metaRepos = `${BASE}/repos?${scoped.toString()}`;
   if (scope.team) scoped.set('team', scope.team);
 
   // Trend and sparkline are unscoped by team: the page filters the series client-side so a team
@@ -4798,6 +5113,8 @@ export function securityKeys(scope: SecurityScope, now: Date): SecurityKeys {
     teamSummary,
     coverage: `${BASE}/coverage?${scoped.toString()}`,
     repos: `${BASE}/repos?${scoped.toString()}`,
+    // With no team selected this is the same string as `repos`, so SWR sends one request for both.
+    metaRepos,
     trend: trendKey(trendSince(scope.range, now)),
     sparkline: trendKey(sparklineSince(now)),
   };
@@ -4831,6 +5148,7 @@ export function useSecurityData(scope: SecurityScope, listState: AlertListState)
   const teamSummary = useSWR(keys.teamSummary, fetcher, SWR_OPTS);
   const coverage = useSWR(keys.coverage, fetcher, SWR_OPTS);
   const repos = useSWR(keys.repos, fetcher, SWR_OPTS);
+  const metaRepos = useSWR(keys.metaRepos, fetcher, SWR_OPTS);
   const trend = useSWR(keys.trend, fetcher, SWR_OPTS);
   const sparkline = useSWR(keys.sparkline, fetcher, SWR_OPTS);
 
@@ -4838,6 +5156,7 @@ export function useSecurityData(scope: SecurityScope, listState: AlertListState)
   const teamSummarySlot = toSlot<SummaryData>('team table', teamSummary);
   const coverageSlot = toSlot<CoverageData>('coverage', coverage);
   const reposSlot = toSlot<ReposData>('repositories', repos);
+  const metaReposSlot = toSlot<ReposData>('repositories', metaRepos);
   const trendSlot = toSlot<TrendData>('trend', trend);
   const sparklineSlot = toSlot<TrendData>('trend', sparkline);
 
@@ -4882,6 +5201,7 @@ export function useSecurityData(scope: SecurityScope, listState: AlertListState)
   const summaryAt = settled(summarySlot);
   const teamAt = settled(teamSummarySlot);
   const reposAt = settled(reposSlot);
+  const metaAt = settled(metaReposSlot);
 
   // A new sync clears the "rejected" memory: the repo may be tracked now.
   const prevSummaryAt = useRef<string | null>(null);
@@ -4897,28 +5217,31 @@ export function useSecurityData(scope: SecurityScope, listState: AlertListState)
   const summaryMutate = summary.mutate;
   const teamMutate = teamSummary.mutate;
   const reposMutate = repos.mutate;
+  const metaMutate = metaRepos.mutate;
   useEffect(() => {
-    const seen = [summaryAt, teamAt, reposAt].filter((t): t is string => t !== null);
+    const seen = [summaryAt, teamAt, reposAt, metaAt].filter((t): t is string => t !== null);
     if (seen.length < 2) return;
     const newest = seen.reduce((a, b) => (a > b ? a : b));
     if (seen.every(t => t === newest)) return;
-    const signature = `${summaryAt}|${teamAt}|${reposAt}`;
+    const signature = `${summaryAt}|${teamAt}|${reposAt}|${metaAt}`;
     if (handled.current === signature) return;
     handled.current = signature;
-    // Keyed by SWR key: with no team the two summary keys are one cache entry, refetched once.
+    // Keyed by SWR key: with no team the two summary keys are one cache entry, and so are the two repos keys; each is refetched once.
     const refresh = new Map<string, () => unknown>();
     if (summaryAt && summaryAt !== newest) refresh.set(keys.summary, summaryMutate);
     if (teamAt && teamAt !== newest) refresh.set(keys.teamSummary, teamMutate);
     if (reposAt && reposAt !== newest) refresh.set(keys.repos, reposMutate);
+    if (metaAt && metaAt !== newest) refresh.set(keys.metaRepos, metaMutate);
     refresh.forEach(run => { void run(); });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the settled sync times only
-  }, [summaryAt, teamAt, reposAt]);
+  }, [summaryAt, teamAt, reposAt, metaAt]);
 
   return {
     summary: summarySlot,
     teamSummary: teamSummarySlot,
     coverage: coverageSlot,
     repos: reposSlot,
+    metaRepos: metaReposSlot,
     trend: trendSlot,
     sparkline: sparklineSlot,
     alerts: alertsSlot,
@@ -4935,13 +5258,14 @@ export function useSecurityData(scope: SecurityScope, listState: AlertListState)
 Run: `npx jest src/lib/__tests__/unit/vuln-use-security-data.test.tsx src/lib/__tests__/unit/vuln-security-hooks.test.tsx --maxWorkers=3 && npx tsc --noEmit`
 Expected: PASS; `tsc` clean (this is where a Wave 1 mismatch in `getRepos`' return type would surface).
 
-Named reverts: dropping `keepPreviousData` from the shared options fails both keepPreviousData tests (the alerts one reads `rows` of `undefined`); giving `teamSummary` the team fails "with a team: ... never do"; dropping `keepPreviousData` fails "keeps the previous summary"; judging `repoStatus` without the `appliedFilters`/`stale` guard fails "rows from the previous scope never mark a repo not-found".
+Named reverts: dropping `keepPreviousData` from the shared options fails both keepPreviousData tests (the alerts one reads `rows` of `undefined`); giving `teamSummary` or `metaRepos` the team fails "with a team: ... never do" (given the team, `metaRepos` would equal `repos`, so only one `/repos` request goes out and `keys.metaRepos` no longer ends in `codebase=backend`); dropping `keepPreviousData` fails "keeps the previous summary"; judging `repoStatus` without the `appliedFilters`/`stale` guard fails "rows from the previous scope never mark a repo not-found".
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/app/vulnerabilities/use-security-data.ts src/lib/__tests__/unit/vuln-use-security-data.test.tsx
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: use-security-data owns every SWR key, stale-repo state and sync refetch"
 ```
 
@@ -4953,18 +5277,21 @@ git commit -m "GLOOK-64: use-security-data owns every SWR key, stale-repo state 
 - Test: `src/lib/__tests__/unit/vuln-filter-bar.test.tsx`
 
 **Interfaces:**
-- Consumes: the constants in `dimensions.ts` (Task 2.2); `SecurityUrl`, `CodebaseCounts`, `SeverityFilter`, `codebaseOptionCount` from `./security-state` (Tasks 2.4, 2.6); `CODEBASE_GROUPS`, `CODEBASE_LABELS` from `@/lib/vulnerabilities/codebase-labels` (existing).
+- Consumes: from `dimensions.ts` (Task 2.2) `FILTER_BAR_H`, `BAR_ROW_H`, `BAR_PAD_Y`, `FILTER_ROW_H`, `FILTER_CAPTION_H`, `FILTER_CAPTION_GAP`, `FILTER_SELECT_H`, `FILTER_ROW_GAP`, `SELECT_W`, `RESET_SLOT_W`, `PAGE_PAD`, `TYPE` (for `TYPE.control` and the shared link class `TYPE.link`) and `Z`; `SecurityUrl`, `CodebaseCounts`, `SeverityFilter`, `kSev`, `codebaseOptionCount` from `./security-state` (Tasks 2.4, 2.6); `CODEBASE_GROUPS`, `CODEBASE_LABELS` from `@/lib/vulnerabilities/codebase-labels` (existing). The inline "Compare to" label and its width constant (`COMPARE_LABEL_W`) no longer exist.
 - Produces:
   - `ViewTabs` (default export) with `ViewTabsProps = { view: SecurityView; onChange: (v: SecurityView) => void; alertsCount: number | null }`.
   - `FilterBar` (default export) with `FilterBarProps = { url: FilterBarUrl; teams: readonly string[]; codebaseCounts: CodebaseCounts | undefined; alertsCount: number | null; baselinePrefill: string; barRef?: Ref<HTMLDivElement> }`, where `FilterBarUrl` is `Pick<SecurityUrl, 'view' | 'codebase' | 'team' | 'severity' | 'baseline' | 'isDefault' | 'setView' | 'setCodebase' | 'setTeam' | 'setSeverity' | 'setBaseline' | 'resetFilters'>`. `FilterBar` renders the whole sticky bar, tabs included.
 
-Layout (a decision this plan makes, because the design handoff is not in the repository): the bar is **two fixed rows** at every width, not one row that wraps. Row 1: the view tabs on the left and the reserved "Reset filters" slot on the right. Row 2: Codebase, Owning team, Severity, the "Compare to" label, the Compare select, and the reserved date slot. The row-2 widths total `FILTER_ROW_W` (884px), which fits at 1024px; a single row of tabs plus filters would not (the Task 2.2 test pins this). Because both rows have fixed heights and both reserved slots always render (hidden with `invisible`, never removed), the bar's height is `FILTER_BAR_H` (84px) in every filter state.
+Layout (a decision this plan makes, because the design handoff is not in the repository): the bar is **two fixed rows** at every width, not one row that wraps. Row 1 (`BAR_ROW_H`, 36px) holds the view tabs and nothing else. Row 2 (`FILTER_ROW_H`, 46px) holds the four filters, each as a caption over its select (a 14px caption, a 4px gap, a 28px select), then the reserved date slot, then the reserved "Reset filters" slot at the right end of the same row. The row-2 widths total `FILTER_ROW_W` (932px: the four selects, the date slot, the Reset slot and five gaps), which fits at 1024px (the Task 2.2 test pins this). Because both rows have fixed heights and both reserved slots always render (hidden with `invisible`, never removed), the bar's height is `FILTER_BAR_H` in every filter state: 94px, which is the tabs row (36) plus the filter row (46) plus 12px of vertical padding (`2 * BAR_PAD_Y`).
 
 Behaviours:
-- A non-default filter gets the accent treatment (`border-accent text-accent-light`).
-- "Reset filters" is visible only when `url.isDefault.all` is false; the button stays in the DOM when hidden (`invisible`, `disabled`, `tabIndex -1`, `aria-hidden`).
+- Every select sits under a visible caption: a `<label htmlFor>` reading "Codebase", "Owning team", "Severity" or "Compare to", 10.5px, upper-cased by CSS (the `uppercase` class), and sentence case in the DOM. The caption is the select's accessible name, so `getByLabelText('Codebase')` and its siblings work. The select ids are `security-codebase`, `security-team`, `security-severity` and `security-compare`. The old inline "Compare to" text is gone: the word appears once, as the caption. The date input has no caption of its own; its `aria-label` is "Compare to date".
+- A non-default select gets the accent treatment: `border-accent bg-accent/10 text-accent-light` (border, fill and text). A default select keeps `border-gray-700 bg-chart-surface text-gray-300`.
+- The "Compare to" options read "Last sync", "7 days ago", "30 days ago" and "A date…".
+- "Reset filters" is a link-style button (`TYPE.link`, underlined). It is visible only when `url.isDefault.all` is false; the button stays in the DOM when hidden (`invisible`, `disabled`, `tabIndex -1`, `aria-hidden`). Its slot (`data-testid="reset-slot"`, `RESET_SLOT_W` wide) is the last child of the filter row, after the date slot.
 - Choosing "A date…" writes a concrete date (`baselinePrefill`) to the URL immediately, otherwise the select, whose value is derived from the URL, would snap back. The date input is always rendered inside its reserved slot and is `invisible` and `disabled` unless the baseline is a date.
-- Codebase options read `Backend · 8`: the count follows Severity (and the server applies the Owning team); a null count (summary not loaded) shows the label alone.
+- Codebase options read `Backend · 8 open crit`: the number is the open count of the severity the KPI tile shows (`kSev`: critical, or high under "High only"), and the option names its unit, so under "High only" the same option reads `Backend · 3 open high`. "Critical + high" and "Critical only" both show the critical count with "open crit". The server applies the Owning team. A null count (summary not loaded) shows the label alone.
+- The Alerts tab shows its count as "N open" (for example "13 open") in plain grey text, with no badge. The count slot always renders and has a 64px minimum width, so the tab does not change size when the count arrives; the slot is empty while the count is null.
 - The sticky bar's background is `var(--body-bg, #0F0F0F)` (the theme sets `--body-bg`), its z-index is `Z.stickyBar`, and it extends over the page padding with a negative horizontal margin so scrolling content never shows in the gutters.
 - Each select is `shrink-0`, has a fixed inline width from `SELECT_W`, truncates its text, and carries a `title` attribute with the full selected label.
 
@@ -4975,7 +5302,7 @@ Behaviours:
 // src/lib/__tests__/unit/vuln-filter-bar.test.tsx
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import FilterBar, { type FilterBarProps } from '@/app/vulnerabilities/filter-bar';
-import { FILTER_BAR_H, SELECT_W, RESET_SLOT_W, BAR_ROW_H, Z } from '@/app/vulnerabilities/dimensions';
+import { FILTER_BAR_H, SELECT_W, RESET_SLOT_W, BAR_ROW_H, FILTER_ROW_H, Z } from '@/app/vulnerabilities/dimensions';
 
 const DEFAULTS = { codebase: true, team: true, severity: true, baseline: true, repo: true, all: true };
 const COUNTS = {
@@ -5030,7 +5357,7 @@ describe('layout stability', () => {
     });
     const before = snap();
     expect(before.barHeight).toBe(`${FILTER_BAR_H}px`);
-    expect(before.rowHeights).toEqual([`${BAR_ROW_H}px`, `${BAR_ROW_H}px`]);
+    expect(before.rowHeights).toEqual([`${BAR_ROW_H}px`, `${FILTER_ROW_H}px`]);
     expect(before.resetWidth).toBe(`${RESET_SLOT_W}px`);
     expect(before.dateWidth).toBe(`${SELECT_W.date}px`);
     expect([before.hasResetButton, before.hasDateInput]).toEqual([true, true]);
@@ -5054,6 +5381,29 @@ describe('layout stability', () => {
   });
 });
 
+describe('field captions', () => {
+  // Revert: delete a <label htmlFor> (or its `uppercase` class), or put the "Compare to" span back inline.
+  it('every select sits under a visible caption that is its accessible name, upper-cased by CSS (the DOM text stays sentence case)', () => {
+    render(<FilterBar {...props()} />);
+    for (const name of ['Codebase', 'Owning team', 'Severity', 'Compare to']) {
+      const caption = screen.getByText(name, { selector: 'label' });
+      expect(caption.className).toContain('uppercase');
+      expect(caption.className).toContain('text-[10.5px]');
+      const select = screen.getByLabelText(name) as HTMLSelectElement;
+      expect(select.tagName).toBe('SELECT');
+      expect(caption.getAttribute('for')).toBe(select.id);
+      // The caption is above the select inside one field.
+      expect(caption.parentElement).toBe(select.parentElement);
+      expect(caption.compareDocumentPosition(select) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+  });
+
+  it('"Compare to" is a caption only: there is no second, inline "Compare to" text', () => {
+    render(<FilterBar {...props()} />);
+    expect(screen.getAllByText('Compare to')).toHaveLength(1);
+  });
+});
+
 describe('Reset filters', () => {
   it('stays in the DOM but hidden (invisible, disabled, out of the tab order) when every filter is at its default', () => {
     render(<FilterBar {...props()} />);
@@ -5074,6 +5424,18 @@ describe('Reset filters', () => {
     expect(resetFilters).toHaveBeenCalledTimes(1);
   });
 
+  // Revert: move the slot back into the tabs row.
+  it('sits at the right end of the filter row, after the date slot, and reads as a link', () => {
+    render(<FilterBar {...props({ isDefault: { ...DEFAULTS, team: false, all: false }, team: 'Payments' })} />);
+    const bar = screen.getByTestId('security-bar');
+    const filterRow = bar.children[1] as HTMLElement;
+    const slot = screen.getByTestId('reset-slot');
+    expect(filterRow.contains(slot)).toBe(true);
+    expect(filterRow.lastElementChild).toBe(slot);
+    expect(screen.getByTestId('date-slot').compareDocumentPosition(slot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText('Reset filters').className).toContain('underline');
+  });
+
   it('appears when only the selected repository differs (Reset clears it too)', () => {
     render(<FilterBar {...props({ isDefault: { ...DEFAULTS, repo: false, all: false } })} />);
     expect((screen.getByText('Reset filters') as HTMLButtonElement).className).not.toContain('invisible');
@@ -5081,23 +5443,31 @@ describe('Reset filters', () => {
 });
 
 describe('accent treatment', () => {
-  it('a non-default select gets the accent border and text; a default one does not', () => {
+  it('a non-default select gets the accent border, fill and text; a default one gets none of them', () => {
     render(<FilterBar {...props({ codebase: 'frontend', isDefault: { ...DEFAULTS, codebase: false, all: false } })} />);
-    expect(screen.getByLabelText('Codebase').className).toContain('border-accent');
-    expect(screen.getByLabelText('Codebase').className).toContain('text-accent-light');
-    expect(screen.getByLabelText('Severity').className).not.toContain('border-accent');
+    const changed = screen.getByLabelText('Codebase').className;
+    expect(changed).toContain('border-accent');
+    expect(changed).toContain('bg-accent/10');
+    expect(changed).toContain('text-accent-light');
+    expect(changed).not.toContain('bg-chart-surface');
+    const plain = screen.getByLabelText('Severity').className;
+    expect(plain).not.toContain('border-accent');
+    expect(plain).not.toContain('bg-accent/10');
+    expect(plain).toContain('bg-chart-surface');
   });
 });
 
 describe('Codebase options', () => {
-  it('show the open count under Severity: critical + high, critical only, high only', () => {
+  // Revert: sum critical and high again, or drop the unit.
+  it('show the kSev count with its unit: "open crit" under Critical + high and Critical only, "open high" under High only', () => {
     const { rerender } = render(<FilterBar {...props()} />);
-    expect(screen.getByRole('option', { name: 'Backend · 8' })).toBeTruthy();
-    expect(screen.getByRole('option', { name: 'All · 12' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'Backend · 5 open crit' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'All · 8 open crit' })).toBeTruthy();
     rerender(<FilterBar {...props({ severity: 'critical' })} />);
-    expect(screen.getByRole('option', { name: 'Backend · 5' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'Backend · 5 open crit' })).toBeTruthy();
     rerender(<FilterBar {...props({ severity: 'high' })} />);
-    expect(screen.getByRole('option', { name: 'Backend · 3' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'Backend · 3 open high' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'All · 4 open high' })).toBeTruthy();
   });
 
   it('show the label alone while the counts have not loaded', () => {
@@ -5124,6 +5494,12 @@ describe('controls call the url handlers', () => {
     render(<FilterBar {...props()} />);
     const sev = screen.getByLabelText('Severity');
     expect(within(sev).getAllByRole('option').map(o => o.textContent)).toEqual(['Critical + high', 'Critical only', 'High only']);
+  });
+
+  it('lists the Compare to choices as Last sync / 7 days ago / 30 days ago / A date…', () => {
+    render(<FilterBar {...props()} />);
+    const compare = screen.getByLabelText('Compare to');
+    expect(within(compare).getAllByRole('option').map(o => o.textContent)).toEqual(['Last sync', '7 days ago', '30 days ago', 'A date…']);
   });
 });
 
@@ -5174,7 +5550,7 @@ describe('view tabs', () => {
     const alerts = screen.getByRole('tab', { name: /^Alerts/ });
     expect(alerts.getAttribute('aria-selected')).toBe('true');
     expect(overview.getAttribute('aria-selected')).toBe('false');
-    expect(screen.getByTestId('alerts-tab-count').textContent).toBe('1,234');
+    expect(screen.getByTestId('alerts-tab-count').textContent).toBe('1,234 open');
     fireEvent.click(overview);
     expect(url.setView).toHaveBeenCalledWith('overview');
   });
@@ -5183,7 +5559,7 @@ describe('view tabs', () => {
     render(<FilterBar {...props({}, { alertsCount: null })} />);
     const slot = screen.getByTestId('alerts-tab-count');
     expect(slot.textContent).toBe('');
-    expect(slot.className).toContain('min-w-[28px]');
+    expect(slot.className).toContain('min-w-[64px]');
   });
 });
 ```
@@ -5199,12 +5575,12 @@ Expected: FAIL with "Cannot find module '@/app/vulnerabilities/filter-bar'".
 // src/app/vulnerabilities/view-tabs.tsx
 'use client';
 import type { SecurityView } from './security-state';
-import { BAR_ROW_H, TYPE } from './dimensions';
+import { BAR_ROW_H } from './dimensions';
 
 export interface ViewTabsProps {
   view: SecurityView;
   onChange: (v: SecurityView) => void;
-  /** The open count under Severity for the current scope; null until the repos rows load. */
+  /** The open count under Severity for the current scope, shown as "N open"; null until the repos rows load. */
   alertsCount: number | null;
 }
 
@@ -5232,8 +5608,8 @@ export default function ViewTabs({ view, onChange, alertsCount }: ViewTabsProps)
             {t.label}
             {t.id === 'alerts' && (
               // The slot always renders with a minimum width, so the tab does not change size when the count arrives.
-              <span data-testid="alerts-tab-count" className={`ml-2 inline-block min-w-[28px] px-1.5 text-center text-xs bg-chart-surface text-gray-300 ${TYPE.badge}`}>
-                {alertsCount === null ? '' : alertsCount.toLocaleString('en-US')}
+              <span data-testid="alerts-tab-count" className="ml-2 inline-block min-w-[64px] text-left text-xs font-normal text-gray-400">
+                {alertsCount === null ? '' : `${alertsCount.toLocaleString('en-US')} open`}
               </span>
             )}
           </button>
@@ -5247,11 +5623,14 @@ export default function ViewTabs({ view, onChange, alertsCount }: ViewTabsProps)
 ```tsx
 // src/app/vulnerabilities/filter-bar.tsx
 'use client';
-import type { Ref } from 'react';
+import type { ReactNode, Ref } from 'react';
 import { CODEBASE_GROUPS, CODEBASE_LABELS } from '@/lib/vulnerabilities/codebase-labels';
-import { codebaseOptionCount, type CodebaseCounts, type SecurityUrl, type SeverityFilter } from './security-state';
+import { codebaseOptionCount, kSev, type CodebaseCounts, type SecurityUrl, type SeverityFilter } from './security-state';
 import ViewTabs from './view-tabs';
-import { BAR_PAD_Y, BAR_ROW_H, COMPARE_LABEL_W, FILTER_BAR_H, FILTER_ROW_GAP, PAGE_PAD, RESET_SLOT_W, SELECT_W, TYPE, Z } from './dimensions';
+import {
+  BAR_PAD_Y, BAR_ROW_H, FILTER_BAR_H, FILTER_CAPTION_GAP, FILTER_CAPTION_H, FILTER_ROW_GAP, FILTER_ROW_H, FILTER_SELECT_H,
+  PAGE_PAD, RESET_SLOT_W, SELECT_W, TYPE, Z,
+} from './dimensions';
 
 export type FilterBarUrl = Pick<
   SecurityUrl,
@@ -5274,19 +5653,34 @@ export interface FilterBarProps {
 const SEVERITY_OPTIONS: ReadonlyArray<[SeverityFilter, string]> = [
   ['both', 'Critical + high'], ['critical', 'Critical only'], ['high', 'High only'],
 ];
-const COMPARE_OPTIONS = [['last', 'Last sync'], ['7d', '7 days'], ['30d', '30 days'], ['date', 'A date…']] as const;
+const COMPARE_OPTIONS = [['last', 'Last sync'], ['7d', '7 days ago'], ['30d', '30 days ago'], ['date', 'A date…']] as const;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+// A non-default select gets the accent border AND the accent fill; a default one is a plain surface.
 const selectClass = (nonDefault: boolean) =>
-  `shrink-0 h-7 px-2 text-xs truncate border bg-chart-surface ${TYPE.control} ${nonDefault ? 'border-accent text-accent-light' : 'border-gray-700 text-gray-300'}`;
+  `shrink-0 h-7 px-2 text-xs truncate border ${TYPE.control} ${nonDefault ? 'border-accent bg-accent/10 text-accent-light' : 'border-gray-700 bg-chart-surface text-gray-300'}`;
+
+/** The visible caption above a select: sentence case in the DOM (it is the select's accessible name), upper-cased by CSS. */
+const CAPTION = 'block truncate text-[10.5px] font-semibold uppercase tracking-[0.06em] text-gray-400';
+
+function Field({ id, label, children }: { id: string; label: string; children: ReactNode }) {
+  return (
+    <div className="flex shrink-0 flex-col" style={{ gap: FILTER_CAPTION_GAP }}>
+      <label htmlFor={id} className={CAPTION} style={{ height: FILTER_CAPTION_H, lineHeight: `${FILTER_CAPTION_H}px` }}>{label}</label>
+      {children}
+    </div>
+  );
+}
 
 export default function FilterBar({ url, teams, codebaseCounts, alertsCount, baselinePrefill, barRef }: FilterBarProps) {
   const isDate = DATE_RE.test(url.baseline);
   const compareValue = isDate ? 'date' : url.baseline;
   const today = new Date().toISOString().slice(0, 10);
+  const unit = kSev(url.severity) === 'high' ? 'high' : 'crit';
   const codebaseLabel = (g: (typeof CODEBASE_GROUPS)[number]) => {
+    // The count is the kSev count (critical, or high under "High only"), so an option reads like the KPI tile beside it.
     const n = codebaseOptionCount(codebaseCounts, g, url.severity);
-    return n === null ? CODEBASE_LABELS[g] : `${CODEBASE_LABELS[g]} · ${n.toLocaleString('en-US')}`;
+    return n === null ? CODEBASE_LABELS[g] : `${CODEBASE_LABELS[g]} · ${n.toLocaleString('en-US')} open ${unit}`;
   };
   const severityLabel = SEVERITY_OPTIONS.find(([v]) => v === url.severity)?.[1] ?? '';
   const compareLabel = COMPARE_OPTIONS.find(([v]) => v === compareValue)?.[1] ?? '';
@@ -5305,76 +5699,70 @@ export default function FilterBar({ url, teams, codebaseCounts, alertsCount, bas
         boxShadow: '0 1px 0 var(--chart-grid)',
       }}
     >
-      <div className="flex items-center justify-between" style={{ height: BAR_ROW_H }}>
+      <div className="flex items-center" style={{ height: BAR_ROW_H }}>
         <ViewTabs view={url.view} onChange={url.setView} alertsCount={alertsCount} />
-        {/* Reserved slot: the button is hidden, never removed, so the row does not change. */}
-        <div data-testid="reset-slot" className="flex shrink-0 justify-end" style={{ width: RESET_SLOT_W }}>
-          <button
-            type="button"
-            onClick={() => url.resetFilters()}
-            disabled={url.isDefault.all}
-            tabIndex={url.isDefault.all ? -1 : 0}
-            aria-hidden={url.isDefault.all ? true : undefined}
-            className={`text-xs text-accent-light hover:text-accent-lighter ${url.isDefault.all ? 'invisible' : ''}`}
-          >
-            Reset filters
-          </button>
-        </div>
       </div>
 
-      <div className="flex items-center" style={{ height: BAR_ROW_H, gap: FILTER_ROW_GAP }}>
-        <select
-          aria-label="Codebase"
-          value={url.codebase}
-          title={codebaseLabel(url.codebase)}
-          onChange={e => url.setCodebase(e.target.value as (typeof CODEBASE_GROUPS)[number])}
-          className={selectClass(!url.isDefault.codebase)}
-          style={{ width: SELECT_W.codebase }}
-        >
-          {CODEBASE_GROUPS.map(g => <option key={g} value={g}>{codebaseLabel(g)}</option>)}
-        </select>
+      <div className="flex items-end" style={{ height: FILTER_ROW_H, gap: FILTER_ROW_GAP }}>
+        <Field id="security-codebase" label="Codebase">
+          <select
+            id="security-codebase"
+            value={url.codebase}
+            title={codebaseLabel(url.codebase)}
+            onChange={e => url.setCodebase(e.target.value as (typeof CODEBASE_GROUPS)[number])}
+            className={selectClass(!url.isDefault.codebase)}
+            style={{ width: SELECT_W.codebase }}
+          >
+            {CODEBASE_GROUPS.map(g => <option key={g} value={g}>{codebaseLabel(g)}</option>)}
+          </select>
+        </Field>
 
-        <select
-          aria-label="Owning team"
-          value={url.team ?? ''}
-          title={url.team ?? 'All owning teams'}
-          onChange={e => url.setTeam(e.target.value || null)}
-          className={selectClass(!url.isDefault.team)}
-          style={{ width: SELECT_W.team }}
-        >
-          <option value="">All owning teams</option>
-          {teams.map(t => <option key={t} value={t}>{t}</option>)}
-        </select>
+        <Field id="security-team" label="Owning team">
+          <select
+            id="security-team"
+            value={url.team ?? ''}
+            title={url.team ?? 'All owning teams'}
+            onChange={e => url.setTeam(e.target.value || null)}
+            className={selectClass(!url.isDefault.team)}
+            style={{ width: SELECT_W.team }}
+          >
+            <option value="">All owning teams</option>
+            {teams.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </Field>
 
-        <select
-          aria-label="Severity"
-          value={url.severity}
-          title={severityLabel}
-          onChange={e => url.setSeverity(e.target.value as SeverityFilter)}
-          className={selectClass(!url.isDefault.severity)}
-          style={{ width: SELECT_W.severity }}
-        >
-          {SEVERITY_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-        </select>
+        <Field id="security-severity" label="Severity">
+          <select
+            id="security-severity"
+            value={url.severity}
+            title={severityLabel}
+            onChange={e => url.setSeverity(e.target.value as SeverityFilter)}
+            className={selectClass(!url.isDefault.severity)}
+            style={{ width: SELECT_W.severity }}
+          >
+            {SEVERITY_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </Field>
 
-        <span className="shrink-0 text-xs text-gray-400" style={{ width: COMPARE_LABEL_W }}>Compare to</span>
-        <select
-          aria-label="Compare to"
-          value={compareValue}
-          title={compareLabel}
-          onChange={e => {
-            const v = e.target.value;
-            // "A date…" must write a concrete date now: the select's value is derived from the URL.
-            url.setBaseline(v === 'date' ? baselinePrefill : v);
-          }}
-          className={selectClass(!url.isDefault.baseline)}
-          style={{ width: SELECT_W.baseline }}
-        >
-          {COMPARE_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-        </select>
+        <Field id="security-compare" label="Compare to">
+          <select
+            id="security-compare"
+            value={compareValue}
+            title={compareLabel}
+            onChange={e => {
+              const v = e.target.value;
+              // "A date…" must write a concrete date now: the select's value is derived from the URL.
+              url.setBaseline(v === 'date' ? baselinePrefill : v);
+            }}
+            className={selectClass(!url.isDefault.baseline)}
+            style={{ width: SELECT_W.baseline }}
+          >
+            {COMPARE_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </Field>
 
-        {/* Reserved slot: the input is always rendered, hidden unless the baseline is a date. */}
-        <div data-testid="date-slot" className="shrink-0" style={{ width: SELECT_W.date }}>
+        {/* Reserved slot: the input is always rendered, hidden unless the baseline is a date. It has no caption of its own. */}
+        <div data-testid="date-slot" className="shrink-0" style={{ width: SELECT_W.date, height: FILTER_SELECT_H }}>
           <input
             type="date"
             aria-label="Compare to date"
@@ -5385,6 +5773,21 @@ export default function FilterBar({ url, teams, codebaseCounts, alertsCount, bas
             onChange={e => { if (e.target.value) url.setBaseline(e.target.value); }}
             className={`${selectClass(isDate)} w-full ${isDate ? '' : 'invisible'}`}
           />
+        </div>
+
+        <div className="flex-1" />
+        {/* Reserved slot at the row's right end: the button is hidden, never removed, so the row does not change. */}
+        <div data-testid="reset-slot" className="flex shrink-0 items-center justify-end" style={{ width: RESET_SLOT_W, height: FILTER_SELECT_H }}>
+          <button
+            type="button"
+            onClick={() => url.resetFilters()}
+            disabled={url.isDefault.all}
+            tabIndex={url.isDefault.all ? -1 : 0}
+            aria-hidden={url.isDefault.all ? true : undefined}
+            className={`text-xs ${TYPE.link} ${url.isDefault.all ? 'invisible' : ''}`}
+          >
+            Reset filters
+          </button>
         </div>
       </div>
     </div>
@@ -5397,13 +5800,14 @@ export default function FilterBar({ url, teams, codebaseCounts, alertsCount, bas
 Run: `npx jest src/lib/__tests__/unit/vuln-filter-bar.test.tsx --maxWorkers=3 && npx tsc --noEmit`
 Expected: PASS; `tsc` clean.
 
-Named reverts: removing the `invisible` slot (rendering Reset or the date input conditionally) fails "the bar keeps the same height, the same slot classes ..." because `getByTestId('reset-slot')`/`'date-slot'` content and classes differ; dropping `shrink-0` or the inline width from a select fails "every select has a fixed inline width"; making "A date…" write nothing fails "immediately writes the pre-filled date".
+Named reverts: removing the `invisible` slot (rendering Reset or the date input conditionally) fails "the bar keeps the same height, the same slot classes ..." because `getByTestId('reset-slot')`/`'date-slot'` content and classes differ; dropping `shrink-0` or the inline width from a select fails "every select has a fixed inline width"; making "A date…" write nothing fails "immediately writes the pre-filled date"; deleting a `<label htmlFor>` or its `uppercase` class, or putting the inline "Compare to" text back, fails "every select sits under a visible caption ..." and `"Compare to" is a caption only`; moving the Reset slot back into the tabs row fails "sits at the right end of the filter row, after the date slot, and reads as a link"; dropping the `bg-accent/10` fill (or putting `bg-chart-surface` back on a changed select) fails "a non-default select gets the accent border, fill and text ..."; summing critical and high again, or dropping the unit, fails "show the kSev count with its unit ..."; shrinking the count slot below `min-w-[64px]` fails "keeps the count slot (with a minimum width) while the count is unknown".
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/app/vulnerabilities/view-tabs.tsx src/app/vulnerabilities/filter-bar.tsx src/lib/__tests__/unit/vuln-filter-bar.test.tsx
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: view tabs and sticky filter bar with reserved slots"
 ```
 
@@ -5414,7 +5818,7 @@ git commit -m "GLOOK-64: view tabs and sticky filter bar with reserved slots"
 - Test: `src/lib/__tests__/unit/vuln-coverage-drawer.test.tsx`
 
 **Interfaces:**
-- Consumes: `Slot` from `./use-security-data` and `SummaryData`, `CoverageData` from `./api-types` (Task 2.7); `slaState`, `slaStateLabel` from `./sla-state` (Task 2.3); `DRAWER_W`, `DRAWER_MAX_W`, `Z`, `TYPE` from `./dimensions` (Task 2.2); `resolvedCaption` from `./format` (existing).
+- Consumes: `Slot` from `./use-security-data` and `SummaryData`, `CoverageData` from `./api-types` (Task 2.7); `slaState`, `slaStateLabel` from `./sla-state` (Task 2.3; the drawer calls `slaStateLabel(st, { withSla: false })` only as a fallback); `displayDate` and `unmeasuredReason` from `./labels` (Task 2.3); `DRAWER_W`, `DRAWER_MAX_W`, `Z`, `TYPE` from `./dimensions` (Task 2.2); `resolvedCaption` from `./format` (Task 2.3 changes it to print a display date); `CODEBASE_LABELS` from `@/lib/vulnerabilities/codebase-labels` (existing).
 - Produces:
   - `export type OpenDrawer = (opener?: HTMLElement | null) => void;`
   - `export function useCoverageDrawer(): { open: boolean; opener: HTMLElement | null; openDrawer: OpenDrawer; closeDrawer: () => void }`
@@ -5425,8 +5829,17 @@ The drawer is page-wide (the header coverage line, the Overview unmeasured rows 
 - Esc closes. The Esc listener exists only while the drawer is open (nothing is attached when closed). The backdrop and the × also close.
 - Closing returns focus to the element that opened it (the caller passes `e.currentTarget` to `openDrawer`; with no argument the hook falls back to `document.activeElement`).
 - Width 460px, at most 92vw; its z-index (`Z.drawer`) is above the sticky bar. Open state is local to the page, never in the URL.
-- It follows the Codebase and Owning team filters (the `coverage` request carries both). Groups: Unmeasured (hatched rows, open counts unknown, never a number: the API carries the stored count, the UI must not show it), Needs tagging (counted under "Unassigned"), Excluded by policy (not counted); then the policy, labelled "From deployment configuration".
-- Carried over from the old panels: a `dependabot-off` row reads "Dependabot off" while an `error` row shows its GitHub detail; an invalid policy never reads as empty; the "Resolved counted ..." and "scope: ..." captions stay.
+- It follows the Codebase and Owning team filters (the `coverage` request carries both), and says so: under the title a subtitle (`data-testid="drawer-scope"`) reads "{Codebase} · Owning team: {team, or all} · follows the page filters", built from `summary.appliedFilters`.
+- Three groups, each with a header and a rule line. The header shows the title, "N repos" ("1 repo" for one) and a right-aligned summary (`coverage-group-<slug>-summary`, with the slug `unmeasured`, `needs-tagging` or `excluded-by-policy`). The rule line sits BELOW the group's rows. An empty group still renders and reads "None".
+  - Unmeasured: summary "open counts unknown". Rows are hatched. On the left the repository link and "· owning team X"; on the right the reason, in the warning colour. A row never shows a number: the API carries the stored count, the UI must not show it. Rule line: "Open counts unknown, not zero. Their resolved alerts and measured history still count."
+  - Needs tagging: summary "N open critical" (the sum over its rows). On the left the repository link, on the right "N crit · N high". A second line names the tags the repository lacks, "Missing: owning team, service tier". Rule line: counted under "Unassigned" until tagged.
+  - Excluded by policy: summary "N open critical". On the left the repository link and "· owning team X", on the right "outside scope ({tier})". The counts ("N crit · N high") sit on a second line. Rule line: not counted anywhere on this page.
+- Then the policy section, headed "Policy" with "From deployment configuration" at its right. It has four labelled rows (`policy-value-critical`, `-high`, `-resolved`, `-scope`):
+  - Critical SLA and High SLA each read "N days · since {date}" (the entry in force: the latest one that has already started), "N days · starts {date}" (a pending severity: the earliest entry still to start), "No SLA policy yet", or, in red, "! Can't be read · check the SLA settings in the deployment config". The state is decided per severity, and an unreadable policy never reads as "No SLA policy yet".
+  - Resolved count reads "Since {date} · fixed + dismissed", "All time · fixed + dismissed", or, in red, "! Can't be read · check the resolved-count start date in the deployment config".
+  - Scope reads "{property} = {value}" from `summary.scope`.
+  - No policy entry id, no "pending" badge and no open-ended window text is printed. Every date goes through `displayDate` ("Jan 8, 2020", or "Oct 4" within the current year); the Resolved row reuses `resolvedCaption`.
+- Carried over from the old panels: a `dependabot-off` row reads "Dependabot off" while an `error` row shows its GitHub detail. That wording is `unmeasuredReason` from `labels.ts`, the ONE definition the Repositories band and the rail share (Wave 3 and 4 import it from there; the drawer no longer owns a copy). An invalid policy never reads as empty. The old "Resolved counted ..." and "scope: ..." captions are now the Resolved count and Scope rows.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -5438,6 +5851,7 @@ import { renderHook, act } from '@testing-library/react';
 import CoverageDrawer, { useCoverageDrawer, type CoverageDrawerProps } from '@/app/vulnerabilities/coverage-drawer';
 import { DRAWER_W, DRAWER_MAX_W, Z } from '@/app/vulnerabilities/dimensions';
 import type { CoverageData } from '@/app/vulnerabilities/api-types';
+import { unmeasuredReason } from '@/app/vulnerabilities/labels';
 import { coverageFixture, coverageRow as row, summaryFixture, slot } from '../support/security-fixtures';
 
 function base(over: Partial<CoverageDrawerProps> = {}): CoverageDrawerProps {
@@ -5529,20 +5943,47 @@ describe('dialog contract', () => {
   });
 });
 
+describe('header', () => {
+  // Revert: delete the subtitle.
+  it('says which scope the drawer follows: the codebase, the owning team (or "all"), and that it follows the page filters', () => {
+    const { rerender } = render(<CoverageDrawer {...base()} />);
+    expect(screen.getByTestId('drawer-scope').textContent).toBe('Backend · Owning team: all · follows the page filters');
+    rerender(<CoverageDrawer {...base({ summary: summaryFixture({ appliedFilters: { codebase: 'frontend', team: 'Payments', baseline: 'last' } }) })} />);
+    expect(screen.getByTestId('drawer-scope').textContent).toBe('Frontend · Owning team: Payments · follows the page filters');
+  });
+});
+
 describe('coverage groups', () => {
-  it('an unmeasured row never shows its stored open count: it reads "Open counts unknown"', () => {
+  it('an unmeasured row never shows its stored open count: the group says "open counts unknown"', () => {
     render(<CoverageDrawer {...base({
       coverage: slot(coverageFixture({ unmeasured: [row({ openCritical: 7, openHigh: 3 })] })),
     })} />);
     const unmeasured = screen.getByRole('region', { name: /^Unmeasured/ });
     expect(within(unmeasured).getByText('acme/legacy-batch')).toBeTruthy();
-    expect(within(unmeasured).getByText('Open counts unknown')).toBeTruthy();
+    expect(within(unmeasured).getByText('open counts unknown')).toBeTruthy();
     expect(unmeasured.textContent).not.toMatch(/\b7\b/);
     expect(unmeasured.textContent).not.toMatch(/\b3\b/);
     expect(within(unmeasured).getByRole('listitem').className).toContain('vuln-hatch');
+    expect(within(unmeasured).getByText(/Their resolved alerts and measured history still count/)).toBeTruthy();
   });
 
-  it('a dependabot-off row reads "Dependabot off" and an error row shows the GitHub detail', () => {
+  it('each group header reads its title, its repository count and a right-hand summary', () => {
+    render(<CoverageDrawer {...base({
+      coverage: slot(coverageFixture({
+        unmeasured: [row({ repoId: 1 }), row({ repoId: 2, fullName: 'acme/other' })],
+        needsTagging: [row({ repoId: 3, fullName: 'acme/untagged', openCritical: 2, openHigh: 1 }), row({ repoId: 4, fullName: 'acme/untagged-2', openCritical: 1 })],
+        excludedByPolicy: [row({ repoId: 5, fullName: 'acme/staging-tools', serviceTier: 'staging', openCritical: 5 })],
+      })),
+    })} />);
+    expect(screen.getByRole('region', { name: 'Unmeasured 2 repos' })).toBeTruthy();
+    expect(screen.getByRole('region', { name: 'Needs tagging 2 repos' })).toBeTruthy();
+    expect(screen.getByRole('region', { name: 'Excluded by policy 1 repo' })).toBeTruthy();
+    expect(screen.getByTestId('coverage-group-unmeasured-summary').textContent).toBe('open counts unknown');
+    expect(screen.getByTestId('coverage-group-needs-tagging-summary').textContent).toBe('3 open critical');
+    expect(screen.getByTestId('coverage-group-excluded-by-policy-summary').textContent).toBe('5 open critical');
+  });
+
+  it('a dependabot-off row reads "Dependabot off" and an error row shows the GitHub detail, on the right of the row', () => {
     render(<CoverageDrawer {...base({
       coverage: slot(coverageFixture({
         unmeasured: [
@@ -5551,12 +5992,20 @@ describe('coverage groups', () => {
         ],
       })),
     })} />);
-    expect(screen.getByText('Dependabot off')).toBeTruthy();
+    expect(screen.getByText('Dependabot off').className).toContain('text-warn');
     expect(screen.getByText('HTTP 500: status check failed')).toBeTruthy();
     expect(screen.queryByText('Dependabot alerts are disabled for this repository.')).toBeNull();
+    // The owning team rides on the left of the same row.
+    expect(screen.getAllByText(/owning team Platform/)).toHaveLength(2);
   });
 
-  it('Needs tagging and Excluded rows show their open counts and the counting rule for the group', () => {
+  it('uses the one unmeasured wording: the same text the Repositories band and the rail print', () => {
+    const r = row({ dependabotStatus: 'error', detail: null });
+    render(<CoverageDrawer {...base({ coverage: slot(coverageFixture({ unmeasured: [r] })) })} />);
+    expect(screen.getByText(unmeasuredReason({ status: 'error', detail: null }))).toBeTruthy();
+  });
+
+  it('Needs tagging rows name what is missing and show their open counts; Excluded rows say why they are outside the scope', () => {
     render(<CoverageDrawer {...base({
       coverage: slot(coverageFixture({
         needsTagging: [row({ repoId: 3, fullName: 'acme/untagged', team: null, serviceTier: null, openCritical: 2, openHigh: 1 })],
@@ -5566,8 +6015,9 @@ describe('coverage groups', () => {
     const tagging = screen.getByRole('region', { name: /^Needs tagging/ });
     expect(within(tagging).getByText('2 crit · 1 high')).toBeTruthy();
     expect(within(tagging).getByText(/Counted under “Unassigned”/)).toBeTruthy();
-    expect(within(tagging).getByText(/Unassigned · — \/ backend/)).toBeTruthy();
+    expect(within(tagging).getByText('Missing: owning team, service tier')).toBeTruthy();
     const excluded = screen.getByRole('region', { name: /^Excluded by policy/ });
+    expect(within(excluded).getByText('outside scope (staging)')).toBeTruthy();
     expect(within(excluded).getByText('1 crit · 0 high')).toBeTruthy();
     expect(within(excluded).getByText(/Not counted/)).toBeTruthy();
   });
@@ -5588,52 +6038,72 @@ describe('coverage groups', () => {
 });
 
 describe('policy ("From deployment configuration")', () => {
-  it('lists the windows, the resolved caption and the scope caption', () => {
+  const value = (key: string) => screen.getByTestId(`policy-value-${key}`);
+
+  // Revert: print the entry id and the open-ended window again, or fold the four rows into one run-on line.
+  it('has four labelled rows: Critical SLA, High SLA, Resolved count and Scope, and prints no entry id and no pending badge', () => {
+    render(<CoverageDrawer {...base({ summary: summaryFixture({ slaStatus: { critical: 'active', high: 'none' }, policy: [
+      { id: 'critical-2020-01', severity: 'critical', days: 9, effectiveFrom: '2020-01-08', until: null, pending: false },
+      { id: 'high-2099-01', severity: 'high', days: 12, effectiveFrom: '2099-01-01', until: null, pending: true },
+    ] }) })} />);
+    const policy = screen.getByRole('region', { name: /^Policy/ });
+    expect(within(policy).getByText('From deployment configuration')).toBeTruthy();
+    for (const label of ['Critical SLA', 'High SLA', 'Resolved count', 'Scope']) expect(within(policy).getByText(label)).toBeTruthy();
+    expect(policy.textContent).not.toMatch(/critical-2020-01|high-2099-01|open-ended|pending|→/);
+  });
+
+  it('an active severity reads "N days · since <date>", a pending one "N days · starts <date>", with years for dates outside this one', () => {
+    render(<CoverageDrawer {...base({ summary: summaryFixture({
+      slaStatus: { critical: 'active', high: 'pending' },
+      policy: [
+        { id: 'critical-old', severity: 'critical', days: 14, effectiveFrom: '2019-06-01', until: '2020-01-07', pending: false },
+        { id: 'critical-2020-01', severity: 'critical', days: 7, effectiveFrom: '2020-01-08', until: null, pending: false },
+        { id: 'high-2099-01', severity: 'high', days: 12, effectiveFrom: '2099-01-01', until: null, pending: true },
+      ],
+    }) })} />);
+    // The entry in force is the latest that has started, not the first listed.
+    expect(value('critical').textContent).toBe('7 days · since Jan 8, 2020');
+    expect(value('high').textContent).toBe('12 days · starts Jan 1, 2099');
+  });
+
+  it('a window of one day reads "1 day"', () => {
+    render(<CoverageDrawer {...base({ summary: summaryFixture({ policy: [{ id: 'c', severity: 'critical', days: 1, effectiveFrom: '2020-01-08', until: null, pending: false }] }) })} />);
+    expect(value('critical').textContent).toBe('1 day · since Jan 8, 2020');
+  });
+
+  it('a severity with no policy reads "No SLA policy yet"; the state is decided per severity, not once for the page', () => {
     render(<CoverageDrawer {...base()} />);
-    const policy = screen.getByRole('region', { name: /From deployment configuration/ });
-    expect(within(policy).getByText(/critical-2020-01 · 9 days · 2020-01-08 → open-ended/)).toBeTruthy();
-    expect(within(policy).getByText(/Resolved counted since 2020-01-08/)).toBeTruthy();
-    expect(within(policy).getByText(/scope: service_tier = production/)).toBeTruthy();
+    expect(value('critical').textContent).toBe('9 days · since Jan 8, 2020');
+    expect(value('high').textContent).toBe('No SLA policy yet');
+    expect(value('high').className).not.toContain('text-red-400');
   });
 
-  it('resolved caption: unset start date reads "all time"; an invalid one reads "since —"', () => {
-    const { rerender } = render(<CoverageDrawer {...base({ summary: summaryFixture({ resolvedSince: { date: null, invalid: false } }) })} />);
-    expect(screen.getByText(/Resolved counted all time/)).toBeTruthy();
-    rerender(<CoverageDrawer {...base({ summary: summaryFixture({ resolvedSince: { date: null, invalid: true } }) })} />);
-    expect(screen.getByText(/Resolved counted since —/)).toBeTruthy();
-  });
-
-  it('the default (healthy) fixture reads Critical SLA "active", with neither the "none" nor the "invalid" wording on that line', () => {
-    render(<CoverageDrawer {...base()} />);
-    const critical = screen.getByTestId('sla-critical');
-    expect(critical.textContent).toBe('Critical SLA: active');
-    expect(critical.textContent).not.toContain('No SLA policy yet');
-    expect(critical.textContent).not.toContain("SLA policy can't be read");
-    // The default fixture has no high-severity policy, so that line carries the "none" wording: the
-    // state is decided per severity, not once for the page.
-    expect(screen.getByTestId('sla-high').textContent).toBe('High SLA: No SLA policy yet');
-  });
-
-  it('shows each severity in its own SLA state: active, pending ("Starts <date>"), none', () => {
-    render(<CoverageDrawer {...base({
-      summary: summaryFixture({
-        slaStatus: { critical: 'pending', high: 'none' },
-        policy: [{ id: 'critical-2099-01', severity: 'critical', days: 9, effectiveFrom: '2099-01-01', until: null, pending: true }],
-      }),
-    })} />);
-    const policy = screen.getByRole('region', { name: /From deployment configuration/ });
-    expect(within(policy).getByText('Starts 2099-01-01')).toBeTruthy();
-    expect(within(policy).getByText('No SLA policy yet')).toBeTruthy();
-  });
-
-  it('an invalid policy reads "SLA policy can\'t be read" in red for both severities and never "No SLA policy yet"', () => {
+  it('an unreadable policy reads the red "! Can\'t be read · check the SLA settings in the deployment config" on both severities, never "No SLA policy yet"', () => {
     render(<CoverageDrawer {...base({
       summary: summaryFixture({ slaPolicyInvalid: true, policy: [], slaStatus: { critical: 'none', high: 'none' } }),
     })} />);
-    const invalid = screen.getAllByText("SLA policy can't be read");
-    expect(invalid).toHaveLength(2);
-    for (const el of invalid) expect(el.className).toContain('text-red-400');
+    for (const sev of ['critical', 'high']) {
+      expect(value(sev).textContent).toBe("! Can't be read · check the SLA settings in the deployment config");
+      expect(value(sev).className).toContain('text-red-400');
+    }
     expect(screen.queryByText('No SLA policy yet')).toBeNull();
+  });
+
+  it('Resolved count: "Since <date> · fixed + dismissed", "All time · fixed + dismissed", and a red message when the date is unreadable', () => {
+    const { rerender } = render(<CoverageDrawer {...base()} />);
+    expect(value('resolved').textContent).toBe('Since Jan 8, 2020 · fixed + dismissed');
+    rerender(<CoverageDrawer {...base({ summary: summaryFixture({ resolvedSince: { date: null, invalid: false } }) })} />);
+    expect(value('resolved').textContent).toBe('All time · fixed + dismissed');
+    rerender(<CoverageDrawer {...base({ summary: summaryFixture({ resolvedSince: { date: null, invalid: true } }) })} />);
+    expect(value('resolved').textContent).toMatch(/^! Can't be read/);
+    expect(value('resolved').className).toContain('text-red-400');
+  });
+
+  it('Scope reads "<property> = <value>" from the summary', () => {
+    const { rerender } = render(<CoverageDrawer {...base()} />);
+    expect(value('scope').textContent).toBe('service_tier = production');
+    rerender(<CoverageDrawer {...base({ summary: summaryFixture({ scope: { property: 'service_tier', value: 'live' } }) })} />);
+    expect(value('scope').textContent).toBe('service_tier = live');
   });
 });
 
@@ -5680,10 +6150,13 @@ Expected: FAIL with "Cannot find module '@/app/vulnerabilities/coverage-drawer'"
 // src/app/vulnerabilities/coverage-drawer.tsx
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import { CODEBASE_LABELS } from '@/lib/vulnerabilities/codebase-labels';
+import type { Severity } from '@/lib/vulnerabilities/types';
 import type { CoverageData, SummaryData } from './api-types';
 import type { Slot } from './use-security-data';
 import { slaState, slaStateLabel } from './sla-state';
 import { resolvedCaption } from './format';
+import { displayDate, unmeasuredReason } from './labels';
 import { DRAWER_MAX_W, DRAWER_W, TYPE, Z } from './dimensions';
 
 /** Open the drawer. Pass the clicked element (`e.currentTarget`) so focus can return to it on
@@ -5715,23 +6188,68 @@ type Row = CoverageData['needsTagging'][number];
 const FOCUSABLE = 'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 const TITLE_ID = 'coverage-drawer-title';
 
-const unmeasuredReason = (r: Row) => (r.dependabotStatus === 'dependabot-off' ? 'Dependabot off' : (r.detail ?? 'Status check failed'));
-const meta = (r: Row) => `${r.team ?? 'Unassigned'} · ${r.serviceTier ?? '—'} / ${r.codebaseType ?? '—'}`;
+const ownerLine = (r: Row) => `owning team ${r.team ?? 'Unassigned'}`;
+/** The tags a repository lacks, which is why it is counted under "Unassigned". */
+const missingTags = (r: Row) =>
+  [!r.team && 'owning team', !r.serviceTier && 'service tier', !r.codebaseType && 'codebase type'].filter((x): x is string => !!x).join(', ');
 const repoLink = (r: Row) => (
   <a className="text-accent-light hover:text-accent-lighter" href={`https://github.com/${r.fullName}`} target="_blank" rel="noreferrer">{r.fullName}</a>
 );
+const plural = (n: number, word: string) => `${n.toLocaleString('en-US')} ${word}${n === 1 ? '' : 's'}`;
+const openCritical = (rows: readonly Row[]) => `${rows.reduce((n, r) => n + r.openCritical, 0).toLocaleString('en-US')} open critical`;
 
-function Group({ title, count, note, children }: { title: string; count: number; note: string; children: React.ReactNode }) {
+/** One group: its title, repository count and a right-aligned summary, then the rows, then the counting rule. */
+function Group({ title, count, summary, note, children }: { title: string; count: number; summary: string; note: string; children: React.ReactNode }) {
   const id = `coverage-group-${title.toLowerCase().replace(/[^a-z]+/g, '-')}`;
   return (
     <section aria-labelledby={id} className="mb-5">
-      <h3 id={id} className={`${TYPE.sectionLabel} text-gray-300`}>{title} · {count}</h3>
-      <p className="mt-1 text-xs text-gray-500">{note}</p>
+      <div className="flex items-baseline justify-between gap-3">
+        <h3 id={id} className={`${TYPE.sectionLabel} text-gray-300`}>
+          {title} <span className="ml-1 font-normal normal-case tracking-normal text-gray-500">{plural(count, 'repo')}</span>
+        </h3>
+        <span data-testid={`${id}-summary`} className="shrink-0 text-xs text-gray-500">{summary}</span>
+      </div>
       <ul className="mt-2 space-y-1.5">
         {count === 0 ? <li className="text-xs text-gray-500">None</li> : children}
       </ul>
+      <p className="mt-2 text-xs text-gray-500">{note}</p>
     </section>
   );
+}
+
+/** A row's left text and its right-aligned reason, on one line each. */
+function RowLine({ left, reason, reasonClass = 'text-gray-400' }: { left: React.ReactNode; reason: string; reasonClass?: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <span className="min-w-0 truncate">{left}</span>
+      <span className={`shrink-0 ${reasonClass}`}>{reason}</span>
+    </div>
+  );
+}
+
+type PolicyValue = { text: string; tone: 'normal' | 'muted' | 'error' };
+const CANT_READ = "! Can't be read · check the SLA settings in the deployment config";
+
+/** One severity's SLA row: its window and start date, or the state that explains why it has none. */
+function slaValue(sev: Severity, summary: SummaryData): PolicyValue {
+  const st = slaState(sev, summary);
+  if (st.kind === 'invalid') return { text: CANT_READ, tone: 'error' };
+  if (st.kind === 'none') return { text: 'No SLA policy yet', tone: 'muted' };
+  const entries = summary.policy.filter(p => p.severity === sev && p.pending === (st.kind === 'pending'))
+    .sort((x, y) => x.effectiveFrom.localeCompare(y.effectiveFrom));
+  // In force: the latest entry already started. Pending: the earliest one still to start.
+  const e = st.kind === 'pending' ? entries[0] : entries[entries.length - 1];
+  if (!e) return { text: slaStateLabel(st, { withSla: false }) ?? 'Active', tone: 'normal' };
+  const window = `${e.days} ${e.days === 1 ? 'day' : 'days'}`;
+  return { text: `${window} · ${st.kind === 'pending' ? 'starts' : 'since'} ${displayDate(e.effectiveFrom)}`, tone: 'normal' };
+}
+
+/** "Since Jan 8, 2020 · fixed + dismissed", "All time · fixed + dismissed", or the unreadable-date message. */
+function resolvedValue(summary: SummaryData): PolicyValue {
+  const r = summary.resolvedSince;
+  if (r.invalid) return { text: "! Can't be read · check the resolved-count start date in the deployment config", tone: 'error' };
+  const caption = resolvedCaption(r);
+  return { text: `${caption.charAt(0).toUpperCase()}${caption.slice(1)} · fixed + dismissed`, tone: 'normal' };
 }
 
 export default function CoverageDrawer({ open, onClose, opener, coverage, summary }: CoverageDrawerProps) {
@@ -5768,6 +6286,7 @@ export default function CoverageDrawer({ open, onClose, opener, coverage, summar
 
   if (!open) return null;
   const c = coverage.data;
+  const codebase = summary.appliedFilters.codebase;
 
   return (
     <div className="fixed inset-0" style={{ zIndex: Z.drawer }}>
@@ -5780,8 +6299,13 @@ export default function CoverageDrawer({ open, onClose, opener, coverage, summar
         className="absolute right-0 top-0 bottom-0 flex flex-col bg-gray-900 border-l border-gray-800 shadow-xl"
         style={{ width: DRAWER_W, maxWidth: DRAWER_MAX_W }}
       >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
-          <h2 id={TITLE_ID} className="text-base font-semibold text-white">Coverage &amp; policy</h2>
+        <div className="flex items-start justify-between px-5 py-4 border-b border-gray-800">
+          <div className="min-w-0">
+            <h2 id={TITLE_ID} className="text-base font-semibold text-white">Coverage &amp; policy</h2>
+            <p data-testid="drawer-scope" className="mt-0.5 text-xs text-gray-500">
+              {codebase ? CODEBASE_LABELS[codebase] : 'All codebases'} · Owning team: {summary.appliedFilters.team ?? 'all'} · follows the page filters
+            </p>
+          </div>
           <button ref={closeRef} type="button" aria-label="Close" onClick={onClose} className="px-2 text-lg leading-none text-gray-400 hover:text-white">×</button>
         </div>
 
@@ -5792,32 +6316,34 @@ export default function CoverageDrawer({ open, onClose, opener, coverage, summar
             <p className="text-xs text-gray-500">Loading…</p>
           ) : (
             <>
-              <Group title="Unmeasured" count={c.unmeasured.length}
+              <Group title="Unmeasured" count={c.unmeasured.length} summary="open counts unknown"
                 note="Open counts unknown, not zero. Their resolved alerts and measured history still count.">
                 {c.unmeasured.map(r => (
-                  <li key={r.repoId} className={`vuln-hatch px-2.5 py-2 text-xs ${TYPE.control}`}>
-                    <div>{repoLink(r)}</div>
-                    <div className="text-gray-400">{meta(r)}</div>
-                    <div className="text-warn">{unmeasuredReason(r)}</div>
-                    <div className="text-gray-400">Open counts unknown</div>
+                  <li key={r.repoId} className={`vuln-hatch border border-warn-line px-2.5 py-2 text-xs ${TYPE.control}`}>
+                    <RowLine
+                      left={<>{repoLink(r)} <span className="text-gray-400">· {ownerLine(r)}</span></>}
+                      reason={unmeasuredReason({ status: r.dependabotStatus ?? 'error', detail: r.detail ?? null })}
+                      reasonClass="font-semibold text-warn"
+                    />
                   </li>
                 ))}
               </Group>
-              <Group title="Needs tagging" count={c.needsTagging.length} note="Counted under “Unassigned” until tagged.">
+              <Group title="Needs tagging" count={c.needsTagging.length} summary={openCritical(c.needsTagging)} note="Counted under “Unassigned” until tagged.">
                 {c.needsTagging.map(r => (
                   <li key={r.repoId} className={`bg-chart-surface px-2.5 py-2 text-xs ${TYPE.control}`}>
-                    <div>{repoLink(r)}</div>
-                    <div className="text-gray-400">{meta(r)}</div>
-                    <div className="text-gray-300">{`${r.openCritical} crit · ${r.openHigh} high`}</div>
+                    <RowLine left={repoLink(r)} reason={`${r.openCritical} crit · ${r.openHigh} high`} reasonClass="text-gray-300" />
+                    <div className="truncate text-gray-400">Missing: {missingTags(r)}</div>
                   </li>
                 ))}
               </Group>
-              <Group title="Excluded by policy" count={c.excludedByPolicy.length} note="Not counted anywhere on this page.">
+              <Group title="Excluded by policy" count={c.excludedByPolicy.length} summary={openCritical(c.excludedByPolicy)} note="Not counted anywhere on this page.">
                 {c.excludedByPolicy.map(r => (
                   <li key={r.repoId} className={`bg-chart-surface px-2.5 py-2 text-xs ${TYPE.control}`}>
-                    <div>{repoLink(r)}</div>
-                    <div className="text-gray-400">{meta(r)}</div>
-                    <div className="text-gray-300">{`${r.openCritical} crit · ${r.openHigh} high`}</div>
+                    <RowLine
+                      left={<>{repoLink(r)} <span className="text-gray-400">· {ownerLine(r)}</span></>}
+                      reason={`outside scope (${r.serviceTier ?? 'no tier'})`}
+                    />
+                    <div className="truncate text-gray-400">{`${r.openCritical} crit · ${r.openHigh} high`}</div>
                   </li>
                 ))}
               </Group>
@@ -5825,29 +6351,27 @@ export default function CoverageDrawer({ open, onClose, opener, coverage, summar
           )}
 
           <section aria-labelledby="coverage-policy-title" className="mt-2">
-            <h3 id="coverage-policy-title" className={`${TYPE.sectionLabel} text-gray-300`}>From deployment configuration</h3>
-            <div className="mt-2 space-y-1 text-xs text-gray-300">
-              {(['critical', 'high'] as const).map(sev => {
-                const st = slaState(sev, summary);
-                const label = slaStateLabel(st);
-                return (
-                  <div key={sev} data-testid={`sla-${sev}`}>
-                    {sev === 'critical' ? 'Critical' : 'High'} SLA:{' '}
-                    {label === null
-                      ? <span>active</span>
-                      : <span className={st.kind === 'invalid' ? 'text-red-400' : 'text-gray-500'}>{label}</span>}
-                  </div>
-                );
-              })}
-              {summary.policy.map(p => (
-                <div key={p.id}>
-                  {p.id} · {p.days} days · {p.effectiveFrom} → {p.until ?? 'open-ended'}{' '}
-                  {p.pending && <span className="text-warn">pending</span>}
+            <div className="flex items-baseline justify-between gap-3">
+              <h3 id="coverage-policy-title" className={`${TYPE.sectionLabel} text-gray-300`}>Policy</h3>
+              <span className="text-xs text-gray-500">From deployment configuration</span>
+            </div>
+            <dl className="mt-2 grid grid-cols-[96px_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-xs">
+              {([
+                ['critical', 'Critical SLA', slaValue('critical', summary)],
+                ['high', 'High SLA', slaValue('high', summary)],
+                ['resolved', 'Resolved count', resolvedValue(summary)],
+                ['scope', 'Scope', { text: `${summary.scope.property} = ${summary.scope.value}`, tone: 'normal' } as PolicyValue],
+              ] as const).map(([key, label, v]) => (
+                <div key={key} className="contents">
+                  <dt className="text-gray-500">{label}</dt>
+                  <dd
+                    data-testid={`policy-value-${key}`}
+                    className={v.tone === 'error' ? 'font-semibold text-red-400' : v.tone === 'muted' ? 'text-gray-400' : 'text-gray-200'}
+                  >{v.text}</dd>
                 </div>
               ))}
-              <div className="text-gray-500">Resolved counted {resolvedCaption(summary.resolvedSince)} · scope: {summary.scope.property} = {summary.scope.value}</div>
-              <div className="text-gray-500">Archiving a repo drops its open alerts but keeps its resolved ones, which raises % closed.</div>
-            </div>
+            </dl>
+            <p className="mt-3 text-xs text-gray-500">Archiving a repository drops its open alerts but keeps its resolved ones, which raises % closed.</p>
           </section>
         </div>
       </aside>
@@ -5863,13 +6387,14 @@ export default function CoverageDrawer({ open, onClose, opener, coverage, summar
 Run: `npx jest src/lib/__tests__/unit/vuln-coverage-drawer.test.tsx --maxWorkers=3`
 Expected: PASS.
 
-Named reverts: attaching the key listener while closed fails "renders nothing and attaches no key listener while closed"; not returning focus fails "closing returns focus to the element that opened it"; rendering `openCritical` in an unmeasured row fails "never shows its stored open count"; checking `slaStatus` before `slaPolicyInvalid` (in Task 2.3) fails the invalid-policy test here.
+Named reverts: attaching the key listener while closed fails "renders nothing and attaches no key listener while closed"; not returning focus fails "closing returns focus to the element that opened it"; rendering `openCritical` in an unmeasured row fails "never shows its stored open count"; checking `slaStatus` before `slaPolicyInvalid` (in Task 2.3) fails the invalid-policy test here; deleting the subtitle fails "says which scope the drawer follows ..."; printing a policy entry id, the "pending" badge or an open-ended window again fails "has four labelled rows ... and prints no entry id and no pending badge"; taking the first listed entry instead of the latest started one fails "an active severity reads ..."; giving a row or group the card-shell class fails "only the dialog itself uses the card-shell class".
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/app/vulnerabilities/coverage-drawer.tsx src/lib/__tests__/unit/vuln-coverage-drawer.test.tsx
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: coverage and policy drawer replaces the two panels"
 ```
 
@@ -5880,19 +6405,19 @@ git commit -m "GLOOK-64: coverage and policy drawer replaces the two panels"
 - Test: `src/lib/__tests__/unit/vuln-security-header.test.tsx`
 
 **Interfaces:**
-- Consumes: `PageHeader` (`@/components/PageHeader`, unchanged) and `DataFreshness` (`@/components/runs/DataFreshness`, unchanged); `Slot` (Task 2.7); `SummaryData`, `ReposData`, `CoverageData` (Task 2.7); `OpenDrawer` (Task 2.9); `COVERAGE_LINE_MIN_H`, `TYPE` (Task 2.2); `CODEBASE_LABELS` (existing).
+- Consumes: `PageHeader` (`@/components/PageHeader`, unchanged) and `DataFreshness` (`@/components/runs/DataFreshness`, unchanged); `Slot` (Task 2.7); `SummaryData`, `ReposData`, `CoverageData` (Task 2.7); `OpenDrawer` (Task 2.9); `unmeasuredBadgeText` from `./labels` (Task 2.3); `COVERAGE_LINE_MIN_H`, `TYPE` (Task 2.2; `TYPE.link` is the underlined link class); `CODEBASE_LABELS` (existing).
 - Produces:
-  - `default export SecurityHeader` with `SecurityHeaderProps = { summary: SummaryData; repos: Slot<ReposData>; coverage: Slot<CoverageData>; codebase: CodebaseGroup; summaryStale: boolean; openDrawer: OpenDrawer; now?: Date }`.
-  - `securityMeta({ codebase, scopeValue, repoCount, teamCount })`, `staleHours(lastSuccessfulAt, now)`, `ConfigErrorBanner`, `CoverageLine` (named exports; `ConfigErrorBanner` is also used by the composer's unavailable page in Task 2.11), and the slot widths `COVERAGE_BADGE_SLOT_W` (136), `COVERAGE_EXCLUDED_SLOT_W` (72) and `COVERAGE_TAGGING_SLOT_W` (104), which the header's test imports.
+  - `default export SecurityHeader` with `SecurityHeaderProps = { summary: SummaryData; repos: Slot<ReposData>; coverage: Slot<CoverageData>; codebase: CodebaseGroup; summaryStale: boolean; openDrawer: OpenDrawer; now?: Date }`. `repos` is documented as `data.metaRepos`: the codebase's repository rows with no owning team applied (Task 2.7), so the meta line describes the codebase, not the filter. The component does not know which slot it receives; the composer (Task 2.11) passes `data.metaRepos`.
+  - `securityMeta({ codebase, scopeValue, repoCount, teamCount })`, `staleHours(lastSuccessfulAt, now)`, `ConfigErrorBanner`, `CoverageLine` (named exports; `ConfigErrorBanner` is also used by the composer's unavailable page in Task 2.11), and the slot widths `COVERAGE_BADGE_SLOT_W` (168), `COVERAGE_EXCLUDED_SLOT_W` (160) and `COVERAGE_TAGGING_SLOT_W` (120), which the header's test imports.
 
 Why page-local pieces: `PageHeader` and `DataFreshness` stay unchanged because the org and team report pages use them. `PageHeader` renders `meta` inside a `<p>`, so a banner cannot go there (a block element inside a paragraph is invalid); the stale tag, the failed banner, the config banner and the coverage line are therefore passed as `PageHeader`'s `children`. `PageHeader`'s root has `mb-6`, and the page container already spaces its children by `PAGE_GAP`, so the header is wrapped in a div with `[&>div]:mb-0` to avoid a 48px gap.
 
 Content rules (spec "What the page does"):
 - Title: `Security · {org}` (the existing title).
-- Meta line: `{Codebase label} · N {scope value} repositories · N owning teams`, for example "Backend · 11 production repositories · 4 owning teams". The scope label comes from `summary.scope.value`, never a literal. It does NOT say "synced daily". The counts come from the `repos` rows for the current Codebase and Owning team (the summary carries no repository count and its `knownTeams` ignores the codebase), so while a team is selected the line describes that team's scope. While the rows load it reads `{Codebase label} · {scope value} repositories`, so `PageHeader`'s meta slot is never empty.
+- Meta line: `{Codebase label} · N {scope value} repositories · N owning teams`, for example "Backend · 11 production repositories · 4 owning teams". The scope label comes from `summary.scope.value`, never a literal. It does NOT say "synced daily". The counts come from the `repos` prop, which the composer fills with `data.metaRepos`: the rows for the current Codebase with NO Owning team applied (the summary carries no repository count and its `knownTeams` ignores the codebase). Choosing an owning team therefore leaves "N production repositories · N owning teams" unchanged. While the rows load it reads `{Codebase label} · {scope value} repositories`, so `PageHeader`'s meta slot is never empty.
 - Stale tag: `▲ STALE · {h}H` (whole hours since the last successful sync), shown when `sync.stale`, in the `--warn` tokens.
 - Failed banner: when the latest sync failed, a red box with a "!" icon, the standing text and the first issue's message.
-- Coverage line: minimum height 22px, so it does not shrink when the unmeasured badge disappears. It shows the unmeasured badge (only when the count is above zero), Excluded and Needs tagging counts, and "Coverage & policy →". Both the badge and the link open the drawer with the clicked element as the opener. A filter change must never move a control, so each item that can change width has a reserved slot: the badge's slot (`COVERAGE_BADGE_SLOT_W`, 136px) is always rendered and is `visibility: hidden` when the count is zero, and the two counts sit in minimum-width slots (`COVERAGE_EXCLUDED_SLOT_W` 72px, `COVERAGE_TAGGING_SLOT_W` 104px, sized for two-digit counts), so the items after each keep their x position.
+- Coverage line: minimum height 22px, so it does not shrink when the unmeasured badge disappears. Left to right it shows a "COVERAGE" label (the DOM text is "Coverage"; CSS upper-cases it), the unmeasured badge (only when the count is above zero), "· N excluded by policy", "· N need tagging", and the link "Coverage & policy →", which is styled with the shared link class `TYPE.link` (underlined). The badge reads "▲ N unmeasured repos" ("▲ 1 unmeasured repo" for one); it is `unmeasuredBadgeText(n)` from `labels.ts`, the one phrase the Alerts strip and the team table print too. Both the badge and the link open the drawer with the clicked element as the opener. A filter change must never move a control, so each item that can change width has a reserved slot: the badge's slot (`COVERAGE_BADGE_SLOT_W`, 168px) is always rendered and is `visibility: hidden` when the count is zero, and the two counts sit in minimum-width slots (`COVERAGE_EXCLUDED_SLOT_W` 160px, `COVERAGE_TAGGING_SLOT_W` 120px, sized for two-digit counts), so the items after each keep their x position. The "COVERAGE" label sits before the badge slot and never moves, because nothing before it can change width.
 - "Sync history →" is the `PageHeader` action.
 
 - [ ] **Step 1: Write the failing test**
@@ -5903,6 +6428,7 @@ Content rules (spec "What the page does"):
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import SecurityHeader, { securityMeta, staleHours, ConfigErrorBanner, CoverageLine, COVERAGE_BADGE_SLOT_W, COVERAGE_EXCLUDED_SLOT_W, COVERAGE_TAGGING_SLOT_W, type SecurityHeaderProps } from '@/app/vulnerabilities/security-header';
 import { COVERAGE_LINE_MIN_H } from '@/app/vulnerabilities/dimensions';
+import { unmeasuredBadgeText } from '@/app/vulnerabilities/labels';
 import type { CoverageData, Slot } from '@/app/vulnerabilities/api-types';
 import { summaryFixture, reposFixture, REPO_ROWS, repoRow, coverageFixture, coverageRow, slot, syncInfo } from '../support/security-fixtures';
 
@@ -6044,9 +6570,9 @@ describe('CoverageLine', () => {
         needsTagging: Array.from({ length: tagging }, (_, i) => ({ ...unmeasuredRow, repoId: 200 + i })),
       }))} openDrawer={jest.fn()} />);
       expect(screen.getByTestId('coverage-excluded').style.minWidth).toBe(`${COVERAGE_EXCLUDED_SLOT_W}px`);
-      expect(screen.getByTestId('coverage-excluded').textContent).toBe(`Excluded ${excluded}`);
+      expect(screen.getByTestId('coverage-excluded').textContent).toBe(`· ${excluded} excluded by policy`);
       expect(screen.getByTestId('coverage-tagging').style.minWidth).toBe(`${COVERAGE_TAGGING_SLOT_W}px`);
-      expect(screen.getByTestId('coverage-tagging').textContent).toBe(`Needs tagging ${tagging}`);
+      expect(screen.getByTestId('coverage-tagging').textContent).toBe(`· ${tagging} need tagging`);
       unmount();
     }
   });
@@ -6054,12 +6580,25 @@ describe('CoverageLine', () => {
   it('shows the unmeasured badge only when there are unmeasured repositories, and opens the drawer from the clicked element', () => {
     const openDrawer = jest.fn();
     const { rerender } = render(<CoverageLine coverage={slot(coverageFixture({ unmeasured: [unmeasuredRow, { ...unmeasuredRow, repoId: 10 }] }))} openDrawer={openDrawer} />);
-    const badge = screen.getByRole('button', { name: /UNMEASURED/ });
-    expect(badge.textContent).toBe('▲ 2 UNMEASURED');
+    const badge = screen.getByRole('button', { name: /unmeasured/ });
+    // The one badge phrase: the Alerts strip and the team table print the same text.
+    expect(badge.textContent).toBe(unmeasuredBadgeText(2));
+    expect(badge.textContent).toBe('▲ 2 unmeasured repos');
     fireEvent.click(badge);
     expect(openDrawer).toHaveBeenCalledWith(badge);
+    rerender(<CoverageLine coverage={slot(coverageFixture({ unmeasured: [unmeasuredRow] }))} openDrawer={openDrawer} />);
+    expect(screen.getByRole('button', { name: /unmeasured/ }).textContent).toBe('▲ 1 unmeasured repo');
     rerender(<CoverageLine coverage={slot(coverageFixture())} openDrawer={openDrawer} />);
-    expect(screen.queryByRole('button', { name: /UNMEASURED/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /unmeasured/ })).toBeNull();
+  });
+
+  // Revert: delete the "Coverage" label span, or make it lower-case text.
+  it('starts with a "COVERAGE" section label (sentence case in the DOM, upper-cased by CSS), before the badge slot', () => {
+    render(<CoverageLine coverage={slot(coverageFixture())} openDrawer={jest.fn()} />);
+    const label = screen.getByText('Coverage');
+    expect(label.className).toContain('uppercase');
+    expect(screen.getByTestId('coverage-line').firstElementChild).toBe(label);
+    expect(label.compareDocumentPosition(screen.getByTestId('coverage-badge-slot')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('shows the excluded and needs-tagging counts and a "Coverage & policy →" link that opens the drawer', () => {
@@ -6068,9 +6607,10 @@ describe('CoverageLine', () => {
       excludedByPolicy: [{ ...unmeasuredRow, repoId: 1 }, { ...unmeasuredRow, repoId: 2 }, { ...unmeasuredRow, repoId: 3 }],
       needsTagging: [{ ...unmeasuredRow, repoId: 4 }],
     }))} openDrawer={openDrawer} />);
-    expect(screen.getByText('Excluded 3')).toBeTruthy();
-    expect(screen.getByText('Needs tagging 1')).toBeTruthy();
+    expect(screen.getByText('· 3 excluded by policy')).toBeTruthy();
+    expect(screen.getByText('· 1 need tagging')).toBeTruthy();
     const link = screen.getByRole('button', { name: 'Coverage & policy →' });
+    expect(link.className).toContain('underline');
     fireEvent.click(link);
     expect(openDrawer).toHaveBeenCalledWith(link);
   });
@@ -6116,6 +6656,7 @@ import PageHeader from '@/components/PageHeader';
 import DataFreshness from '@/components/runs/DataFreshness';
 import { CODEBASE_LABELS } from '@/lib/vulnerabilities/codebase-labels';
 import type { CodebaseGroup } from '@/lib/vulnerabilities/types';
+import { unmeasuredBadgeText } from './labels';
 import type { SummaryData, ReposData, CoverageData } from './api-types';
 import type { Slot } from './use-security-data';
 import type { OpenDrawer } from './coverage-drawer';
@@ -6155,12 +6696,12 @@ export function ConfigErrorBanner({ errors }: { errors?: Array<{ source: string;
 /** Slot widths, in px, sized for counts of up to two digits in the page's font. The unmeasured badge's
  * slot is always rendered, and the two counts sit in slots too, so the items after each keep their place
  * when a filter change moves a count between zero and non-zero or between one digit and two. */
-export const COVERAGE_BADGE_SLOT_W = 136;
-export const COVERAGE_EXCLUDED_SLOT_W = 72;
-export const COVERAGE_TAGGING_SLOT_W = 104;
+export const COVERAGE_BADGE_SLOT_W = 168;
+export const COVERAGE_EXCLUDED_SLOT_W = 160;
+export const COVERAGE_TAGGING_SLOT_W = 120;
 
-/** Unmeasured badge, excluded and needs-tagging counts, and the drawer link. The minimum height keeps
- * the line from shrinking when the badge disappears, and the badge's slot keeps its width. */
+/** "COVERAGE", the unmeasured badge, "· N excluded by policy · N need tagging", and the drawer link. The minimum
+ * height keeps the line from shrinking when the badge disappears, and the badge's slot keeps its width. */
 export function CoverageLine({ coverage, openDrawer }: { coverage: Slot<CoverageData>; openDrawer: OpenDrawer }) {
   const c = coverage.data;
   const unmeasured = c?.unmeasured.length ?? 0;
@@ -6170,6 +6711,7 @@ export function CoverageLine({ coverage, openDrawer }: { coverage: Slot<Coverage
       className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-400"
       style={{ minHeight: COVERAGE_LINE_MIN_H }}
     >
+      <span className="shrink-0 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-gray-500">Coverage</span>
       <span
         data-testid="coverage-badge-slot"
         className="inline-flex shrink-0"
@@ -6181,18 +6723,18 @@ export function CoverageLine({ coverage, openDrawer }: { coverage: Slot<Coverage
             onClick={e => openDrawer(e.currentTarget)}
             className={`inline-flex items-center gap-1 border border-warn-line bg-warn-bg text-warn px-1.5 py-0.5 font-semibold ${TYPE.badge}`}
           >
-            ▲ {unmeasured} UNMEASURED
+            {unmeasuredBadgeText(unmeasured)}
           </button>
         )}
       </span>
       {c && (
         <>
-          <span data-testid="coverage-excluded" className="shrink-0" style={{ minWidth: COVERAGE_EXCLUDED_SLOT_W }}>Excluded {c.excludedByPolicy.length}</span>
-          <span data-testid="coverage-tagging" className="shrink-0" style={{ minWidth: COVERAGE_TAGGING_SLOT_W }}>Needs tagging {c.needsTagging.length}</span>
+          <span data-testid="coverage-excluded" className="shrink-0" style={{ minWidth: COVERAGE_EXCLUDED_SLOT_W }}>· {c.excludedByPolicy.length} excluded by policy</span>
+          <span data-testid="coverage-tagging" className="shrink-0" style={{ minWidth: COVERAGE_TAGGING_SLOT_W }}>· {c.needsTagging.length} need tagging</span>
         </>
       )}
       {coverage.errorText && <span className="text-red-400">{coverage.errorText}</span>}
-      <button type="button" onClick={e => openDrawer(e.currentTarget)} className="text-accent-light hover:text-accent-lighter">
+      <button type="button" onClick={e => openDrawer(e.currentTarget)} className={TYPE.link}>
         Coverage &amp; policy →
       </button>
     </div>
@@ -6201,6 +6743,7 @@ export function CoverageLine({ coverage, openDrawer }: { coverage: Slot<Coverage
 
 export interface SecurityHeaderProps {
   summary: SummaryData;
+  /** `data.metaRepos`: the codebase's repository rows with no owning team applied, so the meta line describes the codebase. */
   repos: Slot<ReposData>;
   coverage: Slot<CoverageData>;
   codebase: CodebaseGroup;
@@ -6270,13 +6813,14 @@ export default function SecurityHeader({ summary, repos, coverage, codebase, sum
 Run: `npx jest src/lib/__tests__/unit/vuln-security-header.test.tsx src/lib/__tests__/unit/data-freshness.test.tsx --maxWorkers=3 && npx tsc --noEmit`
 Expected: PASS (`data-freshness.test.tsx` is included to prove `PageHeader` and `DataFreshness` are untouched); `tsc` clean (the old composer and its panels are still in place until Task 2.11).
 
-Named reverts: removing `minHeight` from the coverage line fails "keeps its 22px minimum height in every state"; rendering the badge only when the count is above zero (no slot) fails "reserves the badge slot in every state"; dropping the count slots' `minWidth` fails "the excluded and needs-tagging counts sit in slots with a minimum width"; putting the banner in `meta` fails "it is not inside the meta paragraph" (`closest('p')` would find `PageHeader`'s `<p>`); hard-coding "production" in the meta fails "the scope label follows summary.scope.value".
+Named reverts: removing `minHeight` from the coverage line fails "keeps its 22px minimum height in every state"; rendering the badge only when the count is above zero (no slot) fails "reserves the badge slot in every state"; dropping the count slots' `minWidth` fails "the excluded and needs-tagging counts sit in slots with a minimum width"; putting the banner in `meta` fails "it is not inside the meta paragraph" (`closest('p')` would find `PageHeader`'s `<p>`); hard-coding "production" in the meta fails "the scope label follows summary.scope.value"; deleting the "Coverage" label span (or making it lower-case text) fails "starts with a \"COVERAGE\" section label ..."; printing any badge phrase other than `unmeasuredBadgeText(n)` (the old "▲ N UNMEASURED", say) fails "shows the unmeasured badge only when there are unmeasured repositories ..."; dropping `TYPE.link` from the "Coverage & policy →" button fails "shows the excluded and needs-tagging counts and a \"Coverage & policy →\" link ..." (it checks for `underline`). That the line counts the codebase and not the filter is a composer-level behaviour: Task 2.11's "header meta line" test pins it, because this component only counts the rows it is given.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/app/vulnerabilities/security-header.tsx src/lib/__tests__/unit/vuln-security-header.test.tsx
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: Security page header children (meta, stale tag, failed banner, coverage line)"
 ```
 
@@ -6295,18 +6839,18 @@ git commit -m "GLOOK-64: Security page header children (meta, stale tag, failed 
 - Consumes: everything from Tasks 2.1 to 2.10; `DEFAULT_ALERT_LIST`, `SecurityUrl`, `AlertListController` (Tasks 2.4, 2.6); `SecurityData` (Task 2.7).
 - Produces:
   - `SecurityViewProps` (in `view-props.ts`, shape in the Wave 2 public interface).
-  - `viewProps(over?)` in `security-fixtures.ts`: a complete `SecurityViewProps` for slot tests (healthy data in every slot, `jest.fn()` for every handler).
+  - `viewProps(over?)` in `security-fixtures.ts`: a complete `SecurityViewProps` for slot tests (healthy data in every slot, including `data.metaRepos`, which holds the same rows as `data.repos`, and `data.keys.metaRepos`; `jest.fn()` for every handler).
   - The six slot modules, each `export default function X(props: SecurityViewProps)`, rendering reserved-height boxes with the `data-testid`s of the slot table (`kpi-tiles`, `ownership-card` with `ownership-card-body`, `trend-card` with `trend-plot`, `alerts-strip`, `repo-rail`, `alert-list` with `alert-list-rows`). Waves 3 and 4 replace the body of each; the `data-testid` and the inline height from `dimensions.ts` must survive on the element the slot table names (the body or plot for the ownership and trend cards, never the outer card).
   - `default export VulnerabilitiesContent` (unchanged name and import path; `page.tsx` is untouched).
 
 Composition (what the composer owns):
 - the page container: max width `PAGE_MAX_W`, padding `PAGE_PAD`, a column with gap `PAGE_GAP`; no ancestor of the sticky bar sets `overflow`, or `position: sticky` would silently stop working;
-- `<SecurityHeader>`, then `<FilterBar>` (a direct child of the container, a sibling of the view content), then the view panel (`role="tabpanel"`), then `<CoverageDrawer>`;
+- `<SecurityHeader>` (its `repos` prop is `data.metaRepos`, the codebase-only rows, so the meta line does not change when an owning team is chosen), then `<FilterBar>` (a direct child of the container, a sibling of the view content), then the view panel (`role="tabpanel"`), then `<CoverageDrawer>`;
 - Overview: `<KpiTiles/> <OwnershipCard/> <TrendCard/>`; Alerts: `<AlertsStrip/>` above the card shell holding `<RepoRail/> <AlertList/>`;
 - the scroll-up-only rule on a view switch (a layout effect on `view`, skipped on first mount so Back is covered too);
-- the full-page states carried over from today: summary failing (never half a page of stale numbers, even with `keepPreviousData` data in hand), the unknown-team recovery ("Clear team filter", checked before the plain error), and the "unavailable" page with the config banner and the failed-sync line.
+- the full-page states carried over from today: summary failing (never half a page of stale numbers, even with `keepPreviousData` data in hand), the unknown-team recovery ("Clear team filter", checked before the plain error; the button is styled with the shared link class `TYPE.link`, underlined), and the "unavailable" page with the config banner and the failed-sync line.
 
-The Alerts tab count is `scopeOpenCount(rows, severity, effectiveRepo)` over the `repos` rows. The "A date…" pre-fill is the current baseline's `takenOn` for `kSev`, else today minus 7 days (UTC); the spec says only "pre-filled with a date", so this is a choice, reported.
+The Alerts tab count is `scopeOpenCount(rows, severity, effectiveRepo)` over the `repos` rows (the team-scoped ones, not `metaRepos`: the count follows the Owning team), and the tab prints it as "N open". The "A date…" pre-fill is the current baseline's `takenOn` for `kSev`, else today minus 7 days (UTC); the spec says only "pre-filled with a date", so this is a choice, reported.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -6321,7 +6865,7 @@ import {
   KPI_ROW_H, OWNERSHIP_BODY_H, TREND_PLOT_H, ALERTS_STRIP_H, ALERTS_CARD_H, ALERT_LIST_H, RAIL_W,
   PAGE_MAX_W, PAGE_PAD, PAGE_GAP, FILTER_BAR_H, Z,
 } from '@/app/vulnerabilities/dimensions';
-import { SwrFresh, fetchRouter, summaryFixture, coverageFixture, coverageRow, syncInfo } from '../support/security-fixtures';
+import { SwrFresh, fetchRouter, summaryFixture, coverageFixture, coverageRow, reposFixture, REPO_ROWS, syncInfo } from '../support/security-fixtures';
 
 jest.mock('next/navigation', () => require('../support/security-nav-mock').createNavigationMock());
 const nav = () => jest.requireMock('next/navigation') as any;
@@ -6407,20 +6951,40 @@ describe('views', () => {
   });
 });
 
+describe('header meta line', () => {
+  // The repos route answers a team request with only that team's repositories, as the server does.
+  const byTeam = (url: URL) => {
+    const team = url.searchParams.get('team');
+    return { body: reposFixture(team ? REPO_ROWS.filter(r => r.team === team) : REPO_ROWS, team ? { codebase: 'backend', team } : { codebase: 'backend' }) };
+  };
+
+  // Revert: build the line from `data.repos` (the team-scoped rows) instead of `data.metaRepos`.
+  it('describes the codebase, not the filter: choosing an owning team leaves "N repositories · N owning teams" alone, and sends the codebase-only request', async () => {
+    const f = mount('', { repos: byTeam });
+    expect(await screen.findByText('Backend · 4 production repositories · 3 owning teams')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Owning team'), { target: { value: 'Search' } });
+    await waitFor(() => expect(f.mock.calls.some(([u]) => String(u).includes('/repos?') && String(u).includes('team=Search'))).toBe(true));
+    // Let every response, the team-scoped rows included, arrive and render; the line must still count the whole codebase.
+    await act(async () => { await Promise.all(f.mock.results.map(r => r.value)); });
+    expect(screen.getByText('Backend · 4 production repositories · 3 owning teams')).toBeTruthy();
+    expect(f.mock.calls.some(([u]) => String(u).endsWith('/repos?codebase=backend'))).toBe(true);
+  });
+});
+
 describe('Alerts tab count', () => {
   it('sums open counts under Severity over the repos rows, including the unmeasured row\'s stored count', async () => {
     mount('');
     const count = await screen.findByTestId('alerts-tab-count');
-    await waitFor(() => expect(count.textContent).toBe('13'));   // critical 10 + high 3
+    await waitFor(() => expect(count.textContent).toBe('13 open'));   // critical 10 + high 3
     fireEvent.change(screen.getByLabelText('Severity'), { target: { value: 'critical' } });
-    await waitFor(() => expect(screen.getByTestId('alerts-tab-count').textContent).toBe('10'));
+    await waitFor(() => expect(screen.getByTestId('alerts-tab-count').textContent).toBe('10 open'));
     fireEvent.change(screen.getByLabelText('Severity'), { target: { value: 'high' } });
-    await waitFor(() => expect(screen.getByTestId('alerts-tab-count').textContent).toBe('3'));
+    await waitFor(() => expect(screen.getByTestId('alerts-tab-count').textContent).toBe('3 open'));
   });
 
   it('narrows to the selected repository', async () => {
     mount('repo=acme%2Fledger');
-    await waitFor(() => expect(screen.getByTestId('alerts-tab-count').textContent).toBe('2'));
+    await waitFor(() => expect(screen.getByTestId('alerts-tab-count').textContent).toBe('2 open'));
   });
 });
 
@@ -6528,7 +7092,7 @@ describe('coverage drawer from the header', () => {
     mount('', {
       coverage: { body: coverageFixture({ unmeasured: [coverageRow({ repoId: 9, openCritical: 4, detail: 'x' })] }) },
     });
-    const badge = await screen.findByRole('button', { name: /UNMEASURED/ });
+    const badge = await screen.findByRole('button', { name: /unmeasured/ });
     fireEvent.click(badge);
     expect(screen.getByRole('dialog')).toBeTruthy();
     fireEvent.keyDown(document, { key: 'Escape' });
@@ -6674,7 +7238,7 @@ import type { OpenDrawer } from './coverage-drawer';
 export interface SecurityViewProps {
   /** The scoped summary (codebase, team, baseline); always available:true here. */
   summary: SummaryData;
-  /** Every data slot: summary, teamSummary, coverage, repos, trend, sparkline, alerts, repoStatus. */
+  /** Every data slot: summary, teamSummary, coverage, repos, metaRepos, trend, sparkline, alerts, repoStatus. */
   data: SecurityData;
   /** URL values and the handlers that write them. */
   url: SecurityUrl;
@@ -6768,7 +7332,7 @@ export default function AlertList(_props: SecurityViewProps) {
 }
 ```
 
-Then `viewProps` in the fixtures file. It needs types from this task and from Tasks 2.4 to 2.7, which is why it is added here and not in Task 2.5. In `src/lib/__tests__/support/security-fixtures.ts`, add these three imports below the existing ones:
+Then `viewProps` in the fixtures file. It needs types from this task and from Tasks 2.4 to 2.7, which is why it is added here and not in Task 2.5. Its `data` carries every slot Task 2.7 defines, `metaRepos` included (the same rows as `repos`), and its `keys` carry the seven key names plus `alerts`. In `src/lib/__tests__/support/security-fixtures.ts`, add these three imports below the existing ones:
 
 ```ts
 // add to src/lib/__tests__/support/security-fixtures.ts (below the existing imports)
@@ -6790,9 +7354,9 @@ export function viewProps(over: Partial<SecurityViewProps> = {}): SecurityViewPr
   const summary = summaryFixture();
   const data: SecurityData = {
     summary: slot(summary), teamSummary: slot(summary), coverage: slot(coverageFixture()),
-    repos: slot(reposFixture(REPO_ROWS)), trend: slot(trendFixture()), sparkline: slot(trendFixture()),
+    repos: slot(reposFixture(REPO_ROWS)), metaRepos: slot(reposFixture(REPO_ROWS)), trend: slot(trendFixture()), sparkline: slot(trendFixture()),
     alerts: slot(alertsFixture()), repoStatus: 'none', effectiveRepo: null, effectiveList: DEFAULT_ALERT_LIST,
-    keys: { summary: '', teamSummary: '', coverage: '', repos: '', trend: '', sparkline: '', alerts: null },
+    keys: { summary: '', teamSummary: '', coverage: '', repos: '', metaRepos: '', trend: '', sparkline: '', alerts: null },
   };
   return {
     summary,
@@ -6837,7 +7401,7 @@ import AlertsStrip from './alerts-strip';
 import RepoRail from './repo-rail';
 import AlertList from './alert-list';
 import type { SecurityViewProps } from './view-props';
-import { ALERTS_CARD_H, PAGE_GAP, PAGE_MAX_W, PAGE_PAD, RAIL_W } from './dimensions';
+import { ALERTS_CARD_H, PAGE_GAP, PAGE_MAX_W, PAGE_PAD, RAIL_W, TYPE } from './dimensions';
 
 // Longhands, not the `padding` shorthand: each side is then an inspectable inline style.
 const PAGE_PADDING = {
@@ -6888,7 +7452,7 @@ export default function VulnerabilitiesContent() {
           <p className="text-sm text-red-400 mt-2">{info.error}</p>
           <p className="text-xs text-gray-500 mt-1">Known teams: {info.known_teams.join(', ')}</p>
           {url.team && (
-            <button className="text-xs text-accent-light mt-3 inline-block" onClick={() => url.setTeam(null)}>
+            <button className={`text-xs ${TYPE.link} mt-3 inline-block`} onClick={() => url.setTeam(null)}>
               Clear team filter
             </button>
           )}
@@ -6926,7 +7490,7 @@ export default function VulnerabilitiesContent() {
     <div data-testid="security-page" className="mx-auto flex flex-col" style={{ maxWidth: PAGE_MAX_W, ...PAGE_PADDING, gap: PAGE_GAP }}>
       <SecurityHeader
         summary={s}
-        repos={data.repos}
+        repos={data.metaRepos}
         coverage={data.coverage}
         codebase={url.codebase}
         summaryStale={summary.stale}
@@ -6997,13 +7561,14 @@ Expected: PASS.
 Run: `npx tsc --noEmit && npx jest --maxWorkers=3`
 Expected: `tsc` clean; the full suite PASS (the surviving old modules `team-pivot`, `trend-chart`, `alerts-table` and their tests are untouched and still pass).
 
-Named reverts: moving a fixed height back onto the outer `ownership-card` or `trend-card` (leaving the inner body or plot without one) fails "Overview stacks the KPI row ..."; dropping `useLayoutEffect`'s `prevView` guard fails "does not scroll on first mount"; clamping `keepTopDelta` wrongly (allowing positive deltas) fails "never scrolls down"; setting `overflow-hidden` on the page container fails "the composer's own ancestors set no overflow"; moving the bar into the view panel fails "a direct child of the container".
+Named reverts: moving a fixed height back onto the outer `ownership-card` or `trend-card` (leaving the inner body or plot without one) fails "Overview stacks the KPI row ..."; dropping `useLayoutEffect`'s `prevView` guard fails "does not scroll on first mount"; clamping `keepTopDelta` wrongly (allowing positive deltas) fails "never scrolls down"; setting `overflow-hidden` on the page container fails "the composer's own ancestors set no overflow"; moving the bar into the view panel fails "a direct child of the container"; passing `data.repos` instead of `data.metaRepos` to `<SecurityHeader>` fails "describes the codebase, not the filter ..." (choosing an owning team would shrink the meta line to that team's repositories); printing the Alerts tab count without the "open" unit fails "sums open counts under Severity over the repos rows ..." (it expects "13 open", "10 open" and "3 open"); dropping `TYPE.link` from "Clear team filter" is not caught by a test here, only by review.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add -A src/app/vulnerabilities src/lib/__tests__/unit src/lib/__tests__/support
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: thin Security page composer, six view slots, old composer tests retired"
 ```
 
@@ -7014,44 +7579,45 @@ Every existing test below is under `src/lib/__tests__/unit/`. "Wave 3" and "Wave
 | Old test file | Fate | Intent that must survive, and where it lives now |
 |---|---|---|
 | `vuln-content-b1.test.tsx` | Deleted in 2.11 | Header shows the org: `vuln-security-header` "shows the title with the org...". The alerts subtitle "filtered by the codebase chips and team row above" is retired with its copy (v7 has no such line). **Wave 3** `kpi-tiles`: the open-critical delta is red for a positive delta, green for a negative one and grey for zero (`deltaClass` in `format.ts`); the "Resolved" tile shows the † marker and its title "Includes N carried over from imported CSV history (archived repo with no alert data)" when `carriedResolved > 0` and no marker at 0. **Wave 4** `alert-list`: the list dims and shows "Updating…" while `data.alerts.stale` is true, and neither otherwise. |
-| `vuln-content-config-errors.test.tsx` | Deleted in 2.11 | Banner absent / startup entry / sync-sourced entry "clears after the next successful sync (as of ...)": `vuln-security-header` "ConfigErrorBanner (carried over)". Banner on the unavailable page: `vuln-security-page` "the unavailable page ...". **Wave 3** `kpi-tiles`: an empty policy reads "No SLA policy yet" and an invalid policy never reads as empty, via `slaState`/`slaStateLabel` (new copy: "SLA policy can't be read"). |
+| `vuln-content-config-errors.test.tsx` | Deleted in 2.11 | Banner absent / startup entry / sync-sourced entry "clears after the next successful sync (as of ...)": `vuln-security-header` "ConfigErrorBanner (carried over)". Banner on the unavailable page: `vuln-security-page` "the unavailable page ...". **Wave 3** `kpi-tiles`: an empty policy reads "No SLA policy yet" and an invalid policy never reads as empty, via `slaState` and `slaStateLabel(st, { withSla: false })` (new copy on the SLA tile: an invalid policy shows a red "!" icon and "Policy error", with the full sentence "SLA policy can't be read: ..." in the title; a pending policy reads "Starts {date}"). |
 | `vuln-content-error.test.tsx` | Deleted in 2.11 | Unknown-team page with the known teams and "Clear team filter"; summary error with data in hand fails the page; unknown-team page wins over the plain error; summary error with no data: `vuln-security-page` "full-page states carried over from today". A failing alerts request shows its error instead of "Loading…" forever: `vuln-use-security-data` "a plain alerts failure ..." (slot level) and **Wave 4** `alert-list` (renders `data.alerts.errorText` inside the card, controls still mounted). The search input and its typed value survive a filter change while the next fetch is pending: **Wave 4** `alert-list` (local typed value plus a debounce into `list.setQuery`). |
 | `vuln-content-pivot-unfiltered.test.tsx` | Deleted in 2.11 | The team table is never scoped to the team, and with no team only one summary request is made: `vuln-use-security-data` "default scope ..." and "with a team ...". **Wave 3** `ownership-card`/`kpi-tiles`: with a team selected the KPI shows the team-scoped number (`data.summary`) while the table still lists every team (`data.teamSummary`); the table's change column follows the unfiltered response; while `data.teamSummary` is still loading (deep link with a team) the table falls back to `data.summary`; if the unfiltered request errors the table shows the error and the rest of the page still renders. |
 | `vuln-content-repo-reset.test.tsx` | Deleted in 2.11 | The selected repository is now URL state. Changing team or codebase clears it in the same write and the next alerts request carries no repo and offset 0: `vuln-security-hooks` ("setCodebase ...", "setTeam ...", "a scope change resets the page in the SAME render"), `vuln-use-security-data` "a scope change resets the page ...", `vuln-security-page` "changing Codebase clears the selected repository ...". |
-| `vuln-content-resolved-caption.test.tsx` | Deleted in 2.11 | **Wave 3** `kpi-tiles`: "Resolved critical since <date>" / "all time" (spec copy: "N dismissed · all time") / invalid shows "—" for value, % closed and dismissed; the `vs <date>` baseline caption on the open and new/resolved/reopened tiles; "N repos not in baseline" on its own line (caption unchanged); the unavailable-baseline caption in its new copy ("No earlier measurement yet" for a null baseline, "No measurement on or before {date}" otherwise; the old "no measurement for this view before {date}" is retired); the null-total guard (an available delta with `total: null`); the "other ±N" suffix, truncated to one line with the full text in `title`; no † when `resolved` is null; the tiles keep a fixed shape (caption slots always present as an aria-hidden non-breaking space, the figure line truncates with a `title`). The `resolvedCaption` and `deltaBaselineCaption` helpers stay in `format.ts` (`vuln-format.test.ts` is unchanged). |
+| `vuln-content-resolved-caption.test.tsx` | Deleted in 2.11 | **Wave 3** `kpi-tiles`: "Resolved critical since <date>" / "all time" (spec copy: "N dismissed · all time") / invalid shows "—" for value, % closed and dismissed; the baseline date, now printed as a display date ("Sep 29", or "Dec 31, 2025" for another year) in the open tile's change sentence and in the since-baseline tile's label, with the ISO date only in that label's `title` and NO `vs <date>` caption on the since-baseline tile; "N repos not in baseline" on its own line (caption unchanged); the unavailable-baseline caption in its new copy ("No earlier measurement yet" for a null baseline, "No measurement on or before {date}" otherwise; the old "no measurement for this view before {date}" is retired); the null-total guard (an available delta with `total: null`); the "other ±N" suffix, truncated to one line with the full text in `title`; no † when `resolved` is null; the tiles keep a fixed shape (caption slots always present as an aria-hidden non-breaking space, the figure line truncates with a `title`). The `resolvedCaption` and `deltaBaselineCaption` helpers stay in `format.ts`; Task 2.3 changes them to print display dates ("since Jan 8, 2020", "vs Sep 29") and updates `vuln-format.test.ts` accordingly. |
 | `vuln-content-scroll.test.tsx` | Deleted in 2.11 | Every control writes with `scroll:false`: `vuln-security-page` "filters write the URL without scrolling ..." (Codebase, Owning team, Severity, Compare to) plus `vuln-security-state` "every key is declared scroll:false". A team row click: `vuln-security-hooks` "selectTeamRow ..." and **Wave 3** `ownership-card` (clicking a row calls `url.selectTeamRow`). The range control: **Wave 3** `trend-card` (calls `url.setRange`). |
 | `vuln-content-team-dropdown.test.tsx` | Deleted in 2.11 | Choosing a team puts `team=` into the summary, coverage, repos and alerts requests: `vuln-security-page` "choosing a team puts team=<name> into ...". "All owning teams" clears the filter: `vuln-filter-bar` "Codebase, Owning team and Severity" (value `''` gives `null`). The select shows the URL's team: `vuln-security-page` "the Owning team select shows the team already in the URL". |
 | `vuln-content-team-line.test.tsx` | Deleted in 2.11 (the line no longer exists in v7) | Selecting or clearing a team never shifts the layout, and a long name truncates with its title: `vuln-filter-bar` "the bar keeps the same height ..." and "every select has a fixed inline width ..."; `vuln-security-page` "the bar keeps its height when a team is chosen". Clearing: `vuln-filter-bar` "Reset filters". |
 | `vuln-content-trend-colors.test.tsx` | Deleted in 2.11 | **Wave 3** `trend-card`: colours are computed from the UNFILTERED series (`assignTeamColors(data.trend.data.series)`) and passed with the team-filtered series, so a team keeps its colour when the filter narrows the chart. |
 | `vuln-content-trend-range.test.tsx` | Deleted in 2.11; `trendSince` and `TrendRange` moved from `vulnerabilities-content.tsx` to `security-state.ts` | `trendSince` arithmetic: `vuln-security-state` "trendSince and sparklineSince". Default sends no `since`; a range sends `since` and sets `range` in the URL: `vuln-use-security-data` ("range=all ...", "the sparkline is fixed at 90 days ...") and **Wave 3** `trend-card` (the range select calls `url.setRange`). |
 | `vuln-alerts-keep-previous-data.test.tsx` | Deleted in 2.11 | **Wave 4** `alert-list`: the search input stays mounted and focused across a filter-driven refetch (the key keeps `keepPreviousData` in `use-security-data`; the list must not unmount its input while `data.alerts.stale` is true or `data.alerts.loading` is true). |
-| `vuln-coverage-panel.test.tsx` | Deleted in 2.11 with `coverage-panel.tsx` | A `dependabot-off` row reads "Dependabot off" and an `error` row shows its detail: `vuln-coverage-drawer` "a dependabot-off row reads ...". The old list title "Unmeasured (Dependabot status error or off)" is retired; the drawer's group is "Unmeasured · N". |
-| `vuln-policy-panel.test.tsx` | Deleted in 2.11 with `policy-panel.tsx` | Resolved caption (date / all time / "since —"), scope caption, empty vs invalid policy, an invalid policy never shows "No SLA policy yet": `vuln-coverage-drawer` "policy (From deployment configuration)". Copy changes: invalid text is now "SLA policy can't be read" (was "SLA policy configuration is invalid — see the error above"); the "high · SLA not yet active" line is replaced by one SLA line per severity. |
+| `vuln-coverage-panel.test.tsx` | Deleted in 2.11 with `coverage-panel.tsx` | A `dependabot-off` row reads "Dependabot off" and an `error` row shows its detail: `vuln-coverage-drawer` "a dependabot-off row reads ...". The old list title "Unmeasured (Dependabot status error or off)" is retired; the drawer's group header reads "Unmeasured", "N repos" and the summary "open counts unknown". The wording itself is now `unmeasuredReason` in `labels.ts`, shared with the Repositories band and the rail (test "uses the one unmeasured wording ..."). |
+| `vuln-policy-panel.test.tsx` | Deleted in 2.11 with `policy-panel.tsx` | Resolved caption (date / all time / unreadable date), scope caption, empty vs invalid policy, an invalid policy never shows "No SLA policy yet": `vuln-coverage-drawer` `policy ("From deployment configuration")` (the Resolved count and Scope rows, the "No SLA policy yet" case and the unreadable-policy case). Copy changes: the invalid SLA text is now the red "! Can't be read · check the SLA settings in the deployment config" (was "SLA policy configuration is invalid — see the error above"), and the unreadable resolved-count date has its own red message; the "high · SLA not yet active" line is replaced by one labelled row per severity ("N days · starts {date}" for a pending one); the policy has four labelled rows and prints no entry id. |
 | `vuln-owning-team-label.test.tsx` | Kept; not broken by Wave 2 | Its `TeamPivot` half is **Wave 3**'s to move when `team-pivot.tsx` is replaced; its `AlertsTable` half is retired with `alerts-table.tsx` in **Wave 4**. The dropdown's "Owning team" label and "All owning teams" option are now covered by `vuln-filter-bar`. |
 | `url-state-hook.test.ts`, `url-state-serialize.test.ts` | Unchanged | `url-state.ts` needs no change (spec section 5); they run in the exit check. |
 | `data-freshness.test.tsx` | Unchanged | Guards that `PageHeader` and `DataFreshness` are untouched. |
 | `vuln-series-contrast.test.ts`, `vuln-trend-colors-css.test.ts`, `chart-tokens-css.test.ts` | Unchanged | The `--vuln-series-*` and `--chart-*` tokens are not touched. **Wave 3** swaps `trend-chart.tsx` for `trend-card.tsx` and `sparkline.tsx` in `chart-tokens-css.test.ts`'s `REFERENCING_FILES` and in `chart-no-literal-colors.test.ts`'s `EXTRA` list and exact-list assertion. |
-| `vuln-team-pivot.test.tsx`, `vuln-trend-chart.test.tsx`, `vuln-alerts-table.test.tsx` | Unchanged in Wave 2 | Their modules stay until Waves 3 and 4 replace them. **Wave 3** carries the `carried-resolved marker and footnote` describe of `vuln-team-pivot.test.tsx` (the † marker and footnote, the ownership card's job) and the overdue-column-per-SLA-state cases to `ownership-card`. **Wave 4** carries the `time chips disabled with a hint while no SLA is active` describe of `vuln-alerts-table.test.tsx` (the toggles' disabled-with-hint behaviour, now from `slaState`) and the mutual-exclusion case to `alert-list`. |
+| `vuln-team-pivot.test.tsx`, `vuln-trend-chart.test.tsx`, `vuln-alerts-table.test.tsx` | Unchanged in Wave 2, except five date expectations in `vuln-team-pivot.test.tsx` (Task 2.3: the old pivot prints its captions through `resolvedCaption` and `deltaBaselineCaption`, which now read display dates) | Their modules stay until Waves 3 and 4 replace them. **Wave 3** carries the `carried-resolved marker and footnote` describe of `vuln-team-pivot.test.tsx` (the † marker and footnote, the ownership card's job) and the overdue-column-per-SLA-state cases to `ownership-card`. **Wave 4** carries the `time chips disabled with a hint while no SLA is active` describe of `vuln-alerts-table.test.tsx` (the toggles' disabled-with-hint behaviour, now from `slaState`) and the mutual-exclusion case to `alert-list`. |
 
-New test files this wave adds: `vuln-security-tokens-css`, `vuln-warn-contrast`, `vuln-security-dimensions`, `vuln-sla-state`, `vuln-security-state`, `vuln-security-support`, `vuln-security-hooks`, `vuln-use-security-data`, `vuln-filter-bar`, `vuln-coverage-drawer`, `vuln-security-header`, `vuln-security-page`, `vuln-security-view-props`.
+New test files this wave adds: `vuln-security-tokens-css`, `vuln-warn-contrast`, `vuln-security-dimensions`, `vuln-sla-state`, `vuln-labels`, `vuln-security-state`, `vuln-security-support`, `vuln-security-hooks`, `vuln-use-security-data`, `vuln-filter-bar`, `vuln-coverage-drawer`, `vuln-security-header`, `vuln-security-page`, `vuln-security-view-props`.
 
 ### Wave 2 exit check
 
 All commands run in the repository root.
 
 1. The wave's own tests:
-   `npx jest src/lib/__tests__/unit/vuln-security-tokens-css.test.ts src/lib/__tests__/unit/vuln-warn-contrast.test.ts src/lib/__tests__/unit/vuln-security-dimensions.test.ts src/lib/__tests__/unit/vuln-sla-state.test.ts src/lib/__tests__/unit/vuln-security-state.test.ts src/lib/__tests__/unit/vuln-security-support.test.tsx src/lib/__tests__/unit/vuln-security-hooks.test.tsx src/lib/__tests__/unit/vuln-use-security-data.test.tsx src/lib/__tests__/unit/vuln-filter-bar.test.tsx src/lib/__tests__/unit/vuln-coverage-drawer.test.tsx src/lib/__tests__/unit/vuln-security-header.test.tsx src/lib/__tests__/unit/vuln-security-page.test.tsx src/lib/__tests__/unit/vuln-security-view-props.test.tsx --maxWorkers=3`
+   `npx jest src/lib/__tests__/unit/vuln-security-tokens-css.test.ts src/lib/__tests__/unit/vuln-warn-contrast.test.ts src/lib/__tests__/unit/vuln-security-dimensions.test.ts src/lib/__tests__/unit/vuln-sla-state.test.ts src/lib/__tests__/unit/vuln-labels.test.ts src/lib/__tests__/unit/vuln-security-state.test.ts src/lib/__tests__/unit/vuln-security-support.test.tsx src/lib/__tests__/unit/vuln-security-hooks.test.tsx src/lib/__tests__/unit/vuln-use-security-data.test.tsx src/lib/__tests__/unit/vuln-filter-bar.test.tsx src/lib/__tests__/unit/vuln-coverage-drawer.test.tsx src/lib/__tests__/unit/vuln-security-header.test.tsx src/lib/__tests__/unit/vuln-security-page.test.tsx src/lib/__tests__/unit/vuln-security-view-props.test.tsx --maxWorkers=3`
 2. The unchanged guards this wave could disturb:
    `npx jest src/lib/__tests__/unit/url-state-hook.test.ts src/lib/__tests__/unit/url-state-serialize.test.ts src/lib/__tests__/unit/data-freshness.test.tsx src/lib/__tests__/unit/chart-tokens-css.test.ts src/lib/__tests__/unit/vuln-trend-colors-css.test.ts src/lib/__tests__/unit/vuln-series-contrast.test.ts src/lib/__tests__/unit/logger-enforcement.test.ts --maxWorkers=3`
-3. Types and the full suite: `npx tsc --noEmit` then `npx jest --maxWorkers=3` (all suites pass; CI uses 3 workers).
+3. Types and the full suite: `npx tsc --noEmit` then `npx jest --maxWorkers=3` (all suites pass; CI uses 3 workers). With Waves 1 and 2 applied in order the full run reads 210 suites and 2401 tests (Wave 1 alone reads 210 suites and 2219 tests). A different count means a different tree.
 4. Production build, from a clean cache: `rm -rf .next && npm run build` (the new files must not break `page.tsx`'s default-only export rule; `page.tsx` itself is unchanged).
-5. The internal-name guard on the whole wave: `: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff origin/main...HEAD | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1` succeeds (grep finds nothing). `INTERNAL_NAMES` is the maintainers' private pattern of company, host and people names and real policy values; it lives in the implementer's environment and is never written in this plan or in the repository. New files use only `acme/...`, Payments, Search and Platform.
+5. The internal-name guard on the whole wave: `: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"` then `git diff origin/main...HEAD | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }` prints nothing and the shell stays open. `INTERNAL_NAMES` is the maintainers' private pattern of company, host and people names and real policy values; it lives in the implementer's environment and is never written in this plan or in the repository. New files use only `acme/...`, Payments, Search and Platform.
 6. Headless-Chrome shell measurement (the harness lives outside the repository, as today). At 1024px and 1440px, in the default dark theme and one light theme, against `npm run dev:mock`, check on `/vulnerabilities` and `/vulnerabilities?view=alerts`:
-   - the sticky bar is 84px tall in every state: filters at defaults, every filter non-default, the date input shown and hidden, "Reset filters" shown and hidden; its top is 0 after scrolling and it paints above the scrolling content;
+   - the sticky bar is 94px tall in every state and through every interaction: filters at defaults, every filter non-default, the date input shown and hidden, "Reset filters" shown and hidden, and after each filter change and each view switch; its top is 0 after scrolling and it paints above the scrolling content;
+   - the four captions "Codebase", "Owning team", "Severity" and "Compare to" are present above their selects and render upper-case (read the computed `text-transform`, or the rendered text, not the DOM string, which stays sentence case);
+   - no filter control and no tab slides: the x position of each of the four selects, the date slot, the "Reset filters" slot and each view tab is the same before and after every filter change, and the Alerts tab does not change width when its "N open" count arrives or changes (as long as the text fits its 64px slot);
    - no horizontal scroll: `document.documentElement.scrollWidth <= window.innerWidth`;
    - no ancestor of the sticky bar, up to `html` and including the app shell and `main`, computes an `overflow` other than `visible` (jsdom cannot see those ancestors, so the page test only covers the composer's own);
-   - the header card's height does not change when the unmeasured badge disappears (switch Codebase to one with no unmeasured repositories) because the coverage line holds 22px, and the coverage line's items (badge slot, Excluded, Needs tagging, the link) keep the same x position through every filter change;
-   - no layout shift while changing Codebase, Owning team, Severity and Compare to (the layout-shift API reports 0 for the bar and the header);
+   - the header card's height does not change when the unmeasured badge disappears (switch Codebase to one with no unmeasured repositories) because the coverage line holds 22px, and the coverage line's items (the "COVERAGE" label, the badge slot, "· N excluded by policy", "· N need tagging", the "Coverage & policy →" link) keep the same x position through every filter change, so none of them slides;   - no layout shift while changing Codebase, Owning team, Severity and Compare to (the layout-shift API reports 0 for the bar and the header);
    - the drawer is 460px wide (at most 92vw), covers the sticky bar, and Esc returns focus to the element that opened it;
    - a view switch while scrolled past the content top moves the scroll position up only, and not at all when the content is already below the bar.
 7. Documentation: this wave edits no documentation file. `docs/vulnerabilities-page.md` and the root `CLAUDE.md` are updated in Wave 5, once the whole page exists.
@@ -7060,23 +7626,23 @@ All commands run in the repository root.
 
 **Goal.** Fill the three Overview slots that Wave 2 reserved: the KPI row (`kpi-tiles.tsx`, with the new `sparkline.tsx`), the ownership card (`ownership-card.tsx`, with its Owning teams and Repositories tabs) and the trend card (`trend-card.tsx`). Each slot keeps the height Wave 2 gave it (`KPI_ROW_H`, `OWNERSHIP_BODY_H`, `TREND_PLOT_H`) in every state. The wave ends by deleting `team-pivot.tsx`, `trend-chart.tsx` and their tests and by pointing the two chart guard tests at the new chart modules. After this wave the Overview is complete; the Alerts view is still Wave 4's.
 
-**What this wave consumes (all from Wave 2, unchanged).** `SecurityViewProps` (`summary`, `data`, `url`, `list`, `openDrawer`), `Slot<T>`, the `dimensions.ts` constants (`KPI_ROW_H`, `OWNERSHIP_BODY_H`, `TEAM_ROW_H`, `TREND_PLOT_H`, `SPARK_H`, `Z`, `TYPE`), `sla-state.ts` (`slaState`, `slaStateLabel`, `slaActive`, `anySlaActive`), `security-state.ts` (`SPARKLINE_DAYS`, `TrendRange`, `SeverityFilter`, `OwnTab`), `format.ts` (`dash`, `signed`, `deltaBaselineCaption`, `resolvedCaption`), `team-colors.ts` (`assignTeamColors`, `OTHER_TEAM_COLOR`), the styling utilities from Task 2.1 (`vuln-hatch`, `text-warn`, `bg-warn-bg`, `border-warn-line`, `bg-crit-tint`, `bg-high-tint`) and the test support (`viewProps`, `slot`, `summaryFixture`, `reposFixture`, `trendFixture`, `repoRow`, `cell`, `REPO_ROWS`). It reads `data.summary` (via `props.summary`), `data.teamSummary`, `data.repos`, `data.trend` and `data.sparkline`, and calls `url.selectTeamRow`, `url.selectRepoRow`, `url.setOwn`, `url.setRange` and `openDrawer(element)`. It never writes the URL itself and never toggles a team: `selectTeamRow` does that.
+**What this wave consumes (all from Wave 2).** `SecurityViewProps` (`summary`, `data`, `url`, `list`, `openDrawer`), `Slot<T>`, the `dimensions.ts` constants (`KPI_ROW_H`, `OWNERSHIP_BODY_H`, `TEAM_ROW_H`, `TREND_PLOT_H`, `SPARK_H`, `Z`, `TYPE`), `sla-state.ts` (`slaState`, `slaActive`, `anySlaActive`, and `slaStateLabel(st, { withSla })`, whose second argument is required), `labels.ts` (`displayDate`, `utcToday`: the one date rule, below), `security-state.ts` (`SPARKLINE_DAYS`, `TrendRange`, `SeverityFilter`, `OwnTab`), `format.ts` (`dash`, `signed`, `resolvedCaption`, which now reads "since Jan 8, 2020"; this wave no longer calls `deltaBaselineCaption`), `team-colors.ts` (`assignTeamColors`, `OTHER_TEAM_COLOR`), the styling utilities from Task 2.1 (`vuln-hatch`, `text-warn`, `bg-warn-bg`, `border-warn-line`, `bg-crit-tint`, `bg-high-tint`) and the test support (`viewProps`, `slot`, `summaryFixture`, `reposFixture`, `trendFixture`, `repoRow`, `cell`, `REPO_ROWS`). It reads `data.summary` (via `props.summary`), `data.teamSummary`, `data.repos`, `data.trend` and `data.sparkline`, and calls `url.selectTeamRow`, `url.selectRepoRow`, `url.setOwn`, `url.setRange` and `openDrawer(element)`. It never writes the URL itself and never toggles a team: `selectTeamRow` does that.
 
 **Files this wave creates.** Besides the three stubs it modifies, the wave creates `sparkline.tsx` (named in the spec) and four page-local helper modules that keep the rules testable without a DOM: `overview-format.ts` (change sentences and the † wording), `ownership-model.ts` (hidden severity, sorting, repository rows and totals), `trend-model.ts` (axis domain, rows, history messages, legend) and the two table components `team-table.tsx` and `repo-table.tsx` that `ownership-card.tsx` composes. Shared test fixtures are only appended to `security-fixtures.ts`, and every new name starts with `ov` (Wave 4 appends `al` names).
 
 **Decisions this wave makes where the spec is silent** (each is tested; change one by changing its test):
 
-1. **Dates.** Sentences and titles use the month and day ("▲ 2 more than on Sep 29", "Critical since Sep 29"), the same formatter as the chart axis. Column header captions keep the ISO form ("vs 2026-09-29"), which `deltaBaselineCaption` already produces and Wave 2 left unchanged.
-2. **"No measurement on or before {date}"** names the baseline set's own date (`delta.baseline.takenOn`). A null baseline names no date ("No earlier measurement yet"). This follows the Wave 2 hand-off checklist.
+1. **Dates.** Every visible date goes through `displayDate` (`labels.ts`): month and day in the current year ("▲ 2 more than on Sep 29", "critical since Sep 29"), month, day and year in any other ("Jan 8, 2020"). The ISO form survives only in `title` attributes ("Compared with the measurement taken on 2026-09-29"). The column-header captions in the team table are display dates too ("vs Sep 29"), because `deltaBaselineCaption` now reads through `displayDate`. This wave has no date formatter of its own: `overview-format.ts` no longer exports `shortDate`, and the chart axis formatter is not used for dates on this page.
+2. **"No measurement on or before {date}"** names the baseline set's own date (`delta.baseline.takenOn`), written as a display date. A null baseline names no date ("No earlier measurement yet"). This follows the Wave 2 hand-off checklist.
 3. **Both tables sort.** The spec says the Total row and unmeasured rows ignore sorting, which only makes sense if the team table sorts too. Names start ascending and every number column starts with its largest value first (the v7 prototype's behaviour). The spec's "Age starts descending, everything else ascending" rule describes the alert list's keys.
 4. **Default order.** With no active header both tables keep the server order (critical open, then high open, then name). Under "High only" they order by high open instead, so a hidden column never decides the order. A sort on a hidden severity's column is ignored and its header button is disabled.
 5. **Repositories footer** follows the page-wide rule that every total that counts alerts includes the stored counts of unmeasured repositories. Its Open and Overdue columns sum every row in view, so the footer equals the team table, the Alerts strip, the rail and the Alerts tab. Only an unmeasured row's own cells read unknown. The footer's repository count, Oldest open and Next due stay measured-only (they are not part of the sum invariant, and a stored age or date may be out of date). The footer's second line reads "N unmeasured: totals include stored counts".
 6. **"N open now"** is the scoped summary's open count (the same figure as the KPI tile). The change sentence under it is the tile's. Each legend entry's "N open" is the team's latest point inside the chosen range.
 7. **Hover fade is dropped.** v7 specifies dimming by selected team only. The old hover fade, and its "stale hover" guard, go away with `trend-chart.tsx`.
 8. **The ownership card's tabs are a pressed-button group** (`aria-pressed`), not `role="tab"`. The composer's view tabs and its `tabpanel` are the page's only tab semantics, and a second `tabpanel` would make the page's `getByRole('tabpanel')` ambiguous.
-9. **The Open tile carries no "vs {date}" caption.** Its change sentence already names the date. The since-baseline tile keeps the caption, as the Wave 2 checklist asks.
-10. **The "History starts {date} (first sync)" note** shows only under the All range, the only range that can say where history starts.
-11. **Unmeasured reason copy** is "DEPENDABOT OFF" for `dependabot-off` and "STATUS CHECK FAILED" for `error`.
+9. **Neither tile carries a "vs {date}" caption.** The Open tile's change sentence already names the date. The since-baseline tile's label names it too ("critical since Sep 29") and its title holds the ISO date ("Compared with the measurement taken on 2026-09-29"), so a caption repeating it only cost a line. The tile still reserves the caption slot (an aria-hidden non-breaking space) so its shape never changes, and the slot says why when there is no usable baseline. This reverses the earlier rule that the since-baseline tile keeps the caption.
+10. **The "History starts {date} (first sync)" note** (the date is a display date) shows only under the All range, the only range that can say where history starts.
+11. **Unmeasured reason copy** is the coverage drawer's wording, defined once as `unmeasuredReason` in `labels.ts`: "Dependabot off" for `dependabot-off`, otherwise the status check's own detail, otherwise "Status check failed". The Repositories band upper-cases it at its call site (an error row whose detail is "HTTP 500: status check failed" reads "HTTP 500: STATUS CHECK FAILED"). The reason text is never defined in this wave's own modules.
 12. **Sort glyph.** ↕ is written with the text variation selector (U+FE0E); without it macOS draws an emoji box.
 
 ### Task 3.1: Change sentences and tones (`overview-format.ts`)
@@ -7087,8 +7653,8 @@ All commands run in the repository root.
 - Test: `src/lib/__tests__/unit/vuln-overview-format.test.ts`
 
 **Interfaces:**
-- Consumes: `DeltaResult`, `DeltaTeam`, `SnapshotSet` types from `@/lib/vulnerabilities/aggregate`; `formatWeek` from `@/components/charts/chart-format`.
-- Produces: `shortDate(iso): string` ("Sep 29"); `changeSentence(delta, baselineDate): string`; `changeToneClass(delta, sev): string`; `baselineUnavailableText(d): string`; `usableTotal(d): DeltaTeam | null`; `openChange(d, sev): { text; toneClass; hasChange; delta }`. Fixtures: `ovBaseline(takenOn?)`, `ovDeltaTeam(team, deltaOpen, over?)`, `ovDelta(total, over?)`, `ovNoBaseline()`.
+- Consumes: `DeltaResult`, `DeltaTeam`, `SnapshotSet` types from `@/lib/vulnerabilities/aggregate`; `displayDate` from `labels.ts` (Wave 2).
+- Produces: `changeSentence(delta, baselineDate, today?): string`; `changeToneClass(delta, sev): string`; `baselineUnavailableText(d, today?): string`; `usableTotal(d): DeltaTeam | null`; `openChange(d, sev, today?): { text; toneClass; hasChange; delta }`. Every date in these sentences prints through `displayDate`, and the optional `today` (YYYY-MM-DD, UTC, default today) only decides whether the date carries its year. There is no `shortDate`. Fixtures: `ovBaseline(takenOn?)`, `ovDeltaTeam(team, deltaOpen, over?)`, `ovDelta(total, over?)`, `ovNoBaseline()`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -7116,25 +7682,29 @@ export const ovDelta = (total: DeltaTeam | null, over: Partial<DeltaResult> = {}
 export const ovNoBaseline = (): DeltaResult => ({ available: false, baseline: null, reposNotInBaseline: 0, teams: [], total: null });
 ```
 
-Create `src/lib/__tests__/unit/vuln-overview-format.test.ts`:
+Create `src/lib/__tests__/unit/vuln-overview-format.test.ts`. The test passes `today` (`'2026-10-07'`) to every function explicitly, so the year rule does not depend on the day the suite runs:
 
 ```ts
 // src/lib/__tests__/unit/vuln-overview-format.test.ts
 // The Overview's change sentences: one wording and one tone for the Open tile and the trend header.
-import { baselineUnavailableText, changeSentence, changeToneClass, openChange, shortDate, usableTotal } from '@/app/vulnerabilities/overview-format';
+import { baselineUnavailableText, changeSentence, changeToneClass, openChange, usableTotal } from '@/app/vulnerabilities/overview-format';
 import { ovBaseline, ovDelta, ovDeltaTeam, ovNoBaseline } from '../support/security-fixtures';
+
+// "Today" is passed in, so the year rule does not depend on the day the suite runs.
+const TODAY = '2031-10-07';   // a year the suite never runs in, so a date that ignored `today` would print the wrong year
 
 describe('changeSentence', () => {
   // Revert: swap the two arrows, or print the signed number ("▲ -3").
   it('reads "▲ N more than on <date>", "▼ N fewer than on <date>" or "Same as on <date>"', () => {
-    expect(changeSentence(2, '2026-09-29')).toBe('▲ 2 more than on Sep 29');
-    expect(changeSentence(-1, '2026-09-29')).toBe('▼ 1 fewer than on Sep 29');
-    expect(changeSentence(0, '2026-09-29')).toBe('Same as on Sep 29');
+    expect(changeSentence(2, '2031-09-29', TODAY)).toBe('▲ 2 more than on Sep 29');
+    expect(changeSentence(-1, '2031-09-29', TODAY)).toBe('▼ 1 fewer than on Sep 29');
+    expect(changeSentence(0, '2031-09-29', TODAY)).toBe('Same as on Sep 29');
   });
 
-  it('writes the date as month and day in UTC, never shifted by the local zone', () => {
-    expect(shortDate('2026-01-01')).toBe('Jan 1');
-    expect(shortDate('2026-12-31')).toBe('Dec 31');
+  // Revert: print the ISO date, or drop the year rule.
+  it('writes the date as a display date: no year in the current year, the year in any other, UTC', () => {
+    expect(changeSentence(0, '2031-01-01', TODAY)).toBe('Same as on Jan 1');
+    expect(changeSentence(0, '2030-12-31', TODAY)).toBe('Same as on Dec 31, 2030');
   });
 });
 
@@ -7152,9 +7722,9 @@ describe('changeToneClass', () => {
 describe('baselineUnavailableText', () => {
   // Revert: always name a date, or never name one.
   it('a null baseline names no date; a known baseline that does not measure this view names its date', () => {
-    expect(baselineUnavailableText(ovNoBaseline())).toBe('No earlier measurement yet');
-    expect(baselineUnavailableText(undefined)).toBe('No earlier measurement yet');
-    expect(baselineUnavailableText(ovDelta(null, { baseline: ovBaseline('2026-09-29') }))).toBe('No measurement on or before Sep 29');
+    expect(baselineUnavailableText(ovNoBaseline(), TODAY)).toBe('No earlier measurement yet');
+    expect(baselineUnavailableText(undefined, TODAY)).toBe('No earlier measurement yet');
+    expect(baselineUnavailableText(ovDelta(null, { baseline: ovBaseline('2031-09-29') }), TODAY)).toBe('No measurement on or before Sep 29');
   });
 });
 
@@ -7163,10 +7733,10 @@ describe('usableTotal and openChange', () => {
   it('an available delta whose total is null is not usable and never throws', () => {
     const d = ovDelta(null, { available: true });
     expect(usableTotal(d)).toBeNull();
-    const c = openChange(d, 'critical');
+    const c = openChange(d, 'critical', TODAY);
     expect(c.hasChange).toBe(false);
     expect(c.delta).toBeNull();
-    expect(c.text).toBe('No measurement on or before Sep 15');
+    expect(c.text).toBe('No measurement on or before Sep 15, 2026');
     expect(c.text).not.toMatch(/NaN|undefined|null/);
   });
 
@@ -7175,12 +7745,12 @@ describe('usableTotal and openChange', () => {
   });
 
   it('a usable delta gives the sentence, its tone and the number', () => {
-    const c = openChange(ovDelta(ovDeltaTeam('Total', 2), { baseline: ovBaseline('2026-09-29') }), 'critical');
+    const c = openChange(ovDelta(ovDeltaTeam('Total', 2), { baseline: ovBaseline('2031-09-29') }), 'critical', TODAY);
     expect(c).toEqual({ text: '▲ 2 more than on Sep 29', toneClass: 'text-red-400', hasChange: true, delta: 2 });
   });
 
   it('no delta at all reads as no earlier measurement', () => {
-    expect(openChange(undefined, 'high')).toEqual({ text: 'No earlier measurement yet', toneClass: 'text-gray-500', hasChange: false, delta: null });
+    expect(openChange(undefined, 'high', TODAY)).toEqual({ text: 'No earlier measurement yet', toneClass: 'text-gray-500', hasChange: false, delta: null });
   });
 });
 ```
@@ -7199,14 +7769,11 @@ Create `src/app/vulnerabilities/overview-format.ts`:
 // place so the Open tile and the trend header cannot disagree. Pure: no React, no server imports.
 import type { DeltaResult, DeltaTeam } from '@/lib/vulnerabilities/aggregate';
 import type { Severity } from '@/lib/vulnerabilities/types';
-import { formatWeek } from '@/components/charts/chart-format';
+import { displayDate } from './labels';
 
-/** "Sep 29": month and day, UTC. Same formatter as the chart axes. */
-export const shortDate = (iso: string): string => formatWeek(iso);
-
-/** "▲ 2 more than on Sep 29", "▼ 1 fewer than on Sep 29" or "Same as on Sep 29". */
-export function changeSentence(delta: number, baselineDate: string): string {
-  const on = shortDate(baselineDate);
+/** "▲ 2 more than on Sep 29", "▼ 1 fewer than on Sep 29" or "Same as on Sep 29". The date reads through `displayDate`. */
+export function changeSentence(delta: number, baselineDate: string, today?: string): string {
+  const on = displayDate(baselineDate, today);
   if (delta > 0) return `▲ ${delta} more than on ${on}`;
   if (delta < 0) return `▼ ${-delta} fewer than on ${on}`;
   return `Same as on ${on}`;
@@ -7227,8 +7794,8 @@ export function changeToneClass(delta: number, sev: Severity): string {
  * sentence names no date. A known baseline whose set does not measure this severity (an imported CSV
  * run never measures high) names that date.
  */
-export function baselineUnavailableText(d: DeltaResult | null | undefined): string {
-  return d?.baseline ? `No measurement on or before ${shortDate(d.baseline.takenOn)}` : 'No earlier measurement yet';
+export function baselineUnavailableText(d: DeltaResult | null | undefined, today?: string): string {
+  return d?.baseline ? `No measurement on or before ${displayDate(d.baseline.takenOn, today)}` : 'No earlier measurement yet';
 }
 
 /** The delta's total, only when it can be trusted: available, with a baseline and a total. */
@@ -7247,12 +7814,12 @@ export interface OpenChange {
   delta: number | null;
 }
 
-export function openChange(d: DeltaResult | null | undefined, sev: Severity): OpenChange {
+export function openChange(d: DeltaResult | null | undefined, sev: Severity, today?: string): OpenChange {
   const total = usableTotal(d);
   if (total && d?.baseline) {
-    return { text: changeSentence(total.deltaOpen, d.baseline.takenOn), toneClass: changeToneClass(total.deltaOpen, sev), hasChange: true, delta: total.deltaOpen };
+    return { text: changeSentence(total.deltaOpen, d.baseline.takenOn, today), toneClass: changeToneClass(total.deltaOpen, sev), hasChange: true, delta: total.deltaOpen };
   }
-  return { text: baselineUnavailableText(d), toneClass: 'text-gray-500', hasChange: false, delta: null };
+  return { text: baselineUnavailableText(d, today), toneClass: 'text-gray-500', hasChange: false, delta: null };
 }
 ```
 
@@ -7263,10 +7830,11 @@ Expected: PASS (8 tests), tsc clean.
 - [ ] **Step 5: Commit**
 ```bash
 git add src/app/vulnerabilities/overview-format.ts src/lib/__tests__/support/security-fixtures.ts src/lib/__tests__/unit/vuln-overview-format.test.ts
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: Overview change sentences and tones"
 ```
-Run the three lines one at a time. If the guard line fails, do not run `git commit`; remove the offending text and `git add` again.
+Run the block as one script (see Conventions). If it prints "internal name found", `git commit` did not run: remove the offending text, `git add` again and rerun the block.
 
 ### Task 3.2: Sparkline (`sparkline.tsx`)
 
@@ -7275,8 +7843,8 @@ Run the three lines one at a time. If the guard line fails, do not run `git comm
 - Test: `src/lib/__tests__/unit/vuln-sparkline.test.tsx`
 
 **Interfaces:**
-- Consumes: `TrendSeries` from `@/lib/vulnerabilities/aggregate`; `diffDays` from `@/lib/vulnerabilities/time`; `toNum` from `@/components/charts/chart-format`; `SPARK_H`; `shortDate` (Task 3.1); `SPARKLINE_DAYS` from `security-state.ts`.
-- Produces: `SparkPoint`; `sparkPoints(series, team | null): SparkPoint[]`; `sparkLine(points, today): string` (SVG `points`); `SPARK_FULL_DAYS` (`SPARKLINE_DAYS - 6`); `sparkModel(points, sev, today)`; default export `Sparkline({ points | undefined, sev, today, errorText? })`, which renders `data-testid` `sparkline`, `sparkline-slot` (inline height `SPARK_H`) and `sparkline-caption` (a fixed `h-4` line).
+- Consumes: `TrendSeries` from `@/lib/vulnerabilities/aggregate`; `diffDays` from `@/lib/vulnerabilities/time`; `toNum` from `@/components/charts/chart-format`; `SPARK_H`; `displayDate` from `labels.ts` (Wave 2); `SPARKLINE_DAYS` from `security-state.ts`.
+- Produces: `SparkPoint`; `sparkPoints(series, team | null): SparkPoint[]`; `sparkLine(points, today): string` (SVG `points`); `SPARK_FULL_DAYS` (`SPARKLINE_DAYS - 6`); `sparkModel(points, sev, today)`; default export `Sparkline({ points | undefined, sev, today, errorText? })`, which renders `data-testid` `sparkline`, `sparkline-slot` (inline height `SPARK_H`) and `sparkline-caption` (a fixed `h-4` line that truncates and carries its full text as a `title`). The captions: no points "No measurements yet"; one point "1 measurement so far ({display date})"; two or more points under 90 days of history "{N} measurements since {display date}" (the "Open {sev} ·" prefix is gone: the tile's title already names the severity, and the longer text was cut off at 1024px); history reaching back `SPARK_FULL_DAYS` or more "Open {sev} · last 90 days". A date in another year carries its year ("Dec 30, 2025").
 
 - [ ] **Step 1: Write the failing test**
 
@@ -7332,6 +7900,21 @@ describe('sparkLine', () => {
     for (const y of ys) { expect(y).toBeGreaterThanOrEqual(0); expect(y).toBeLessThanOrEqual(SPARK_H); }
   });
 
+  // Revert: change PAD, or scale y without it (the lowest point would sit on the slot's edge and be clipped).
+  it('puts the lowest count 2px above the slot\'s bottom and the highest 2px below its top', () => {
+    const ys = sparkLine([{ date: '2026-09-01', open: 1 }, { date: '2026-09-10', open: 9 }], TODAY).split(' ').map(p => Number(p.split(',')[1]));
+    expect(ys).toEqual([SPARK_H - 2, 2]);
+  });
+
+  // Revert: end the x scale at the last point instead of at today.
+  it('a line whose last point is before today stops short of the right edge: x runs from the first point to TODAY', () => {
+    // 29 days from the first point to TODAY; the last point is 14 days in.
+    const xs = sparkLine([{ date: '2026-09-01', open: 1 }, { date: '2026-09-15', open: 9 }], TODAY).split(' ').map(p => Number(p.split(',')[0]));
+    expect(xs[0]).toBe(0);
+    expect(xs[1]).toBeCloseTo((14 / 29) * 100, 2);
+    expect(xs[1]).toBeLessThan(100);
+  });
+
   it('a flat series is a line across the middle, never NaN', () => {
     const out = sparkLine([{ date: '2026-09-01', open: 4 }, { date: '2026-09-10', open: 4 }], TODAY);
     expect(out).not.toMatch(/NaN/);
@@ -7345,15 +7928,23 @@ describe('sparkModel (0, 1 and 2+ measurements)', () => {
     expect(sparkModel([], 'critical', TODAY)).toEqual({ kind: 'none', message: 'Not enough history yet', caption: 'No measurements yet' });
   });
 
-  it('1 measurement: "Not enough history yet" and "1 measurement so far (<date>)"', () => {
+  it('1 measurement: "Not enough history yet" and "1 measurement so far (<display date>)"', () => {
     expect(sparkModel([{ date: '2026-09-30', open: 3 }], 'critical', TODAY))
       .toEqual({ kind: 'one', message: 'Not enough history yet', caption: '1 measurement so far (Sep 30)' });
   });
 
-  it('2+ measurements under 90 days of history: "Open <sev> · N measurements since <date>"', () => {
+  // Revert: put the "Open <sev> ·" prefix back (at 1024px it cut the caption off before the date), or drop the count.
+  it('2+ measurements under 90 days of history: "N measurements since <date>", with no severity prefix', () => {
     const m = sparkModel([{ date: '2026-09-22', open: 3 }, { date: '2026-09-29', open: 4 }], 'high', TODAY);
     expect(m.kind).toBe('line');
-    expect(m.caption).toBe('Open high · 2 measurements since Sep 22');
+    expect(m.caption).toBe('2 measurements since Sep 22');
+  });
+
+  it('a history that started in an earlier year writes the year in its date', () => {
+    // "today" is in 2031, a year the suite never runs in, so a caption that ignored the argument would fail.
+    expect(sparkModel([{ date: '2031-01-02', open: 3 }, { date: '2031-01-05', open: 4 }], 'high', '2031-01-06').caption).toBe('2 measurements since Jan 2');
+    expect(sparkModel([{ date: '2030-12-30', open: 3 }, { date: '2031-01-05', open: 4 }], 'high', '2031-01-06').caption).toBe('2 measurements since Dec 30, 2030');
+    expect(sparkModel([{ date: '2030-12-30' , open: 3 }], 'high', '2031-01-06').caption).toBe('1 measurement so far (Dec 30, 2030)');
   });
 
   // Revert: compare with the wrong threshold (e.g. > instead of >=) or drop the branch.
@@ -7361,7 +7952,7 @@ describe('sparkModel (0, 1 and 2+ measurements)', () => {
     const edge = [{ date: '2026-07-08', open: 3 }, { date: '2026-09-29', open: 4 }]; // exactly 84 days before TODAY
     expect(sparkModel(edge, 'critical', TODAY).caption).toBe(`Open critical · last ${SPARKLINE_DAYS} days`);
     const short = [{ date: '2026-07-09', open: 3 }, { date: '2026-09-29', open: 4 }]; // 83 days
-    expect(sparkModel(short, 'critical', TODAY).caption).toBe('Open critical · 2 measurements since Jul 9');
+    expect(sparkModel(short, 'critical', TODAY).caption).toBe('2 measurements since Jul 9');
   });
 
   // Revert: hard-code 84 or "90 days" instead of deriving both from SPARKLINE_DAYS (the request window).
@@ -7398,6 +7989,17 @@ describe('Sparkline component', () => {
     expect(screen.getByTestId('sparkline-caption').textContent).toBe('1 measurement so far (Sep 29)');
   });
 
+  // Revert: drop the title, or put the severity prefix back in front of the count.
+  it('the caption carries its full text as a title, and truncates rather than wrapping, so a narrow tile never grows', () => {
+    render(<Sparkline points={[{ date: '2026-09-22', open: 2 }, { date: '2026-09-29', open: 3 }]} sev="critical" today={TODAY} />);
+    const cap = screen.getByTestId('sparkline-caption');
+    expect(cap.textContent).toBe('2 measurements since Sep 22');
+    expect(cap.getAttribute('title')).toBe(cap.textContent);
+    expect(cap.className).toContain('truncate');
+    // Long enough to read in full in the narrowest tile (~190px at 11px): the date is the last thing a cut-off would lose.
+    expect(cap.textContent!.length).toBeLessThanOrEqual(30);
+  });
+
   it('while loading the caption is an aria-hidden non-breaking space; after an error it shows the message in red', () => {
     const { rerender } = render(<Sparkline points={undefined} sev="critical" today={TODAY} />);
     const cap = screen.getByTestId('sparkline-caption');
@@ -7429,7 +8031,7 @@ import type { Severity } from '@/lib/vulnerabilities/types';
 import { diffDays } from '@/lib/vulnerabilities/time';
 import { toNum } from '@/components/charts/chart-format';
 import { SPARK_H } from './dimensions';
-import { shortDate } from './overview-format';
+import { displayDate } from './labels';
 import { SPARKLINE_DAYS } from './security-state';
 
 export interface SparkPoint { date: string; open: number }
@@ -7476,12 +8078,14 @@ export type SparkModel =
 export function sparkModel(points: readonly SparkPoint[], sev: Severity, today: string): SparkModel {
   if (points.length === 0) return { kind: 'none', message: 'Not enough history yet', caption: 'No measurements yet' };
   if (points.length === 1) {
-    return { kind: 'one', message: 'Not enough history yet', caption: `1 measurement so far (${shortDate(points[0].date)})` };
+    return { kind: 'one', message: 'Not enough history yet', caption: `1 measurement so far (${displayDate(points[0].date, today)})` };
   }
   const first = points[0].date;
+  // The short caption drops the "Open {sev} ·" prefix: the tile's own title already names the severity, and the longer
+  // wording was cut off at 1024px. The full text is also the caption's title.
   const caption = diffDays(today, first) >= SPARK_FULL_DAYS
     ? `Open ${sev} · last ${SPARKLINE_DAYS} days`
-    : `Open ${sev} · ${points.length} measurements since ${shortDate(first)}`;
+    : `${points.length} measurements since ${displayDate(first, today)}`;
   return { kind: 'line', line: sparkLine(points, today), caption };
 }
 
@@ -7531,15 +8135,16 @@ export default function Sparkline({ points, sev, today, errorText = null }: Spar
 
 - [ ] **Step 4: Run tests and confirm they pass**
 Run: `npx jest src/lib/__tests__/unit/vuln-sparkline.test.tsx --maxWorkers=3` then `npx tsc --noEmit`
-Expected: PASS (14 tests), tsc clean.
+Expected: PASS (18 tests), tsc clean.
 
 - [ ] **Step 5: Commit**
 ```bash
 git add src/app/vulnerabilities/sparkline.tsx src/lib/__tests__/unit/vuln-sparkline.test.tsx
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: KPI sparkline from stored measurements"
 ```
-Run the three lines one at a time. If the guard line fails, do not run `git commit`; remove the offending text and `git add` again.
+Run the block as one script (see Conventions). If it prints "internal name found", `git commit` did not run: remove the offending text, `git add` again and rerun the block.
 
 ### Task 3.3: KPI row and the Open tile (`kpi-tiles.tsx`)
 
@@ -7549,8 +8154,8 @@ Run the three lines one at a time. If the guard line fails, do not run `git comm
 - Test: `src/lib/__tests__/unit/vuln-kpi-tiles.test.tsx`
 
 **Interfaces:**
-- Consumes: `SecurityViewProps`; `KPI_ROW_H`, `TYPE`; `dash` from `format.ts`; `openChange` (3.1); `Sparkline`, `sparkPoints` (3.2).
-- Produces: default export `KpiTiles(props: SecurityViewProps)`: a `section` with `data-testid="kpi-tiles"`, inline height `KPI_ROW_H` in every branch and `opacity-60` while `data.summary.stale`; the Open tile `data-testid="kpi-open"` with the change line `kpi-open-change`. Tasks 3.4 to 3.6 add the other three tiles to the same grid. Fixtures: `ovCell(open, over?)`, `ovTeam(team, critical, high, unmeasuredRepos?)`, `ovSeries(team, [[date, open], ...])`, `ovProps({ summary?, teamSummary?, repos?, url?, data? })` (a complete `SecurityViewProps` whose `data.summary`, `data.teamSummary` and `props.summary` agree).
+- Consumes: `SecurityViewProps`; `KPI_ROW_H`, `TYPE`; `dash` from `format.ts`; `utcToday` from `labels.ts` (the tile's "today", passed to `Sparkline`); `openChange` (3.1); `Sparkline`, `sparkPoints` (3.2).
+- Produces: default export `KpiTiles(props: SecurityViewProps)`: a `section` with `data-testid="kpi-tiles"`, inline height `KPI_ROW_H` in every branch and `opacity-60` while `data.summary.stale`; the Open tile `data-testid="kpi-open"` with the change line `kpi-open-change`. Tasks 3.4 to 3.6 add the other three tiles to the same grid. Fixtures: `ovCell(open, over?)`, `ovTeam(team, critical, high, unmeasuredRepos?)`, `ovSeries(team, [[date, open], ...])`, `ovProps({ summary?, teamSummary?, repos?, url?, data? })` (a complete `SecurityViewProps` whose `data.summary`, `data.teamSummary` and `props.summary` agree; given `repos`, it sets both `data.repos` and `data.metaRepos`, so the two agree as they do with no team selected).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -7595,7 +8200,7 @@ export function ovProps(o: {
       ...base.data,
       summary: slot(summary),
       teamSummary: o.teamSummary ?? slot(summary),
-      ...(o.repos ? { repos: slot(reposFixture(o.repos)) } : {}),
+      ...(o.repos ? { repos: slot(reposFixture(o.repos)), metaRepos: slot(reposFixture(o.repos)) } : {}),
       ...o.data,
     },
   });
@@ -7731,7 +8336,7 @@ describe('Open tile: the sparkline', () => {
       ovSeries('Search', [['2026-09-22', 5], ['2026-09-29', 1]]),
     ];
     render(<KpiTiles {...ovProps({ url: { team: 'Payments' }, data: sparkSlot(series) })} />);
-    expect(screen.getByTestId('sparkline-caption').textContent).toBe('Open critical · 2 measurements since Sep 22');
+    expect(screen.getByTestId('sparkline-caption').textContent).toBe('2 measurements since Sep 22');
     const pts = openTile().querySelector('polyline')!.getAttribute('points')!.split(' ').map(p => Number(p.split(',')[1]));
     expect(pts).toHaveLength(2);
     expect(pts[1]).toBeLessThan(pts[0]); // Payments 2 -> 3 rises (y falls); with Search's 5 -> 1 summed it would fall
@@ -7781,13 +8386,12 @@ Replace the whole of `src/app/vulnerabilities/kpi-tiles.tsx`:
 import type { SecurityViewProps } from './view-props';
 import { KPI_ROW_H, TYPE } from './dimensions';
 import { dash } from './format';
+import { utcToday } from './labels';
 import { openChange } from './overview-format';
 import Sparkline, { sparkPoints } from './sparkline';
 
 const TILE = 'bg-gray-900 rounded-xl p-4 min-w-0 h-full overflow-hidden flex flex-col';
 const LABEL = `${TYPE.sectionLabel} truncate text-gray-400`;
-
-const todayUtc = () => new Date().toISOString().slice(0, 10);
 
 function OpenTile({ summary, data, url }: SecurityViewProps) {
   const sev = url.kSev;
@@ -7805,7 +8409,7 @@ function OpenTile({ summary, data, url }: SecurityViewProps) {
         <Sparkline
           points={spark.data ? sparkPoints(spark.data.series, url.team) : undefined}
           sev={sev}
-          today={todayUtc()}
+          today={utcToday()}
           errorText={spark.errorText}
         />
       </div>
@@ -7835,10 +8439,11 @@ Expected: PASS (the page test still finds `kpi-tiles` at `KPI_ROW_H`), tsc clean
 - [ ] **Step 5: Commit**
 ```bash
 git add src/app/vulnerabilities/kpi-tiles.tsx src/lib/__tests__/support/security-fixtures.ts src/lib/__tests__/unit/vuln-kpi-tiles.test.tsx
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: KPI row and Open tile"
 ```
-Run the three lines one at a time. If the guard line fails, do not run `git commit`; remove the offending text and `git add` again.
+Run the block as one script (see Conventions). If it prints "internal name found", `git commit` did not run: remove the offending text, `git add` again and rerun the block.
 
 ### Task 3.4: Since-baseline tile
 
@@ -7847,8 +8452,8 @@ Run the three lines one at a time. If the guard line fails, do not run `git comm
 - Test: `src/lib/__tests__/unit/vuln-kpi-since.test.tsx`
 
 **Interfaces:**
-- Consumes: `KpiTiles` from 3.3; `deltaBaselineCaption`, `signed` from `format.ts`; `baselineUnavailableText`, `shortDate`, `usableTotal` from 3.1; fixtures `ovDelta`, `ovDeltaTeam`, `ovBaseline`, `ovNoBaseline`, `ovProps`.
-- Produces: tile `data-testid="kpi-since"` titled "{severity} since {date}", rows new / resolved ("(N dismissed)") / reopened, and three reserved one-line slots `kpi-since-other`, `kpi-since-caption`, `kpi-since-repos`, each `h-4 truncate` and an aria-hidden non-breaking space when empty.
+- Consumes: `KpiTiles` from 3.3; `signed` from `format.ts`; `displayDate`, `utcToday` from `labels.ts`; `baselineUnavailableText`, `usableTotal` from 3.1; fixtures `ovDelta`, `ovDeltaTeam`, `ovBaseline`, `ovNoBaseline`, `ovProps`.
+- Produces: tile `data-testid="kpi-since"` labelled "{severity} since {display date}" ("critical since Sep 29"; "{severity} since baseline" when there is no baseline), with the ISO date in the label's `title` ("Compared with the measurement taken on 2026-09-29"), rows new / resolved ("(N dismissed)") / reopened, and three reserved one-line slots `kpi-since-other`, `kpi-since-caption`, `kpi-since-repos`, each `h-4 truncate` and an aria-hidden non-breaking space when empty. The tile prints no "vs {date}" caption (the label already carries the date). The caption slot stays so the tile never changes shape, and it says why there is no figure when there is no usable baseline ("No earlier measurement yet" / "No measurement on or before {display date}").
 
 - [ ] **Step 1: Write the failing test**
 
@@ -7866,11 +8471,16 @@ const tile = () => screen.getByTestId('kpi-since');
 const total = (over: Partial<ReturnType<typeof ovDeltaTeam>> = {}) => ovDeltaTeam('Total', 2, { new: 4, resolved: 3, dismissed: 1, reopened: 2, ...over });
 const withDelta = (d: ReturnType<typeof ovDelta>) => ovProps({ summary: { delta: { critical: d, high: ovNoBaseline() } } });
 const NBSP = '\u00a0';
+// The page prints dates through displayDate, whose "current year" is the clock's: pin it so the literal fixture dates below read the same every year.
+let nowSpy: jest.SpyInstance;
+beforeEach(() => { nowSpy = jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-30T12:00:00Z')); });
+afterEach(() => { nowSpy.mockRestore(); });
 
 describe('available delta', () => {
-  it('titles the tile with the severity and the baseline date, and lists new, resolved (dismissed) and reopened', () => {
+  it('titles the tile with the severity and the baseline date (a display date, the ISO date in the title), and lists new, resolved (dismissed) and reopened', () => {
     render(<KpiTiles {...withDelta(ovDelta(total(), { baseline: ovBaseline('2026-09-29') }))} />);
-    expect(within(tile()).getByText('critical since Sep 29')).toBeTruthy();
+    const label = within(tile()).getByText('critical since Sep 29');
+    expect(label.getAttribute('title')).toBe('Compared with the measurement taken on 2026-09-29');
     const text = tile().textContent ?? '';
     expect(text).toContain('new4');
     expect(text).toContain('resolved(1 dismissed)3');
@@ -7888,28 +8498,30 @@ describe('available delta', () => {
     expect(tile().textContent).toContain('new9');
   });
 
-  // Revert: drop the caption or change its wording ("vs <date>" is what the column headers use too).
-  it('keeps the "vs <date>" caption', () => {
+  // Revert: print the "vs <date>" caption again (the tile's own title already names the date).
+  it('has no "vs <date>" caption: the slot stays, reading an aria-hidden non-breaking space', () => {
     render(<KpiTiles {...withDelta(ovDelta(total(), { baseline: ovBaseline('2099-01-01') }))} />);
-    expect(screen.getByTestId('kpi-since-caption').textContent).toBe('vs 2099-01-01');
-    expect(screen.getByTestId('kpi-since-caption').hasAttribute('aria-hidden')).toBe(false);
+    const caption = screen.getByTestId('kpi-since-caption');
+    expect(caption.textContent).toBe(NBSP);
+    expect(caption.getAttribute('aria-hidden')).toBe('true');
+    expect(tile().textContent).not.toMatch(/vs /);
+    expect(within(tile()).getByText('critical since Jan 1, 2099')).toBeTruthy();
   });
 });
 
 describe('"N repos not in baseline"', () => {
   // Revert: join the count back onto the caption, or render the line conditionally.
-  it('0 repos: the caption is exactly "vs <date>" and the line holds only an aria-hidden non-breaking space', () => {
+  it('0 repos: the line holds only an aria-hidden non-breaking space', () => {
     render(<KpiTiles {...withDelta(ovDelta(total(), { reposNotInBaseline: 0 }))} />);
     const repos = screen.getByTestId('kpi-since-repos');
     expect(repos.textContent).toBe(NBSP);
     expect(repos.getAttribute('aria-hidden')).toBe('true');
   });
 
-  it('3 repos: the count sits on its own line and the caption is unchanged', () => {
+  it('3 repos: the count sits on its own line', () => {
     render(<KpiTiles {...withDelta(ovDelta(total(), { reposNotInBaseline: 3 }))} />);
     expect(screen.getByTestId('kpi-since-repos').textContent).toBe('3 repos not in baseline');
     expect(screen.getByTestId('kpi-since-repos').hasAttribute('aria-hidden')).toBe(false);
-    expect(screen.getByTestId('kpi-since-caption').textContent).toBe('vs 2026-09-15');
   });
 
   // Revert: show the count for an unavailable delta too.
@@ -7955,8 +8567,8 @@ describe('unavailable delta', () => {
 
   it('a known baseline that does not measure this view reads "No measurement on or before <date>"', () => {
     render(<KpiTiles {...withDelta(ovDelta(null, { baseline: ovBaseline('2099-01-01') }))} />);
-    expect(screen.getByTestId('kpi-since-caption').textContent).toBe('No measurement on or before Jan 1');
-    expect(screen.getByTestId('kpi-since-caption').getAttribute('title')).toBe('No measurement on or before Jan 1');
+    expect(screen.getByTestId('kpi-since-caption').textContent).toBe('No measurement on or before Jan 1, 2099');
+    expect(screen.getByTestId('kpi-since-caption').getAttribute('title')).toBe('No measurement on or before Jan 1, 2099');
   });
 
   // Revert: choose the available branch on `available` alone and dereference total.
@@ -7964,7 +8576,7 @@ describe('unavailable delta', () => {
     render(<KpiTiles {...withDelta(ovDelta(null, { available: true, baseline: ovBaseline('2099-01-01') }))} />);
     expect(within(tile()).getAllByText('—')).toHaveLength(3);
     expect(tile().textContent).not.toMatch(/NaN|undefined|null/);
-    expect(screen.getByTestId('kpi-since-caption').textContent).toBe('No measurement on or before Jan 1');
+    expect(screen.getByTestId('kpi-since-caption').textContent).toBe('No measurement on or before Jan 1, 2099');
   });
 });
 
@@ -8006,8 +8618,9 @@ In `src/app/vulnerabilities/kpi-tiles.tsx`, replace the import block at the top 
 // the team-scoped summary (`props.summary`), so with an owning team selected they show that team.
 import type { SecurityViewProps } from './view-props';
 import { KPI_ROW_H, TYPE } from './dimensions';
-import { dash, deltaBaselineCaption, signed } from './format';
-import { baselineUnavailableText, openChange, shortDate, usableTotal } from './overview-format';
+import { dash, signed } from './format';
+import { displayDate, utcToday } from './labels';
+import { baselineUnavailableText, openChange, usableTotal } from './overview-format';
 import Sparkline, { sparkPoints } from './sparkline';
 ```
 
@@ -8031,15 +8644,18 @@ function SinceTile({ summary, url }: SecurityViewProps) {
   const sev = url.kSev;
   const d = summary.delta[sev];
   const total = usableTotal(d);
-  // The caption keeps today's "vs <date>" wording; with no usable total it says why instead.
-  const caption = total ? deltaBaselineCaption(d) : baselineUnavailableText(d);
+  // The tile's own title names the baseline date, so there is no "vs <date>" caption; with no usable total the
+  // caption says why there is no figure instead.
+  const caption = total ? null : baselineUnavailableText(d);
   const notInBaseline = d?.available && d.reposNotInBaseline > 0 ? `${d.reposNotInBaseline} repos not in baseline` : null;
   const other = total && total.other !== 0
     ? { text: `other ${signed(total.other)}`, title: `other ${signed(total.other)}: change in open alerts not explained by new, resolved or reopened` }
     : null;
   return (
     <div data-testid="kpi-since" className={TILE}>
-      <div className={LABEL}>{sev} since {d?.baseline ? shortDate(d.baseline.takenOn) : 'baseline'}</div>
+      <div className={LABEL} title={d?.baseline ? `Compared with the measurement taken on ${d.baseline.takenOn}` : undefined}>
+        {sev} since {d?.baseline ? displayDate(d.baseline.takenOn) : 'baseline'}
+      </div>
       <div className="mt-1">
         <CountRow label="new" value={total ? total.new : null} />
         <CountRow label="resolved" note={total ? `(${total.dismissed} dismissed)` : undefined} value={total ? total.resolved : null} />
@@ -8052,7 +8668,10 @@ function SinceTile({ summary, url }: SecurityViewProps) {
       >
         {other?.text ?? '\u00a0'}
       </div>
-      <div data-testid="kpi-since-caption" className="h-4 truncate text-[11px] leading-4 text-gray-500" title={caption ?? undefined}>
+      <div
+        data-testid="kpi-since-caption" aria-hidden={caption ? undefined : true}
+        className="h-4 truncate text-[11px] leading-4 text-gray-500" title={caption ?? undefined}
+      >
         {caption ?? '\u00a0'}
       </div>
       <div
@@ -8092,10 +8711,11 @@ Expected: PASS, tsc clean.
 - [ ] **Step 5: Commit**
 ```bash
 git add src/app/vulnerabilities/kpi-tiles.tsx src/lib/__tests__/unit/vuln-kpi-since.test.tsx
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: KPI since-baseline tile"
 ```
-Run the three lines one at a time. If the guard line fails, do not run `git commit`; remove the offending text and `git add` again.
+Run the block as one script (see Conventions). If it prints "internal name found", `git commit` did not run: remove the offending text, `git add` again and rerun the block.
 
 ### Task 3.5: Resolved tile and the † wording
 
@@ -8106,8 +8726,8 @@ Run the three lines one at a time. If the guard line fails, do not run `git comm
 - Test: `src/lib/__tests__/unit/vuln-kpi-resolved.test.tsx`
 
 **Interfaces:**
-- Consumes: `resolvedCaption`, `dash` from `format.ts`; fixtures `ovCell`, `ovTeam`, `ovProps`.
-- Produces: `carriedTitle(n)` and `carriedFootnote(n)` (the † tooltip and footnote text, shared with the team table in 3.8); tile `data-testid="kpi-resolved"` with `kpi-resolved-since`, `kpi-resolved-footnote` (aria-hidden non-breaking space when nothing carries) and `kpi-resolved-closed`.
+- Consumes: `resolvedCaption`, `dash` from `format.ts` (`resolvedCaption` reads display dates: "since Jan 8, 2020"); fixtures `ovCell`, `ovTeam`, `ovProps`.
+- Produces: `carriedTitle(n)` and `carriedFootnote(n)` (the † tooltip and footnote text, shared with the team table in 3.8); tile `data-testid="kpi-resolved"` with `kpi-resolved-since` ("N dismissed · since Jan 8, 2020", or "all time", or "since —" for an invalid start date), `kpi-resolved-footnote` (aria-hidden non-breaking space when nothing carries) and `kpi-resolved-closed`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -8132,7 +8752,7 @@ describe('count and caption', () => {
     render(<KpiTiles {...ovProps({ summary: pivot(ovCell(19, { resolved: 25, dismissed: 4, pctClosed: 57 })) })} />);
     expect(within(tile()).getByText('Resolved critical')).toBeTruthy();
     expect(within(tile()).getByText('25')).toBeTruthy();
-    expect(screen.getByTestId('kpi-resolved-since').textContent).toBe('4 dismissed · since 2020-01-08');
+    expect(screen.getByTestId('kpi-resolved-since').textContent).toBe('4 dismissed · since Jan 8, 2020');
     expect(screen.getByTestId('kpi-resolved-closed').textContent).toBe('57% of 44 raised are closed');
   });
 
@@ -8161,7 +8781,7 @@ describe('count and caption', () => {
     const p = ovProps({ url: { severity: 'high', kSev: 'high' }, summary: pivot(ovCell(1, { resolved: 9 }), ovCell(4, { resolved: 6, dismissed: 2, pctClosed: 60 })) });
     render(<KpiTiles {...p} />);
     expect(within(tile()).getByText('Resolved high')).toBeTruthy();
-    expect(screen.getByTestId('kpi-resolved-since').textContent).toBe('2 dismissed · since 2020-01-08');
+    expect(screen.getByTestId('kpi-resolved-since').textContent).toBe('2 dismissed · since Jan 8, 2020');
     expect(screen.getByTestId('kpi-resolved-closed').textContent).toBe('60% of 10 raised are closed');
   });
 });
@@ -8213,20 +8833,24 @@ Replace `src/lib/__tests__/unit/vuln-overview-format.test.ts` with this version 
 ```ts
 // src/lib/__tests__/unit/vuln-overview-format.test.ts
 // The Overview's change sentences: one wording and one tone for the Open tile and the trend header.
-import { baselineUnavailableText, carriedFootnote, carriedTitle, changeSentence, changeToneClass, openChange, shortDate, usableTotal } from '@/app/vulnerabilities/overview-format';
+import { baselineUnavailableText, carriedFootnote, carriedTitle, changeSentence, changeToneClass, openChange, usableTotal } from '@/app/vulnerabilities/overview-format';
 import { ovBaseline, ovDelta, ovDeltaTeam, ovNoBaseline } from '../support/security-fixtures';
+
+// "Today" is passed in, so the year rule does not depend on the day the suite runs.
+const TODAY = '2031-10-07';   // a year the suite never runs in, so a date that ignored `today` would print the wrong year
 
 describe('changeSentence', () => {
   // Revert: swap the two arrows, or print the signed number ("▲ -3").
   it('reads "▲ N more than on <date>", "▼ N fewer than on <date>" or "Same as on <date>"', () => {
-    expect(changeSentence(2, '2026-09-29')).toBe('▲ 2 more than on Sep 29');
-    expect(changeSentence(-1, '2026-09-29')).toBe('▼ 1 fewer than on Sep 29');
-    expect(changeSentence(0, '2026-09-29')).toBe('Same as on Sep 29');
+    expect(changeSentence(2, '2031-09-29', TODAY)).toBe('▲ 2 more than on Sep 29');
+    expect(changeSentence(-1, '2031-09-29', TODAY)).toBe('▼ 1 fewer than on Sep 29');
+    expect(changeSentence(0, '2031-09-29', TODAY)).toBe('Same as on Sep 29');
   });
 
-  it('writes the date as month and day in UTC, never shifted by the local zone', () => {
-    expect(shortDate('2026-01-01')).toBe('Jan 1');
-    expect(shortDate('2026-12-31')).toBe('Dec 31');
+  // Revert: print the ISO date, or drop the year rule.
+  it('writes the date as a display date: no year in the current year, the year in any other, UTC', () => {
+    expect(changeSentence(0, '2031-01-01', TODAY)).toBe('Same as on Jan 1');
+    expect(changeSentence(0, '2030-12-31', TODAY)).toBe('Same as on Dec 31, 2030');
   });
 });
 
@@ -8244,9 +8868,9 @@ describe('changeToneClass', () => {
 describe('baselineUnavailableText', () => {
   // Revert: always name a date, or never name one.
   it('a null baseline names no date; a known baseline that does not measure this view names its date', () => {
-    expect(baselineUnavailableText(ovNoBaseline())).toBe('No earlier measurement yet');
-    expect(baselineUnavailableText(undefined)).toBe('No earlier measurement yet');
-    expect(baselineUnavailableText(ovDelta(null, { baseline: ovBaseline('2026-09-29') }))).toBe('No measurement on or before Sep 29');
+    expect(baselineUnavailableText(ovNoBaseline(), TODAY)).toBe('No earlier measurement yet');
+    expect(baselineUnavailableText(undefined, TODAY)).toBe('No earlier measurement yet');
+    expect(baselineUnavailableText(ovDelta(null, { baseline: ovBaseline('2031-09-29') }), TODAY)).toBe('No measurement on or before Sep 29');
   });
 });
 
@@ -8255,10 +8879,10 @@ describe('usableTotal and openChange', () => {
   it('an available delta whose total is null is not usable and never throws', () => {
     const d = ovDelta(null, { available: true });
     expect(usableTotal(d)).toBeNull();
-    const c = openChange(d, 'critical');
+    const c = openChange(d, 'critical', TODAY);
     expect(c.hasChange).toBe(false);
     expect(c.delta).toBeNull();
-    expect(c.text).toBe('No measurement on or before Sep 15');
+    expect(c.text).toBe('No measurement on or before Sep 15, 2026');
     expect(c.text).not.toMatch(/NaN|undefined|null/);
   });
 
@@ -8267,12 +8891,12 @@ describe('usableTotal and openChange', () => {
   });
 
   it('a usable delta gives the sentence, its tone and the number', () => {
-    const c = openChange(ovDelta(ovDeltaTeam('Total', 2), { baseline: ovBaseline('2026-09-29') }), 'critical');
+    const c = openChange(ovDelta(ovDeltaTeam('Total', 2), { baseline: ovBaseline('2031-09-29') }), 'critical', TODAY);
     expect(c).toEqual({ text: '▲ 2 more than on Sep 29', toneClass: 'text-red-400', hasChange: true, delta: 2 });
   });
 
   it('no delta at all reads as no earlier measurement', () => {
-    expect(openChange(undefined, 'high')).toEqual({ text: 'No earlier measurement yet', toneClass: 'text-gray-500', hasChange: false, delta: null });
+    expect(openChange(undefined, 'high', TODAY)).toEqual({ text: 'No earlier measurement yet', toneClass: 'text-gray-500', hasChange: false, delta: null });
   });
 });
 
@@ -8313,8 +8937,9 @@ In `src/app/vulnerabilities/kpi-tiles.tsx`, replace the import block above `cons
 // the team-scoped summary (`props.summary`), so with an owning team selected they show that team.
 import type { SecurityViewProps } from './view-props';
 import { KPI_ROW_H, TYPE } from './dimensions';
-import { dash, deltaBaselineCaption, resolvedCaption, signed } from './format';
-import { baselineUnavailableText, carriedFootnote, carriedTitle, openChange, shortDate, usableTotal } from './overview-format';
+import { dash, resolvedCaption, signed } from './format';
+import { displayDate, utcToday } from './labels';
+import { baselineUnavailableText, carriedFootnote, carriedTitle, openChange, usableTotal } from './overview-format';
 import Sparkline, { sparkPoints } from './sparkline';
 ```
 
@@ -8380,10 +9005,11 @@ Expected: PASS, tsc clean.
 - [ ] **Step 5: Commit**
 ```bash
 git add src/app/vulnerabilities/kpi-tiles.tsx src/app/vulnerabilities/overview-format.ts src/lib/__tests__/unit/vuln-overview-format.test.ts src/lib/__tests__/unit/vuln-kpi-resolved.test.tsx
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: KPI resolved tile"
 ```
-Run the three lines one at a time. If the guard line fails, do not run `git commit`; remove the offending text and `git add` again.
+Run the block as one script (see Conventions). If it prints "internal name found", `git commit` did not run: remove the offending text, `git add` again and rerun the block.
 
 ### Task 3.6: SLA tile
 
@@ -8392,8 +9018,8 @@ Run the three lines one at a time. If the guard line fails, do not run `git comm
 - Test: `src/lib/__tests__/unit/vuln-kpi-sla.test.tsx`
 
 **Interfaces:**
-- Consumes: `slaState`, `slaStateLabel`, `SlaState` from `sla-state.ts`; `openDrawer` from `SecurityViewProps`; `ovCell`, `ovTeam`, `ovProps`.
-- Produces: tile `data-testid="kpi-sla"` with one row per severity (`kpi-sla-critical`, `kpi-sla-high`). An active row shows Overdue and Due ≤ 7d. Any other state shows its label in `kpi-sla-{sev}-state`, spanning both columns (`col-span-2`). An invalid policy wins over `slaStatus` and reads red with a "!" icon. A row whose severity the Severity filter hides gets `opacity-[0.35]` but stays. The ⓘ button calls `openDrawer(button)`.
+- Consumes: `slaState`, `slaStateLabel`, `SlaState` from `sla-state.ts` (the tile calls `slaStateLabel(st, { withSla: false })`: its header already says SLA, so the wording drops the word); `openDrawer` from `SecurityViewProps`; `ovCell`, `ovTeam`, `ovProps`.
+- Produces: tile `data-testid="kpi-sla"` with one row per severity (`kpi-sla-critical`, `kpi-sla-high`). An active row shows Overdue and Due ≤ 7d. Any other state shows its label in `kpi-sla-{sev}-state`, spanning both columns (`col-span-2`): pending "Starts {display date}" ("Starts later" with no date), none "No SLA policy yet", invalid "Policy error". An invalid policy wins over `slaStatus` and reads red with a "!" icon before "Policy error"; the state's `title` holds the full sentence ("SLA policy can't be read: its configuration doesn't parse. Check the deployment configuration."). The other two states' titles explain themselves ("An SLA policy exists for this severity, but it has not started yet.", "No SLA policy is configured for this severity."). A row whose severity the Severity filter hides gets `opacity-[0.35]` but stays. The ⓘ button calls `openDrawer(button)`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -8410,6 +9036,10 @@ import type { SummaryData } from '@/app/vulnerabilities/api-types';
 import { ovCell, ovProps, ovTeam } from '../support/security-fixtures';
 
 type Status = 'active' | 'pending' | 'none';
+// The page prints dates through displayDate, whose "current year" is the clock's: pin it so the literal fixture dates below read the same every year.
+let nowSpy: jest.SpyInstance;
+beforeEach(() => { nowSpy = jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-30T12:00:00Z')); });
+afterEach(() => { nowSpy.mockRestore(); });
 const row = (sev: 'critical' | 'high') => screen.getByTestId(`kpi-sla-${sev}`);
 const policyRow = (severity: 'critical' | 'high', pending: boolean, effectiveFrom: string) =>
   ({ id: `${severity}-${effectiveFrom}`, severity, days: 7, effectiveFrom, until: null, pending });
@@ -8419,8 +9049,8 @@ function sla(critical: Status, high: Status, over: Partial<SummaryData> = {}): P
   return {
     slaStatus: { critical, high },
     policy: [
-      ...(critical === 'none' ? [] : [policyRow('critical', critical === 'pending', critical === 'pending' ? '2026-11-01' : '2020-01-08')]),
-      ...(high === 'none' ? [] : [policyRow('high', high === 'pending', high === 'pending' ? '2026-11-01' : '2020-01-08')]),
+      ...(critical === 'none' ? [] : [policyRow('critical', critical === 'pending', critical === 'pending' ? '2099-02-01' : '2020-01-08')]),
+      ...(high === 'none' ? [] : [policyRow('high', high === 'pending', high === 'pending' ? '2099-02-01' : '2020-01-08')]),
     ],
     pivot: { rows: [], total: ovTeam('Total', ovCell(20, { overdue: 15, dueSoon: 2 }), ovCell(30, { overdue: 13, dueSoon: 4 })) },
     ...over,
@@ -8451,10 +9081,10 @@ describe.each([['critical', 'high'], ['high', 'critical']] as const)('%s row in 
   const statuses = (s: Status) => (sev === 'critical' ? sla(s, 'active') : sla('active', s));
 
   // Revert: render the Overdue / Due cells for a pending policy.
-  it('pending: "Starts <date>" spanning both columns, grey, and no figures', () => {
+  it('pending: "Starts <display date>" spanning both columns, grey, and no figures', () => {
     render(<KpiTiles {...ovProps({ summary: statuses('pending') })} />);
     const state = screen.getByTestId(`kpi-sla-${sev}-state`);
-    expect(state.textContent).toBe('Starts 2026-11-01');
+    expect(state.textContent).toBe('Starts Feb 1, 2099');
     expect(state.className).toContain('col-span-2');
     expect(state.className).not.toContain('text-red-400');
     expect(within(row(sev)).queryByText('15')).toBeNull();
@@ -8464,25 +9094,26 @@ describe.each([['critical', 'high'], ['high', 'critical']] as const)('%s row in 
   it('none: "No SLA policy yet", never the invalid message', () => {
     render(<KpiTiles {...ovProps({ summary: statuses('none') })} />);
     expect(screen.getByTestId(`kpi-sla-${sev}-state`).textContent).toBe('No SLA policy yet');
-    expect(screen.queryByText("SLA policy can't be read")).toBeNull();
+    expect(screen.queryByText('Policy error')).toBeNull();
   });
 
   // Revert: check slaStatus before slaPolicyInvalid (an invalid policy then reads as merely empty).
-  it('invalid: "!" icon and "SLA policy can\'t be read" in red, never "No SLA policy yet"', () => {
+  it('invalid: "!" icon and "Policy error" in red, with the full sentence in its title, never "No SLA policy yet"', () => {
     render(<KpiTiles {...ovProps({ summary: { ...statuses('none'), slaPolicyInvalid: true } })} />);
     const invalid = screen.getByTestId(`kpi-sla-${sev}-state`);
-    expect(invalid.textContent).toBe("!SLA policy can't be read");
+    expect(invalid.textContent).toBe('!Policy error');
     expect(invalid.className).toContain('text-red-400');
+    expect(invalid.getAttribute('title')).toMatch(/^SLA policy can't be read/);
     expect(screen.queryByText('No SLA policy yet')).toBeNull();
   });
 });
 
 describe('state wording and tone', () => {
   // Revert: let slaStatus win over slaPolicyInvalid.
-  it('an invalid policy reads as unreadable on BOTH rows (it parses to an empty policy, so slaStatus says none)', () => {
+  it('an invalid policy reads as an error on BOTH rows (it parses to an empty policy, so slaStatus says none)', () => {
     render(<KpiTiles {...ovProps({ summary: { ...sla('none', 'none'), slaPolicyInvalid: true } })} />);
     for (const sev of ['critical', 'high'] as const) {
-      expect(screen.getByTestId(`kpi-sla-${sev}-state`).textContent).toContain("SLA policy can't be read");
+      expect(screen.getByTestId(`kpi-sla-${sev}-state`).textContent).toContain('Policy error');
       expect(screen.getByTestId(`kpi-sla-${sev}-state`).className).toContain('text-red-400');
     }
     expect(screen.queryByText('No SLA policy yet')).toBeNull();
@@ -8550,8 +9181,9 @@ import type { SecurityViewProps } from './view-props';
 import { KPI_ROW_H, TYPE } from './dimensions';
 import { slaState, slaStateLabel, type SlaState } from './sla-state';
 import type { Severity } from '@/lib/vulnerabilities/types';
-import { dash, deltaBaselineCaption, resolvedCaption, signed } from './format';
-import { baselineUnavailableText, carriedFootnote, carriedTitle, openChange, shortDate, usableTotal } from './overview-format';
+import { dash, resolvedCaption, signed } from './format';
+import { displayDate, utcToday } from './labels';
+import { baselineUnavailableText, carriedFootnote, carriedTitle, openChange, usableTotal } from './overview-format';
 import Sparkline, { sparkPoints } from './sparkline';
 ```
 
@@ -8561,7 +9193,7 @@ Add these declarations and functions directly above `export default function Kpi
 const SLA_TIP: Record<Exclude<SlaState['kind'], 'active'>, string> = {
   pending: 'An SLA policy exists for this severity, but it has not started yet.',
   none: 'No SLA policy is configured for this severity.',
-  invalid: "The SLA policy configuration doesn't parse. Check the deployment configuration.",
+  invalid: "SLA policy can't be read: its configuration doesn't parse. Check the deployment configuration.",
 };
 
 /** The badge column has a fixed width so both rows and the header line up whatever the row shows. */
@@ -8596,7 +9228,7 @@ function SlaRow({ sev, summary, dimmed }: { sev: Severity; summary: SecurityView
           title={SLA_TIP[st.kind]}
         >
           {st.kind === 'invalid' && <span aria-hidden="true" className="mr-1 inline-block rounded-full bg-red-400 px-1.5 text-[10px] leading-4 text-gray-900">!</span>}
-          {slaStateLabel(st)}
+          {slaStateLabel(st, { withSla: false })}
         </span>
       )}
     </div>
@@ -8659,10 +9291,11 @@ Expected: PASS, tsc clean.
 - [ ] **Step 5: Commit**
 ```bash
 git add src/app/vulnerabilities/kpi-tiles.tsx src/lib/__tests__/unit/vuln-kpi-sla.test.tsx
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: KPI SLA tile"
 ```
-Run the three lines one at a time. If the guard line fails, do not run `git commit`; remove the offending text and `git add` again.
+Run the block as one script (see Conventions). If it prints "internal name found", `git commit` did not run: remove the offending text, `git add` again and rerun the block.
 
 ### Task 3.7: Ownership rules (`ownership-model.ts`)
 
@@ -8671,8 +9304,12 @@ Run the three lines one at a time. If the guard line fails, do not run `git comm
 - Test: `src/lib/__tests__/unit/vuln-ownership-model.test.ts`
 
 **Interfaces:**
-- Consumes: `DeltaResult`, `RepoRow`, `TeamRow` from `@/lib/vulnerabilities/aggregate`; `Severity`; `SeverityFilter` from `security-state.ts`; fixtures `cell`, `repoRow`, `ovCell`, `ovTeam`, `ovDelta`, `ovDeltaTeam`, `ovNoBaseline`.
-- Produces: `SortDir`, `SortState<K>`; `nextSort(cur, key, first)`; `sortGlyph(active)`; `sevShown(filter, sev)`; team table: `TeamSortKey`, `TEAM_SORT_FIRST`, `teamKeySeverity`, `deltaOpenFor(delta, team)`, `orderTeamRows(rows, sort, deltas, severity)`; repositories table: `RepoSortKey`, `REPO_SORT_FIRST`, `repoKeySeverity`, `NextDue`, `RepoDisplay`, `repoDisplay(row, severity)`, `buildRepoView(rows, severity, sort, nameFilter): { measured, unmeasured }`, `repoTotals(measured, unmeasured = [])`, `unmeasuredReason(u)`.
+- Consumes: `DeltaResult`, `RepoRow`, `TeamRow` from `@/lib/vulnerabilities/aggregate`; `Severity`; `SeverityFilter` from `security-state.ts`; `OWNERSHIP_BODY_H`, `TEAM_FOOTNOTE_H`, `TEAM_HEAD_H`, `TEAM_ROW_H` from `dimensions.ts` (Task 2.2); fixtures `cell`, `repoRow`, `ovCell`, `ovTeam`, `ovDelta`, `ovDeltaTeam`, `ovNoBaseline`.
+- Produces: `SortDir`, `SortState<K>`; `nextSort(cur, key, first)`; `sortGlyph(active)`; `sevShown(filter, sev)`; team table: `TeamSortKey`, `TEAM_SORT_FIRST`, `teamKeySeverity`, `deltaOpenFor(delta, team)`, `orderTeamRows(rows, sort, deltas, severity)`, `teamRowsOverflow(rowCount, hasFootnote)`; repositories table: `RepoSortKey`, `REPO_SORT_FIRST`, `repoKeySeverity`, `NextDue`, `RepoDisplay`, `repoDisplay(row, severity)`, `buildRepoView(rows, severity, sort, nameFilter): { measured, unmeasured }`, `repoTotals(measured, unmeasured = [])`, `noOpenText(severity)`.
+
+Two rules are new in this task. `teamRowsOverflow` is true when `rowCount * TEAM_ROW_H` is more than the room left in the card body (`OWNERSHIP_BODY_H` minus the pinned header `TEAM_HEAD_H`, minus one row for the pinned Total row, minus `TEAM_FOOTNOTE_H` when the † footnote sits under it); the card (3.10) uses it to decide whether the hint says "scroll for more". `noOpenText` is the words a repository row shows when nothing is open: "no open alerts", or "no open critical alerts" / "no open high alerts" when Severity narrows the view, so a repository that only has the hidden severity open never reads as clean.
+
+The reason an unmeasured repository gives is not defined here. `unmeasuredReason` lives in `labels.ts` (Task 2.3) with the coverage drawer's wording, and the table (3.9) and the repository rail (4.4) import it from there.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -8682,9 +9319,10 @@ Create `src/lib/__tests__/unit/vuln-ownership-model.test.ts`:
 // src/lib/__tests__/unit/vuln-ownership-model.test.ts
 // The ownership card's pure rules: hidden severity, header sorting, repository rows under Severity.
 import {
-  buildRepoView, deltaOpenFor, nextSort, orderTeamRows, repoDisplay, repoTotals, sevShown, sortGlyph, unmeasuredReason,
+  buildRepoView, deltaOpenFor, nextSort, noOpenText, orderTeamRows, repoDisplay, repoTotals, sevShown, sortGlyph, teamRowsOverflow, teamRowsRoom,
   type RepoSortKey, type SortState, type TeamSortKey,
 } from '@/app/vulnerabilities/ownership-model';
+import { OWNERSHIP_BODY_H, TEAM_FOOTNOTE_H, TEAM_HEAD_H, TEAM_ROW_H } from '@/app/vulnerabilities/dimensions';
 import { cell, ovCell, ovDelta, ovDeltaTeam, ovNoBaseline, ovTeam, repoRow } from '../support/security-fixtures';
 
 const names = (rows: Array<{ team: string }>) => rows.map(r => r.team);
@@ -8862,10 +9500,42 @@ describe('repoTotals', () => {
   });
 });
 
-describe('unmeasuredReason', () => {
-  it('names the reason in capitals', () => {
-    expect(unmeasuredReason({ status: 'dependabot-off', detail: null })).toBe('DEPENDABOT OFF');
-    expect(unmeasuredReason({ status: 'error', detail: 'x' })).toBe('STATUS CHECK FAILED');
+describe('noOpenText', () => {
+  // Revert: always say "no open alerts" (a repository with only high alerts reads clean under "Critical only").
+  it('says "no open alerts", or names the severity when Severity narrows the view', () => {
+    expect(noOpenText('both')).toBe('no open alerts');
+    expect(noOpenText('critical')).toBe('no open critical alerts');
+    expect(noOpenText('high')).toBe('no open high alerts');
+  });
+});
+
+describe('teamRowsOverflow', () => {
+  // The rows' room is the card body minus the pinned header and the pinned Total row (and the † footnote under it).
+  const room = OWNERSHIP_BODY_H - TEAM_HEAD_H - TEAM_ROW_H;
+  const fit = Math.floor(room / TEAM_ROW_H);
+
+  // Revert: count the footnote's height as zero, or forget the Total row's.
+  it('is false while every row fits and true from the first row that does not', () => {
+    expect(teamRowsOverflow(0, false)).toBe(false);
+    expect(teamRowsOverflow(fit, false)).toBe(false);
+    expect(teamRowsOverflow(fit + 1, false)).toBe(true);
+    expect(teamRowsOverflow(14, false)).toBe(true);
+  });
+
+  // Revert: stop subtracting TEAM_FOOTNOTE_H when there is a footnote. The row COUNT that fits can be the same with and
+  // without it at today's constants, so the test pins the room in pixels.
+  it('the † footnote under the Total row takes TEAM_FOOTNOTE_H of room from the rows', () => {
+    expect(teamRowsRoom(false)).toBe(room);
+    expect(teamRowsRoom(true)).toBe(room - TEAM_FOOTNOTE_H);
+    const fitWith = Math.floor(teamRowsRoom(true) / TEAM_ROW_H);
+    expect(teamRowsOverflow(fitWith, true)).toBe(false);
+    expect(teamRowsOverflow(fitWith + 1, true)).toBe(true);
+  });
+
+  it('four teams fit the 330px body (the design\'s four-team organisation never scrolls)', () => {
+    expect(teamRowsOverflow(4, false)).toBe(false);
+    expect(teamRowsOverflow(4, true)).toBe(false);
+    expect(teamRowsOverflow(5, false)).toBe(true);
   });
 });
 ```
@@ -8886,6 +9556,7 @@ Create `src/app/vulnerabilities/ownership-model.ts`:
 import type { DeltaResult, RepoRow, TeamRow } from '@/lib/vulnerabilities/aggregate';
 import type { Severity } from '@/lib/vulnerabilities/types';
 import type { SeverityFilter } from './security-state';
+import { OWNERSHIP_BODY_H, TEAM_FOOTNOTE_H, TEAM_HEAD_H, TEAM_ROW_H } from './dimensions';
 
 export type SortDir = 'asc' | 'desc';
 export interface SortState<K extends string> { key: K; dir: SortDir }
@@ -8915,6 +9586,18 @@ function compareValues(a: string | number | null, b: string | number | null, dir
 }
 
 // ── Team table ─────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * True when `rowCount` team rows do not all fit between the pinned header and the pinned Total row (and the † footnote
+ * under it, when there is one), so the body scrolls. The card appends "· scroll for more" to its hint then.
+ */
+export function teamRowsOverflow(rowCount: number, hasFootnote: boolean): boolean {
+  return rowCount * TEAM_ROW_H > teamRowsRoom(hasFootnote);
+}
+
+/** The height in px the team rows may fill: the body minus the pinned header and Total row, and the † footnote when there is one. */
+export const teamRowsRoom = (hasFootnote: boolean): number =>
+  OWNERSHIP_BODY_H - TEAM_HEAD_H - TEAM_ROW_H - (hasFootnote ? TEAM_FOOTNOTE_H : 0);
 
 export type TeamSortKey =
   | 'name'
@@ -9093,23 +9776,27 @@ export function repoTotals(measured: readonly RepoDisplay[], unmeasured: readonl
   };
 }
 
-/** "UNMEASURED · DEPENDABOT OFF": the reason in capitals. */
-export function unmeasuredReason(u: NonNullable<RepoRow['unmeasured']>): string {
-  return u.status === 'dependabot-off' ? 'DEPENDABOT OFF' : 'STATUS CHECK FAILED';
+/**
+ * What a repository with nothing open reads: "no open alerts", or, when Severity narrows the view, "no open critical
+ * alerts" / "no open high alerts". A repository that only has the hidden severity open is not clean, and must not read so.
+ */
+export function noOpenText(severity: SeverityFilter): string {
+  return severity === 'both' ? 'no open alerts' : `no open ${severity} alerts`;
 }
 ```
 
 - [ ] **Step 4: Run tests and confirm they pass**
 Run: `npx jest src/lib/__tests__/unit/vuln-ownership-model.test.ts --maxWorkers=3` then `npx tsc --noEmit`
-Expected: PASS (22 tests), tsc clean.
+Expected: PASS (25 tests), tsc clean.
 
 - [ ] **Step 5: Commit**
 ```bash
 git add src/app/vulnerabilities/ownership-model.ts src/lib/__tests__/unit/vuln-ownership-model.test.ts
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: ownership card sorting and repository rules"
 ```
-Run the three lines one at a time. If the guard line fails, do not run `git commit`; remove the offending text and `git add` again.
+Run the block as one script (see Conventions). If it prints "internal name found", `git commit` did not run: remove the offending text, `git add` again and rerun the block.
 
 ### Task 3.8: Owning teams table (`team-table.tsx`)
 
@@ -9118,8 +9805,15 @@ Run the three lines one at a time. If the guard line fails, do not run `git comm
 - Test: `src/lib/__tests__/unit/vuln-team-table.test.tsx`
 
 **Interfaces:**
-- Consumes: `SecurityViewProps` (`summary`, `data.teamSummary`, `url.severity`, `url.team`, `url.selectTeamRow`, `openDrawer`); `TEAM_ROW_H`, `TYPE`, `Z`; `dash`, `deltaBaselineCaption`, `resolvedCaption`; `baselineUnavailableText`, `carriedFootnote`, `carriedTitle` (3.1, 3.5); `slaActive`; `ownership-model.ts` (3.7).
-- Produces: default export `TeamTable(props: SecurityViewProps)`. Root `data-testid="team-table"` (`h-full overflow-auto`, `opacity-60` while stale). Pinned header (`sticky top-0`, `bg-chart-surface`, `zIndex: Z.pinnedRows`) and pinned footer holding the Total row `team-total-row` and the † footnote `team-table-footnote`. Rows `team-row-{team}` (inline height `TEAM_ROW_H`). Bands `team-band-critical` / `team-band-high`. Error branch `team-table-error`. The card (3.10) gives it its height.
+- Consumes: `SecurityViewProps` (`summary`, `data.teamSummary`, `url.severity`, `url.team`, `url.selectTeamRow`, `openDrawer`); `TEAM_BAND_H`, `TEAM_COLHEAD_H`, `TEAM_FOOTNOTE_H`, `TEAM_ROW_H`, `TYPE`, `Z` from `dimensions.ts` (Task 2.2); `unmeasuredBadgeText` from `labels.ts` (Task 2.3); `dash`, `deltaBaselineCaption`, `resolvedCaption` from `format.ts` (both captions print display dates since Task 2.3); `baselineUnavailableText`, `carriedFootnote`, `carriedTitle` (3.1, 3.5); `slaActive`; `ownership-model.ts` (3.7).
+- Produces: default export `TeamTable(props: SecurityViewProps)`. Root `data-testid="team-table"` (`h-full overflow-auto`, plus `[scrollbar-gutter:stable]` so a table that starts to scroll does not narrow its columns; `opacity-60` while stale). Pinned header (`sticky top-0`, `bg-chart-surface`, `zIndex: Z.pinnedRows`) made of two rows with explicit heights: the CRITICAL / HIGH band row (`TEAM_BAND_H`) over the column-header row (`TEAM_COLHEAD_H`), `TEAM_HEAD_H` in all. Pinned footer (`sticky bottom-0`, a soft shadow on its top edge) holding the Total row `team-total-row`, its label `team-total-label` and the † footnote `team-table-footnote` (`TEAM_FOOTNOTE_H` tall, one truncating line). Rows `team-row-{team}` (inline height `TEAM_ROW_H`). Bands `team-band-critical` / `team-band-high`. Error branch `team-table-error`. The card (3.10) gives it its height.
+
+What the table prints, so the tests below can be read against it:
+
+- The Change header's caption is a display date: "vs Sep 29", with the ISO date in the header's `title` ("Change in open alerts since the measurement taken on 2026-09-29"). The Resolved header's `title` is `Resolved ` plus `resolvedCaption(...)`: "Resolved since Jan 8, 2020", "Resolved all time", "Resolved since —".
+- The unmeasured chip is the shared phrase `unmeasuredBadgeText(n)`: "▲ 2 unmeasured repos" ("▲ 1 unmeasured repo" for one). The Alerts strip and the header's coverage line use the same function.
+- The Total row's label reads "Total". While an owning team is selected the rows above still list every team, so it reads "Total · all owning teams"; the label truncates and its `title` holds the full text.
+- A change of 0 is a grey "0", the same grey as a missing figure; a rise is red with ▲ and a fall green with ▼.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -9131,7 +9825,8 @@ Create `src/lib/__tests__/unit/vuln-team-table.test.tsx`:
 // The ownership card's "Owning teams" tab (replaces vuln-team-pivot.test.tsx).
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import TeamTable from '@/app/vulnerabilities/team-table';
-import { TEAM_ROW_H, Z } from '@/app/vulnerabilities/dimensions';
+import { TEAM_BAND_H, TEAM_COLHEAD_H, TEAM_FOOTNOTE_H, TEAM_HEAD_H, TEAM_ROW_H, Z } from '@/app/vulnerabilities/dimensions';
+import { unmeasuredBadgeText } from '@/app/vulnerabilities/labels';
 import type { SummaryData } from '@/app/vulnerabilities/api-types';
 import type { SecurityViewProps } from '@/app/vulnerabilities/view-props';
 import {
@@ -9139,6 +9834,12 @@ import {
 } from '../support/security-fixtures';
 
 const NBSP = '\u00a0';
+
+// Dates print through displayDate, whose "current year" is the clock's: pin it so the literal fixture dates read the same every year.
+let nowSpy: jest.SpyInstance;
+beforeEach(() => { nowSpy = jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-30T12:00:00Z')); });
+afterEach(() => { nowSpy.mockRestore(); });
+
 const rowOf = (team: string) => screen.getByTestId(`team-row-${team}`);
 const cellsOf = (el: HTMLElement) => Array.from(el.querySelectorAll('[role="cell"]')) as HTMLElement[];
 
@@ -9178,7 +9879,7 @@ describe('layout', () => {
     expect(screen.getByTestId('team-total-row').style.height).toBe(`${TEAM_ROW_H}px`);
   });
 
-  // Revert: size the columns by content (auto) instead of the shared grid template.
+  // Revert: size the columns by content (auto), change the name track, a gap or minmax(0, 1fr) (the exact strings below fail).
   it('the grid template is shared by every row and does not change with the baseline caption', () => {
     const { unmount } = render(<TeamTable {...table()} />);
     const templateOf = () => [rowOf('Payments'), screen.getByTestId('team-total-row')].map(r => r.style.gridTemplateColumns);
@@ -9188,6 +9889,50 @@ describe('layout', () => {
     const delta = { critical: ovDelta(ovDeltaTeam('Total', 1), { baseline: ovBaseline('2099-01-01') }), high: ovNoBaseline() };
     render(<TeamTable {...table({ delta })} />);
     expect(templateOf()).toEqual(without);
+  });
+
+  // Revert: size a track by content, change the 8px spacer, or take the Overdue column's track out.
+  it.each([
+    ['no Overdue column', { critical: 'none', high: 'none' }, 4, 4],
+    ['critical Overdue only', { critical: 'active', high: 'none' }, 5, 4],
+    ['high Overdue only', { critical: 'none', high: 'active' }, 4, 5],
+    ['both Overdue columns', { critical: 'active', high: 'active' }, 5, 5],
+  ] as const)('the exact grid template, %s: the name track, then each group\'s tracks around an 8px spacer', (_name, status, nC, nH) => {
+    const policy = (['critical', 'high'] as const).filter(s => status[s] === 'active')
+      .map(severity => ({ id: `${severity}-1`, severity, days: 7, effectiveFrom: '2020-01-08', until: null, pending: false }));
+    render(<TeamTable {...table({ slaStatus: status as SummaryData['slaStatus'], policy: policy as SummaryData['policy'] })} />);
+    const expected = `minmax(0, 1.6fr) repeat(${nC}, minmax(0, 1fr)) 8px repeat(${nH}, minmax(0, 1fr))`;
+    for (const row of [rowOf('Payments'), screen.getByTestId('team-total-row')]) expect(row.style.gridTemplateColumns).toBe(expected);
+  });
+
+  // Revert: drop the inline heights (the header then takes its content's height, and the overflow rule's arithmetic is wrong).
+  it('the pinned header is a TEAM_BAND_H band over a TEAM_COLHEAD_H column row, TEAM_HEAD_H in all', () => {
+    render(<TeamTable {...table()} />);
+    const head = screen.getByTestId('team-table').firstElementChild as HTMLElement;
+    const [band, cols] = Array.from(head.children) as HTMLElement[];
+    expect(band.style.height).toBe(`${TEAM_BAND_H}px`);
+    expect(cols.style.height).toBe(`${TEAM_COLHEAD_H}px`);
+    expect(TEAM_HEAD_H).toBe(TEAM_BAND_H + TEAM_COLHEAD_H);
+  });
+
+  // Revert: take the shadow class off the pinned Total row, or the gutter class off the scroll container. Class-only guards:
+  // jsdom cannot paint, so the headless run checks the rendered shadow and that the columns do not move when the table scrolls.
+  it('the pinned Total row has a shadow on its top edge, and the scrolling body reserves its scrollbar gutter', () => {
+    render(<TeamTable {...table()} />);
+    const footer = screen.getByTestId('team-total-row').parentElement as HTMLElement;
+    expect(footer.className).toMatch(/shadow-\[0_-\d+px/);
+    expect(screen.getByTestId('team-table').className).toContain('[scrollbar-gutter:stable]');
+  });
+
+  // Revert: read the Total's label from nothing else than the literal "Total".
+  it('the Total row reads "Total", and "Total · all owning teams" while a team is selected (the rows above still list every team)', () => {
+    const { rerender } = render(<TeamTable {...table()} />);
+    expect(screen.getByTestId('team-total-label').textContent).toBe('Total');
+    rerender(<TeamTable {...table({}, { team: 'Payments' })} />);
+    const label = screen.getByTestId('team-total-label');
+    expect(label.textContent).toBe('Total · all owning teams');
+    expect(label.getAttribute('title')).toBe('Total · all owning teams');
+    expect(label.className).toContain('truncate');
   });
 
   it('numeric cells use tabular digits', () => {
@@ -9223,8 +9968,8 @@ describe('data source', () => {
     const scopedDelta = ovDelta(ovDeltaTeam('Total', 1), { baseline: ovBaseline('2099-02-02'), teams: [ovDeltaTeam('Payments', 1)] });
     const p = ovProps({ summary: { ...scoped, delta: { critical: scopedDelta, high: ovNoBaseline() } }, url: { team: 'Payments' }, teamSummary: slot({ ...everyone, delta: { critical: unfilteredDelta, high: ovNoBaseline() } }) });
     render(<TeamTable {...p} />);
-    expect(screen.getByText('vs 2099-01-01')).toBeTruthy();
-    expect(screen.queryByText('vs 2099-02-02')).toBeNull();
+    expect(screen.getByText('vs Jan 1, 2099')).toBeTruthy();
+    expect(screen.queryByText('vs Feb 2, 2099')).toBeNull();
     expect(within(rowOf('Payments')).getByText('▲ 5')).toBeTruthy();
     expect(within(rowOf('Search')).getByText('▲ 2')).toBeTruthy();
     expect(within(screen.getByTestId('team-total-row')).getByText('▲ 7')).toBeTruthy();
@@ -9294,7 +10039,8 @@ describe('unmeasured badge', () => {
   it('appears only for a team with unmeasured repositories, and on the Total row with the total', () => {
     render(<TeamTable {...table()} />);
     expect(within(rowOf('Unassigned')).queryByText(/unmeasured/)).toBeNull();
-    expect(within(screen.getByTestId('team-total-row')).getByText('▲ 2 unmeasured')).toBeTruthy();
+    expect(within(screen.getByTestId('team-total-row')).getByText(unmeasuredBadgeText(2))).toBeTruthy();
+    expect(unmeasuredBadgeText(2)).toBe('▲ 2 unmeasured repos');
   });
 });
 
@@ -9304,9 +10050,18 @@ describe('change column', () => {
 
   // Revert: colour by sign the other way, or drop the arrows.
   it('a rise is red with ▲, a fall is green with ▼, no change is a grey 0', () => {
-    render(<TeamTable {...table({ delta: { critical: ovDelta(total, { teams: [ovDeltaTeam('Payments', 12), ovDeltaTeam('Unassigned', -3), ovDeltaTeam('Search', 0)] }), high: ovNoBaseline() } }, {})} />);
+    const rows = [...ROWS, ovTeam('Search', ovCell(2), ovCell(0))];
+    render(<TeamTable {...table({
+      pivot: { rows, total: TOTAL },
+      delta: { critical: ovDelta(total, { teams: [ovDeltaTeam('Payments', 12), ovDeltaTeam('Unassigned', -3), ovDeltaTeam('Search', 0)] }), high: ovNoBaseline() },
+    }, {})} />);
     expect(within(rowOf('Payments')).getByText('▲ 12').className).toContain('text-red-400');
     expect(within(rowOf('Unassigned')).getByText('▼ 3').className).toContain('text-green-400');
+    // The Change cell of a team whose delta is 0: the text is "0", in grey (not red, not green).
+    const zero = cellsOf(rowOf('Search'))[2].firstElementChild as HTMLElement;
+    expect(zero.textContent).toBe('0');
+    expect(zero.className).toContain('text-gray-600');
+    expect(zero.className).not.toMatch(/text-(red|green)-400/);
   });
 
   it('the Total row shows the delta total', () => {
@@ -9336,16 +10091,17 @@ describe('change column', () => {
 describe('header captions', () => {
   const baseline = (takenOn: string) => ovBaseline(takenOn);
 
-  // Revert: share one caption between the two severities.
-  it('shows "vs <date>" under both Change headers, and under one only when the other is unavailable', () => {
+  // Revert: share one caption between the two severities, or print the ISO date in the caption.
+  it('shows "vs <display date>" under both Change headers, and under one only when the other is unavailable; the ISO date rides in the title', () => {
     const both = { critical: ovDelta(ovDeltaTeam('Total', 1), { baseline: baseline('2099-01-01') }), high: ovDelta(ovDeltaTeam('Total', 1), { baseline: baseline('2099-01-01') }) };
     const { unmount } = render(<TeamTable {...table({ delta: both })} />);
-    expect(screen.getAllByText('vs 2099-01-01')).toHaveLength(2);
+    expect(screen.getAllByText('vs Jan 1, 2099')).toHaveLength(2);
+    expect(screen.getAllByText('vs Jan 1, 2099')[0].getAttribute('title')).toBe('Change in open alerts since the measurement taken on 2099-01-01');
     unmount();
     const oneOnly = { critical: both.critical, high: ovDelta(null, { baseline: baseline('2099-01-01') }) };
     render(<TeamTable {...table({ delta: oneOnly })} />);
-    expect(screen.getAllByText('vs 2099-01-01')).toHaveLength(1);
-    expect(screen.getByText('No measurement on or before Jan 1')).toBeTruthy();
+    expect(screen.getAllByText('vs Jan 1, 2099')).toHaveLength(1);
+    expect(screen.getByText('No measurement on or before Jan 1, 2099')).toBeTruthy();
   });
 
   it('with no baseline at all both headers say "No earlier measurement yet" (and the slot is never empty)', () => {
@@ -9356,7 +10112,7 @@ describe('header captions', () => {
   // Revert: change Resolved's title from the shared resolvedCaption.
   it('the Resolved header names the start date, "all time" or an invalid date in its title', () => {
     const cases: Array<[SummaryData['resolvedSince'], string]> = [
-      [{ date: '2020-01-08', invalid: false }, 'Resolved since 2020-01-08'],
+      [{ date: '2020-01-08', invalid: false }, 'Resolved since Jan 8, 2020'],
       [{ date: null, invalid: false }, 'Resolved all time'],
       [{ date: null, invalid: true }, 'Resolved since —'],
     ];
@@ -9369,22 +10125,37 @@ describe('header captions', () => {
 });
 
 describe('Overdue columns per SLA state', () => {
-  const policy = (severity: 'critical' | 'high', pending: boolean) => ({ id: `${severity}-1`, severity, days: 7, effectiveFrom: '2026-11-01', until: null, pending });
-  const overdueHeaders = () => screen.queryAllByRole('columnheader').filter(h => h.textContent?.startsWith('Overdue')).length;
+  const policy = (severity: 'critical' | 'high', pending: boolean) => ({ id: `${severity}-1`, severity, days: 7, effectiveFrom: '2099-02-01', until: null, pending });
+  /** The Open and Overdue headers in document order: where an Overdue column sits says which group it belongs to. */
+  const openAndOverdue = () => screen.queryAllByRole('columnheader')
+    .map(h => h.textContent ?? '').filter(t => t.startsWith('Open') || t.startsWith('Overdue')).map(t => (t.startsWith('Open') ? 'Open' : 'Overdue'));
 
-  // Revert: render an Overdue column whatever the state, or key it off anything but slaActive.
+  // Revert: render an Overdue column whatever the state, key it off anything but slaActive, or give the high group critical's column.
   it.each([
-    ['active', { critical: 'active', high: 'active' }, [policy('critical', false), policy('high', false)], false, 2],
-    ['critical only active', { critical: 'active', high: 'none' }, [policy('critical', false)], false, 1],
-    ['pending', { critical: 'pending', high: 'pending' }, [policy('critical', true), policy('high', true)], false, 0],
-    ['none', { critical: 'none', high: 'none' }, [], false, 0],
-    ['invalid (parses as none)', { critical: 'none', high: 'none' }, [], true, 0],
-    ['invalid wins over a stale active status', { critical: 'active', high: 'active' }, [policy('critical', false), policy('high', false)], true, 0],
-  ] as const)('%s: %i Overdue headers', (_name, slaStatus, pol, invalid, count) => {
+    ['active', { critical: 'active', high: 'active' }, [policy('critical', false), policy('high', false)], false, ['Open', 'Overdue', 'Open', 'Overdue']],
+    ['critical only active', { critical: 'active', high: 'none' }, [policy('critical', false)], false, ['Open', 'Overdue', 'Open']],
+    ['high only active', { critical: 'none', high: 'active' }, [policy('high', false)], false, ['Open', 'Open', 'Overdue']],
+    ['pending', { critical: 'pending', high: 'pending' }, [policy('critical', true), policy('high', true)], false, ['Open', 'Open']],
+    ['none', { critical: 'none', high: 'none' }, [], false, ['Open', 'Open']],
+    ['invalid (parses as none)', { critical: 'none', high: 'none' }, [], true, ['Open', 'Open']],
+    ['invalid wins over a stale active status', { critical: 'active', high: 'active' }, [policy('critical', false), policy('high', false)], true, ['Open', 'Open']],
+  ] as const)('%s: headers %s', (_name, slaStatus, pol, invalid, headers) => {
     render(<TeamTable {...table({ slaStatus: slaStatus as SummaryData['slaStatus'], policy: pol as unknown as SummaryData['policy'], slaPolicyInvalid: invalid })} />);
-    expect(overdueHeaders()).toBe(count);
+    expect(openAndOverdue()).toEqual(headers);
     // The cells follow the headers: a row has 1 (name) + 4 per group + one per active Overdue column.
-    expect(cellsOf(rowOf('Payments'))).toHaveLength(1 + 8 + count);
+    expect(cellsOf(rowOf('Payments'))).toHaveLength(1 + 8 + headers.filter(h => h === 'Overdue').length);
+  });
+
+  // Revert: key the high group's Overdue column off the critical state.
+  it('high only active: the Overdue cell is the LAST cell of the row and reads the high figure', () => {
+    render(<TeamTable {...table({
+      pivot: { rows: [ovTeam('Payments', ovCell(5, { overdue: null }), ovCell(4, { overdue: 3 }))], total: TOTAL },
+      slaStatus: { critical: 'none', high: 'active' }, policy: [policy('high', false)] as unknown as SummaryData['policy'],
+    })} />);
+    const cells = cellsOf(rowOf('Payments'));
+    expect(cells).toHaveLength(10);
+    expect(cells[9].textContent).toBe('3');
+    expect(cells[9].className).toContain('text-red-400');
   });
 
   it('an overdue count above zero is bold red, zero is grey', () => {
@@ -9445,6 +10216,9 @@ describe('† marker and footnote', () => {
     const note = screen.getByTestId('team-table-footnote');
     expect(note.textContent).toBe('† Resolved includes 3 carried over from imported CSV history for archived repos Glooker never synced.');
     expect(note.parentElement).toBe(screen.getByTestId('team-total-row').parentElement);
+    // A fixed one-line height, so the overflow rule's arithmetic (and the pinned footer's height) holds.
+    expect(note.style.height).toBe(`${TEAM_FOOTNOTE_H}px`);
+    expect(note.className).toContain('truncate');
   });
 
   it('neither marker nor footnote when nothing carries', () => {
@@ -9539,7 +10313,7 @@ Expected: FAIL, `Cannot find module '@/app/vulnerabilities/team-table'`.
 
 - [ ] **Step 3: Implement**
 
-The table is a CSS grid of `div` rows with ARIA roles, not a `<table>`: grid tracks are `minmax(0, …)`, so long names truncate and no column width depends on its content, and sticky header and footer rows work without per-cell tricks. Create `src/app/vulnerabilities/team-table.tsx`:
+The table is a CSS grid of `div` rows with ARIA roles, not a `<table>`: grid tracks are `minmax(0, …)`, so long names truncate and no column width depends on its content, and sticky header and footer rows work without per-cell tricks. Every pinned part has an inline height (`TEAM_BAND_H`, `TEAM_COLHEAD_H`, `TEAM_ROW_H`, `TEAM_FOOTNOTE_H`), because `teamRowsOverflow` (3.7) does arithmetic on those numbers: a header that took its content's height would make the "scroll for more" hint wrong. Create `src/app/vulnerabilities/team-table.tsx`:
 
 ```tsx
 // src/app/vulnerabilities/team-table.tsx
@@ -9552,8 +10326,9 @@ import { useState } from 'react';
 import type { TeamRow, SevCell } from '@/lib/vulnerabilities/aggregate';
 import type { Severity } from '@/lib/vulnerabilities/types';
 import type { SecurityViewProps } from './view-props';
-import { TEAM_ROW_H, TYPE, Z } from './dimensions';
+import { TEAM_BAND_H, TEAM_COLHEAD_H, TEAM_FOOTNOTE_H, TEAM_ROW_H, TYPE, Z } from './dimensions';
 import { dash, deltaBaselineCaption, resolvedCaption } from './format';
+import { unmeasuredBadgeText } from './labels';
 import { baselineUnavailableText, carriedFootnote, carriedTitle } from './overview-format';
 import { slaActive } from './sla-state';
 import {
@@ -9621,7 +10396,7 @@ function UnmeasuredBadge({ n, onOpen }: { n: number; onOpen: SecurityViewProps['
       title={`Open counts for ${n} ${n === 1 ? 'repository are' : 'repositories are'} unknown. Their resolved alerts and measured history still count in this row.`}
       onClick={e => { e.stopPropagation(); onOpen(e.currentTarget); }}
     >
-      ▲ {n} unmeasured
+      {unmeasuredBadgeText(n)}
     </button>
   );
 }
@@ -9645,11 +10420,17 @@ export default function TeamTable({ summary, data, url, openDrawer }: SecurityVi
   const total = src.pivot.total;
   const nC = 4 + (columns.critical.overdue ? 1 : 0);
   const nH = 4 + (columns.high.overdue ? 1 : 0);
-  const template = `minmax(0, 1.25fr) repeat(${nC}, minmax(0, 1fr)) 8px repeat(${nH}, minmax(0, 1fr))`;
+  const template = `minmax(0, 1.6fr) repeat(${nC}, minmax(0, 1fr)) 8px repeat(${nH}, minmax(0, 1fr))`;
   const rowStyle = { display: 'grid', gridTemplateColumns: template } as const;
-  const critBaseline = deltaBaselineCaption(deltas.critical) ?? baselineUnavailableText(deltas.critical);
-  const highBaseline = deltaBaselineCaption(deltas.high) ?? baselineUnavailableText(deltas.high);
+  // The caption is a display date ("vs Sep 29"); its title carries the measurement's ISO date.
+  const baselineOf = (d: typeof deltas.critical) => ({
+    text: deltaBaselineCaption(d) ?? baselineUnavailableText(d),
+    title: d?.available && d.baseline ? `Change in open alerts since the measurement taken on ${d.baseline.takenOn}` : undefined,
+  });
+  const critBaseline = baselineOf(deltas.critical);
+  const highBaseline = baselineOf(deltas.high);
   const carriedTotal = total.critical.resolved !== null ? total.critical.carriedResolved : 0;
+  const totalLabel = url.team ? 'Total · all owning teams' : 'Total';
 
   const header = (g: typeof GROUPS[number], col: Col, label: string, sub?: string, subTitle?: string, title?: string) => {
     const key = sortKey(g.prefix, col);
@@ -9677,10 +10458,10 @@ export default function TeamTable({ summary, data, url, openDrawer }: SecurityVi
   );
   const nameKey: TeamSortKey = 'name';
   const nameActive = sort?.key === nameKey ? sort : null;
-  const groupHeader = (g: typeof GROUPS[number], baseline: string, hasOverdue: boolean) => (
+  const groupHeader = (g: typeof GROUPS[number], baseline: { text: string; title?: string }, hasOverdue: boolean) => (
     <>
       {header(g, 'Open', 'Open')}
-      {header(g, 'Change', 'Change', baseline)}
+      {header(g, 'Change', 'Change', baseline.text, baseline.title)}
       {header(g, 'Resolved', 'Resolved', '(dismissed)', undefined, `Resolved ${resolvedCaption(src.resolvedSince)}`)}
       {header(g, 'Pct', '% closed')}
       {hasOverdue && header(g, 'Overdue', 'Overdue')}
@@ -9688,15 +10469,16 @@ export default function TeamTable({ summary, data, url, openDrawer }: SecurityVi
   );
 
   return (
-    <div role="table" aria-label="Owning teams" data-testid="team-table" className={`h-full overflow-auto${slot.stale ? ' opacity-60' : ''}`}>
+    // The scrollbar gutter is reserved, so a table that starts to scroll does not narrow its columns.
+    <div role="table" aria-label="Owning teams" data-testid="team-table" className={`h-full overflow-auto [scrollbar-gutter:stable]${slot.stale ? ' opacity-60' : ''}`}>
       <div className="sticky top-0 bg-chart-surface" style={{ zIndex: Z.pinnedRows }}>
-        <div role="row" style={rowStyle}>
+        <div role="row" style={{ ...rowStyle, height: TEAM_BAND_H }}>
           <div />
           {band(GROUPS[0], nC)}
           <div />
           {band(GROUPS[1], nH)}
         </div>
-        <div role="row" style={rowStyle} className="items-end border-b border-gray-800">
+        <div role="row" style={{ ...rowStyle, height: TEAM_COLHEAD_H }} className="box-border items-end border-b border-gray-800">
           <div role="columnheader" aria-sort={nameActive ? (nameActive.dir === 'asc' ? 'ascending' : 'descending') : 'none'} className="px-2 pb-[18px]" title="The repository's team custom property — not a Glooker team">
             <button type="button" className={`${TYPE.tableHeader} flex items-center gap-1 whitespace-nowrap ${nameActive ? 'text-white' : 'text-gray-400'}`} onClick={() => setSort(s => nextSort(s, nameKey, TEAM_SORT_FIRST[nameKey]))}>
               Owning team
@@ -9734,17 +10516,23 @@ export default function TeamTable({ summary, data, url, openDrawer }: SecurityVi
         );
       })}
 
-      <div className="sticky bottom-0 bg-chart-surface" style={{ zIndex: Z.pinnedRows }}>
+      {/* The shadow above the pinned Total row says more rows are scrolled out of sight behind it. */}
+      <div className="sticky bottom-0 bg-chart-surface shadow-[0_-6px_6px_-6px_rgba(0,0,0,0.45)]" style={{ zIndex: Z.pinnedRows }}>
         <div role="row" data-testid="team-total-row" className="items-center border-t border-gray-700 font-bold" style={{ ...rowStyle, height: TEAM_ROW_H }}>
           <div role="cell" className="flex min-w-0 flex-col justify-center px-2">
-            <span className={`${TYPE.body} text-white`}>Total</span>
+            {/* With a team selected the rows above still list every team, so say what the Total covers. */}
+            <span data-testid="team-total-label" className={`${TYPE.body} truncate text-white`} title={totalLabel}>{totalLabel}</span>
             {total.unmeasuredRepos > 0 && <UnmeasuredBadge n={total.unmeasuredRepos} onOpen={openDrawer} />}
           </div>
           <GroupCells row={total} g={GROUPS[0]} ctx={ctx} />
           <div />
           <GroupCells row={total} g={GROUPS[1]} ctx={ctx} />
         </div>
-        {carriedTotal > 0 && <p data-testid="team-table-footnote" className="px-2 pb-1 text-[11px] text-gray-500">{carriedFootnote(carriedTotal)}</p>}
+        {carriedTotal > 0 && (
+          <p data-testid="team-table-footnote" className="truncate px-2 text-[11px] leading-5 text-gray-500" style={{ height: TEAM_FOOTNOTE_H }} title={carriedFootnote(carriedTotal)}>
+            {carriedFootnote(carriedTotal)}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -9753,15 +10541,25 @@ export default function TeamTable({ summary, data, url, openDrawer }: SecurityVi
 
 - [ ] **Step 4: Run tests and confirm they pass**
 Run: `npx jest src/lib/__tests__/unit/vuln-team-table.test.tsx --maxWorkers=3` then `npx tsc --noEmit`
-Expected: PASS (42 tests), tsc clean.
+Expected: PASS (51 tests), tsc clean.
+
+Named reverts, and what each test can and cannot see:
+
+- Changing the name track, the 8px spacer or `minmax(0, 1fr)` fails all four cases of "the exact grid template, %s" (no Overdue column, critical Overdue only, high Overdue only, both). Each case compares the whole `gridTemplateColumns` string of a team row and of the Total row, so it catches a track that was changed, not only one that went missing.
+- Dropping the inline `height` from the band row or the column-header row fails "the pinned header is a TEAM_BAND_H band over a TEAM_COLHEAD_H column row, TEAM_HEAD_H in all". Dropping the footnote's `height` fails "the footnote sits under the Total row...".
+- "the pinned Total row has a shadow on its top edge, and the scrolling body reserves its scrollbar gutter" is a class-only guard. It reads the `shadow-[0_-Npx...]` and `[scrollbar-gutter:stable]` class names, because jsdom does not lay out or paint and so cannot show a shadow or a gutter. The headless-Chrome pass in the exit check measures the real effect: the shadow is painted, and the columns do not move when the body starts to scroll.
+- Showing a team's Total label as the literal "Total" while a team is selected fails "the Total row reads "Total", and "Total · all owning teams" while a team is selected".
+- A team whose Change is 0 must read a grey "0" (not red, not green): the case in "a rise is red with ▲, a fall is green with ▼, no change is a grey 0" uses a team named Search with delta 0.
+- Keying the high group's Overdue column off the critical state fails "high only active: the Overdue cell is the LAST cell of the row and reads the high figure" and the `%s: headers %s` case "high only active", which asserts the header ORDER (`Open`, `Open`, `Overdue`) and not only how many Overdue headers there are.
 
 - [ ] **Step 5: Commit**
 ```bash
 git add src/app/vulnerabilities/team-table.tsx src/lib/__tests__/unit/vuln-team-table.test.tsx
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: Owning teams table"
 ```
-Run the three lines one at a time. If the guard line fails, do not run `git commit`; remove the offending text and `git add` again.
+Run the block as one script (see Conventions). If it prints "internal name found", `git commit` did not run: remove the offending text, `git add` again and rerun the block.
 
 ### Task 3.9: Repositories table (`repo-table.tsx`)
 
@@ -9770,8 +10568,16 @@ Run the three lines one at a time. If the guard line fails, do not run `git comm
 - Test: `src/lib/__tests__/unit/vuln-repo-table.test.tsx`
 
 **Interfaces:**
-- Consumes: `SecurityViewProps` (`summary`, `data.repos`, `url.severity`, `url.team`, `url.selectRepoRow`, `openDrawer`); `CODEBASE_LABELS` from `@/lib/vulnerabilities/codebase-labels`; `TEAM_ROW_H`, `TYPE`, `Z`; `shortDate` (3.1); `slaActive`, `anySlaActive`; `ownership-model.ts` (3.7: `buildRepoView`, `repoDisplay`, `repoTotals`, `nextSort` and the rest); fixtures `cell`, `repoRow`, `reposFixture`, `slot`, `ovProps`.
-- Produces: default export `RepoTable(props: SecurityViewProps & { nameFilter: string })`. Root `repo-table` (`h-full overflow-auto`); rows `repo-row-{fullName}` (inline height `TEAM_ROW_H`); the hatched band `repo-unmeasured-band`; pinned footer `repo-footer` with its second line `repo-footer-note`; branches `repo-table-error` and `repo-table-loading`.
+- Consumes: `SecurityViewProps` (`summary`, `data.repos`, `url.severity`, `url.team`, `url.selectRepoRow`, `openDrawer`); `CODEBASE_LABELS` from `@/lib/vulnerabilities/codebase-labels`; `TEAM_ROW_H`, `TYPE`, `Z`; `displayDate`, `unmeasuredReason` from `labels.ts` (Task 2.3); `slaActive`, `anySlaActive`; `ownership-model.ts` (3.7: `buildRepoView`, `repoDisplay`, `repoTotals`, `noOpenText`, `nextSort` and the rest); fixtures `cell`, `repoRow`, `reposFixture`, `slot`, `ovProps`.
+- Produces: default export `RepoTable(props: SecurityViewProps & { nameFilter: string })` and the exported constant `REPO_TEAM_COL_W` (150, in px). Root `repo-table` (`h-full overflow-auto`); rows `repo-row-{fullName}` (inline height `TEAM_ROW_H`); the hatched band `repo-unmeasured-band`; pinned footer `repo-footer` with its second line `repo-footer-note`; branches `repo-table-error` and `repo-table-loading`.
+
+What the table prints, so the tests below can be read against it:
+
+- The Owning team track is `REPO_TEAM_COL_W` px wide in the header, every row and the footer; the other tracks stay `minmax` fractions. A fixed track means a long team name ends in "…" and the numeric columns keep the same room whatever the team names are.
+- Every header button is one line (`whitespace-nowrap`). Its label is a truncating `span` and the sort glyph is a separate `shrink-0` `span`, so a narrow column cuts the label and never the glyph. The labels are "Repository", "Owning team", "Open crit", "Overdue crit", "Open high", "Overdue high", "Oldest open", "Next due".
+- A repository with nothing open reads `<codebase> · no open alerts` under its name. Under Severity "Critical only" or "High only" it reads `no open critical alerts` or `no open high alerts` (`noOpenText`), so a repository with only high alerts open does not look clean under "Critical only".
+- The unmeasured band reads `▲ UNMEASURED · <REASON> — alert counts unknown, not zero`. `<REASON>` is `unmeasuredReason(u)` (the coverage drawer's wording: "Dependabot off", else the status check's detail, else "Status check failed") upper-cased here because the band's style is all capitals. An error row with the detail "HTTP 500: status check failed" therefore reads "HTTP 500: STATUS CHECK FAILED". The row's `title` keeps the detail in its original case.
+- The Next due cell prints its date with `displayDate` ("Oct 2", or "Oct 2, 2099" for a date in another year) followed by a smaller "in 2d" or "today".
 
 - [ ] **Step 1: Write the failing test**
 
@@ -9782,13 +10588,18 @@ Create `src/lib/__tests__/unit/vuln-repo-table.test.tsx`:
 // src/lib/__tests__/unit/vuln-repo-table.test.tsx
 // The ownership card's "Repositories" tab.
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import RepoTable from '@/app/vulnerabilities/repo-table';
+import RepoTable, { REPO_TEAM_COL_W } from '@/app/vulnerabilities/repo-table';
 import { TEAM_ROW_H, Z } from '@/app/vulnerabilities/dimensions';
+import { unmeasuredReason } from '@/app/vulnerabilities/labels';
 import type { SummaryData, ReposData } from '@/app/vulnerabilities/api-types';
 import type { SecurityViewProps } from '@/app/vulnerabilities/view-props';
 import { cell, ovProps, repoRow, reposFixture, slot } from '../support/security-fixtures';
 
 const NBSP = '\u00a0';
+// Dates print through displayDate, whose "current year" is the clock's: pin it so the literal fixture dates read the same every year.
+let nowSpy: jest.SpyInstance;
+beforeEach(() => { nowSpy = jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-30T12:00:00Z')); });
+afterEach(() => { nowSpy.mockRestore(); });
 const LONG_TEAM = 'A very long owning team name that cannot fit its column';
 const ROWS = [
   repoRow('acme/checkout-api', 'Payments', {
@@ -9804,7 +10615,7 @@ const ROWS = [
   repoRow('acme/invoice-render', 'Payments', { critical: cell({ open: 8, overdue: 4 }), high: cell({ open: 5, overdue: 2 }), unmeasured: { status: 'dependabot-off', detail: null } }),
 ];
 
-const policy = (severity: 'critical' | 'high', pending: boolean) => ({ id: `${severity}-1`, severity, days: 7, effectiveFrom: '2026-11-01', until: null, pending });
+const policy = (severity: 'critical' | 'high', pending: boolean) => ({ id: `${severity}-1`, severity, days: 7, effectiveFrom: '2099-02-01', until: null, pending });
 const ACTIVE = { slaStatus: { critical: 'active', high: 'active' } as SummaryData['slaStatus'], policy: [policy('critical', false), policy('high', false)] as unknown as SummaryData['policy'] };
 
 function table(o: { rows?: typeof ROWS; summary?: Partial<SummaryData>; url?: Partial<SecurityViewProps['url']>; filter?: string; repos?: SecurityViewProps['data']['repos'] } = {}) {
@@ -9836,6 +10647,38 @@ describe('columns follow the SLA state', () => {
     render(<RepoTable {...table({ summary: { ...s, slaPolicyInvalid: invalid } })} />);
     expect(headerNames()).toEqual(expected);
     expect(cellsOf(rowOf('acme/checkout-api'))).toHaveLength(expected.length);
+  });
+});
+
+describe('headers (D14)', () => {
+  // Revert: take whitespace-nowrap off a header button (the label wraps to two lines at 1024px), or put the glyph in the label's flex item.
+  it('every header is one line with its sort glyph next to its text, and the label truncates before the glyph does', () => {
+    render(<RepoTable {...table()} />);
+    for (const h of screen.getAllByRole('columnheader')) {
+      const button = within(h).getByRole('button');
+      expect(button.className).toContain('whitespace-nowrap');
+      const [label, glyph] = Array.from(button.children) as HTMLElement[];
+      expect(label.className).toContain('truncate');
+      expect(glyph.className).toContain('shrink-0');
+      expect(glyph.getAttribute('aria-hidden')).toBe('true');
+    }
+  });
+
+  // Revert: size the Owning team track in fr again.
+  it('the Owning team track is a fixed width, the same in the header and every row', () => {
+    render(<RepoTable {...table()} />);
+    const header = screen.getAllByRole('columnheader')[0].parentElement as HTMLElement;
+    const second = (r: HTMLElement) => r.style.gridTemplateColumns.split(/ (?![^()]*\))/)[1];
+    expect(REPO_TEAM_COL_W).toBe(150);
+    expect(second(header)).toBe(`${REPO_TEAM_COL_W}px`);
+    expect(second(rowOf('acme/checkout-api'))).toBe(`${REPO_TEAM_COL_W}px`);
+    expect(second(screen.getByTestId('repo-footer'))).toBe(`${REPO_TEAM_COL_W}px`);
+  });
+
+  it('the Overdue labels are the short forms', () => {
+    render(<RepoTable {...table()} />);
+    expect(headerNames()).toContain('Overdue crit');
+    expect(headerNames()).toContain('Overdue high');
   });
 });
 
@@ -9911,10 +10754,17 @@ describe('hidden severity', () => {
     expect((within(openHigh).getByRole('button') as HTMLButtonElement).disabled).toBe(true);
   });
 
-  // Revert: decide "no open alerts" from both severities.
-  it('"no open alerts" follows the shown severities: a high-only repository reads as empty under "Critical only"', () => {
-    render(<RepoTable {...table({ url: { severity: 'critical', kSev: 'critical' } })} />);
-    expect(cellsOf(rowOf('acme/search-index'))[0].textContent).toBe('acme/search-indexBackend · no open alerts');
+  // Revert: decide "no open alerts" from both severities, or drop the severity from the wording (a high-only repository would
+  // read as clean under "Critical only").
+  it('"no open alerts" follows the shown severities and names the severity that is empty', () => {
+    const criticalOnly = repoRow('acme/critical-only', 'Payments', { critical: cell({ open: 2, overdue: 0, dueSoon: 0 }), high: cell({ open: 0, overdue: 0, dueSoon: 0 }) });
+    const { unmount } = render(<RepoTable {...table({ url: { severity: 'critical', kSev: 'critical' } })} />);
+    expect(cellsOf(rowOf('acme/search-index'))[0].textContent).toBe('acme/search-indexBackend · no open critical alerts');
+    unmount();
+    render(<RepoTable {...table({ rows: [...ROWS, criticalOnly], url: { severity: 'high', kSev: 'high' } })} />);
+    expect(cellsOf(rowOf('acme/critical-only'))[0].textContent).toBe('acme/critical-onlyBackend · no open high alerts');
+    // A repository with something open under that severity carries no such text.
+    expect(cellsOf(rowOf('acme/search-index'))[0].textContent).toBe('acme/search-indexBackend');
   });
 
   it('"High only" combines only the high figures for oldest open', () => {
@@ -9944,11 +10794,16 @@ describe('unmeasured repositories', () => {
     }
   });
 
-  it('an error status names a failed status check', () => {
+  // Revert: word the reason locally again (the band then reads a different text from the drawer and the rail).
+  it('an error status names its detail, in capitals, the drawer\'s wording; with no detail it reads "STATUS CHECK FAILED"', () => {
     const rows = [repoRow('acme/legacy', 'Platform', { unmeasured: { status: 'error', detail: 'HTTP 500: status check failed' } })];
-    render(<RepoTable {...table({ rows })} />);
-    expect(screen.getByTestId('repo-unmeasured-band').textContent).toContain('UNMEASURED · STATUS CHECK FAILED');
+    const { unmount } = render(<RepoTable {...table({ rows })} />);
+    expect(screen.getByTestId('repo-unmeasured-band').textContent).toBe('▲ UNMEASURED · HTTP 500: STATUS CHECK FAILED — alert counts unknown, not zero');
+    expect(screen.getByTestId('repo-unmeasured-band').textContent).toContain(unmeasuredReason({ status: 'error', detail: 'HTTP 500: status check failed' }).toUpperCase());
     expect(rowOf('acme/legacy').getAttribute('title')).toBe('Open counts unknown (HTTP 500: status check failed). Click for details.');
+    unmount();
+    render(<RepoTable {...table({ rows: [repoRow('acme/legacy', 'Platform', { unmeasured: { status: 'error', detail: null } })] })} />);
+    expect(screen.getByTestId('repo-unmeasured-band').textContent).toBe('▲ UNMEASURED · STATUS CHECK FAILED — alert counts unknown, not zero');
   });
 
   // Revert: send the click to selectRepoRow like a measured row.
@@ -10143,14 +10998,16 @@ import type { RepoRow } from '@/lib/vulnerabilities/aggregate';
 import { CODEBASE_LABELS } from '@/lib/vulnerabilities/codebase-labels';
 import type { SecurityViewProps } from './view-props';
 import { TEAM_ROW_H, TYPE, Z } from './dimensions';
-import { shortDate } from './overview-format';
+import { displayDate, unmeasuredReason } from './labels';
 import { slaActive, anySlaActive } from './sla-state';
 import {
-  buildRepoView, nextSort, repoDisplay, repoKeySeverity, repoTotals, REPO_SORT_FIRST, sevShown, sortGlyph, unmeasuredReason,
+  buildRepoView, nextSort, noOpenText, repoDisplay, repoKeySeverity, repoTotals, REPO_SORT_FIRST, sevShown, sortGlyph,
   type NextDue, type RepoDisplay, type RepoSortKey, type SortState,
 } from './ownership-model';
 
 const HIDDEN = '–'; // en dash: a hidden severity's cell. A missing figure is "—" (em dash).
+/** The Owning team track is a fixed width, so a long team name ends in "…" and the numeric columns keep the same room. */
+export const REPO_TEAM_COL_W = 150;
 const DIM = 'opacity-[0.35]';
 
 interface Col { key: RepoSortKey; label: string; width: string; align: 'right' }
@@ -10167,7 +11024,7 @@ function columns(src: SecurityViewProps['summary']): Col[] {
   ];
 }
 
-const nextText = (n: NextDue) => ({ date: shortDate(n.date), sub: n.daysRemaining === 0 ? 'today' : `in ${n.daysRemaining}d` });
+const nextText = (n: NextDue) => ({ date: displayDate(n.date), sub: n.daysRemaining === 0 ? 'today' : `in ${n.daysRemaining}d` });
 
 /** The text of one numeric cell (or footer cell) for a column; null for a hidden severity. */
 function figure(col: Col, v: { openCrit: number; openHigh: number; overCrit: number | null; overHigh: number | null; oldest: number | null; next: NextDue | null }, bold: boolean) {
@@ -10196,7 +11053,7 @@ function MeasuredRow({ d, cols, template, severity, onSelect }: {
     >
       <div role="cell" className="min-w-0 px-2">
         <div className={`${TYPE.body} truncate ${zero ? 'text-gray-500' : 'text-gray-100'}`} title={r.fullName}>{r.fullName}</div>
-        <div className="truncate text-xs text-gray-500">{CODEBASE_LABELS[r.codebaseGroup]}{zero ? ' · no open alerts' : ''}</div>
+        <div className="truncate text-xs text-gray-500">{CODEBASE_LABELS[r.codebaseGroup]}{zero ? ` · ${noOpenText(severity)}` : ''}</div>
       </div>
       <div role="cell" className={`${TYPE.body} min-w-0 truncate px-2 ${zero ? 'text-gray-500' : 'text-gray-300'}`} title={r.team}>{r.team}</div>
       {cols.map(c => {
@@ -10216,7 +11073,8 @@ function MeasuredRow({ d, cols, template, severity, onSelect }: {
 
 function UnmeasuredRow({ r, cols, template, onOpen }: { r: RepoRow; cols: Col[]; template: string; onOpen: SecurityViewProps['openDrawer'] }) {
   const u = r.unmeasured!;
-  const reason = unmeasuredReason(u);
+  // The band's style is all capitals, so the reason (drawer wording, detail included) is upper-cased here.
+  const reason = unmeasuredReason(u).toUpperCase();
   const text = `▲ UNMEASURED · ${reason} — alert counts unknown, not zero`;
   return (
     <div
@@ -10252,7 +11110,7 @@ export default function RepoTable({ summary, data, url, openDrawer, nameFilter }
 
   const rows = slot.data.rows;
   const cols = columns(summary);
-  const template = `minmax(0, 2fr) minmax(0, 1fr) ${cols.map(c => c.width).join(' ')}`;
+  const template = `minmax(0, 2fr) ${REPO_TEAM_COL_W}px ${cols.map(c => c.width).join(' ')}`;
   const view = buildRepoView(rows, url.severity, sort, nameFilter);
   const totals = repoTotals(view.measured, view.unmeasured.map(r => repoDisplay(r, url.severity)));
   const filtering = nameFilter.trim() !== '';
@@ -10269,11 +11127,11 @@ export default function RepoTable({ summary, data, url, openDrawer, nameFilter }
       <div key={key} role="columnheader" aria-sort={active ? (active.dir === 'asc' ? 'ascending' : 'descending') : 'none'} className={`px-2 ${shown ? '' : DIM}`}>
         <button
           type="button" disabled={!shown}
-          className={`${TYPE.tableHeader} flex w-full items-center gap-1 leading-[13px] ${right ? 'justify-end text-right' : 'text-left'} ${active ? 'text-white' : 'text-gray-400'} disabled:cursor-default`}
+          className={`${TYPE.tableHeader} flex w-full items-center gap-1 whitespace-nowrap leading-[13px] ${right ? 'justify-end text-right' : 'text-left'} ${active ? 'text-white' : 'text-gray-400'} disabled:cursor-default`}
           onClick={() => setSort(s => nextSort(s, key, REPO_SORT_FIRST[key]))}
         >
-          <span>{label}</span>
-          {shown && <span aria-hidden="true" className={active ? 'text-accent-light' : 'text-gray-600'}>{sortGlyph(active)}</span>}
+          <span className="min-w-0 truncate">{label}</span>
+          {shown && <span aria-hidden="true" className={`shrink-0 ${active ? 'text-accent-light' : 'text-gray-600'}`}>{sortGlyph(active)}</span>}
         </button>
       </div>
     );
@@ -10322,15 +11180,18 @@ export default function RepoTable({ summary, data, url, openDrawer, nameFilter }
 
 - [ ] **Step 4: Run tests and confirm they pass**
 Run: `npx jest src/lib/__tests__/unit/vuln-repo-table.test.tsx --maxWorkers=3` then `npx tsc --noEmit`
-Expected: PASS (39 tests), tsc clean.
+Expected: PASS (42 tests), tsc clean.
+
+Named reverts: sizing the Owning team track in `fr` again fails "the Owning team track is a fixed width, the same in the header and every row"; taking `whitespace-nowrap` off a header button, or moving the glyph into the label's element, fails "every header is one line with its sort glyph next to its text, and the label truncates before the glyph does"; wording the band's reason locally instead of through `unmeasuredReason` fails "an error status names its detail, in capitals, the drawer's wording..."; deciding "no open alerts" without the severity fails ""no open alerts" follows the shown severities and names the severity that is empty". The header test reads class names only, because jsdom does not wrap text: it is a class-only guard, and the headless-Chrome pass in the exit check confirms that no header wraps or is clipped at 1024px.
 
 - [ ] **Step 5: Commit**
 ```bash
 git add src/app/vulnerabilities/repo-table.tsx src/lib/__tests__/unit/vuln-repo-table.test.tsx
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: Repositories table"
 ```
-Run the three lines one at a time. If the guard line fails, do not run `git commit`; remove the offending text and `git add` again.
+Run the block as one script (see Conventions). If it prints "internal name found", `git commit` did not run: remove the offending text, `git add` again and rerun the block.
 
 ### Task 3.10: Ownership card (`ownership-card.tsx`)
 
@@ -10339,8 +11200,8 @@ Run the three lines one at a time. If the guard line fails, do not run `git comm
 - Test: `src/lib/__tests__/unit/vuln-ownership-card.test.tsx`
 
 **Interfaces:**
-- Consumes: `TeamTable` (3.8), `RepoTable` (3.9); `url.own`, `url.setOwn`; `OWNERSHIP_BODY_H`, `TYPE`; `data.teamSummary`, `data.repos`.
-- Produces: default export `OwnershipCard(props: SecurityViewProps)`: `section` `data-testid="ownership-card"` (no inline height), a pressed-button group for the two tabs with their counts, the name filter (Repositories tab only, local state that survives a tab switch) and the body `data-testid="ownership-card-body"` with inline height `OWNERSHIP_BODY_H` in every branch. A filter change must never move a control, so each tab's count is always rendered (`ownership-tab-count-teams` / `-repos`, empty while the repository rows load) in a slot with the minimum width `OWN_TAB_COUNT_MIN_W` (exported, `'2ch'`), and each tab label (`ownership-tab-label-teams` / `-repos`) reserves its semibold width through an invisible `::after` copy, so the pressed tab being bold does not move the other one.
+- Consumes: `TeamTable` (3.8), `RepoTable` (3.9); `teamRowsOverflow` (3.7); `url.own`, `url.setOwn`; `OWNERSHIP_BODY_H`, `TYPE`; `data.teamSummary`, `data.repos`.
+- Produces: default export `OwnershipCard(props: SecurityViewProps)`: `section` `data-testid="ownership-card"` (no inline height), a pressed-button group for the two tabs with their counts, the name filter (Repositories tab only, local state that survives a tab switch) and the body `data-testid="ownership-card-body"` with inline height `OWNERSHIP_BODY_H` in every branch. A filter change must never move a control, so each tab's count is always rendered (`ownership-tab-count-teams` / `-repos`, empty while the repository rows load) in a slot with the minimum width `OWN_TAB_COUNT_MIN_W` (exported, `'2ch'`), and each tab label (`ownership-tab-label-teams` / `-repos`) reserves its semibold width through an invisible `::after` copy, so the pressed tab being bold does not move the other one. The hint beside the tabs reads "Click a team to filter the page to it" on the Owning teams tab, with " · scroll for more" appended when `teamRowsOverflow(teamCount, hasCarriedFootnote)` says the team rows do not all fit (`hasCarriedFootnote` is true when the † footnote shows under the Total row, which takes `TEAM_FOOTNOTE_H` of room). The Repositories tab's hint, "Click a repository to open its alerts", never carries the suffix.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -10455,6 +11316,20 @@ describe('tabs', () => {
     rerender(<OwnershipCard {...ovProps({ url: { own: 'repos' } })} />);
     expect(screen.getByText('Click a repository to open its alerts')).toBeTruthy();
   });
+
+  // Revert: drop the overflow suffix, or add it to the Repositories tab's hint.
+  it('appends "· scroll for more" to the Owning teams hint only when the team rows overflow the body', () => {
+    const teams = (n: number) => Array.from({ length: n }, (_, i) => ovTeam(`Team ${i + 1}`, ovCell(1), ovCell(0)));
+    const summary = (n: number) => ({ pivot: { rows: teams(n), total: ovTeam('Total', ovCell(n), ovCell(0)) } });
+    const { rerender } = render(<OwnershipCard {...ovProps({ summary: summary(4) })} />);
+    expect(screen.getByText('Click a team to filter the page to it')).toBeTruthy();
+    expect(screen.queryByText(/scroll for more/)).toBeNull();
+    rerender(<OwnershipCard {...ovProps({ summary: summary(14) })} />);
+    expect(screen.getByText('Click a team to filter the page to it · scroll for more')).toBeTruthy();
+    // The Repositories hint never says it: that table has its own header and footer and no such hint.
+    rerender(<OwnershipCard {...ovProps({ summary: summary(14), url: { own: 'repos' } })} />);
+    expect(screen.queryByText(/scroll for more/)).toBeNull();
+  });
 });
 
 describe('interactions through the card', () => {
@@ -10539,7 +11414,7 @@ describe('name filter', () => {
 
 - [ ] **Step 2: Run it and confirm it fails**
 Run: `npx jest src/lib/__tests__/unit/vuln-ownership-card.test.tsx --maxWorkers=3`
-Expected: FAIL, 15 of 23 tests (the stub has no tabs or tables, so the height tests alone pass).
+Expected: FAIL, 16 of 24 tests (the stub has no tabs or tables, so the height tests alone pass).
 
 - [ ] **Step 3: Implement**
 
@@ -10557,6 +11432,7 @@ import type { OwnTab } from './security-state';
 import { OWNERSHIP_BODY_H, TYPE } from './dimensions';
 import TeamTable from './team-table';
 import RepoTable from './repo-table';
+import { teamRowsOverflow } from './ownership-model';
 
 /** Every tab's count sits in a slot at least this wide, so a count going from one digit to two (a
  * filter changes the number of owning teams) does not move the tab after it. */
@@ -10571,7 +11447,10 @@ export default function OwnershipCard(props: SecurityViewProps) {
   const { url, data, summary } = props;
   const [nameFilter, setNameFilter] = useState('');
 
-  const teamCount = (data.teamSummary.data ?? summary).pivot.rows.length;
+  const teamsSrc = data.teamSummary.data ?? summary;
+  const teamCount = teamsSrc.pivot.rows.length;
+  const carriedTotal = teamsSrc.pivot.total.critical.resolved !== null ? teamsSrc.pivot.total.critical.carriedResolved : 0;
+  const teamsScroll = teamRowsOverflow(teamCount, carriedTotal > 0);
   const repoRows = data.repos.data?.rows;
   const unmeasured = repoRows ? repoRows.filter(r => r.unmeasured).length : 0;
   const counts: Record<OwnTab, string | null> = {
@@ -10608,7 +11487,9 @@ export default function OwnershipCard(props: SecurityViewProps) {
           </div>
           <div className="flex min-w-0 shrink-0 items-center gap-3">
             <span className="hidden truncate text-xs text-gray-500 md:block">
-              {url.own === 'teams' ? 'Click a team to filter the page to it' : 'Click a repository to open its alerts'}
+              {url.own === 'teams'
+                ? `Click a team to filter the page to it${teamsScroll ? ' · scroll for more' : ''}`
+                : 'Click a repository to open its alerts'}
             </span>
             {url.own === 'repos' && (
               <input
@@ -10635,15 +11516,16 @@ export default function OwnershipCard(props: SecurityViewProps) {
 Run: `npx jest src/lib/__tests__/unit/vuln-ownership-card.test.tsx src/lib/__tests__/unit/vuln-security-page.test.tsx src/lib/__tests__/unit/vuln-security-view-props.test.tsx --maxWorkers=3` then `npx tsc --noEmit`
 Expected: PASS (the page test still finds `ownership-card-body` at `OWNERSHIP_BODY_H` and exactly one `tabpanel`), tsc clean.
 
-Named reverts: removing the `minWidth` from the tab counts, or rendering a count only when it has a value, fails "each tab count sits in a slot with a minimum width, in every state"; removing the `data-label` attribute or the `after:` classes from the label fails "each tab label reserves its semibold width, pressed or not".
+Named reverts: removing the `minWidth` from the tab counts, or rendering a count only when it has a value, fails "each tab count sits in a slot with a minimum width, in every state"; removing the `data-label` attribute or the `after:` classes from the label fails "each tab label reserves its semibold width, pressed or not". Dropping the " · scroll for more" suffix, or adding it to the Repositories hint, fails "appends "· scroll for more" to the Owning teams hint only when the team rows overflow the body" (four teams fit the 330px body and print no suffix; fourteen do not).
 
 - [ ] **Step 5: Commit**
 ```bash
 git add src/app/vulnerabilities/ownership-card.tsx src/lib/__tests__/unit/vuln-ownership-card.test.tsx
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: Ownership card with Owning teams and Repositories tabs"
 ```
-Run the three lines one at a time. If the guard line fails, do not run `git commit`; remove the offending text and `git add` again.
+Run the block as one script (see Conventions). If it prints "internal name found", `git commit` did not run: remove the offending text, `git add` again and rerun the block.
 
 ### Task 3.11: Trend rules (`trend-model.ts`)
 
@@ -10652,8 +11534,10 @@ Run the three lines one at a time. If the guard line fails, do not run `git comm
 - Test: `src/lib/__tests__/unit/vuln-trend-model.test.ts`
 
 **Interfaces:**
-- Consumes: `TrendSeries`; `addDays`, `diffDays` from `@/lib/vulnerabilities/time`; `toNum`; `TrendRange`; `shortDate` (3.1); `assignTeamColors`, `OTHER_TEAM_COLOR` from `team-colors.ts`; fixture `ovSeries` (3.3).
+- Consumes: `TrendSeries`; `addDays`, `diffDays` from `@/lib/vulnerabilities/time`; `toNum`; `TrendRange`; `displayDate` from `labels.ts` (Task 2.3); `assignTeamColors`, `OTHER_TEAM_COLOR` from `team-colors.ts`; fixture `ovSeries` (3.3).
 - Produces: `TREND_MIN_SPAN_DAYS` (7), `SHORT_HISTORY_DAYS` (14), `TREND_RANGES`; `dayNumber(iso)`, `isoOfDay(n)`; `trendDomain(range, series, today)`; `trendTicks(start, end, count?)`; `TrendRow`, `trendRows(drawnSeries)`; `trendStatus(series, range, today): { measurements, message, note }`; `LegendEntry`, `buildLegend(series, selectedTeam)`.
+
+The two history texts print their first date with `displayDate(date, today)`: "History starts Sep 22 (first sync) · 2 measurements" in the current year, "History starts Dec 30, 2025 (first sync) · 2 measurements" when the first date is in another year. `today` is the argument `trendStatus` already takes, so the year rule is testable without a clock.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -10665,6 +11549,7 @@ Create `src/lib/__tests__/unit/vuln-trend-model.test.ts`:
 import {
   buildLegend, dayNumber, isoOfDay, trendDomain, trendRows, trendStatus, trendTicks, SHORT_HISTORY_DAYS, TREND_MIN_SPAN_DAYS,
 } from '@/app/vulnerabilities/trend-model';
+import { addDays } from '@/lib/vulnerabilities/time';
 import { OTHER_TEAM_COLOR } from '@/app/vulnerabilities/team-colors';
 import { ovSeries } from '../support/security-fixtures';
 
@@ -10710,6 +11595,17 @@ describe('ticks and day numbers', () => {
     expect(t[0]).toBe(dayNumber('2026-09-02'));
     expect(t[4]).toBe(dayNumber('2026-09-30'));
     expect(t.every(Number.isInteger)).toBe(true);
+  });
+
+  // Revert: floor or ceil instead of round (a half day goes to the later day), or space the ticks by a fixed step.
+  it('a 7-day span rounds each tick to a whole day: offsets 0, 2, 4, 5, 7', () => {
+    const d = dayNumber('2026-09-01');
+    expect(trendTicks('2026-09-01', '2026-09-08')).toEqual([d, d + 2, d + 4, d + 5, d + 7]);
+  });
+
+  it('honours the count', () => {
+    const d = dayNumber('2026-09-01');
+    expect(trendTicks('2026-09-01', '2026-09-08', 3)).toEqual([d, d + 4, d + 7]);
   });
 });
 
@@ -10759,6 +11655,22 @@ describe('trendStatus', () => {
     expect(trendStatus(old, 'all', TODAY).note).toBeNull();
     const edge = [ovSeries('A', [['2026-09-16', 1], ['2026-09-29', 2]])]; // exactly 14 days: not short
     expect(trendStatus(edge, 'all', TODAY).note).toBeNull();
+  });
+
+  // Revert: change the constant's comparison (< to <=), or hard-code another number in trendStatus.
+  it('the note boundary is the constant: a first point SHORT_HISTORY_DAYS - 1 days back shows it, SHORT_HISTORY_DAYS back does not', () => {
+    const history = (daysBack: number) => [ovSeries('A', [[addDays(TODAY, -daysBack), 1], [addDays(TODAY, -1), 2]])];
+    expect(trendStatus(history(SHORT_HISTORY_DAYS - 1), 'all', TODAY).note).not.toBeNull();
+    expect(trendStatus(history(SHORT_HISTORY_DAYS), 'all', TODAY).note).toBeNull();
+    expect(SHORT_HISTORY_DAYS).toBe(14);
+  });
+
+  it('writes the first date with its year when that date is not in the current year', () => {
+    // "today" is in 2031, a year the suite never runs in, so a note that ignored the argument would fail.
+    const s = trendStatus([ovSeries('A', [['2030-12-30', 1], ['2031-01-02', 2]])], 'all', '2031-01-05');
+    expect(s.note).toBe('History starts Dec 30, 2030 (first sync) · 2 measurements');
+    const same = trendStatus([ovSeries('A', [['2031-01-01', 1], ['2031-01-02', 2]])], 'all', '2031-01-05');
+    expect(same.note).toBe('History starts Jan 1 (first sync) · 2 measurements');
   });
 });
 
@@ -10834,7 +11746,7 @@ import type { TrendSeries } from '@/lib/vulnerabilities/aggregate';
 import { addDays, diffDays } from '@/lib/vulnerabilities/time';
 import { toNum } from '@/components/charts/chart-format';
 import type { TrendRange } from './security-state';
-import { shortDate } from './overview-format';
+import { displayDate } from './labels';
 import { assignTeamColors, OTHER_TEAM_COLOR } from './team-colors';
 
 const DAY_MS = 86_400_000;
@@ -10913,7 +11825,7 @@ export function trendStatus(series: readonly TrendSeries[], range: TrendRange, t
   if (dates.length === 1) {
     return {
       measurements: 1,
-      message: { title: 'Not enough history yet', sub: `1 measurement so far (${shortDate(dates[0])}). The line appears after the next sync.` },
+      message: { title: 'Not enough history yet', sub: `1 measurement so far (${displayDate(dates[0], today)}). The line appears after the next sync.` },
       note: null,
     };
   }
@@ -10922,7 +11834,7 @@ export function trendStatus(series: readonly TrendSeries[], range: TrendRange, t
   return {
     measurements: dates.length,
     message: null,
-    note: young ? `History starts ${shortDate(dates[0])} (first sync) · ${dates.length} measurements` : null,
+    note: young ? `History starts ${displayDate(dates[0], today)} (first sync) · ${dates.length} measurements` : null,
   };
 }
 
@@ -10967,15 +11879,16 @@ export function buildLegend(series: readonly TrendSeries[], selected: string | n
 
 - [ ] **Step 4: Run tests and confirm they pass**
 Run: `npx jest src/lib/__tests__/unit/vuln-trend-model.test.ts --maxWorkers=3` then `npx tsc --noEmit`
-Expected: PASS (20 tests), tsc clean.
+Expected: PASS (24 tests), tsc clean.
 
 - [ ] **Step 5: Commit**
 ```bash
 git add src/app/vulnerabilities/trend-model.ts src/lib/__tests__/unit/vuln-trend-model.test.ts
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: trend axis, history and legend rules"
 ```
-Run the three lines one at a time. If the guard line fails, do not run `git commit`; remove the offending text and `git add` again.
+Run the block as one script (see Conventions). If it prints "internal name found", `git commit` did not run: remove the offending text, `git add` again and rerun the block.
 
 ### Task 3.12: Trend card (`trend-card.tsx`)
 
@@ -10984,7 +11897,7 @@ Run the three lines one at a time. If the guard line fails, do not run `git comm
 - Test: `src/lib/__tests__/unit/vuln-trend-card.test.tsx`
 
 **Interfaces:**
-- Consumes: Recharts (`CartesianGrid`, `Line`, `LineChart`, `XAxis`, `YAxis`), `ChartContainer`, `ChartTooltip`, `ChartTooltipContent`, `ChartConfig` from `@/components/charts/chart`; `trend-model.ts` (3.11); `openChange`, `shortDate` (3.1); `assignTeamColors`, `OTHER_TEAM_COLOR`; `data.trend` (the unscoped series for the chosen range), `url.range`, `url.setRange`, `url.team`, `url.kSev`; `TREND_PLOT_H`; the test helper `fixChartSize` from `src/lib/__tests__/setup/chart-size.ts`.
+- Consumes: Recharts (`CartesianGrid`, `Line`, `LineChart`, `XAxis`, `YAxis`), `ChartContainer`, `ChartTooltip`, `ChartTooltipContent`, `ChartConfig` from `@/components/charts/chart`; `trend-model.ts` (3.11); `openChange` (3.1); `displayDate`, `utcToday` from `labels.ts` (Task 2.3); `assignTeamColors`, `OTHER_TEAM_COLOR`; `data.trend` (the unscoped series for the chosen range), `url.range`, `url.setRange`, `url.team`, `url.kSev`; `TREND_PLOT_H`; the test helper `fixChartSize` from `src/lib/__tests__/setup/chart-size.ts`.
 - Produces: default export `TrendCard(props: SecurityViewProps)`: `section` `data-testid="trend-card"` (no inline height); the plot `data-testid="trend-plot"` with inline height `TREND_PLOT_H` in every branch (chart, `trend-message`, loading, error); `trend-open-now`, `trend-change`, `trend-note`, `trend-legend` (`min-h-[32px]`, entries `trend-legend-entry` keyed by position) and `trend-footnote`.
 
 - [ ] **Step 1: Write the failing test**
@@ -11001,7 +11914,7 @@ import TrendCard from '@/app/vulnerabilities/trend-card';
 import { TREND_PLOT_H } from '@/app/vulnerabilities/dimensions';
 import { assignTeamColors } from '@/app/vulnerabilities/team-colors';
 import { dayNumber, trendDomain } from '@/app/vulnerabilities/trend-model';
-import { shortDate } from '@/app/vulnerabilities/overview-format';
+import { displayDate } from '@/app/vulnerabilities/labels';
 import { addDays } from '@/lib/vulnerabilities/time';
 import type { TrendData } from '@/app/vulnerabilities/api-types';
 import { ovBaseline, ovDelta, ovDeltaTeam, ovProps, ovSeries, slot, trendFixture } from '../support/security-fixtures';
@@ -11178,7 +12091,7 @@ describe('history messages', () => {
 
   it('shows "Not enough history yet" for 1 point, naming it', () => {
     const { container } = render(<TrendCard {...props([ovSeries('TeamA', [[ago(1), 4]]), ovSeries('TeamB', [[ago(1), 2]])])} />);
-    expect(screen.getByTestId('trend-message').textContent).toBe(`Not enough history yet1 measurement so far (${shortDate(ago(1))}). The line appears after the next sync.`);
+    expect(screen.getByTestId('trend-message').textContent).toBe(`Not enough history yet1 measurement so far (${displayDate(ago(1))}). The line appears after the next sync.`);
     expect(container.querySelector('svg')).toBeNull();
   });
 
@@ -11269,7 +12182,7 @@ Expected: FAIL, 24 of 30 tests (the stub renders only an empty `trend-plot`).
 
 - [ ] **Step 3: Implement**
 
-Dates sit on a numeric time axis (`type="number"` over day numbers), so a point's position is its date's share of the axis. Colours always come from `assignTeamColors` over the UNFILTERED series, so a team keeps its colour when it is the only line drawn. The component contains no hex value and no `fill-gray-*` or `stroke-gray-*` class (Task 3.13's guard checks this). Replace the whole of `src/app/vulnerabilities/trend-card.tsx`:
+Dates sit on a numeric time axis (`type="number"` over day numbers), so a point's position is its date's share of the axis. Every date the card prints (the axis ticks, the tooltip's title, the "History starts" note and the one-point message) goes through `displayDate(iso, today)`, and `today` is `utcToday()`, computed once per render and passed down to the plot, so a date in another year carries its year. Colours always come from `assignTeamColors` over the UNFILTERED series, so a team keeps its colour when it is the only line drawn. The component contains no hex value and no `fill-gray-*` or `stroke-gray-*` class (Task 3.13's guard checks this). Replace the whole of `src/app/vulnerabilities/trend-card.tsx`:
 
 ```tsx
 // src/app/vulnerabilities/trend-card.tsx
@@ -11285,12 +12198,12 @@ import { toNum } from '@/components/charts/chart-format';
 import type { SecurityViewProps } from './view-props';
 import type { TrendRange } from './security-state';
 import { TREND_PLOT_H, TYPE } from './dimensions';
-import { openChange, shortDate } from './overview-format';
+import { displayDate, utcToday } from './labels';
+import { openChange } from './overview-format';
 import { OTHER_TEAM_COLOR, assignTeamColors } from './team-colors';
 import { buildLegend, dayNumber, isoOfDay, TREND_RANGES, trendDomain, trendRows, trendStatus, trendTicks, type TrendRow } from './trend-model';
 
 const FOOTNOTE = 'Each dot is one stored measurement (an imported CSV run or a sync).';
-const todayUtc = () => new Date().toISOString().slice(0, 10);
 
 function Plot({ series, team, range, today }: { series: TrendSeries[]; team: string | null; range: TrendRange; today: string }) {
   const colors = assignTeamColors(series);
@@ -11307,12 +12220,12 @@ function Plot({ series, team, range, today }: { series: TrendSeries[]; team: str
         <CartesianGrid vertical={false} />
         <XAxis
           dataKey="t" type="number" domain={[dayNumber(start), dayNumber(end)]} ticks={trendTicks(start, end)}
-          tickFormatter={(t: number) => shortDate(isoOfDay(t))} tickLine={false} axisLine={false} allowDataOverflow
+          tickFormatter={(t: number) => displayDate(isoOfDay(t), today)} tickLine={false} axisLine={false} allowDataOverflow
         />
         <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={36} domain={[0, 'auto']} />
         <ChartTooltip
           itemSorter={item => -toNum(item.value)}
-          content={<ChartTooltipContent indicator="line" labelFormatter={(_v, payload) => shortDate(String((payload?.[0]?.payload as TrendRow | undefined)?.date ?? ''))} />}
+          content={<ChartTooltipContent indicator="line" labelFormatter={(_v, payload) => displayDate(String((payload?.[0]?.payload as TrendRow | undefined)?.date ?? ''), today)} />}
         />
         {ordered.map(s => {
           const other = colors[s.team] === OTHER_TEAM_COLOR;
@@ -11335,7 +12248,7 @@ export default function TrendCard({ summary, data, url }: SecurityViewProps) {
   const sev = url.kSev;
   const slot = data.trend;
   const series = slot.data?.series;
-  const today = todayUtc();
+  const today = utcToday();
   const status = series ? trendStatus(series, url.range, today) : null;
   const legend = series ? buildLegend(series, url.team) : [];
   const change = openChange(summary.delta[sev], sev);
@@ -11408,10 +12321,11 @@ Expected: PASS (30 tests), tsc clean.
 - [ ] **Step 5: Commit**
 ```bash
 git add src/app/vulnerabilities/trend-card.tsx src/lib/__tests__/unit/vuln-trend-card.test.tsx
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: trend card with date-placed points and a stable legend"
 ```
-Run the three lines one at a time. If the guard line fails, do not run `git commit`; remove the offending text and `git add` again.
+Run the block as one script (see Conventions). If it prints "internal name found", `git commit` did not run: remove the offending text, `git add` again and rerun the block.
 
 ### Task 3.13: Retire `team-pivot.tsx` and `trend-chart.tsx`, repoint the chart guards
 
@@ -11502,7 +12416,7 @@ it('AlertsTable\'s team dropdown is labeled "Owning team" with an "All owning te
 - [ ] **Step 2: Delete the old modules and check the guard bites**
 ```bash
 git rm src/app/vulnerabilities/team-pivot.tsx src/app/vulnerabilities/trend-chart.tsx src/lib/__tests__/unit/vuln-team-pivot.test.tsx src/lib/__tests__/unit/vuln-trend-chart.test.tsx
-grep -rn "team-pivot\|trend-chart" src --include=*.ts --include=*.tsx
+grep -rn "team-pivot\|trend-chart" src --include='*.ts' --include='*.tsx'
 ```
 Expected: the `grep` prints only comment mentions in `format.ts`, `globals.css`, `vuln-series-contrast.test.ts` and `setup/resize-observer.ts` (leave them), and no `import`.
 
@@ -11519,10 +12433,11 @@ Expected: PASS, every suite (nothing outside this wave's files changed behaviour
 - [ ] **Step 5: Commit**
 ```bash
 git add src/lib/__tests__/unit/chart-no-literal-colors.test.ts src/lib/__tests__/unit/chart-tokens-css.test.ts src/lib/__tests__/unit/vuln-owning-team-label.test.tsx
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: retire team-pivot and trend-chart, repoint chart guards"
 ```
-Run the three lines one at a time. If the guard line fails, do not run `git commit`; remove the offending text and `git add` again.
+Run the block as one script (see Conventions). If it prints "internal name found", `git commit` did not run: remove the offending text, `git add` again and rerun the block.
 
 ### Wave 3 test rewrite map
 
@@ -11530,23 +12445,24 @@ Every old test file below is under `src/lib/__tests__/unit/`. "New" names are th
 
 | Old test file | Fate | Intent that must survive, and the new test that carries it |
 |---|---|---|
-| `vuln-team-pivot.test.tsx` | Deleted in 3.13, replaced by `vuln-team-table.test.tsx` | Severity bands, "—" for a null % or overdue: "rows > shows the CRITICAL and HIGH bands, the figures, and — for a missing percentage or overdue". Unmeasured marker: "unmeasured badge > sits under the team name, opens the drawer with the button, and does not select the team" (v7 moves it from beside critical Open to under the name) and "appears only for a team with unmeasured repositories, and on the Total row with the total". Dismissed tooltip: "rows > the Resolved cell shows the dismissed count and carries it in its title". "—" for a team missing from an available delta: "change column > a team missing from an available delta reads —". High Overdue column only while its SLA is active: "Overdue columns per SLA state" (six cases: both active, critical only, both pending, none, invalid, invalid over a stale active status). Positive red and negative green delta, Total shows the delta total: "change column > a rise is red with ▲, a fall is green with ▼, no change is a grey 0" and "the Total row shows the delta total" (arrows replace the signs: v7's non-colour cue). † marker, tooltip, footnote, none at zero, none when resolved is null: the four tests of "† marker and footnote". "since / all time / since —" Resolved caption: "header captions > the Resolved header names the start date, "all time" or an invalid date in its title" (v7 shows "(dismissed)" as the visible sub-caption). "vs <date>" under both or one Change header, none with no delta: "header captions > shows "vs <date>" under both Change headers, and under one only when the other is unavailable" and "with no baseline at all both headers say "No earlier measurement yet"" (new copy; the slot is never empty). Row click and highlight: "row selection > a click, and Enter, call url.selectTeamRow..." (the toggle moved into `useSecurityUrl`). Layout stability: caption slot always present: the two header-caption tests above; width floor and tabular digits: "layout > the grid template is shared by every row and does not change with the baseline caption" and "numeric cells use tabular digits"; keyed value span: "change column > the value is a NEW node when its text changes". |
+| `vuln-team-pivot.test.tsx` | Deleted in 3.13, replaced by `vuln-team-table.test.tsx` | Severity bands, "—" for a null % or overdue: "rows > shows the CRITICAL and HIGH bands, the figures, and — for a missing percentage or overdue". Unmeasured marker: "unmeasured badge > sits under the team name, opens the drawer with the button, and does not select the team" (v7 moves it from beside critical Open to under the name) and "appears only for a team with unmeasured repositories, and on the Total row with the total". Dismissed tooltip: "rows > the Resolved cell shows the dismissed count and carries it in its title". "—" for a team missing from an available delta: "change column > a team missing from an available delta reads —". High Overdue column only while its SLA is active: "Overdue columns per SLA state" (seven cases: both active, critical only, high only, both pending, none, invalid, invalid over a stale active status; each asserts the header ORDER, `Open` and `Overdue` in document order, so an Overdue column under the wrong group fails), plus "high only active: the Overdue cell is the LAST cell of the row and reads the high figure". Positive red and negative green delta, Total shows the delta total: "change column > a rise is red with ▲, a fall is green with ▼, no change is a grey 0" and "the Total row shows the delta total" (arrows replace the signs: v7's non-colour cue). † marker, tooltip, footnote, none at zero, none when resolved is null: the four tests of "† marker and footnote". "since / all time / since —" Resolved caption: "header captions > the Resolved header names the start date, "all time" or an invalid date in its title" (v7 shows "(dismissed)" as the visible sub-caption; the title reads "Resolved since Jan 8, 2020"). "vs <date>" under both or one Change header, none with no delta: "header captions > shows "vs <display date>" under both Change headers, and under one only when the other is unavailable; the ISO date rides in the title" and "with no baseline at all both headers say "No earlier measurement yet"" (new copy; the slot is never empty). Row click and highlight: "row selection > a click, and Enter, call url.selectTeamRow..." (the toggle moved into `useSecurityUrl`). Layout stability: caption slot always present: the two header-caption tests above; width floor and tabular digits: "layout > the grid template is shared by every row and does not change with the baseline caption" and "numeric cells use tabular digits"; keyed value span: "change column > the value is a NEW node when its text changes". |
 | `vuln-trend-chart.test.tsx` | Deleted in 3.13, replaced by `vuln-trend-card.test.tsx` and `vuln-trend-model.test.ts` | One line per team, distinct colours: "lines and colours > draws one line per team in its own colour...". A team keeps its colour when filtered: "a selected team draws only its own line, in the colour it had before". Dotted team name: "draws a line for a team whose name contains a dot". Legend in chrome text beside a swatch: "legend > names every team in chrome text beside a swatch in the team colour, with its open count". Grey fallback: "lines and colours > teams beyond the top 12 are thinner grey lines" and `buildLegend` "lists every team: the top 12 by open count, then one "Other · N teams" entry" (the "team missing from the colour map" case cannot occur now: colours come from the same series). Empty state same height as the chart, shared skeleton: "the plot box" (six branches at 220px) and "legend > reserves two lines in every state, and the footnote is always there" (the invisible-placeholder structure is retired: v7 shows a message instead). Legend entries keyed by position: "legend > entries are the same DOM nodes across a series swap". Stale-hover guard: retired with the hover fade (v7 dims by selected team: "legend > selecting a team keeps every entry, dims the others to 0.4 and bolds the selected one"). |
 | `vuln-owning-team-label.test.tsx` | Edited in 3.13 | The `TeamPivot` half moves to `vuln-team-table.test.tsx` ("rows > the first header reads "Owning team" and says it is not a Glooker team"). The `AlertsTable` half stays; Wave 4 deletes it with `alerts-table.tsx`. |
 | `chart-no-literal-colors.test.ts`, `chart-tokens-css.test.ts` | Updated in 3.13 | `trend-chart.tsx` becomes `trend-card.tsx` plus `sparkline.tsx` in `EXTRA`, the exact-list assertion and `REFERENCING_FILES`. The guards still bite: Task 3.13 Step 2 adds a literal hex to `trend-card.tsx` and sees the guard fail. |
 | `vuln-security-page.test.tsx`, `vuln-security-view-props.test.tsx` | Unchanged | They run in every task that touches a slot. The ownership card deliberately uses no `role="tab"` or `role="tabpanel"`, so the page test's `getByRole('tabpanel')` and its `getBoundingClientRect` stub still see only the composer's panel. |
-| `vuln-format.test.ts`, `vuln-series-contrast.test.ts`, `vuln-trend-colors-css.test.ts` | Unchanged | `resolvedCaption`, `deltaBaselineCaption` and the series palette are reused as they are. |
+| `vuln-format.test.ts` | Updated in Task 2.3, unaffected by this wave | Task 2.3 makes `resolvedCaption` and `deltaBaselineCaption` print display dates ("since Jan 8, 2020", "vs Sep 29") and updates this file for it. This wave only reuses them: the team table's header captions and Resolved title are tested in `vuln-team-table.test.tsx`. |
+| `vuln-series-contrast.test.ts`, `vuln-trend-colors-css.test.ts` | Unchanged | The series palette is reused as it is. |
 
 **Wave 2 hand-off checklist, Wave 3 items.** Each is a named test in this wave:
 
 | Hand-off item | Test |
 |---|---|
-| "N repos not in baseline" on its own line, only when available and non-zero; the "vs {date}" caption unchanged | `vuln-kpi-since`: "N repos not in baseline" (0 repos, 3 repos, unavailable delta) |
+| "N repos not in baseline" on its own line, only when available and non-zero; the since tile no longer has a "vs {date}" caption (its label carries the baseline date, the caption slot stays reserved) | `vuln-kpi-since`: "N repos not in baseline" (0 repos, 3 repos, unavailable delta); "has no "vs <date>" caption: the slot stays, reading an aria-hidden non-breaking space" |
 | Unavailable-baseline caption, new copy: "No earlier measurement yet" for a null baseline, "No measurement on or before {date}" otherwise | `vuln-kpi-since`: "unavailable delta" (two tests); `vuln-kpi-tiles`: "says why there is no change" (two tests); `vuln-team-table`: "header captions"; `vuln-overview-format`: "baselineUnavailableText" |
 | Null-total guard: an available delta with a null total takes the unavailable branch, no throw, no NaN | `vuln-kpi-since`: "an available delta with a null total takes the unavailable branch"; `vuln-kpi-tiles`: "an available delta with a null total never throws and never prints NaN or undefined"; `vuln-overview-format`: "an available delta whose total is null is not usable and never throws" |
 | "other ±N": only when non-zero, one truncated line, full text in the title | `vuln-kpi-since`: '"other ±N"' (three tests) |
 | † marker and footnote (ownership card and Resolved tile), none when resolved is null | `vuln-team-table`: "† marker and footnote" (four tests); `vuln-kpi-resolved`: "† marker and footnote" (three tests) |
-| Every `sla-state` consumer, all four states | SLA tile: `vuln-kpi-sla` (`describe.each` over both severities for pending, none and invalid, plus active and "an invalid policy reads as unreadable on BOTH rows"); team-table Overdue columns: `vuln-team-table` "Overdue columns per SLA state"; repository-table Overdue and Next due columns: `vuln-repo-table` "columns follow the SLA state" |
+| Every `sla-state` consumer, all four states | SLA tile: `vuln-kpi-sla` (`describe.each` over both severities for pending, none and invalid, plus active and "an invalid policy reads as an error on BOTH rows"); team-table Overdue columns: `vuln-team-table` "Overdue columns per SLA state"; repository-table Overdue and Next due columns: `vuln-repo-table` "columns follow the SLA state" |
 
 **Intents assigned to Wave 3 in the Wave 2 map, by old file:**
 
@@ -11554,13 +12470,13 @@ Every old test file below is under `src/lib/__tests__/unit/`. "New" names are th
 |---|---|
 | `vuln-content-b1`: open-delta red up, green down, grey flat | `vuln-kpi-tiles`: "Open tile: the change sentence > is red for more alerts, green for fewer and grey for no change, each with its arrow and date" (and "a rise in high alerts is orange, not red") |
 | `vuln-content-b1`: Resolved tile † with its title at `carriedResolved > 0`, none at 0 | `vuln-kpi-resolved`: "a † with the carry tooltip and the footnote when carriedResolved > 0", "no † and an empty reserved footnote line when nothing carries" |
-| `vuln-content-config-errors`: empty policy reads "No SLA policy yet", invalid never reads as empty | `vuln-kpi-sla`: "an empty policy reads "No SLA policy yet" on both rows, in grey", "an invalid policy reads as unreadable on BOTH rows (it parses to an empty policy, so slaStatus says none)" |
+| `vuln-content-config-errors`: empty policy reads "No SLA policy yet", invalid never reads as empty | `vuln-kpi-sla`: "an empty policy reads "No SLA policy yet" on both rows, in grey", "an invalid policy reads as an error on BOTH rows (it parses to an empty policy, so slaStatus says none)" |
 | `vuln-content-pivot-unfiltered`: KPI shows the team-scoped number while the table lists every team | `vuln-kpi-tiles`: "shows the team-scoped number while the table beside it lists every team"; `vuln-team-table`: "lists every team from the unfiltered summary while the page is scoped to one team, and highlights the selected one"; `vuln-ownership-card`: "with a team selected the team table still lists every team (it reads the unfiltered summary)" |
 | `vuln-content-pivot-unfiltered`: the table's Change column follows the unfiltered response | `vuln-team-table`: "the Change column follows the unfiltered response, not the team-scoped one" |
 | `vuln-content-pivot-unfiltered`: table falls back to `data.summary` while `data.teamSummary` loads | `vuln-team-table`: "falls back to the scoped summary while the unfiltered one is still loading" |
 | `vuln-content-pivot-unfiltered`: an unfiltered-request error shows in the table and the rest of the page still renders | `vuln-team-table`: "shows the unfiltered request's error inside the table and nothing else"; `vuln-ownership-card`: "the body keeps its height in every state > teams: unfiltered summary failed". The KPI tiles read `props.summary`, not `data.teamSummary`, so they cannot be affected; `vuln-kpi-tiles` renders with a failed `teamSummary`-independent summary in every case |
 | `vuln-content-resolved-caption`: "since <date>", "all time", invalid shows "—" for value, % closed and dismissed | `vuln-kpi-resolved`: "a real start date reads...", "with no resolved-count start date it reads "N dismissed · all time"", "an invalid start date shows — for the value, the dismissed count and % closed, and "since —"" |
-| `vuln-content-resolved-caption`: "vs <date>" on the open and since tiles | `vuln-kpi-since`: "keeps the "vs <date>" caption"; the Open tile's sentence names the date instead (decision 9): `vuln-kpi-tiles` "the change sentence" tests |
+| `vuln-content-resolved-caption`: "vs <date>" on the open and since tiles | `vuln-kpi-since`: "titles the tile with the severity and the baseline date (a display date, the ISO date in the title), and lists new, resolved (dismissed) and reopened" and "has no "vs <date>" caption: the slot stays, reading an aria-hidden non-breaking space"; the Open tile's sentence names the date too: `vuln-kpi-tiles` "the change sentence" tests |
 | `vuln-content-resolved-caption`: fixed tile shape (caption slots as aria-hidden non-breaking spaces, truncating figure line) | `vuln-kpi-since`: "fixed shape" (two tests); `vuln-kpi-resolved`: "fixed shape"; `vuln-kpi-tiles`: "the row" (height in every branch) |
 | `vuln-content-resolved-caption`: no † when `resolved` is null | `vuln-kpi-resolved`: "no † and no footnote when resolved is null (invalid start date), even though carriedResolved > 0" |
 | `vuln-content-scroll`: a team row click | `vuln-team-table`: "row selection > a click, and Enter, call url.selectTeamRow..."; `vuln-ownership-card`: "a team row click calls url.selectTeamRow" |
@@ -11575,42 +12491,47 @@ All commands run in the repository root.
    `npx jest src/lib/__tests__/unit/vuln-overview-format.test.ts src/lib/__tests__/unit/vuln-sparkline.test.tsx src/lib/__tests__/unit/vuln-kpi-tiles.test.tsx src/lib/__tests__/unit/vuln-kpi-since.test.tsx src/lib/__tests__/unit/vuln-kpi-resolved.test.tsx src/lib/__tests__/unit/vuln-kpi-sla.test.tsx src/lib/__tests__/unit/vuln-ownership-model.test.ts src/lib/__tests__/unit/vuln-team-table.test.tsx src/lib/__tests__/unit/vuln-repo-table.test.tsx src/lib/__tests__/unit/vuln-ownership-card.test.tsx src/lib/__tests__/unit/vuln-trend-model.test.ts src/lib/__tests__/unit/vuln-trend-card.test.tsx --maxWorkers=3`
 2. The guards and Wave 2 suites this wave could disturb:
    `npx jest src/lib/__tests__/unit/chart-no-literal-colors.test.ts src/lib/__tests__/unit/chart-tokens-css.test.ts src/lib/__tests__/unit/vuln-owning-team-label.test.tsx src/lib/__tests__/unit/vuln-security-page.test.tsx src/lib/__tests__/unit/vuln-security-view-props.test.tsx src/lib/__tests__/unit/vuln-security-support.test.tsx src/lib/__tests__/unit/vuln-format.test.ts src/lib/__tests__/unit/vuln-series-contrast.test.ts src/lib/__tests__/unit/vuln-trend-colors-css.test.ts --maxWorkers=3`
-3. Types and the full suite: `npx tsc --noEmit` then `npx jest --maxWorkers=3` (all suites pass; CI uses 3 workers).
+3. Types and the full suite: `npx tsc --noEmit` then `npx jest --maxWorkers=3` (all suites pass; CI uses 3 workers). With Waves 1-3 applied in order the full run reads 220 suites and 2639 tests: this wave adds twelve suites and retires two (`vuln-team-pivot` and `vuln-trend-chart`). A different count means a different tree.
 4. Production build, from a clean cache: `rm -rf .next && npm run build`. Run it only in a checkout that has its own installed dependencies.
-5. No stale references: `grep -rn "team-pivot\|trend-chart" src --include=*.ts --include=*.tsx` prints only comment text, and no `import`.
-6. The internal-name guard on the whole wave: `: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff origin/main...HEAD | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1` succeeds (grep finds nothing). `INTERNAL_NAMES` is the maintainers' private pattern of company, host and people names and real policy values; it lives in the implementer's environment and is never written in this plan or in the repository. New files use only `acme/...`, Payments, Search and Platform.
+5. No stale references: `grep -rn "team-pivot\|trend-chart" src --include='*.ts' --include='*.tsx'` prints only comment text, and no `import`.
+6. The internal-name guard on the whole wave: `: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"` then `git diff origin/main...HEAD | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }` prints nothing and the shell stays open. `INTERNAL_NAMES` is the maintainers' private pattern of company, host and people names and real policy values; it lives in the implementer's environment and is never written in this plan or in the repository. New files use only `acme/...`, Payments, Search and Platform.
 7. Headless-Chrome measurement (the harness lives outside the repository), against `npm run dev:mock`, on `/vulnerabilities` and on `/vulnerabilities?own=repos`, at 1024px and 1440px, in the default dark theme and one light theme:
    - `kpi-tiles` is 178px tall, `ownership-card-body` 330px, `trend-plot` 220px, in every state: defaults, `severity=high`, `severity=critical`, a selected team, `baseline=30d` (no baseline), a codebase with no measurements, and while a request is pending (add a response delay);
    - no KPI tile has `scrollHeight > clientHeight` or `scrollWidth > clientWidth`, and `document.documentElement.scrollWidth <= window.innerWidth`;
    - scrolling inside the ownership body keeps the header row and the Total (or footer) row in place, and the body, not the page, scrolls;
    - switching tabs, choosing a team and changing Severity cause no layout shift outside the card bodies (the layout-shift API reports 0 for the KPI row and the trend card);
    - the left edge of the "Repositories" tab (`ownership-tab-repos`) is the same before and after every filter change and every tab switch: the tab counts have a minimum width and each label reserves its bold width;
-   - the team table's and repositories table's headers stay on one or two lines at 1024px and no header is clipped; a long owning-team name ends in "…" with its full name in the title;
-   - in the light theme, pinned rows and the Total row show no border or shadow (they use `bg-chart-surface`, not `bg-gray-900`), the hatched band and the ▲ unmeasured badge are readable, and the KPI row is still 178px.
+   - the repositories table's headers are one line each at 1024px, and the team table's header is a 24px band row over a 32px column-header row (56px in all); no header is clipped or wraps; a long owning-team name ends in "…" with its full name in the title;
+   - the team table has a painted soft shadow on the top edge of its pinned Total row, and its columns do not move when the body starts to scroll (the scrollbar gutter is reserved): the two things the jsdom tests can only check as class names;
+   - with a team selected, the Total row's label reads "Total · all owning teams" and ends in "…" rather than wrapping when the column is narrow; with five or more owning teams the Owning teams hint ends in "· scroll for more";
+   - in the light theme, the pinned header, the Total row and the repositories footer sit on the card surface with no dark box behind them (they use `bg-chart-surface`, not `bg-gray-900`; the Total row's soft top shadow is the only shadow), the hatched band and the "▲ N unmeasured repos" badge are readable, and the KPI row is still 178px.
    Waves 1-4 together were measured in dark and light at 1024px and 1440px against `npm run dev:mock` (Task 5.4 records the run): the heights, no horizontal scroll, no tile overflow, the headers and the ↕ glyph, and the position checks above all held.
 8. Documentation: this wave edits no documentation file. `docs/vulnerabilities-page.md` and the root `CLAUDE.md` are updated in Wave 5 (they still name `team-pivot.tsx` and `trend-chart.tsx`).
 
 ## Wave 4: Alerts view (summary strip, repository rail, alert list, pager)
 
-**Goal.** Fill the three Alerts-view slots that Wave 2 left as stubs (`alerts-strip.tsx`, `repo-rail.tsx`, `alert-list.tsx`) and create the pager (`pager.tsx`). After this wave `/vulnerabilities?view=alerts` is complete. The strip shows the scope and a CRIT and a HIGH row. The rail lists every repository in scope, re-sorted so the most overdue come first. The list is a toolbar (search, Status, four toggles), six sortable headers, ten 56px rows and the pager. Every figure on the view comes from the `repos` rows (strip, rail) or from the alerts response (list rows and pager), and every SLA message comes from `sla-state.ts`. The old `alerts-table.tsx` and its test are retired, and every intent of that test is re-covered by a named test (see the rewrite map). The composer, `view-props.ts`, `dimensions.ts`, `security-state.ts` and `use-security-data.ts` are not changed. Waves 1-5 ship as one PR.
+**Goal.** Fill the three Alerts-view slots that Wave 2 left as stubs (`alerts-strip.tsx`, `repo-rail.tsx`, `alert-list.tsx`) and create the pager (`pager.tsx`). After this wave `/vulnerabilities?view=alerts` is complete. The strip shows the scope and a CRIT and a HIGH row. The rail lists every repository in scope, re-sorted so the most overdue come first. The list is a toolbar (search, Status, four toggles), six sortable headers, ten 56px rows and the pager. Every figure on the view comes from the `repos` rows (strip, rail) or from the alerts response (list rows and pager), every SLA message comes from `sla-state.ts`, and every date, unmeasured reason and unmeasured badge comes from `labels.ts` (Task 2.3). The old `alerts-table.tsx` and its test are retired, and every intent of that test is re-covered by a named test (see the rewrite map). The composer, `view-props.ts`, `dimensions.ts`, `security-state.ts` and `use-security-data.ts` are not changed. Waves 1-5 ship as one PR.
 
-**Verification record.** All seven tasks were built and run in a scratch copy of the repository that already had Waves 1 and 2 applied. The numbers below come from that copy.
+**Verification record.** All seven tasks were built and run in a scratch copy of the repository with all of Waves 1-4 applied, and the counts at each wave boundary were replayed from that tree. The numbers below come from that copy.
 
-- `npx tsc --noEmit` was clean and `npm run build` succeeded from an empty `.next`. With Waves 1-3 applied in order the full run is 219 suites and 2596 tests. After this wave it is 223 suites and 2780 tests (six new suites, two retired: `vuln-alerts-table` and `vuln-owning-team-label`).
+- `npx tsc --noEmit` was clean and `npm run build` succeeded from an empty `.next`. With Waves 1-3 applied in order the full run is 220 suites and 2639 tests. After this wave it is 224 suites and 2837 tests (six new suites, two retired: `vuln-alerts-table` and `vuln-owning-team-label`).
 - Step 2 of Tasks 4.1-4.5 was replayed against the original fixtures file, the missing module or the Wave 2 stubs, and failed for the stated reason.
-- 23 deliberate regressions were applied one at a time (19 against the component tests, 4 more against the composed-page test). Each failed at least one named test (see "Reverts that fail" in each task and the table in Task 4.7).
+- Each deliberate regression named under "Reverts that fail" in the tasks was applied one at a time and failed at least one named test (the composed-page regressions are listed in the table in Task 4.7). The Self-review lists the few layout checks that have no such revert.
 - The production build was measured in headless Chrome with `npm run dev:mock`'s environment and the seeded mock database, at 1024px and 1440px, in dark and light. The strip was 72px, the card 776px, the rail 260px, the list area 560px, every row 56px, the header 52px and the pager 28px, before and after each of ten interactions. There was no horizontal scroll, no clipped "Nd OVERDUE" and no truncated header label. With a pending high SLA the rail's SLA note wrapped to two lines and was not clipped.
 
 **Wave 4 decisions.** The spec and the design handoff leave these open. Each is a choice this plan makes.
 
-1. **State wording.** The strip tail, the rail footer and the Due column's sub-line all print `slaStateLabel` verbatim: "Starts {date}", "No SLA policy yet", "SLA policy can't be read". The handoff's prototype uses variants ("SLA starts Nov 1", "no SLA policy", "SLA unreadable"). The spec lists the labels once and says each state appears on the strip, the rail and the overdue columns, so one wording is used everywhere. The toggles' hint is the one exception, as Wave 2 specified: pending reads "Due dates start {earliest date}".
-2. **Rail order under Severity.** "Overdue, then open critical, then open high" is computed from the severities the user can see. A hidden severity counts as 0. With "High only", a repository with 9 open critical alerts and no open high alerts reads "no open alerts", is greyed and sorts last. The prototype sorts by the raw critical count; that would order rows by a figure the rail does not show.
+1. **State wording: one definition, two wordings by surface.** `slaStateLabel` in `sla-state.ts` is the one definition of what each non-active SLA state says. It takes `{ withSla }` because the surfaces differ in context. The SLA tile (Wave 3) sits under a header that already says SLA, so it uses `withSla: false`: "Starts {date}", "No SLA policy yet", "Policy error". Every Wave 4 surface has no such header, so each uses `withSla: true`: the strip tail, the rail note, the Due sub-line and the toggles' hint read "SLA starts {date}", "no SLA policy yet", "SLA policy can't be read". The date is a display date (Decision 6). The handoff's prototype words these states slightly differently ("SLA starts {date}", "no SLA policy", "SLA unreadable"); this plan keeps the handoff's idea (the state names the SLA) with the wording of `slaStateLabel`. The toggles' hint is the one place that does not print the state label for a pending policy, as Wave 2 specified: it reads "Due dates start {earliest date}" (`noSlaHint`). The rail's footer follows the same two rules in `railSlaNote(sla, severity)` (see Task 4.4): it considers only the severities the user can see, and it names each state instead of a catch-all.
+2. **Rail order under Severity.** "Overdue, then open critical, then open high" is computed from the severities the user can see. A hidden severity counts as 0. With "High only", a repository with 9 open critical alerts and no open high alerts reads "no open high alerts" (`noOpenText`, so it does not read as clean), is greyed and sorts last. The prototype sorts by the raw critical count; that would order rows by a figure the rail does not show.
 3. **Unmeasured repositories in totals.** The strip and the rail's "All" row sum the stored open counts of unmeasured repositories (through `scopeOpenCount`), so they equal the Alerts tab count and the list's "N alerts" total for the default list. The unmeasured rows themselves show no counts. This follows spec decision 2: stored alerts still count.
 4. **A selected repository that is unmeasured** (reachable only by editing the URL, because the rail opens the drawer for it) shows its stored counts in the strip and its stored alerts in the list. There is no special state.
 5. **Scope follows `data.effectiveRepo`**, never `url.repo`. A repository that was not found is not the scope: the strip and the rail fall back to the whole scope and the "All" row is the selected one.
-6. **Dates in the list** read "Jul 21" (month and day, UTC). Dates in policy messages stay as the policy file gives them (`2026-11-01`), as Waves 2 and 3 print them.
+6. **One date rule.** Every date the Alerts view prints goes through `displayDate` from `labels.ts`: "Jul 21" in the current year, "Jan 8, 2020" in any other year (UTC). The ISO form (`2026-07-21`) appears only in `title` attributes: the Due date's title, the State cell's title. Policy messages print display dates too ("SLA starts Feb 1, 2099", "Due dates start Feb 1, 2099"), not the policy file's ISO date. `alert-list.tsx` no longer has its own date function. Because the year is dropped only in the current year, a test that prints a literal 2026 date pins the clock with `jest.spyOn(Date, 'now')`.
 7. **Constants live in the slot files.** `dimensions.ts` is Wave 2's file, so the list column's own sizes (`ALERT_HEAD_H`, `ALERT_GRID_COLS`, `ALERT_DUE_MIN_W` and the rest) are exported from `alert-list.tsx`, and `PAGER_H` from `pager.tsx`. A test adds them up against `ALERTS_CARD_H`.
 8. **The data hook may send an unknown repository once** while the `repos` rows are still loading (Wave 2's `repoStatus: 'pending'`). It never sends it again after the rows say it is absent. The composer test asserts "at most once, then never again".
+9. **The State column's first line is short.** It reads "open", "open" plus a "↺" glyph when the alert was reopened, or "resolved · {reason}" (the dismissed reason, else the state word), cut at the cell edge. The dates are not in the visible text: the cell's `title` carries them, and the glyph's `aria-label` says "reopened {display date}". Printing "open · ↺ reopened Aug 14" in the cell was cut to "open · ↺ reopen…". The second line is the scope.
+10. **The default order is drawn as "Due ↑".** The server's default order is soonest due first. With no header chosen (`sort === null`) and Status not "Resolved", the Due header is drawn as the active, ascending one, so the order is not left unexplained. Under "Resolved" no alert has a due date, so no header is drawn as active. The first click on Due then sorts descending, so the arrow always flips on a click. That rule lives in the list controller (Task 2.6), not here: the list relies on it.
+11. **The rail's unmeasured reason is the drawer's wording.** `unmeasuredReason` (from `labels.ts`) reads "Dependabot off", else the status check's detail, else "Status check failed". The rail shows it upper-case through the CSS `uppercase` class; the DOM text is sentence case.
 
 ### Wave 4 public interface
 
@@ -11625,14 +12546,16 @@ export function pagerText(page: number, pageSize: number, totalCount: number): s
 export interface PagerProps { page: number; pageSize: number; totalCount: number | null; onPage: (page: number) => void }
 export default function Pager(props: PagerProps): JSX.Element;                      // totalCount null = unknown (blank)
 
+// alerts-strip.tsx
+export const ALERTS_STRIP_TITLE_W = 176, ALERTS_STRIP_OPEN_MIN_W = 36, ALERTS_STRIP_OVERDUE_MIN_W = 96;
+
 // repo-rail.tsx
 export const RAIL_SORT_NOTE = 'Sorted by overdue, then open critical';
-export const unmeasuredReason: (u: NonNullable<RepoRow['unmeasured']>) => string;  // same wording as the drawer
 export interface RailStat { crit: number; high: number; overdue: number; total: number }
 export function railStat(row: RepoRow, severity: SeverityFilter, sla: SlaSource): RailStat;
 export function sortRailRows(rows: readonly RepoRow[], severity: SeverityFilter, sla: SlaSource): Array<{ row: RepoRow; stat: RailStat }>;
-export function railCounts(crit: number, high: number, severity: SeverityFilter): string;   // "9 crit · 14 high open" | "no open alerts"
-export function railSlaNote(sla: SlaSource): string;
+export function railCounts(crit: number, high: number, severity: SeverityFilter): string;   // "9 crit · 14 high open" | noOpenText(severity)
+export function railSlaNote(sla: SlaSource, severity?: SeverityFilter): string;            // severity defaults to 'both'
 
 // alert-list.tsx
 export const SEARCH_DEBOUNCE_MS = 300;
@@ -11642,14 +12565,15 @@ export const ALERT_COLUMN_CHROME_H: number;      // + ALERT_LIST_H = ALERTS_CARD
 export const ALERT_DUE_MIN_W = 120, ALERT_SEV_W = 56, ALERT_AGE_W = 52;
 export const ALERT_GRID_COLS: string;            // one grid for the header and every row
 export const SORT_ARROW: { none: string; asc: '↑'; desc: '↓' };
-export function shortDate(iso: string): string;                 // "Jul 21", UTC
-export function noSlaHint(sla: SlaSource): string | null;       // null while any SLA is active
+export function noSlaHint(sla: SlaSource, today?: string): string | null;   // null while any SLA is active; `today` (YYYY-MM-DD) only decides whether a date carries its year
 export default function AlertList(props: SecurityViewProps): JSX.Element;
 ```
 
-Test ids the headless measurement and the tests use: `alerts-strip`, `strip-kind`, `strip-title`, `strip-title-col`, `strip-critical` / `strip-high` (row), `strip-<sev>-open`, `strip-<sev>-tail`, `strip-unmeasured`; `repo-rail`, `rail-meta`, `rail-list`, `rail-all`, `rail-row` (with `data-repo`), `rail-counts`, `rail-overdue`, `rail-unmeasured`, `rail-sla-note`; `alert-list`, `alert-list-head`, `sort-<key>`, `sort-arrow-<key>`, `alert-list-rows`, `alert-row`, `alert-due`, `alert-due-sub`, `alert-state`, `alert-sla-hint`, `alert-updating`, `alert-pager`.
+**What this wave consumes from earlier waves, not defined here.** `displayDate(iso, today?)`, `unmeasuredReason(u)` and `unmeasuredBadgeText(n)` from `labels.ts` (Task 2.3): every date, the rail's unmeasured reason and the strip's badge. `slaStateLabel(st, { withSla })` from `sla-state.ts` (Task 2.3): the one definition of the SLA state wording; this wave always passes `withSla: true`. `noOpenText(severity)` from `ownership-model.ts` (Wave 3): the rail's empty-row text. `TYPE.link` from `dimensions.ts` (Task 2.2): the shared link class. `shortDate` is not a Wave 4 export any more: the list's own date function is gone, replaced by `displayDate`. The rail no longer exports `unmeasuredReason` either.
 
-**Shared fixtures.** Task 4.1 appends names that start with `al` to `src/lib/__tests__/support/security-fixtures.ts` and edits nothing above them. Wave 3 appends names that start with `ov` to the same file. The two blocks are independent: when the branches meet, keep both blocks (a conflict at the end of the file is resolved by keeping both).
+Test ids the headless measurement and the tests use: `alerts-strip`, `strip-kind`, `strip-title`, `strip-title-col`, `strip-critical` / `strip-high` (row), `strip-<sev>-open`, `strip-<sev>-open-slot`, `strip-<sev>-tail`, `strip-unmeasured`; `repo-rail`, `rail-meta`, `rail-list`, `rail-all`, `rail-row` (with `data-repo`), `rail-counts`, `rail-overdue`, `rail-unmeasured`, `rail-sla-note`; `alert-list`, `alert-list-head`, `sort-<key>`, `sort-arrow-<key>`, `alert-list-rows`, `alert-row`, `alert-due`, `alert-due-sub`, `alert-state`, `alert-reopened`, `alert-sla-hint`, `alert-updating`, `alert-pager`.
+
+**Shared fixtures.** Task 4.1 appends names that start with `al` to `src/lib/__tests__/support/security-fixtures.ts` and edits nothing above them. `alSummary` makes a pending severity start on 2099-02-01 (UI text "Feb 1, 2099"), with a 7-day critical window and a 9-day high window. Wave 3 appends names that start with `ov` to the same file. The two blocks are independent: when the branches meet, keep both blocks (a conflict at the end of the file is resolved by keeping both).
 
 ### Task 4.1: Alerts-view test support (`al` fixtures)
 
@@ -11661,7 +12585,7 @@ Test ids the headless measurement and the tests use: `alerts-strip`, `strip-kind
 - Consumes: from the same file, `summaryFixture`, `repoRow`, `cell`, `alertRow`, `alertsFixture`; the types `AlertRow`, `RepoRow`, `SummaryData`, `AlertsData`, `ReposData` that the file already imports.
 - Produces:
   - `type AlSlaKind = 'active' | 'pending' | 'none' | 'invalid'`.
-  - `alSummary(states: { critical: AlSlaKind; high: AlSlaKind }, over?: Partial<SummaryData>): SummaryData`. A `pending` severity starts on `2026-11-01`. An `invalid` state makes both severities invalid (`slaPolicyInvalid: true`, empty policy), as a real unreadable policy does.
+  - `alSummary(states: { critical: AlSlaKind; high: AlSlaKind }, over?: Partial<SummaryData>): SummaryData`. A `pending` severity starts on `2099-02-01` (printed as "Feb 1, 2099"). An `active` severity has a policy entry from `2020-01-08` with a 7-day window for critical and a 9-day window for high. An `invalid` state makes both severities invalid (`slaPolicyInvalid: true`, empty policy), as a real unreadable policy does.
   - `AL_RAIL_ROWS: RepoRow[]`: eight repositories whose server order differs from the rail order (see the comment on the constant). Two are unmeasured and keep stored counts.
   - `alAlertRow(n, over?)`, `alAlertRows(n, over?)`, `AL_OVERDUE_ROW`, `AL_RESOLVED_ROW`.
   - `alAlertsRoute(all: AlertRow[])`: a route function for `fetchRouter({ alerts: alAlertsRoute(all) })` that slices `all` by `limit` and `offset` like the server and echoes `limit`, `offset` and `sort`.
@@ -11691,8 +12615,8 @@ describe('alSummary', () => {
     expect(anySlaActive(s)).toBe(critical === 'active' || high === 'active');
   });
 
-  it('a pending severity starts on 2026-11-01', () => {
-    expect(slaState('critical', alSummary({ critical: 'pending', high: 'active' }))).toEqual({ kind: 'pending', startsOn: '2026-11-01' });
+  it('a pending severity starts on 2099-02-01', () => {
+    expect(slaState('critical', alSummary({ critical: 'pending', high: 'active' }))).toEqual({ kind: 'pending', startsOn: '2099-02-01' });
   });
 
   it('an invalid state makes both severities invalid and leaves the policy empty, as a real unreadable policy does', () => {
@@ -11793,7 +12717,7 @@ Append this block to the end of `src/lib/__tests__/support/security-fixtures.ts`
 export type AlSlaKind = 'active' | 'pending' | 'none' | 'invalid';
 
 /**
- * A summary whose critical and high SLA states are the given ones. `pending` starts on 2026-11-01
+ * A summary whose critical and high SLA states are the given ones. `pending` starts on 2099-02-01
  * (the date the UI prints); `invalid` sets `slaPolicyInvalid`, which makes both severities invalid
  * (an unreadable policy parses to no entries, so the real summary reports 'none' for both).
  */
@@ -11803,7 +12727,7 @@ export function alSummary(states: { critical: AlSlaKind; high: AlSlaKind }, over
   const policy: SummaryData['policy'] = invalid ? [] : (['critical', 'high'] as const).flatMap(sev => {
     const k = states[sev];
     if (k !== 'active' && k !== 'pending') return [];
-    return [{ id: `${sev}-policy`, severity: sev, days: sev === 'critical' ? 7 : 30, effectiveFrom: k === 'active' ? '2020-01-08' : '2026-11-01', until: null, pending: k === 'pending' }];
+    return [{ id: `${sev}-policy`, severity: sev, days: sev === 'critical' ? 7 : 9, effectiveFrom: k === 'active' ? '2020-01-08' : '2099-02-01', until: null, pending: k === 'pending' }];
   });
   return summaryFixture({
     slaStatus: { critical: status(states.critical), high: status(states.high) },
@@ -11888,7 +12812,8 @@ Then run `npx tsc --noEmit`. Expected: no output.
 
 ```bash
 git add src/lib/__tests__/support/security-fixtures.ts src/lib/__tests__/unit/vuln-alerts-fixtures.test.tsx
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: Alerts-view test fixtures (al names)"
 ```
 
@@ -11906,10 +12831,11 @@ Behaviours:
 - The text reads "1–10 of 26 alerts · counted per Dependabot alert, not per CVE". The last page ends at the total. One alert is singular. An empty result reads "0 alerts · counted ...".
 - Previous, "Page X of Y" and Next. Previous is disabled on page 1 and Next on the last page. An empty result is "Page 1 of 1".
 - A page number ahead of a shrunken result never reads "Page 4 of 3": the display clamps to the last page, and Previous steps from the clamped page. (The list's clamp effect, Task 4.5, then moves the real page.)
+- A page number below 1 (a hand-edited state) clamps the other way: it reads "Page 1 of N" with the first range ("1–10 of 26 alerts · ..."), Previous is disabled, and Next reports page 2. `pagerText` clamps the same way, so the range never starts below 1.
 - `totalCount: null` (loading or error) renders a blank, `aria-hidden` row with both buttons disabled. It never reads "0 alerts".
 - The row is exactly `PAGER_H` (28px) tall as an inline style in every state, and it does not clip its own overflow, so a focused button's ring shows.
 
-Reverts that fail: none by itself; Task 4.5 and Task 4.7 mutate the callers.
+Reverts that fail: dropping the lower clamp (`Math.max(1, page)`) in `Pager` fails `Pager › a page number below 1 reads as page 1, and Next goes to page 2`. Every other revert of this task is made through its callers, in Task 4.5 and Task 4.7.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -11984,6 +12910,17 @@ describe('Pager', () => {
     render(<Pager page={4} pageSize={10} totalCount={26} onPage={onPage} />);
     expect(screen.getByText('Page 3 of 3')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /Previous/ }));
+    expect(onPage).toHaveBeenCalledWith(2);
+  });
+
+  // Revert: drop the lower clamp (Math.max(1, page)): a hand-edited page 0 would read "Page 0 of 3" and Next would go to page 1.
+  it('a page number below 1 reads as page 1, and Next goes to page 2', () => {
+    const onPage = jest.fn();
+    render(<Pager page={0} pageSize={10} totalCount={26} onPage={onPage} />);
+    expect(screen.getByText('Page 1 of 3')).toBeTruthy();
+    expect(screen.getByText(`1–10 of 26 alerts · ${NOTE}`)).toBeTruthy();
+    expect((screen.getByRole('button', { name: /Previous/ }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: /Next/ }));
     expect(onPage).toHaveBeenCalledWith(2);
   });
 
@@ -12100,7 +13037,8 @@ Expected: PASS.
 
 ```bash
 git add src/app/vulnerabilities/pager.tsx src/lib/__tests__/unit/vuln-pager.test.tsx
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: alert list pager"
 ```
 
@@ -12111,19 +13049,20 @@ git commit -m "GLOOK-64: alert list pager"
 - Test: `src/lib/__tests__/unit/vuln-alerts-strip.test.tsx`
 
 **Interfaces:**
-- Consumes: `SecurityViewProps` (`./view-props`); `scopeOpenCount` (`./security-state`); `slaState`, `slaStateLabel` (`./sla-state`); `ALERTS_STRIP_H`, `TYPE` (`./dimensions`); the `vuln-hatch`, `text-warn` and `border-warn-line` utilities (Task 2.1); the Task 4.1 fixtures (`alSummary`, `AL_RAIL_ROWS`, `AlSlaKind`) and `viewProps`, `slot`, `reposFixture`, `repoRow`, `cell`, `REPO_ROWS`, `alertsFixture`.
-- Produces: `AlertsStrip` (default export, `SecurityViewProps`), keeping the stub's `data-testid="alerts-strip"` and its inline `height: ALERTS_STRIP_H` on the outer element; and the exported width constants `ALERTS_STRIP_TITLE_W` (176), `ALERTS_STRIP_OPEN_MIN_W` (72) and `ALERTS_STRIP_OVERDUE_MIN_W` (96), which the strip's test imports.
+- Consumes: `SecurityViewProps` (`./view-props`); `scopeOpenCount` (`./security-state`); `slaState`, `slaStateLabel` (`./sla-state`, called as `slaStateLabel(st, { withSla: true })`); `unmeasuredBadgeText` (`./labels`); `ALERTS_STRIP_H`, `TYPE` (`./dimensions`); the `vuln-hatch`, `text-warn` and `border-warn-line` utilities (Task 2.1); the Task 4.1 fixtures (`alSummary`, `AL_RAIL_ROWS`, `AlSlaKind`) and `viewProps`, `slot`, `reposFixture`, `repoRow`, `cell`, `REPO_ROWS`, `alertsFixture`.
+- Produces: `AlertsStrip` (default export, `SecurityViewProps`), keeping the stub's `data-testid="alerts-strip"` and its inline `height: ALERTS_STRIP_H` on the outer element; and the exported width constants `ALERTS_STRIP_TITLE_W` (176), `ALERTS_STRIP_OPEN_MIN_W` (36) and `ALERTS_STRIP_OVERDUE_MIN_W` (96), which the strip's test imports. The open figure's slot is also tagged `strip-<sev>-open-slot`.
 
 Behaviours:
 - The left block has two lines: a scope label and a title. No team: "All owning teams" over "All repositories". A team: "Owning team" over "{team} · all repositories". A repository: "Repository · owning team {team}" over the repository name.
 - A CRIT row and a HIGH row, each "N open · {tail}". Open is `scopeOpenCount(rows, severity, data.effectiveRepo)` per severity, so it includes an unmeasured row's stored count. The strip never reads the alerts response.
-- The tail is "N overdue" while that severity's SLA is active (red and bold when N is above 0, grey at 0). Otherwise it is `slaStateLabel`: "Starts {date}", "No SLA policy yet" (grey), or "SLA policy can't be read" with a "!" icon (red, bold). The overdue number sums `row[severity].overdue` over the scope; the server sends null for an inactive severity, and the SLA state decides what is printed.
+- The tail is "N overdue" while that severity's SLA is active (red and bold when N is above 0, grey at 0). Otherwise it is `slaStateLabel(st, { withSla: true })`, because no SLA header sits above these figures: "SLA starts {display date}" (grey; for example "SLA starts Feb 1, 2099": the year shows when the date is not in the current year), "no SLA policy yet" (grey), or "SLA policy can't be read" with a "!" icon (red, bold). The overdue number sums `row[severity].overdue` over the scope; the server sends null for an inactive severity, and the SLA state decides what is printed.
 - A hidden severity (Severity "Critical only" or "High only") keeps its row at opacity 0.35.
-- A filter change never moves a block. The title column is a fixed `ALERTS_STRIP_TITLE_W` (176px, exported, `shrink-0`; a long title ends in "…" with its full text in `title`). The two figures that change width with their digits have a minimum width: the open figure `ALERTS_STRIP_OPEN_MIN_W` (72px, always) and the tail `ALERTS_STRIP_OVERDUE_MIN_W` (96px, only while the SLA is active). The severity blocks themselves are NOT fixed in width, because an SLA state label ("No SLA policy yet", "Starts {date}", "SLA policy can't be read") is longer than the figures and must not be cut; a state label does not change with the filters, so it moves nothing. Together the CRIT and HIGH blocks keep their x position whatever the scope and the numbers. Measured at 1024px with the unmeasured badge showing, the title, both blocks and the badge fit with no label cut for the active, pending and none policy states; with an unreadable policy ("SLA policy can't be read" is the longest label) there is not room, so the blocks shrink, each tail ends in "…" (the full text is the block's `title`, and the KPI tile, rail footer and list show it too), and the blocks sit a little differently when the badge is absent. At 1440px every state fits.
-- An unmeasured badge, "▲ N unmeasured repos" (hatched, `text-warn`), shows only when no repository is selected and some row is unmeasured. Clicking it calls `openDrawer(e.currentTarget)`.
+- A filter change never moves a block. The title column is a fixed `ALERTS_STRIP_TITLE_W` (176px, exported, `shrink-0`; a long title ends in "…" with its full text in `title`). The two figures that change width with their digits are given room. The open figure sits in a slot with `ALERTS_STRIP_OPEN_MIN_W` (36px, always) and is RIGHT-aligned in it (`text-right`), so "open" and the tail follow the digits directly and "54 open · 53 overdue" reads as one phrase that starts in the same place, whatever the digit count (a left-aligned 72px slot left a gap between the figure and "open"). The overdue tail has `ALERTS_STRIP_OVERDUE_MIN_W` (96px, only while the SLA is active). The severity blocks themselves are NOT fixed in width, because an SLA state label ("no SLA policy yet", "SLA starts {date}", "SLA policy can't be read") is longer than the figures and must not be cut; a state label does not change with the filters, so it moves nothing. Together the CRIT and HIGH blocks keep their x position whatever the scope and the numbers. A block whose SLA is not active carries its state label in its `title`.
+- Width at 1024px (measured). With the unmeasured badge showing and an active, pending or none policy, the title, both blocks and the badge fit with no label cut. With an unparseable policy and the badge showing there is not room ("SLA policy can't be read" is the longest label), so the blocks shrink and each tail may end in "…"; the full text is the block's `title`, and the rail footer and the list's hint show it too. At 1440px, and at 1024px without the badge, no label is cut in any state. The blocks sit a little differently when the badge is absent.
+- An unmeasured badge shows only when no repository is selected and some row is unmeasured. It is `unmeasuredBadgeText(n)`: "▲ 2 unmeasured repos", "▲ 1 unmeasured repo" (hatched, `text-warn`), the one badge phrase the header's coverage line and the team table print too. The "▲" is part of the same text node, not a separate element. Clicking it calls `openDrawer(e.currentTarget)`.
 - Loading shows "—" for every figure. An error with no rows shows the error text in place of the two rows. The strip is `ALERTS_STRIP_H` tall in every state.
 
-Reverts that fail: the strip reading `data.alerts.data.totalCount` instead of the rows fails `figures › reads the repos rows, not the alert list response: a different list total changes nothing` (and three more in that describe); scoping by `url.repo` instead of `data.effectiveRepo` fails `figures › a repository that was not found is not the scope: the figures stay at the whole scope`; sizing the title column by its content (a `min-w-*` instead of the fixed width) fails `fixed title column`; dropping the open figure's or the overdue figure's minimum width fails `figure slots and unclipped SLA labels`; giving a severity block a fixed width (it would cut the SLA state labels) fails the three state cases of `figure slots and unclipped SLA labels`.
+Reverts that fail: the strip reading `data.alerts.data.totalCount` instead of the rows fails `figures › reads the repos rows, not the alert list response: a different list total changes nothing` (and three more in that describe); scoping by `url.repo` instead of `data.effectiveRepo` fails `figures › a repository that was not found is not the scope: the figures stay at the whole scope`; sizing the title column by its content (a `min-w-*` instead of the fixed width) fails `fixed title column`; dropping the open figure's or the overdue figure's minimum width fails `figure slots and unclipped SLA labels`; left-aligning the open figure (dropping `text-right`) or putting an element between the figure and "open" fails the same describe's open-figure case; printing the badge as a separate "▲" element plus text fails `unmeasured badge › shows the one badge phrase "▲ N unmeasured repos" when no repository is selected, and clicking it opens the drawer from that element`; printing the pre-`withSla` labels ("Starts {date}", "No SLA policy yet") fails `the SLA tail, per state, for each severity (strip consumer of sla-state) › critical %s reads "%s" while high stays active`; giving a severity block a fixed width (it would cut the SLA state labels) fails the three state cases of `figure slots and unclipped SLA labels`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -12135,9 +13074,15 @@ Reverts that fail: the strip reading `data.alerts.data.totalCount` instead of th
 import { render, screen, fireEvent } from '@testing-library/react';
 import AlertsStrip, { ALERTS_STRIP_OPEN_MIN_W, ALERTS_STRIP_OVERDUE_MIN_W, ALERTS_STRIP_TITLE_W } from '@/app/vulnerabilities/alerts-strip';
 import { ALERTS_STRIP_H } from '@/app/vulnerabilities/dimensions';
+import { unmeasuredBadgeText } from '@/app/vulnerabilities/labels';
 import {
   viewProps, slot, reposFixture, alertsFixture, repoRow, cell, REPO_ROWS, AL_RAIL_ROWS, alSummary, type AlSlaKind,
 } from '../support/security-fixtures';
+
+// Dates print through displayDate, whose "current year" is the clock's: pin it so the literal fixture dates read the same every year.
+let nowSpy: jest.SpyInstance;
+beforeEach(() => { nowSpy = jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-30T12:00:00Z')); });
+afterEach(() => { nowSpy.mockRestore(); });
 
 const bothActive = alSummary({ critical: 'active', high: 'active' });
 const text = (id: string) => screen.getByTestId(id).textContent;
@@ -12227,8 +13172,8 @@ describe('scope label and title', () => {
 describe('the SLA tail, per state, for each severity (strip consumer of sla-state)', () => {
   const cases: Array<[AlSlaKind, string]> = [
     ['active', '4 overdue'],
-    ['pending', 'Starts 2026-11-01'],
-    ['none', 'No SLA policy yet'],
+    ['pending', 'SLA starts Feb 1, 2099'],
+    ['none', 'no SLA policy yet'],
     ['invalid', "SLA policy can't be read"],
   ];
 
@@ -12246,17 +13191,17 @@ describe('the SLA tail, per state, for each severity (strip consumer of sla-stat
   it.each(cases.filter(([k]) => k !== 'invalid'))('high %s reads "%s" while critical stays active', (kind, _tail) => {
     render(<AlertsStrip {...props({ summary: alSummary({ critical: 'active', high: kind }) })} />);
     const el = screen.getByTestId('strip-high-tail');
-    const expected = { active: '3 overdue', pending: 'Starts 2026-11-01', none: 'No SLA policy yet' }[kind as 'active' | 'pending' | 'none'];
+    const expected = { active: '3 overdue', pending: 'SLA starts Feb 1, 2099', none: 'no SLA policy yet' }[kind as 'active' | 'pending' | 'none'];
     expect(el.textContent).toContain(expected);
     if (kind !== 'active') expect(el.textContent).not.toMatch(/overdue/);
   });
 
-  it('an unreadable policy shows the "!" icon and reads as red, never as "No SLA policy yet"', () => {
+  it('an unreadable policy shows the "!" icon and reads as red, never as "no SLA policy yet"', () => {
     render(<AlertsStrip {...props({ summary: alSummary({ critical: 'invalid', high: 'invalid' }) })} />);
     for (const sev of ['critical', 'high']) {
       const el = screen.getByTestId(`strip-${sev}-tail`);
       expect(el.textContent).toContain("SLA policy can't be read");
-      expect(el.textContent).not.toContain('No SLA policy yet');
+      expect(el.textContent).not.toMatch(/no SLA policy yet/i);
       expect(el.textContent).toContain('!');
       expect(el.className).toContain('font-bold');
     }
@@ -12289,19 +13234,19 @@ describe('hidden severity', () => {
 });
 
 describe('unmeasured badge', () => {
-  it('shows "N unmeasured repos" when no repository is selected, and clicking it opens the drawer from that element', () => {
+  it('shows the one badge phrase "▲ N unmeasured repos" when no repository is selected, and clicking it opens the drawer from that element', () => {
     const p = props();
     render(<AlertsStrip {...p} />);
     const badge = screen.getByTestId('strip-unmeasured');
-    expect(badge.textContent).toContain('2 unmeasured repos');
+    expect(badge.textContent).toBe(unmeasuredBadgeText(2));
+    expect(badge.textContent).toBe('▲ 2 unmeasured repos');
     fireEvent.click(badge);
     expect(p.openDrawer).toHaveBeenCalledWith(badge);
   });
 
   it('is singular for one repository', () => {
     render(<AlertsStrip {...props({ rows: [...REPO_ROWS] })} />);
-    expect(text('strip-unmeasured')).toContain('1 unmeasured repo');
-    expect(text('strip-unmeasured')).not.toContain('repos');
+    expect(text('strip-unmeasured')).toBe('▲ 1 unmeasured repo');
   });
 
   it('is absent when a repository is selected, and absent when nothing is unmeasured', () => {
@@ -12335,16 +13280,21 @@ describe('fixed title column', () => {
 });
 
 describe('figure slots and unclipped SLA labels', () => {
-  // Revert: let the open figure size to its digits: the HIGH block slides when the CRIT count gains a digit.
+  // Revert: let the open figure size to its digits (the HIGH block slides when the CRIT count gains a digit), or left-align it in its
+  // slot (a gap opens between the figure and "open", so "54 open · 53 overdue" stops reading as one phrase).
   it.each([
     ['25 open · 4 overdue', props()],
     ['one repository, one digit', props({ effectiveRepo: 'acme/checkout-api', urlOver: { repo: 'acme/checkout-api' } })],
     ['loading dashes', props({ data: { repos: slot<ReturnType<typeof reposFixture>>(undefined) } })],
     ['a severity hidden by the filter', props({ urlOver: { severity: 'high' } })],
-  ])('%s: each open figure sits in a slot with a minimum width, in every state', (_label, p) => {
+  ])('%s: each open figure is right-aligned in a slot with a minimum width, so "open" and the tail follow it directly', (_label, p) => {
     render(<AlertsStrip {...p} />);
     for (const sev of ['critical', 'high']) {
-      expect(screen.getByTestId(`strip-${sev}-open-slot`).style.minWidth).toBe(`${ALERTS_STRIP_OPEN_MIN_W}px`);
+      const slotEl = screen.getByTestId(`strip-${sev}-open-slot`);
+      expect(slotEl.style.minWidth).toBe(`${ALERTS_STRIP_OPEN_MIN_W}px`);
+      expect(slotEl.className).toContain('text-right');
+      // "open" follows the slot with one space, and nothing sits between the figure and it.
+      expect(slotEl.parentElement!.textContent).toMatch(/^\S+ open$/);
     }
   });
 
@@ -12356,11 +13306,11 @@ describe('figure slots and unclipped SLA labels', () => {
     }
   });
 
-  // Revert: give a severity block a fixed width (or `shrink-0` with a width): "No SLA policy yet", "Starts {date}" and
+  // Revert: give a severity block a fixed width (or `shrink-0` with a width): "no SLA policy yet", "SLA starts {date}" and
   // "SLA policy can't be read" are longer than the figures and would be cut. The blocks size to their content.
   it.each([
-    ['pending', { critical: 'pending', high: 'pending' }, /Starts /],
-    ['none', { critical: 'none', high: 'none' }, /No SLA policy yet/],
+    ['pending', { critical: 'pending', high: 'pending' }, /SLA starts /],
+    ['none', { critical: 'none', high: 'none' }, /no SLA policy yet/],
     ['invalid', { critical: 'invalid', high: 'invalid' }, /SLA policy can't be read/],
   ] as Array<[string, { critical: AlSlaKind; high: AlSlaKind }, RegExp]>)('%s: the label is whole, has no minimum width, and no severity block has a fixed width', (_name, kinds, label) => {
     render(<AlertsStrip {...props({ summary: alSummary(kinds) })} />);
@@ -12412,16 +13362,18 @@ import type { Severity } from '@/lib/vulnerabilities/types';
 import type { SecurityViewProps } from './view-props';
 import { scopeOpenCount } from './security-state';
 import { slaState, slaStateLabel } from './sla-state';
+import { unmeasuredBadgeText } from './labels';
 import { ALERTS_STRIP_H, TYPE } from './dimensions';
 
 /** Widths, in px, that keep the CRIT and HIGH blocks where they are whatever the filters. The title column is
  * fixed, so a short "All repositories" and a long team or repository name take the same room (a long title ends in
  * "…" with its full text in a `title`). The open figure and, while the SLA is active, the overdue figure change
- * width with their digits, so each has a minimum width sized for four and three digits. The blocks themselves
- * are NOT fixed: an SLA state label ("No SLA policy yet", "Starts 2099-01-01") is longer than the figures and
- * must not be cut, and it does not change with the filters. */
+ * width with their digits. The open figure sits right-aligned in a box sized for four digits, so "open" and the tail
+ * that follows it read as one phrase ("54 open · 53 overdue") and the phrase starts in the same place; the overdue tail
+ * has a minimum width sized for three digits. The blocks themselves are NOT fixed: an SLA state label ("no SLA policy
+ * yet", "SLA starts Jan 1, 2099") is longer than the figures and must not be cut, and it does not change with the filters. */
 export const ALERTS_STRIP_TITLE_W = 176;
-export const ALERTS_STRIP_OPEN_MIN_W = 72;
+export const ALERTS_STRIP_OPEN_MIN_W = 36;
 export const ALERTS_STRIP_OVERDUE_MIN_W = 96;
 
 const SEVERITIES: readonly Severity[] = ['critical', 'high'];
@@ -12453,7 +13405,7 @@ export default function AlertsStrip({ summary, data, url, openDrawer }: Security
     <section
       aria-label="Alerts summary"
       data-testid="alerts-strip"
-      className={`bg-gray-900 ${TYPE.card} px-5 flex items-center gap-5 overflow-hidden whitespace-nowrap`}
+      className={`bg-gray-900 ${TYPE.card} px-4 flex items-center gap-3 overflow-hidden whitespace-nowrap`}
       style={{ height: ALERTS_STRIP_H }}
     >
       <div data-testid="strip-title-col" className="flex shrink-0 flex-col gap-0.5" style={{ width: ALERTS_STRIP_TITLE_W }}>
@@ -12468,7 +13420,8 @@ export default function AlertsStrip({ summary, data, url, openDrawer }: Security
           const st = slaState(sev, summary);
           const open = rows ? scopeOpenCount(rows, sev, repo) : null;
           const overdue = rows ? scopeOverdue(rows, sev, repo) : 0;
-          const label = slaStateLabel(st);
+          // No SLA header sits above these figures, so the state names the SLA itself ("SLA starts Feb 1, 2099").
+          const label = slaStateLabel(st, { withSla: true });
           const hidden = url.severity !== 'both' && url.severity !== sev;
           return (
             <div
@@ -12479,7 +13432,11 @@ export default function AlertsStrip({ summary, data, url, openDrawer }: Security
               style={{ opacity: hidden ? 0.35 : 1 }}
             >
               <span className={`w-[34px] shrink-0 py-px text-center text-[10px] font-bold tracking-[0.05em] ${TYPE.badge} ${BADGE[sev].cls}`}>{BADGE[sev].label}</span>
-              <span data-testid={`strip-${sev}-open-slot`} className="shrink-0" style={{ minWidth: ALERTS_STRIP_OPEN_MIN_W }}><b data-testid={`strip-${sev}-open`} className="text-white">{open === null ? '—' : open.toLocaleString('en-US')}</b> open</span>
+              <span className="shrink-0">
+                <span data-testid={`strip-${sev}-open-slot`} className="inline-block text-right" style={{ minWidth: ALERTS_STRIP_OPEN_MIN_W }}>
+                  <b data-testid={`strip-${sev}-open`} className="text-white">{open === null ? '—' : open.toLocaleString('en-US')}</b>
+                </span>{' '}open
+              </span>
               <span
                 data-testid={`strip-${sev}-tail`}
                 className={`flex min-w-0 items-center gap-1 ${st.kind === 'invalid' ? 'font-bold text-red-400' : st.kind === 'active' && overdue > 0 ? 'font-bold text-red-400' : 'text-gray-500'}`}
@@ -12504,8 +13461,7 @@ export default function AlertsStrip({ summary, data, url, openDrawer }: Security
           onClick={e => openDrawer(e.currentTarget)}
           className={`vuln-hatch flex h-6 shrink-0 items-center gap-1.5 border border-warn-line px-2 text-xs font-semibold text-warn ${TYPE.badge}`}
         >
-          <span aria-hidden="true">▲</span>
-          {unmeasured} unmeasured {unmeasured === 1 ? 'repo' : 'repos'}
+          {unmeasuredBadgeText(unmeasured)}
         </button>
       )}
     </section>
@@ -12522,7 +13478,8 @@ Expected: PASS (the page test still finds `alerts-strip` at 72px; the view-props
 
 ```bash
 git add src/app/vulnerabilities/alerts-strip.tsx src/lib/__tests__/unit/vuln-alerts-strip.test.tsx
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: Alerts view summary strip"
 ```
 
@@ -12533,19 +13490,23 @@ git commit -m "GLOOK-64: Alerts view summary strip"
 - Test: `src/lib/__tests__/unit/vuln-repo-rail.test.tsx`
 
 **Interfaces:**
-- Consumes: `SecurityViewProps`; `scopeOpenCount`, `SeverityFilter` (`./security-state`); `SLA_INVALID_LABEL`, `slaActive`, `slaState`, `slaStateLabel`, `SlaSource` (`./sla-state`); `RAIL_W`, `TYPE` (`./dimensions`); `RepoRow` type (`@/lib/vulnerabilities/aggregate`); `url.setRepo` and `openDrawer` from the props; the `vuln-hatch` utility; the Task 4.1 fixtures.
-- Produces: `RepoRail` (default export) and the helpers listed under "Wave 4 public interface". It keeps the stub's `data-testid="repo-rail"` and its inline `width: RAIL_W`.
+- Consumes: `SecurityViewProps`; `scopeOpenCount`, `SeverityFilter` (`./security-state`); `slaActive`, `slaState`, `slaStateLabel` (called as `slaStateLabel(st, { withSla: true })`), `SlaSource`, `SlaState` (`./sla-state`); `unmeasuredReason` (`./labels`); `noOpenText` (`./ownership-model`, created in Wave 3 Task 3.7); `RAIL_W`, `TYPE` (`./dimensions`); `RepoRow` type (`@/lib/vulnerabilities/aggregate`); `url.setRepo` and `openDrawer` from the props; the `vuln-hatch` utility; the Task 4.1 fixtures.
+- Produces: `RepoRail` (default export) and the helpers listed under "Wave 4 public interface". It keeps the stub's `data-testid="repo-rail"` and its inline `width: RAIL_W`. The rail no longer exports `unmeasuredReason`: it imports the one definition from `labels.ts` (the coverage drawer's wording), and the test imports it from there too.
 
 Behaviours:
 - Header: "REPOSITORIES" (the `sectionLabel` type), a count line ("14 repos + 3 unmeasured"), and a "Filter by name" box that filters measured and unmeasured rows by name. No match reads "No repositories match “{text}”."; an empty scope reads "No repositories in this scope."; loading reads "Loading…"; an error shows its text.
-- First row: "All {team} repositories" with a team filter, otherwise "All repositories", with the scope's counts ("25 crit · 14 high open"). It is the tinted row while no repository is selected. Clicking it calls `url.setRepo(null)`.
+- First row: "All {team} repositories" with a team filter, otherwise "All repositories", with the scope's counts ("25 crit · 14 high open", or `noOpenText(severity)` when there are none). It is the tinted row while no repository is selected. Clicking it calls `url.setRepo(null)`.
 - Then the measured rows, re-sorted on the client: overdue desc, open critical desc, open high desc, name. The server order (open critical, then open high) is not kept. Figures follow Severity: a hidden severity counts as 0.
-- Each row: the repository name, "N crit · N high open", and "N OVERDUE" on the right. N sums the visible severities whose SLA is active, using `slaActive` from the summary (not the row's own null). Nothing is printed at 0. "Owning team: X" shows only when no team filter is set. A row with nothing open under Severity is greyed (`text-gray-500`) and reads "no open alerts".
+- Each row: the repository name, "N crit · N high open", and "N OVERDUE" on the right. N sums the visible severities whose SLA is active, using `slaActive` from the summary (not the row's own null). Nothing is printed at 0. "Owning team: X" shows only when no team filter is set. A row with nothing open under Severity is greyed (`text-gray-500`) and reads `noOpenText(severity)`: "no open alerts", or, when Severity narrows the view, "no open critical alerts" / "no open high alerts" (a repository whose only open alerts are of the hidden severity is empty in this view but not clean, and must not read so). The "All" row uses the same `railCounts`.
 - Selection follows `data.effectiveRepo`. The selected row is tinted (`bg-accent/10`, the page's existing selected-row tint, the same as the selected team row), shows "×" and has `aria-pressed`. Clicking a row calls `url.setRepo(fullName)`; clicking the selected row calls `url.setRepo(null)`. A rail click writes only `repo` as a replace, so it never calls `selectRepoRow`, `setTeam` or `setView`.
-- Unmeasured rows come last, ordered by name, hatched (`vuln-hatch`), reading "▲ UNMEASURED · {reason}" with the drawer's wording ("Dependabot off", or the error detail, or "Status check failed"). They show no counts. Clicking one calls `openDrawer(e.currentTarget)` and does not select it.
-- Footer: "Sorted by overdue, then open critical", then the SLA note. The note says which severities the OVERDUE figures include and why one is missing: "Overdue counts critical and high"; "Overdue counts critical only · high: {label}"; "Overdue counts high only · critical: {label}"; "No active SLA policy · no overdue counts"; "SLA policy can't be read · no overdue counts". **The note wraps** (`whitespace-normal break-words`): it is one of the three fixes beyond the handoff, and it must never truncate. The list above it scrolls (`overflow-y-auto`), so a taller footer shrinks the list, not the card.
+- Unmeasured rows come last, ordered by name, hatched (`vuln-hatch`). Each reads "▲ Unmeasured · {reason}" with the reason from `unmeasuredReason` in `labels.ts`: the coverage drawer's wording, "Dependabot off", or the status check's detail, or "Status check failed". The DOM text is sentence case and the element has the CSS `uppercase` class, so the rail shows capitals ("▲ UNMEASURED · DEPENDABOT OFF"). They show no counts. Clicking one calls `openDrawer(e.currentTarget)` and does not select it.
+- Footer: "Sorted by overdue, then open critical", then the SLA note, `railSlaNote(sla, severity)`. The note says which severities the OVERDUE figures include and why one is missing. It follows Severity: it considers only the severities the user can see, so under "Critical only" it never mentions high. The state wording is `slaStateLabel(st, { withSla: true })`, the same as the strip's tails ("SLA starts {display date}", "no SLA policy yet", "SLA policy can't be read"). The rules, in order:
+  1. Every considered severity is active: "Overdue counts critical and high" (both visible) or "Overdue counts critical only" / "Overdue counts high only" (one visible).
+  2. Some are active and some are not (only possible with both visible): "Overdue counts {active severity} only · {other severity}: {label}", for example "Overdue counts critical only · high: SLA starts Feb 1, 2099" or "Overdue counts high only · critical: no SLA policy yet".
+  3. None is active: the state label or labels, first letter capitalised, then " · no overdue counts". One label when the states read the same: "No SLA policy yet · no overdue counts", "SLA starts Feb 1, 2099 · no overdue counts", "SLA policy can't be read · no overdue counts". When they differ, each is named: "Critical: SLA starts Feb 1, 2099 · high: no SLA policy yet · no overdue counts" (and the same with the two states swapped).
+  The old catch-all "No active SLA policy · no overdue counts" is gone: it hid which state each severity was in. The test pins these (critical, high) pairs with both severities visible: active/active, active with pending, active with none, pending with active, none with active, none/none, pending/pending, invalid/invalid, and the two mixed inactive pairs pending/none and none/pending. It pins further cases under a narrowed Severity (for example "Critical only" with critical pending reads "SLA starts Feb 1, 2099 · no overdue counts", and with critical active and high pending still reads "Overdue counts critical only"). **The note wraps** (`whitespace-normal break-words`): it is one of the three fixes beyond the handoff, and it must never truncate. The list above it scrolls (`overflow-y-auto`), so a taller footer shrinks the list, not the card.
 
-Reverts that fail: removing the re-sort (keeping server order) fails `order: overdue, then open critical, then open high, then name; unmeasured last › re-sorts the server order (which is by open critical) so a repository with more overdue comes first` and three more; adding `truncate` to the note fails `footer › the SLA explanation wraps instead of truncating (fix 1 beyond the handoff)`; printing overdue without the SLA gate fails several cases of `the OVERDUE figure › critical %s, high %s: checkout-api reads %s`; a rail click that calls `selectRepoRow` fails `selection › clicking a row calls url.setRepo with that repository and nothing else on the URL`; an unmeasured row that selects instead of opening the drawer fails `unmeasured rows › are hatched, read "UNMEASURED · <reason>", show no counts, and open the drawer from the clicked element`.
+Reverts that fail: removing the re-sort (keeping server order) fails `order: overdue, then open critical, then open high, then name; unmeasured last › re-sorts the server order (which is by open critical) so a repository with more overdue comes first` and three more; adding `truncate` to the note fails `footer › the SLA explanation wraps instead of truncating (fix 1 beyond the handoff)`; printing overdue without the SLA gate fails several cases of `the OVERDUE figure › critical %s, high %s: checkout-api reads %s`; a rail click that calls `selectRepoRow` fails `selection › clicking a row calls url.setRepo with that repository and nothing else on the URL`; an unmeasured row that selects instead of opening the drawer fails `unmeasured rows › are hatched, read "UNMEASURED · <reason>", show no counts, and open the drawer from the clicked element` (the same test checks that the upper-case element's text is "Unmeasured · " plus the shared `unmeasuredReason`); ignoring Severity in `railSlaNote` fails `footer › under Severity "%s only", critical %s and high %s: "%s", never a word about the hidden severity`; printing the old catch-all "No active SLA policy", or dropping the "SLA" from a state that has no SLA header above it, fails `footer › critical %s, high %s: "%s"`; ignoring Severity in the empty text fails `row content › under a narrowed Severity the empty text names it: "no open critical alerts" / "no open high alerts"`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -12555,11 +13516,17 @@ Reverts that fail: removing the re-sort (keeping server order) fails `order: ove
 // The Alerts view's 260px repository rail: client re-sort, the SLA-gated OVERDUE figure, selection,
 // unmeasured rows, the wrapping footer note (one of the three fixes beyond the handoff).
 import { render, screen, fireEvent, within } from '@testing-library/react';
-import RepoRail, { railSlaNote, railStat, sortRailRows, unmeasuredReason } from '@/app/vulnerabilities/repo-rail';
+import RepoRail, { railSlaNote, railStat, sortRailRows } from '@/app/vulnerabilities/repo-rail';
 import { RAIL_W } from '@/app/vulnerabilities/dimensions';
+import { unmeasuredReason } from '@/app/vulnerabilities/labels';
 import {
   viewProps, slot, reposFixture, repoRow, cell, REPO_ROWS, AL_RAIL_ROWS, alSummary, type AlSlaKind,
 } from '../support/security-fixtures';
+
+// Dates print through displayDate, whose "current year" is the clock's: pin it so the literal fixture dates read the same every year.
+let nowSpy: jest.SpyInstance;
+beforeEach(() => { nowSpy = jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-30T12:00:00Z')); });
+afterEach(() => { nowSpy.mockRestore(); });
 
 const bothActive = alSummary({ critical: 'active', high: 'active' });
 
@@ -12719,6 +13686,18 @@ describe('row content', () => {
     expect(row('acme/checkout-api').innerHTML).toContain('text-gray-200');
   });
 
+  // Revert: ignore Severity in the empty text (a repository with only critical alerts reads clean under "High only").
+  it('under a narrowed Severity the empty text names it: "no open critical alerts" / "no open high alerts"', () => {
+    const { unmount } = render(<RepoRail {...props({ urlOver: { severity: 'high' } })} />);
+    // ledger-service has only critical alerts open: it is empty under "High only", but not clean.
+    expect(within(row('acme/ledger-service')).getByTestId('rail-counts').textContent).toBe('no open high alerts');
+    expect(within(row('acme/quiet-service')).getByTestId('rail-counts').textContent).toBe('no open high alerts');
+    unmount();
+    render(<RepoRail {...props({ urlOver: { severity: 'critical' } })} />);
+    expect(within(row('acme/quiet-service')).getByTestId('rail-counts').textContent).toBe('no open critical alerts');
+    expect(within(row('acme/ledger-service')).getByTestId('rail-counts').textContent).toBe('5 crit open');
+  });
+
   it('railStat treats a row whose only open alerts are of a hidden severity as empty', () => {
     const r = repoRow('acme/x', 'Payments', { critical: cell({ open: 4, overdue: 2 }), high: cell() });
     expect(railStat(r, 'high', bothActive)).toEqual({ crit: 0, high: 0, overdue: 0, total: 0 });
@@ -12776,17 +13755,14 @@ describe('unmeasured rows', () => {
     expect(off.className).toContain('vuln-hatch');
     expect(off.textContent).toContain('Unmeasured · Dependabot off');
     expect(err.textContent).toContain('Unmeasured · HTTP 500: status check failed');
+    // The rail's style is capitals (CSS), over the one shared wording.
+    expect(off.querySelector('.uppercase')!.textContent).toBe(`Unmeasured · ${unmeasuredReason({ status: 'dependabot-off', detail: null })}`);
     expect(off.textContent).not.toMatch(/crit|high|\d+ open/);
     fireEvent.click(off);
     expect(p.openDrawer).toHaveBeenCalledWith(off);
     expect(p.url.setRepo).not.toHaveBeenCalled();
   });
 
-  it('unmeasuredReason words the two statuses like the drawer', () => {
-    expect(unmeasuredReason({ status: 'dependabot-off', detail: null })).toBe('Dependabot off');
-    expect(unmeasuredReason({ status: 'error', detail: 'timeout' })).toBe('timeout');
-    expect(unmeasuredReason({ status: 'error', detail: null })).toBe('Status check failed');
-  });
 });
 
 describe('the name filter', () => {
@@ -12815,7 +13791,7 @@ describe('footer', () => {
   it('the SLA explanation wraps instead of truncating (fix 1 beyond the handoff)', () => {
     render(<RepoRail {...props({ summary: alSummary({ critical: 'active', high: 'pending' }) })} />);
     const note = screen.getByTestId('rail-sla-note');
-    expect(note.textContent).toBe('Overdue counts critical only · high: Starts 2026-11-01');
+    expect(note.textContent).toBe('Overdue counts critical only · high: SLA starts Feb 1, 2099');
     for (const clipping of ['truncate', 'whitespace-nowrap', 'text-ellipsis', 'overflow-hidden']) {
       expect(note.className.split(/\s+/)).not.toContain(clipping);
     }
@@ -12823,18 +13799,39 @@ describe('footer', () => {
     expect(note.className).toContain('break-words');
   });
 
+  // Revert: print the "No active SLA policy" catch-all again (it hides which state each severity is in), or drop the "SLA" from a
+  // state that has no SLA header above it.
   it.each<[AlSlaKind, AlSlaKind, string]>([
     ['active', 'active', 'Overdue counts critical and high'],
-    ['active', 'pending', 'Overdue counts critical only · high: Starts 2026-11-01'],
-    ['active', 'none', 'Overdue counts critical only · high: No SLA policy yet'],
-    ['pending', 'active', 'Overdue counts high only · critical: Starts 2026-11-01'],
-    ['none', 'active', 'Overdue counts high only · critical: No SLA policy yet'],
-    ['none', 'none', 'No active SLA policy · no overdue counts'],
-    ['pending', 'pending', 'No active SLA policy · no overdue counts'],
+    ['active', 'pending', 'Overdue counts critical only · high: SLA starts Feb 1, 2099'],
+    ['active', 'none', 'Overdue counts critical only · high: no SLA policy yet'],
+    ['pending', 'active', 'Overdue counts high only · critical: SLA starts Feb 1, 2099'],
+    ['none', 'active', 'Overdue counts high only · critical: no SLA policy yet'],
+    ['none', 'none', 'No SLA policy yet · no overdue counts'],
+    ['pending', 'pending', 'SLA starts Feb 1, 2099 · no overdue counts'],
     ['invalid', 'invalid', "SLA policy can't be read · no overdue counts"],
+    ['pending', 'none', 'Critical: SLA starts Feb 1, 2099 · high: no SLA policy yet · no overdue counts'],
+    ['none', 'pending', 'Critical: no SLA policy yet · high: SLA starts Feb 1, 2099 · no overdue counts'],
   ])('critical %s, high %s: "%s"', (critical, high, expected) => {
     expect(railSlaNote(alSummary({ critical, high }))).toBe(expected);
     render(<RepoRail {...props({ summary: alSummary({ critical, high }) })} />);
+    expect(screen.getByTestId('rail-sla-note').textContent).toBe(expected);
+  });
+
+  // Revert: ignore Severity in railSlaNote (under "Critical only" the footer would still talk about high).
+  it.each<[string, AlSlaKind, AlSlaKind, string]>([
+    ['critical', 'active', 'active', 'Overdue counts critical only'],
+    ['critical', 'active', 'pending', 'Overdue counts critical only'],
+    ['high', 'active', 'active', 'Overdue counts high only'],
+    ['high', 'pending', 'active', 'Overdue counts high only'],
+    ['critical', 'pending', 'active', 'SLA starts Feb 1, 2099 · no overdue counts'],
+    ['critical', 'none', 'active', 'No SLA policy yet · no overdue counts'],
+    ['high', 'active', 'none', 'No SLA policy yet · no overdue counts'],
+    ['high', 'active', 'invalid', "SLA policy can't be read · no overdue counts"],
+  ])('under Severity "%s only", critical %s and high %s: "%s", never a word about the hidden severity', (severity, critical, high, expected) => {
+    const sla = alSummary({ critical, high });
+    expect(railSlaNote(sla, severity as 'critical' | 'high')).toBe(expected);
+    render(<RepoRail {...props({ summary: sla, urlOver: { severity } })} />);
     expect(screen.getByTestId('rail-sla-note').textContent).toBe(expected);
   });
 });
@@ -12878,14 +13875,12 @@ import { useState } from 'react';
 import type { RepoRow } from '@/lib/vulnerabilities/aggregate';
 import type { SecurityViewProps } from './view-props';
 import { scopeOpenCount, type SeverityFilter } from './security-state';
-import { SLA_INVALID_LABEL, slaActive, slaState, slaStateLabel, type SlaSource } from './sla-state';
+import { slaActive, slaState, slaStateLabel, type SlaSource, type SlaState } from './sla-state';
+import { unmeasuredReason } from './labels';
+import { noOpenText } from './ownership-model';
 import { RAIL_W, TYPE } from './dimensions';
 
 export const RAIL_SORT_NOTE = 'Sorted by overdue, then open critical';
-
-/** Why a repository is unmeasured. Same wording as the coverage drawer. */
-export const unmeasuredReason = (u: NonNullable<RepoRow['unmeasured']>) =>
-  u.status === 'dependabot-off' ? 'Dependabot off' : (u.detail ?? 'Status check failed');
 
 export interface RailStat { crit: number; high: number; overdue: number; total: number }
 
@@ -12912,23 +13907,38 @@ export function sortRailRows(rows: readonly RepoRow[], severity: SeverityFilter,
       b.stat.overdue - a.stat.overdue || b.stat.crit - a.stat.crit || b.stat.high - a.stat.high || a.row.fullName.localeCompare(b.row.fullName));
 }
 
-/** "9 crit · 14 high open", or "no open alerts" when the visible severities have none. */
+/** "9 crit · 14 high open", or "no open alerts" (under a narrowed Severity, "no open critical alerts") when the visible severities have none. */
 export function railCounts(crit: number, high: number, severity: SeverityFilter): string {
-  if (crit + high === 0) return 'no open alerts';
+  if (crit + high === 0) return noOpenText(severity);
   const parts: string[] = [];
   if (severity !== 'high') parts.push(`${crit.toLocaleString('en-US')} crit`);
   if (severity !== 'critical') parts.push(`${high.toLocaleString('en-US')} high`);
   return `${parts.join(' · ')} open`;
 }
 
-/** The footer's second line: which severities the OVERDUE figures include, and why one is missing. */
-export function railSlaNote(sla: SlaSource): string {
-  const c = slaState('critical', sla);
-  const h = slaState('high', sla);
-  if (c.kind === 'active' && h.kind === 'active') return 'Overdue counts critical and high';
-  if (c.kind === 'active') return `Overdue counts critical only · high: ${slaStateLabel(h)}`;
-  if (h.kind === 'active') return `Overdue counts high only · critical: ${slaStateLabel(c)}`;
-  return `${c.kind === 'invalid' ? SLA_INVALID_LABEL : 'No active SLA policy'} · no overdue counts`;
+const SEV_NAMES = { critical: 'critical', high: 'high' } as const;
+
+/**
+ * The footer's second line: which severities the OVERDUE figures include, and why one is missing. It follows
+ * Severity: under "Critical only" it never talks about high. The state wording is `slaStateLabel(…, { withSla: true })`,
+ * the same as the strip's tails.
+ */
+export function railSlaNote(sla: SlaSource, severity: SeverityFilter = 'both'): string {
+  const considered = (['critical', 'high'] as const).filter(s => severity === 'both' || severity === s);
+  const states = considered.map(sev => ({ sev, st: slaState(sev, sla) as SlaState }));
+  const active = states.filter(x => x.st.kind === 'active');
+  const inactive = states.filter(x => x.st.kind !== 'active');
+  const label = (st: SlaState) => slaStateLabel(st, { withSla: true }) ?? '';
+  if (inactive.length === 0) {
+    return active.length === 2 ? 'Overdue counts critical and high' : `Overdue counts ${SEV_NAMES[active[0].sev]} only`;
+  }
+  if (active.length === 0) {
+    // One label when every state reads the same, otherwise each severity's own.
+    const labels = inactive.map(x => label(x.st));
+    const text = new Set(labels).size === 1 ? labels[0] : inactive.map((x, i) => `${x.sev}: ${labels[i]}`).join(' · ');
+    return `${text.charAt(0).toUpperCase()}${text.slice(1)} · no overdue counts`;
+  }
+  return `Overdue counts ${SEV_NAMES[active[0].sev]} only · ${inactive[0].sev}: ${label(inactive[0].st)}`;
 }
 
 const plural = (n: number, word: string) => `${n.toLocaleString('en-US')} ${word}${n === 1 ? '' : 's'}`;
@@ -13042,7 +14052,7 @@ export default function RepoRail({ summary, data, url, openDrawer }: SecurityVie
       <div className="flex flex-none flex-col gap-0.5 border-t border-gray-700 px-4 py-2.5 text-xs text-gray-500">
         <span>{RAIL_SORT_NOTE}</span>
         {/* Wraps: the second line explains which overdue counts are included, so it must never be clipped. */}
-        <span data-testid="rail-sla-note" className="whitespace-normal break-words">{railSlaNote(summary)}</span>
+        <span data-testid="rail-sla-note" className="whitespace-normal break-words">{railSlaNote(summary, url.severity)}</span>
       </div>
     </aside>
   );
@@ -13058,7 +14068,8 @@ Expected: PASS.
 
 ```bash
 git add src/app/vulnerabilities/repo-rail.tsx src/lib/__tests__/unit/vuln-repo-rail.test.tsx
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: Alerts view repository rail"
 ```
 
@@ -13069,24 +14080,26 @@ git commit -m "GLOOK-64: Alerts view repository rail"
 - Test: `src/lib/__tests__/unit/vuln-alert-list.test.tsx`
 
 **Interfaces:**
-- Consumes: `SecurityViewProps`; `AlertSortKey`, `AlertStatus`, `DEFAULT_ALERT_LIST`, `sanitiseAlertList`, `useAlertList`, `ALERT_SORT_FIRST_DIR` (`./security-state`; the tests use the last four); `SLA_INVALID_LABEL`, `SLA_NONE_LABEL`, `anySlaActive`, `slaState`, `slaStateLabel`, `SlaSource` (`./sla-state`); `Pager`, `PAGER_H` (Task 4.2); `ALERT_LIST_H`, `ALERT_PAGE_SIZE`, `ALERT_ROW_H`, `ALERTS_CARD_H`, `RAIL_W`, `TYPE` (`./dimensions`); `ALERT_SORT_KEYS` (`@/lib/vulnerabilities/alert-sort`, tests); `AlertRow` type (`@/lib/vulnerabilities/aggregate`); `data.alerts` (a `Slot<AlertsData>`), `data.repoStatus`, `url.clearRepo`, and the `list` controller from the props; the Task 4.1 fixtures.
-- Produces: `AlertList` (default export) and the constants and helpers under "Wave 4 public interface". It keeps the stub's `data-testid="alert-list"` (no fixed height) and `data-testid="alert-list-rows"` with inline `height: ALERT_LIST_H` in every branch.
+- Consumes: `SecurityViewProps`; `AlertSortKey`, `AlertStatus`, `DEFAULT_ALERT_LIST`, `sanitiseAlertList`, `useAlertList`, `ALERT_SORT_FIRST_DIR` (`./security-state`; the tests use the last four); `anySlaActive`, `slaState`, `slaStateLabel` (called as `slaStateLabel(st, { withSla: true })`), `SlaSource` (`./sla-state`); `displayDate` (`./labels`); `Pager`, `PAGER_H` (Task 4.2); `ALERT_LIST_H`, `ALERT_PAGE_SIZE`, `ALERT_ROW_H`, `ALERTS_CARD_H`, `RAIL_W`, `TYPE` (`./dimensions`, including `TYPE.link`); `ALERT_SORT_KEYS` (`@/lib/vulnerabilities/alert-sort`, tests); `AlertRow` type (`@/lib/vulnerabilities/aggregate`); `data.alerts` (a `Slot<AlertsData>`), `data.repoStatus`, `url.clearRepo`, and the `list` controller from the props; the Task 4.1 fixtures.
+- Produces: `AlertList` (default export) and the constants and helpers under "Wave 4 public interface" (`noSlaHint(sla, today?)`; there is no `shortDate`: the list's own date function and month table are gone, replaced by `displayDate`). It keeps the stub's `data-testid="alert-list"` (no fixed height) and `data-testid="alert-list-rows"` with inline `height: ALERT_LIST_H` in every branch.
 
 Behaviours:
 
 *Toolbar.* Row 1 is a search box (placeholder "Search CVE, GHSA, package") and a Status select (Open, Resolved, Open + resolved). Row 2 is four toggles: Overdue, Due ≤ 7d, Reopened, Runtime only, each a button with `aria-pressed`. Both rows are 32px tall.
 - *Search.* The typed text is local. It is applied (`list.setQuery`) `SEARCH_DEBOUNCE_MS` (300ms) after the last keystroke. It is applied at once, before the other control's own handler, when the user clicks a toggle, the Status select or a sort header inside that window (one `setQuery`, then the click's handler, then nothing from the timer). It is applied on unmount, so switching view inside the window keeps the text. A value already sent is not sent twice, and typing back to the applied value sends nothing. The box starts from `list.list.q`.
-- *Time toggles.* Overdue and Due ≤ 7d are enabled only while some severity's SLA is active and the status is not Resolved. Otherwise they are disabled (opacity 0.45) with a `title`. While no SLA is active, a visible hint also shows beside the toggles: `noSlaHint` (invalid wins over pending, which wins over none): "SLA policy can't be read", "Due dates start {earliest start date}", "No SLA policy yet". Resolved disables them with the title "Resolved alerts have no due date" and prints no SLA hint. A disabled toggle never reads as pressed. Mutual exclusion of Overdue and Due ≤ 7d, and Resolved clearing both, live in `useAlertList` (Task 2.6) and are tested here through the real controller.
+- *Time toggles.* Overdue and Due ≤ 7d are enabled only while some severity's SLA is active and the status is not Resolved. Otherwise they are disabled (opacity 0.45) with a `title`. While no SLA is active, a visible hint also shows beside the toggles: `noSlaHint(sla, today?)` (invalid wins over pending, which wins over none): "SLA policy can't be read", "Due dates start {earliest start date, as a display date}" ("Due dates start later" when no date is known), "no SLA policy yet". The invalid and none texts are `slaStateLabel(..., { withSla: true })`. The optional `today` (YYYY-MM-DD) only decides whether the date carries its year. Resolved disables them with the title "Resolved alerts have no due date" and prints no SLA hint. A disabled toggle never reads as pressed. Mutual exclusion of Overdue and Due ≤ 7d, and Resolved clearing both, live in `useAlertList` (Task 2.6) and are tested here through the real controller.
 
-*Headers.* Six sortable headers in a CSS grid: Sev, Advisory (second line "CVSS · package"), Repository ("owning team"), Age, Due, State ("scope"). Each calls `list.setSort(key)`. With `sort: null` every header shows ↕ and none is marked sorted. The active header shows ↑ or ↓ in `text-accent-light` and `aria-sort`. The first click's direction comes from the controller (`ALERT_SORT_FIRST_DIR`: Age descending, the rest ascending). The list never re-sorts rows: the server orders them.
+*Headers.* Six sortable headers in a CSS grid: Sev, Advisory (second line "CVSS · package"), Repository ("owning team"), Age, Due, State ("scope"). Each calls `list.setSort(key)`. The active header shows ↑ or ↓ in `text-accent-light` and `aria-sort`; the others show ↕ and `aria-sort="none"`.
+- *Default sort drawing.* With no header chosen (`sort === null`) and Status not "Resolved", the server's default order is soonest due first, so the Due header is drawn as the active one, ascending ("Due ↑", `aria-sort="ascending"`) and every other header shows ↕. Under "Resolved" nothing is drawn as active, because resolved alerts have no due date. Once a header is chosen, that header is the active one.
+- *First click.* The first click's direction comes from the controller (`ALERT_SORT_FIRST_DIR`: Age descending, the rest ascending), with one exception that also lives in the controller (Task 2.6): when no header is chosen, the first click on Due sorts DESCENDING. The list draws "Due ↑" for the default order, so an ascending first click would change nothing on screen. The list relies on that rule and does not implement it. The list never re-sorts rows: the server orders them.
 
 *Rows.* Ten rows of 56px in a 560px area (`alert-list-rows`). Columns: a CRIT or HIGH badge; the advisory id as a link (`htmlUrl`, new tab) over "CVSS 9.1 · package (ecosystem)"; the repository's short name (full name in the title) over the owning team; age ("77d"); Due; State over scope.
-- *Due.* While the row's severity SLA is active, an open alert shows the date ("Jul 21") over "in Nd", "today" or "Nd OVERDUE" (red, bold). Otherwise it shows "—" over that severity's `slaStateLabel`. A resolved alert shows "—" over "resolved on time" or "resolved Nd late". **"Nd OVERDUE" is not clipped** (fix 2 beyond the handoff): its element has no overflow clip or ellipsis and cannot shrink, and the Due grid track has a pixel minimum (`ALERT_DUE_MIN_W`) while every other track is `minmax(0, …)`. A test adds the tracks' minimums and checks they fit the list column at a 1024px viewport.
-- *State.* The state, then a muted suffix: for a resolved alert the dismissal reason and the resolved date; for any alert that was reopened, "↺ reopened {date}" from `lastReopenedAt` (UTC, "Aug 14"; no date when it is null). The scope reads "unknown" when null.
+- *Due.* While the row's severity SLA is active, an open alert shows the display date ("Jul 21", or "Dec 31, 2025" for a date in another year) over "in Nd", "today" or "Nd OVERDUE" (red, bold). The date's element carries the ISO date as its `title`. Otherwise the row shows "—" over that severity's `slaStateLabel(st, { withSla: true })` ("SLA starts Feb 1, 2099", "no SLA policy yet", "SLA policy can't be read"): the column's header says "Due", not "SLA", so the state names the SLA itself. A resolved alert shows "—" over "resolved on time" or "resolved Nd late". **"Nd OVERDUE" is not clipped** (fix 2 beyond the handoff): its element has no overflow clip or ellipsis and cannot shrink, and the Due grid track has a pixel minimum (`ALERT_DUE_MIN_W`) while every other track is `minmax(0, …)`. A test adds the tracks' minimums and checks they fit the list column at a 1024px viewport.
+- *State.* Line 1 is short, so it is never cut mid-word: "open"; or "open" followed by a "↺" glyph when the alert was reopened (`data-testid="alert-reopened"`, `role="img"`, `aria-label="reopened Aug 14"`, or just "reopened" when `lastReopenedAt` is null); or "resolved · {reason}" for a resolved alert, where the reason is the dismissed reason, else the state word ("fixed"), truncated at the cell edge. A resolved alert that was reopened also shows the glyph. The dates are NOT in the visible text. The cell's `title` carries them: "dismissed (no_bandwidth), resolved 2026-09-03", or "open · reopened 2 times, last on 2026-08-14" (the ISO dates, as Decision 6 allows in a title). A zero `reopenedCount` shows no glyph even if a date is present. Line 2 is the scope, "unknown" when null.
 - Cells that truncate carry their full text as a `title`. A null package prints nothing (never "null"). Rows are keyed by position.
 
 *Branches of the 560px area, in this order.*
-1. `data.repoStatus === 'not-found'`: "Repository not found · " and a "Show all repositories" button that calls `url.clearRepo()`. This is checked first because the alerts slot is the empty slot in this state. It is never a page-level error.
+1. `data.repoStatus === 'not-found'`: "Repository not found · " and a "Show all repositories" button (styled with `TYPE.link`) that calls `url.clearRepo()`. This is checked first because the alerts slot is the empty slot in this state. It is never a page-level error.
 2. `data.alerts.errorText`: the text, centred in the area. The toolbar, headers and pager stay mounted, so the user can undo the filter that failed.
 3. `data.alerts.loading`: "Loading…".
 4. Rows, or "No alerts match these filters." when empty.
@@ -13095,7 +14108,7 @@ Behaviours:
 - *Page clamp.* An effect: when the alerts data is settled (not stale, not loading), `rows.length === 0`, `totalCount > 0` and the page is above 1, call `list.setPage(Math.ceil(totalCount / 10))`.
 - *Fixed size.* The list column's padding, two toolbar rows, header, pager and three gaps add up to `ALERT_COLUMN_CHROME_H`; with the 560px rows that is the 776px card. A test asserts the sum.
 
-Reverts that fail: removing the clamp fails `pager and the page clamp › a page past the end (no rows, a total above 0) goes to the last page`; dropping the Due track's pixel minimum fails `fixed geometry › the Due track has a pixel minimum and every other track can shrink to 0, so the minimums fit at 1024px (fix 2 beyond the handoff)`; removing the flush on unmount fails `search › a view switch (the list unmounts) inside the window applies the typed text instead of dropping it`; removing the flush before a click fails four cases under `search`; reversing or re-sorting the rows fails `rows › renders rows in the order the server sent them, whatever the active sort (the server sorts, the client does not)` (and several Due cases); checking loading before not-found fails `repository not found › is checked before loading and empty: the empty alerts slot of this state is not "No alerts match"`; letting Resolved keep the time toggles enabled fails `Overdue and Due ≤ 7d toggles: disabled with a hint while no SLA is active › Resolved disables both time toggles without printing an SLA hint`; reading the reopened date from the wrong field fails two `State column` tests; making the invalid state read as "none" fails `Overdue and Due ≤ 7d toggles: disabled with a hint while no SLA is active › an unreadable policy reads "SLA policy can't be read", never "No SLA policy yet"`; removing the stale dim fails `stale, loading and error › stale: the row area dims and "Updating…" shows; the controls are not dimmed`; wiring every header to the same sort key fails `sort headers › clicking the %s header calls setSort with that key` and `sort headers › Age starts descending (oldest first), every other key ascending, and a second click reverses (real controller)`.
+Reverts that fail: removing the clamp fails `pager and the page clamp › a page past the end (no rows, a total above 0) goes to the last page`; dropping the Due track's pixel minimum fails `fixed geometry › the Due track has a pixel minimum and every other track can shrink to 0, so the minimums fit at 1024px (fix 2 beyond the handoff)`; removing the flush on unmount fails `search › a view switch (the list unmounts) inside the window applies the typed text instead of dropping it`; removing the flush before a click fails four cases under `search`; reversing or re-sorting the rows fails `rows › renders rows in the order the server sent them, whatever the active sort (the server sorts, the client does not)` (and several Due cases); checking loading before not-found fails `repository not found › is checked before loading and empty: the empty alerts slot of this state is not "No alerts match"`; letting Resolved keep the time toggles enabled fails `Overdue and Due ≤ 7d toggles: disabled with a hint while no SLA is active › Resolved disables both time toggles without printing an SLA hint`; putting "↺ reopened {date}" back in the State cell's visible text fails `State column: line 1 is short, the dates ride in titles, line 2 is the scope › an open alert that was reopened reads "open ↺"; the glyph carries the date in its aria-label and the cell in its title`, and printing the resolved date or the state word on the visible line fails `State column: line 1 is short, the dates ride in titles, line 2 is the scope › a resolved alert reads "resolved · <reason>" (no date on screen), with the dates in the title, and the glyph when it was reopened`; reading the reopened date from the wrong field fails the glyph's `aria-label` assertions in those two tests; making the invalid state read as "none" fails `Overdue and Due ≤ 7d toggles: disabled with a hint while no SLA is active › an unreadable policy reads "SLA policy can't be read", never "no SLA policy yet"`; printing a pending hint without the display-date rule (ISO date, or the year dropped in another year) fails `Overdue and Due ≤ 7d toggles: disabled with a hint while no SLA is active › every severity pending: both disabled, the hint reads "Due dates start <display date>"` and `Overdue and Due ≤ 7d toggles: disabled with a hint while no SLA is active › pending beats none: with one severity pending and the other without a policy the hint names the start date`; drawing no header as active while `sort` is null, or drawing one other than Due, fails `sort headers › with no sort the server's default order is drawn as "Due ↑": Due is the one active header, every other shows ↕`; drawing Due ↑ under Resolved fails `sort headers › under Resolved there is no due date, so no header is drawn as active until one is chosen`; reverting the controller's first-click rule for Due (Task 2.6), so the first click sorts ascending, fails `sort headers › the first click on Due, with no header chosen, flips the drawn arrow to ↓ (real controller); the next click flips it back`; dropping the ISO `title` from the due date fails `rows › the due date reads as a display date, with the ISO date in its title; an instant stays on its UTC day`; removing the stale dim fails `stale, loading and error › stale: the row area dims and "Updating…" shows; the controls are not dimmed`; wiring every header to the same sort key fails `sort headers › clicking the %s header calls setSort with that key` and `sort headers › Age starts descending (oldest first), every other key ascending, and a second click reverses (real controller)`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -13108,7 +14121,7 @@ Reverts that fail: removing the clamp fails `pager and the page clamp › a page
 import React from 'react';
 import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import AlertList, {
-  ALERT_COLUMN_CHROME_H, ALERT_COLUMN_PAD, ALERT_DUE_MIN_W, ALERT_GRID_COLS, ALERT_HEAD_H, SEARCH_DEBOUNCE_MS, SORT_ARROW, noSlaHint, shortDate,
+  ALERT_COLUMN_CHROME_H, ALERT_COLUMN_PAD, ALERT_DUE_MIN_W, ALERT_GRID_COLS, ALERT_HEAD_H, SEARCH_DEBOUNCE_MS, SORT_ARROW, noSlaHint,
 } from '@/app/vulnerabilities/alert-list';
 import { PAGER_H } from '@/app/vulnerabilities/pager';
 import { ALERTS_CARD_H, ALERT_LIST_H, ALERT_ROW_H, RAIL_W } from '@/app/vulnerabilities/dimensions';
@@ -13122,6 +14135,12 @@ import { ALERT_SORT_KEYS } from '@/lib/vulnerabilities/alert-sort';
 import {
   viewProps, slot, alertsFixture, alAlertRow, alAlertRows, alSummary, AL_OVERDUE_ROW, AL_RESOLVED_ROW, type AlSlaKind,
 } from '../support/security-fixtures';
+
+// Dates print through displayDate, whose "current year" is the clock's: pin it so the literal fixture dates read the same every year.
+// (Date.now only: the search tests below use fake timers for setTimeout.)
+let nowSpy: jest.SpyInstance;
+beforeEach(() => { nowSpy = jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-30T12:00:00Z')); });
+afterEach(() => { nowSpy.mockRestore(); });
 
 const active = alSummary({ critical: 'active', high: 'active' });
 const ERR = { loading: false, error: new Error('HTTP 500'), errorText: "Couldn't load alerts: HTTP 500" };
@@ -13282,7 +14301,7 @@ describe('rows', () => {
     expect(within(row).getByText('CVSS 9.8 · a-long-package-name (npm)').getAttribute('title')).toBe('CVSS 9.8 · a-long-package-name (npm)');
     expect(within(row).getByText('a-repository-with-a-very-long-name').getAttribute('title')).toBe('acme/a-repository-with-a-very-long-name');
     expect(within(row).getByText('A long owning team name').getAttribute('title')).toBe('A long owning team name');
-    expect(screen.getByTestId('alert-state').getAttribute('title')).toBe('dismissed · no_bandwidth · Sep 3');
+    expect(screen.getByTestId('alert-state').getAttribute('title')).toBe('dismissed (no_bandwidth), resolved 2026-09-03');
   });
 
   it('an open alert\'s state-message sub-line in the Due cell carries its text as a title', () => {
@@ -13317,38 +14336,61 @@ describe('rows', () => {
     expect(screen.getAllByTestId('alert-row')[0]).toBe(first);
   });
 
-  it('shortDate reads UTC, so a late-evening instant stays on its UTC day', () => {
-    expect(shortDate('2026-08-14T23:30:00Z')).toBe('Aug 14');
-    expect(shortDate('2026-07-21')).toBe('Jul 21');
-    expect(shortDate('not a date')).toBe('not a date');
+  it('the due date reads as a display date, with the ISO date in its title; an instant stays on its UTC day', () => {
+    render(<AlertList {...props({ rows: [alAlertRow(1, { dueDate: '2026-09-19', daysRemaining: 4 }), alAlertRow(2, { dueDate: '2025-12-31', daysRemaining: -273 })] })} />);
+    const dues = screen.getAllByTestId('alert-due');
+    expect(dues.map(e => e.textContent)).toEqual(['Sep 19', 'Dec 31, 2025']);
+    expect(dues.map(e => e.getAttribute('title'))).toEqual(['2026-09-19', '2025-12-31']);
   });
 });
 
-describe('State column: "↺ reopened {date}" comes from lastReopenedAt', () => {
-  it('an open alert that was reopened reads "open · ↺ reopened Aug 14"', () => {
+describe('State column: line 1 is short, the dates ride in titles, line 2 is the scope', () => {
+  const state = () => screen.getByTestId('alert-state');
+
+  // Revert: put "↺ reopened {date}" back in the visible text (it was cut to "open · ↺ reopen…").
+  it('an open alert that was reopened reads "open ↺"; the glyph carries the date in its aria-label and the cell in its title', () => {
     render(<AlertList {...props({ rows: [alAlertRow(1, { reopenedCount: 2, lastReopenedAt: '2026-08-14T10:30:00Z' })] })} />);
-    expect(screen.getByTestId('alert-state').textContent).toBe('open · ↺ reopened Aug 14');
-    expect(screen.getByTestId('alert-state').getAttribute('title')).toBe('open · ↺ reopened Aug 14');
+    expect(state().textContent).toBe('open↺');
+    const glyph = screen.getByTestId('alert-reopened');
+    expect(glyph.textContent).toBe('↺');
+    expect(glyph.getAttribute('aria-label')).toBe('reopened Aug 14');
+    expect(glyph.getAttribute('role')).toBe('img');
+    expect(state().getAttribute('title')).toBe('open · reopened 2 times, last on 2026-08-14');
+    expect(state().textContent).not.toMatch(/Aug|reopened/);
   });
 
-  it('a reopened alert with no recorded date still says it was reopened', () => {
+  it('a reopened alert with no recorded date still shows the glyph, and its label says only "reopened"', () => {
     render(<AlertList {...props({ rows: [alAlertRow(1, { reopenedCount: 1, lastReopenedAt: null })] })} />);
-    expect(screen.getByTestId('alert-state').textContent).toBe('open · ↺ reopened');
+    expect(state().textContent).toBe('open↺');
+    expect(screen.getByTestId('alert-reopened').getAttribute('aria-label')).toBe('reopened');
+    expect(state().getAttribute('title')).toBe('open · reopened');
   });
 
-  it('an alert that never reopened says nothing about it, even if a stale date is present', () => {
+  it('an alert that never reopened shows no glyph, even if a stale date is present', () => {
     render(<AlertList {...props({ rows: [alAlertRow(1, { reopenedCount: 0, lastReopenedAt: '2026-08-14T10:30:00Z' })] })} />);
-    expect(screen.getByTestId('alert-state').textContent).toBe('open');
+    expect(state().textContent).toBe('open');
+    expect(screen.queryByTestId('alert-reopened')).toBeNull();
   });
 
-  it('a resolved alert reads its state, the date it was resolved and, if reopened, when', () => {
+  // Revert: print the resolved date or the state word in the visible line again.
+  it('a resolved alert reads "resolved · <reason>" (no date on screen), with the dates in the title, and the glyph when it was reopened', () => {
     render(<AlertList {...props({ rows: [AL_RESOLVED_ROW] })} />);
-    expect(screen.getByTestId('alert-state').textContent).toBe('fixed · Sep 3 · ↺ reopened Aug 14');
+    expect(state().textContent).toBe('resolved · fixed↺');
+    expect(state().getAttribute('title')).toBe('fixed, resolved 2026-09-03 · reopened, last on 2026-08-14');
+    expect(screen.getByTestId('alert-reopened').getAttribute('aria-label')).toBe('reopened Aug 14');
   });
 
-  it('a dismissed alert shows its reason', () => {
+  it('a dismissed alert reads "resolved · <its reason>", truncating at the cell edge, and names the dismissal and its date in the title', () => {
     render(<AlertList {...props({ rows: [alAlertRow(1, { state: 'dismissed', dismissedReason: 'no_bandwidth', resolvedAt: '2026-09-03T08:00:00Z', dueDate: null, daysRemaining: null })] })} />);
-    expect(screen.getByTestId('alert-state').textContent).toBe('dismissed · no_bandwidth · Sep 3');
+    expect(state().textContent).toBe('resolved · no_bandwidth');
+    expect(state().className).toContain('truncate');
+    expect(state().getAttribute('title')).toBe('dismissed (no_bandwidth), resolved 2026-09-03');
+  });
+
+  it('a dismissed alert with no reason reads "resolved · dismissed"', () => {
+    render(<AlertList {...props({ rows: [alAlertRow(1, { state: 'dismissed', dismissedReason: null, resolvedAt: null, dueDate: null, daysRemaining: null })] })} />);
+    expect(state().textContent).toBe('resolved · dismissed');
+    expect(state().getAttribute('title')).toBe('dismissed');
   });
 
   it('the scope sits under the state, and a missing scope reads "unknown"', () => {
@@ -13374,8 +14416,8 @@ describe('Due column, per SLA state (alert-list consumer of sla-state)', () => {
   });
 
   it.each<[AlSlaKind, string]>([
-    ['pending', 'Starts 2026-11-01'],
-    ['none', 'No SLA policy yet'],
+    ['pending', 'SLA starts Feb 1, 2099'],
+    ['none', 'no SLA policy yet'],
     ['invalid', "SLA policy can't be read"],
   ])('%s: a dash over "%s", never a due date or an overdue count', (kind, message) => {
     render(<AlertList {...props({
@@ -13395,7 +14437,7 @@ describe('Due column, per SLA state (alert-list consumer of sla-state)', () => {
     const dues = screen.getAllByTestId('alert-due').map(e => e.textContent);
     const subs = screen.getAllByTestId('alert-due-sub').map(e => e.textContent);
     expect(dues).toEqual(['Sep 19', '—']);
-    expect(subs).toEqual(['in 4d', 'Starts 2026-11-01']);
+    expect(subs).toEqual(['in 4d', 'SLA starts Feb 1, 2099']);
   });
 
   it('a resolved alert has no due date: a dash, and whether it was fixed in time', () => {
@@ -13408,27 +14450,29 @@ describe('Due column, per SLA state (alert-list consumer of sla-state)', () => {
 describe('Overdue and Due ≤ 7d toggles: disabled with a hint while no SLA is active', () => {
   const timeToggles = () => [button('Overdue'), button('Due ≤ 7d')] as HTMLButtonElement[];
 
-  it('every severity pending: both disabled, the hint reads "Due dates start 2026-11-01"', () => {
+  it('every severity pending: both disabled, the hint reads "Due dates start <display date>"', () => {
     render(<AlertList {...props({ summary: alSummary({ critical: 'pending', high: 'pending' }) })} />);
-    for (const t of timeToggles()) { expect(t.disabled).toBe(true); expect(t.title).toBe('Due dates start 2026-11-01'); }
-    expect(screen.getByTestId('alert-sla-hint').textContent).toBe('Due dates start 2026-11-01');
+    for (const t of timeToggles()) { expect(t.disabled).toBe(true); expect(t.title).toBe('Due dates start Feb 1, 2099'); }
+    expect(screen.getByTestId('alert-sla-hint').textContent).toBe('Due dates start Feb 1, 2099');
   });
 
   it('pending beats none: with one severity pending and the other without a policy the hint names the start date', () => {
-    expect(noSlaHint(alSummary({ critical: 'none', high: 'pending' }))).toBe('Due dates start 2026-11-01');
+    expect(noSlaHint(alSummary({ critical: 'none', high: 'pending' }), '2026-09-30')).toBe('Due dates start Feb 1, 2099');
+    // In the start date's own year it drops the year.
+    expect(noSlaHint(alSummary({ critical: 'none', high: 'pending' }), '2099-01-05')).toBe('Due dates start Feb 1');
   });
 
-  it('an empty policy with none everywhere reads "No SLA policy yet"', () => {
+  it('an empty policy with none everywhere reads "no SLA policy yet"', () => {
     render(<AlertList {...props({ summary: alSummary({ critical: 'none', high: 'none' }) })} />);
     for (const t of timeToggles()) expect(t.disabled).toBe(true);
-    expect(screen.getByTestId('alert-sla-hint').textContent).toBe('No SLA policy yet');
+    expect(screen.getByTestId('alert-sla-hint').textContent).toBe('no SLA policy yet');
   });
 
-  it('an unreadable policy reads "SLA policy can\'t be read", never "No SLA policy yet"', () => {
+  it('an unreadable policy reads "SLA policy can\'t be read", never "no SLA policy yet"', () => {
     render(<AlertList {...props({ summary: alSummary({ critical: 'invalid', high: 'invalid' }) })} />);
     for (const t of timeToggles()) expect(t.disabled).toBe(true);
     expect(screen.getByTestId('alert-sla-hint').textContent).toBe("SLA policy can't be read");
-    expect(screen.queryByText('No SLA policy yet')).toBeNull();
+    expect(screen.queryByText(/no SLA policy yet/i)).toBeNull();
   });
 
   it.each<[AlSlaKind, AlSlaKind]>([['active', 'active'], ['active', 'pending'], ['none', 'active'], ['pending', 'active']])(
@@ -13547,14 +14591,41 @@ describe('sort headers', () => {
     expect(p.list.setSort).toHaveBeenCalledWith(key);
   });
 
-  it('with no sort every header shows ↕ and none is marked sorted (the server\'s default order)', () => {
+  // Revert: draw no header as active while sort is null (the default order then looks unexplained), or mark a header other than Due.
+  it('with no sort the server\'s default order is drawn as "Due ↑": Due is the one active header, every other shows ↕', () => {
     render(<AlertList {...props()} />);
     for (const k of ALERT_SORT_KEYS) {
-      expect(screen.getByTestId(`sort-arrow-${k}`).textContent).toBe(SORT_ARROW.none);
-      expect(SORT_ARROW.none.replace('\uFE0E', '')).toBe('↕');
-      expect(screen.getByTestId(`sort-arrow-${k}`).className).not.toContain('text-accent-light');
-      expect(screen.getByRole('columnheader', { name: new RegExp(HEAD_LABELS[k]) }).getAttribute('aria-sort')).toBe('none');
+      const arrow = screen.getByTestId(`sort-arrow-${k}`);
+      const head = screen.getByRole('columnheader', { name: new RegExp(HEAD_LABELS[k]) });
+      if (k === 'due') {
+        expect(arrow.textContent).toBe('↑');
+        expect(arrow.className).toContain('text-accent-light');
+        expect(head.getAttribute('aria-sort')).toBe('ascending');
+      } else {
+        expect(arrow.textContent).toBe(SORT_ARROW.none);
+        expect(SORT_ARROW.none.replace('\uFE0E', '')).toBe('↕');
+        expect(arrow.className).not.toContain('text-accent-light');
+        expect(head.getAttribute('aria-sort')).toBe('none');
+      }
     }
+  });
+
+  // Revert: draw Due ↑ under Resolved too (resolved alerts have no due date).
+  it('under Resolved there is no due date, so no header is drawn as active until one is chosen', () => {
+    render(<AlertList {...props({ list: { status: 'resolved' } })} />);
+    for (const k of ALERT_SORT_KEYS) expect(screen.getByTestId(`sort-arrow-${k}`).textContent).toBe(SORT_ARROW.none);
+  });
+
+  // Revert: sort ascending on the first click (nothing would change on screen) — the controller rule is pinned in the hooks test.
+  it('the first click on Due, with no header chosen, flips the drawn arrow to ↓ (real controller); the next click flips it back', () => {
+    const seen: AlertListState[] = [];
+    render(<Harness onList={l => seen.push(l)} />);
+    expect(screen.getByTestId('sort-arrow-due').textContent).toBe('↑');
+    fireEvent.click(screen.getByTestId('sort-due'));
+    expect(seen[seen.length - 1].sort).toEqual({ key: 'due', dir: 'desc' });
+    expect(screen.getByTestId('sort-arrow-due').textContent).toBe('↓');
+    fireEvent.click(screen.getByTestId('sort-due'));
+    expect(screen.getByTestId('sort-arrow-due').textContent).toBe('↑');
   });
 
   it.each([['asc', '↑', 'ascending'], ['desc', '↓', 'descending']] as const)(
@@ -13855,7 +14926,8 @@ import { useEffect, useRef, useState } from 'react';
 import type { AlertRow } from '@/lib/vulnerabilities/aggregate';
 import type { SecurityViewProps } from './view-props';
 import type { AlertSortKey, AlertStatus } from './security-state';
-import { SLA_INVALID_LABEL, SLA_NONE_LABEL, anySlaActive, slaState, slaStateLabel, type SlaSource } from './sla-state';
+import { anySlaActive, slaState, slaStateLabel, type SlaSource } from './sla-state';
+import { displayDate } from './labels';
 import Pager, { PAGER_H } from './pager';
 import { ALERT_LIST_H, ALERT_PAGE_SIZE, ALERT_ROW_H, TYPE } from './dimensions';
 
@@ -13880,21 +14952,14 @@ export const ALERT_AGE_W = 52;
 export const ALERT_GRID_COLS =
   `${ALERT_SEV_W}px minmax(0,2.2fr) minmax(0,1.8fr) ${ALERT_AGE_W}px minmax(${ALERT_DUE_MIN_W}px,1fr) minmax(0,1fr)`;
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-/** "Jul 21" for a YYYY-MM-DD date or an ISO instant, read in UTC. Anything unparseable is returned as it came. */
-export function shortDate(iso: string): string {
-  const d = new Date(iso.length === 10 ? `${iso}T00:00:00Z` : iso);
-  return Number.isNaN(d.getTime()) ? iso : `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
-}
-
 /**
  * Why Overdue and Due ≤ 7d are disabled when no severity has an active SLA, or null when one does.
  * Invalid wins over pending, which wins over none, so an unreadable policy never reads as "no policy".
  */
-export function noSlaHint(sla: SlaSource): string | null {
+export function noSlaHint(sla: SlaSource, today?: string): string | null {
   const states = [slaState('critical', sla), slaState('high', sla)];
   if (states.some(s => s.kind === 'active')) return null;
-  if (states.some(s => s.kind === 'invalid')) return SLA_INVALID_LABEL;
+  if (states.some(s => s.kind === 'invalid')) return slaStateLabel({ kind: 'invalid' }, { withSla: true });
   const starts: string[] = [];
   let pending = false;
   for (const s of states) {
@@ -13902,8 +14967,8 @@ export function noSlaHint(sla: SlaSource): string | null {
     pending = true;
     if (s.startsOn) starts.push(s.startsOn);
   }
-  if (pending) return `Due dates start ${starts.sort()[0] ?? 'later'}`;
-  return SLA_NONE_LABEL;
+  if (pending) return `Due dates start ${starts[0] ? displayDate(starts.sort()[0], today) : 'later'}`;
+  return slaStateLabel({ kind: 'none' }, { withSla: true });
 }
 
 const STATUS_OPTIONS: ReadonlyArray<[AlertStatus, string]> = [['open', 'Open'], ['resolved', 'Resolved'], ['all', 'Open + resolved']];
@@ -13917,6 +14982,8 @@ const HEAD_COPY: Record<AlertSortKey, { label: string; sub: string; right: boole
   due: { label: 'Due', sub: '', right: true },
   state: { label: 'State', sub: 'scope', right: false },
 };
+/** The sort the default order is drawn as. */
+const DEFAULT_SORT = { key: 'due', dir: 'asc' } as const;
 /** Left to right, matching ALERT_GRID_COLS. */
 const HEAD_ORDER: readonly AlertSortKey[] = ['severity', 'advisory', 'repo', 'age', 'due', 'state'];
 
@@ -13945,24 +15012,30 @@ function AlertRowView({ r, sla }: { r: AlertRow; sla: SlaSource }) {
   if (r.state === 'open') {
     if (st.kind === 'active') {
       if (r.dueDate) {
-        due = shortDate(r.dueDate);
+        due = displayDate(r.dueDate);
         if (r.daysRemaining !== null) {
           overdue = r.daysRemaining < 0;
           dueSub = overdue ? `${-r.daysRemaining}d OVERDUE` : r.daysRemaining === 0 ? 'today' : `in ${r.daysRemaining}d`;
         }
       }
     } else {
-      dueSub = slaStateLabel(st) ?? '';
+      // The column's header says "Due", not "SLA", so the state names the SLA itself ("SLA starts Feb 1, 2099").
+      dueSub = slaStateLabel(st, { withSla: true }) ?? '';
     }
   } else if (r.resolvedOnTime !== null) {
     dueSub = r.resolvedOnTime ? 'resolved on time' : `resolved ${r.resolvedDaysLate}d late`;
   }
 
-  const stateExtra = [
-    ...(r.state !== 'open' ? [r.dismissedReason, r.resolvedAt ? shortDate(r.resolvedAt) : null] : []),
-    r.reopenedCount > 0 ? `↺ reopened${r.lastReopenedAt ? ` ${shortDate(r.lastReopenedAt)}` : ''}` : null,
-  ].filter((x): x is string => !!x);
-  const stateFull = [r.state, ...stateExtra].join(' · ');
+  // The State cell's first line is short enough never to clip: "open", "open ↺" (reopened), or "resolved · {reason}" (truncated
+  // at the cell edge). The dates ride in the title and the glyph's aria-label; the second line is the dependency scope.
+  const resolvedReason = r.state === 'open' ? null : (r.dismissedReason ?? r.state);
+  const stateText = resolvedReason === null ? 'open' : `resolved · ${resolvedReason}`;
+  const reopened = r.reopenedCount > 0;
+  const reopenedLabel = `reopened${r.lastReopenedAt ? ` ${displayDate(r.lastReopenedAt)}` : ''}`;
+  const stateTitle = [
+    r.state === 'open' ? 'open' : `${r.state}${r.dismissedReason ? ` (${r.dismissedReason})` : ''}${r.resolvedAt ? `, resolved ${r.resolvedAt.slice(0, 10)}` : ''}`,
+    reopened ? `reopened${r.reopenedCount > 1 ? ` ${r.reopenedCount} times` : ''}${r.lastReopenedAt ? `, last on ${r.lastReopenedAt.slice(0, 10)}` : ''}` : null,
+  ].filter((x): x is string => !!x).join(' · ');
 
   const cell = 'flex min-w-0 flex-col justify-center gap-0.5 px-2.5';
   const sub = 'truncate text-xs text-gray-400';
@@ -13985,7 +15058,7 @@ function AlertRowView({ r, sla }: { r: AlertRow; sla: SlaSource }) {
       </div>
       <div className="flex items-center justify-end px-2.5 text-gray-300 tabular-nums">{r.ageDays}d</div>
       <div className={`${cell} items-end`}>
-        <span data-testid="alert-due" className={`whitespace-nowrap tabular-nums ${overdue ? 'text-red-400' : 'text-gray-300'}`}>{due}</span>
+        <span data-testid="alert-due" title={r.dueDate ?? undefined} className={`whitespace-nowrap tabular-nums ${overdue ? 'text-red-400' : 'text-gray-300'}`}>{due}</span>
         {overdue ? (
           // Never clipped: no overflow, no ellipsis, and the track has a pixel minimum (ALERT_DUE_MIN_W).
           <span data-testid="alert-due-sub" className="shrink-0 whitespace-nowrap text-xs font-bold text-red-400">{dueSub}</span>
@@ -13994,9 +15067,9 @@ function AlertRowView({ r, sla }: { r: AlertRow; sla: SlaSource }) {
         )}
       </div>
       <div className={cell}>
-        <span data-testid="alert-state" className="truncate" title={stateFull}>
-          {r.state}
-          {stateExtra.length > 0 && <span className="text-gray-500"> · {stateExtra.join(' · ')}</span>}
+        <span data-testid="alert-state" className="truncate" title={stateTitle}>
+          {stateText}
+          {reopened && <span data-testid="alert-reopened" role="img" aria-label={reopenedLabel} className="ml-1 text-gray-400">↺</span>}
         </span>
         <span className={sub}>{r.scope ?? 'unknown'}</span>
       </div>
@@ -14070,6 +15143,9 @@ export default function AlertList({ summary, data, url, list: ctl }: SecurityVie
   const pagerTotal = rows ? total : null;
 
   const timeTitle = l.status === 'resolved' ? 'Resolved alerts have no due date' : (slaHint ?? undefined);
+  // With no header chosen the server's order is "soonest due first", so Due is drawn as the active header (ascending).
+  // The first click on it sorts descending (the list controller's rule), so the arrow always flips.
+  const shownSort = l.sort ?? (l.status === 'resolved' ? null : DEFAULT_SORT);
 
   return (
     <section
@@ -14120,7 +15196,7 @@ export default function AlertList({ summary, data, url, list: ctl }: SecurityVie
       >
         {HEAD_ORDER.map(key => {
           const h = { key, ...HEAD_COPY[key] };
-          const active = l.sort?.key === h.key ? l.sort : null;
+          const active = shownSort?.key === h.key ? shownSort : null;
           return (
             <div
               key={h.key}
@@ -14162,7 +15238,7 @@ export default function AlertList({ summary, data, url, list: ctl }: SecurityVie
         {notFound && (
           <div className="absolute inset-0 flex items-center justify-center gap-1.5 text-sm text-gray-300">
             <span>Repository not found ·</span>
-            <button type="button" onClick={() => url.clearRepo()} className="text-accent-light underline underline-offset-2 hover:text-accent-lighter">
+            <button type="button" onClick={() => url.clearRepo()} className={TYPE.link}>
               Show all repositories
             </button>
           </div>
@@ -14186,7 +15262,8 @@ Then `npx tsc --noEmit`. Expected: no output.
 
 ```bash
 git add src/app/vulnerabilities/alert-list.tsx src/lib/__tests__/unit/vuln-alert-list.test.tsx
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: Alerts view alert list"
 ```
 
@@ -14238,7 +15315,8 @@ Expected: no type errors; PASS (`vuln-format.test.ts` is unchanged: `fetcher`, `
 
 ```bash
 git add -A -- src/lib/__tests__/unit/vuln-owning-team-label.test.tsx
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: retire alerts-table.tsx and its test"
 ```
 
@@ -14251,9 +15329,9 @@ git commit -m "GLOOK-64: retire alerts-table.tsx and its test"
 - Consumes: `VulnerabilitiesContent` (the Wave 2 composer, default export of `src/app/vulnerabilities/vulnerabilities-content.tsx`); `SEARCH_DEBOUNCE_MS` (Task 4.5); `createNavigationMock` through `jest.mock('next/navigation', () => require('../support/security-nav-mock').createNavigationMock())` (Task 2.5); `SwrFresh`, `fetchRouter`, `callsTo`, `reposFixture`, `REPO_ROWS`, `summaryFixture` and the Task 4.1 fixtures (`AL_RAIL_ROWS`, `alAlertRows`, `alAlertsRoute`, `alSummary`).
 - Produces: nothing. This task only adds tests.
 
-The component tests use mocked handlers. This file wires the strip, rail and list to the real URL hook, the real alert-list controller and the real data hook, against a routed fetch mock. It is where URL history (push vs replace), request parameters, the stale-repository logic and the search flush meet.
+The component tests use mocked handlers. This file wires the strip, rail and list to the real URL hook, the real alert-list controller and the real data hook, against a routed fetch mock. It is where URL history (push vs replace), request parameters, the stale-repository logic and the search flush meet. Like the component tests, it pins the clock (`jest.spyOn(Date, 'now')` to 2026-09-30) so a literal fixture date prints the same every year.
 
-Its checks, by describe: one source for every count (strip, rail "All" row and Alerts tab count agree; a team scopes all three); selecting a repository from the rail (one replace with `scroll: false`, view and team untouched; narrows the strip and the request; an unmeasured row opens the drawer without touching the URL); paging, sorting and list parameters (`limit=10&offset=0`, no `sort` and no `severity=both` by default; Next and Previous; the remainder page; `sort=age:desc` then `age:asc`, a new key starting ascending, and the page returning to 1; every list control and a scope change returning to page 1; a result that shrinks below the current page lands on the last page); search text and a view switch; a repository that cannot be shown (missing from the rows, or rejected by the API: one inline state, no page error, no repeated request); a plain alerts failure inside the card; the SLA states reaching the strip, the rail footer, the Due column and the toggles from one summary; the unmeasured badge opening the drawer and Esc returning focus.
+Its checks, by describe: one source for every count (strip, rail "All" row and the Alerts tab count agree: the tab reads "13 open", the rail "10 crit · 3 high open" and the strip 10 and 3; a team scopes all three); selecting a repository from the rail (one replace with `scroll: false`, view and team untouched; narrows the strip and the request; an unmeasured row opens the drawer without touching the URL); paging, sorting and list parameters (`limit=10&offset=0`, no `sort` and no `severity=both` by default; Next and Previous; the remainder page; `sort=age:desc` then `age:asc`, a new key starting ascending, and the page returning to 1; every list control and a scope change returning to page 1; a result that shrinks below the current page lands on the last page); search text and a view switch; a repository that cannot be shown (missing from the rows, or rejected by the API: one inline state, no page error, no repeated request); a plain alerts failure inside the card; the SLA states reaching the strip, the rail footer, the Due column and the toggles from one summary (a pending high SLA reads "SLA starts Feb 1, 2099" on the strip tail, in the rail note and on the Due sub-line, with the rail note "Overdue counts critical only · high: SLA starts Feb 1, 2099"; no policy at all reads "no SLA policy yet" on the strip tail and the toggles' hint, and "No SLA policy yet · no overdue counts" in the rail footer); the unmeasured badge opening the drawer and Esc returning focus.
 
 - [ ] **Step 1: Write the test**
 
@@ -14274,6 +15352,11 @@ jest.mock('next/navigation', () => require('../support/security-nav-mock').creat
 const nav = () => jest.requireMock('next/navigation') as any;
 const params = (url: string) => new URL(url, 'http://x').searchParams;
 
+// Dates print through displayDate, whose "current year" is the clock's: pin it so the literal fixture dates read the same every year.
+let nowSpy: jest.SpyInstance;
+beforeEach(() => { nowSpy = jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-30T12:00:00Z')); });
+afterEach(() => { nowSpy.mockRestore(); });
+
 function mount(search: string, routes: Parameters<typeof fetchRouter>[0] = {}) {
   nav().__resetSearch(search);
   const fetchMock = fetchRouter(routes);
@@ -14292,7 +15375,7 @@ describe('one source for every count', () => {
     expect((await screen.findByTestId('strip-critical-open')).textContent).toBe('10');
     expect(screen.getByTestId('strip-high-open').textContent).toBe('3');
     expect(screen.getByTestId('rail-all').textContent).toContain('10 crit · 3 high open');
-    await waitFor(() => expect(screen.getByTestId('alerts-tab-count').textContent).toBe('13'));
+    await waitFor(() => expect(screen.getByTestId('alerts-tab-count').textContent).toBe('13 open'));
   });
 
   it('a team in the URL scopes all three through the repos request', async () => {
@@ -14494,9 +15577,9 @@ describe('SLA states reach every Alerts-view consumer from one summary', () => {
     });
     await screen.findAllByTestId('alert-row');
     expect(screen.getByTestId('strip-critical-tail').textContent).toContain('overdue');
-    expect(screen.getByTestId('strip-high-tail').textContent).toContain('Starts 2026-11-01');
-    expect(screen.getByTestId('rail-sla-note').textContent).toBe('Overdue counts critical only · high: Starts 2026-11-01');
-    expect(screen.getAllByTestId('alert-due-sub').map(e => e.textContent)).toEqual(['5d OVERDUE', 'Starts 2026-11-01']);
+    expect(screen.getByTestId('strip-high-tail').textContent).toContain('SLA starts Feb 1, 2099');
+    expect(screen.getByTestId('rail-sla-note').textContent).toBe('Overdue counts critical only · high: SLA starts Feb 1, 2099');
+    expect(screen.getAllByTestId('alert-due-sub').map(e => e.textContent)).toEqual(['5d OVERDUE', 'SLA starts Feb 1, 2099']);
     expect((screen.getByRole('button', { name: 'Overdue' }) as HTMLButtonElement).disabled).toBe(false);
   });
 
@@ -14504,9 +15587,10 @@ describe('SLA states reach every Alerts-view consumer from one summary', () => {
     mount('view=alerts', {
       summary: url => ({ body: summaryFixture({ slaStatus: { critical: 'none', high: 'none' }, policy: [], appliedFilters: { codebase: 'backend', baseline: url.searchParams.get('baseline') ?? 'last' } }) }),
     });
-    expect((await screen.findByTestId('alert-sla-hint')).textContent).toBe('No SLA policy yet');
+    expect((await screen.findByTestId('alert-sla-hint')).textContent).toBe('no SLA policy yet');
     expect((screen.getByRole('button', { name: 'Overdue' }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByTestId('strip-critical-tail').textContent).toContain('No SLA policy yet');
+    expect(screen.getByTestId('strip-critical-tail').textContent).toContain('no SLA policy yet');
+    expect(screen.getByTestId('rail-sla-note').textContent).toBe('No SLA policy yet · no overdue counts');
   });
 });
 
@@ -14549,7 +15633,8 @@ Expected: PASS, with every revert from Step 2 undone.
 
 ```bash
 git add src/lib/__tests__/unit/vuln-alerts-view.test.tsx
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: Alerts view composed-page tests"
 ```
 
@@ -14569,7 +15654,7 @@ Task 4.6 deletes `vuln-alerts-table.test.tsx` (54 tests) and `vuln-owning-team-l
 | `vuln-alerts-table` › `time chips disabled with a hint while no SLA is active` | Disabled-with-hint, from the SLA state | `Overdue and Due ≤ 7d toggles: disabled with a hint while no SLA is active` (pending, pending beats none, none, invalid, four enabled combinations, disabled toggle ignores clicks, Resolved) |
 | `vuln-alerts-table` › mutual exclusion | Overdue and Due ≤ 7d exclude each other | `toggles and Status with the real list controller › Overdue and Due ≤ 7d are mutually exclusive: turning one on turns the other off` |
 | Hand-off checklist: typed text | Applied on view switch and on a chip click inside the 300ms window; flushed on unmount | `search › a toggle clicked inside the debounce window applies the typed text first, once, and the timer then does nothing`; `search › %s clicked inside the window applies the typed text too` (Status select, sort header, Overdue); `search › a view switch (the list unmounts) inside the window applies the typed text instead of dropping it`; `vuln-alerts-view › search text and a view switch › text typed inside the debounce window is applied when the user switches view, and is there when they come back` |
-| Hand-off checklist: SLA consumers | A test per SLA state (active, pending, none, invalid) for every Wave 4 consumer | strip: `vuln-alerts-strip › the SLA tail, per state, for each severity (strip consumer of sla-state)`; rail: `vuln-repo-rail › the OVERDUE figure › critical %s, high %s: checkout-api reads %s` (six combinations) and `footer › critical %s, high %s: "%s"` (eight combinations); Due column: `Due column, per SLA state (alert-list consumer of sla-state)`; toggles: `Overdue and Due ≤ 7d toggles: disabled with a hint while no SLA is active`; all four on one summary: `vuln-alerts-view › SLA states reach every Alerts-view consumer from one summary` |
+| Hand-off checklist: SLA consumers | A test per SLA state (active, pending, none, invalid) for every Wave 4 consumer | strip: `vuln-alerts-strip › the SLA tail, per state, for each severity (strip consumer of sla-state)`; rail: `vuln-repo-rail › the OVERDUE figure › critical %s, high %s: checkout-api reads %s` (six combinations) and `footer › critical %s, high %s: "%s"` (eight combinations), plus `footer › under Severity "%s only", critical %s and high %s: "%s", never a word about the hidden severity` for the narrowed views; Due column: `Due column, per SLA state (alert-list consumer of sla-state)`; toggles: `Overdue and Due ≤ 7d toggles: disabled with a hint while no SLA is active`; all four on one summary: `vuln-alerts-view › SLA states reach every Alerts-view consumer from one summary` |
 
 **Every test in `vuln-alerts-table.test.tsx`.**
 
@@ -14598,9 +15683,9 @@ Task 4.6 deletes `vuln-alerts-table.test.tsx` (54 tests) and `vuln-owning-team-l
 | `AlertsPanel`: an error hides "Updating…" even with stale data | Rewritten | `stale, loading and error › an error shows no "Updating…" and no dimming, even for stale data` |
 | `AlertsPanel`: stale data shows "Updating…" and the table | Rewritten | `stale, loading and error › stale: the row area dims and "Updating…" shows; the controls are not dimmed` |
 | `alerts slot: fixed geometry`: every truncatable cell carries its full text as a title, with nowrap and ellipsis; Sev, Age and Scope carry none | Rewritten | `rows › every cell that can truncate carries its full text as a title`; truncation itself is the `truncate` class on each cell's text (v7 cells are grid items, not table cells) |
-| ... the due text goes in the Due title; no SLA is titled "no SLA" | Rewritten | `Due column, per SLA state` and `rows › an open alert's state-message sub-line in the Due cell carries its text as a title` |
+| ... the due text goes in the Due title; no SLA is titled "no SLA" | Rewritten | `Due column, per SLA state`, `rows › an open alert's state-message sub-line in the Due cell carries its text as a title` and `rows › the due date reads as a display date, with the ISO date in its title; an instant stays on its UTC day` |
 | ... the CVE cell: the id link truncates, the CVSS score is `shrink-0`, the reopened badge is not in this cell | Retired | v7 puts CVSS on the advisory's second line. The id link and the sub-line: `rows › shows severity, a linked advisory with "CVSS · package", the repository over its owning team, age, due and state over scope` |
-| ... the State cell: the reopened badge is `shrink-0` and last | Rewritten | The badge is now a muted text suffix: `State column: "↺ reopened {date}" comes from lastReopenedAt` (six tests) |
+| ... the State cell: the reopened badge is `shrink-0` and last | Rewritten | The badge is now a short "↺" glyph after "open" or "resolved · {reason}", with the date in its `aria-label` and in the cell's `title`: `State column: line 1 is short, the dates ride in titles, line 2 is the scope` (six tests) |
 | ... a null `packageName` shows only the ecosystem, never "null"; with no ecosystem the cell is empty with no title | Rewritten | `rows › a null package renders nothing, never the text "null", in the cell or its title`; `rows › no CVSS and no package leaves the sub-line blank with no title` |
 | ... the first body row is the same DOM node across a rerender | Rewritten | `rows › the first row is the same DOM node across a rerender with different rows (rows are keyed by position)` |
 | ... every body row and the header row carry an inline pinned height; cells have a fixed leading; badges are `leading-none` | Rewritten | `fixed geometry › every row is ALERT_ROW_H tall as an inline style and shares the header's grid`. The leading rules are retired: v7 rows are fixed-height grids, not table cells. |
@@ -14624,14 +15709,14 @@ All commands run in the repository root.
    `npx jest src/lib/__tests__/unit/vuln-alerts-fixtures.test.tsx src/lib/__tests__/unit/vuln-pager.test.tsx src/lib/__tests__/unit/vuln-alerts-strip.test.tsx src/lib/__tests__/unit/vuln-repo-rail.test.tsx src/lib/__tests__/unit/vuln-alert-list.test.tsx src/lib/__tests__/unit/vuln-alerts-view.test.tsx --maxWorkers=3`
 2. The unchanged guards this wave could disturb (the page test still finds the three slots at their heights, and `viewProps()` still renders every slot):
    `npx jest src/lib/__tests__/unit/vuln-security-page.test.tsx src/lib/__tests__/unit/vuln-security-view-props.test.tsx src/lib/__tests__/unit/vuln-security-support.test.tsx src/lib/__tests__/unit/vuln-use-security-data.test.tsx src/lib/__tests__/unit/vuln-security-hooks.test.tsx src/lib/__tests__/unit/vuln-filter-bar.test.tsx src/lib/__tests__/unit/vuln-format.test.ts src/lib/__tests__/unit/logger-enforcement.test.ts --maxWorkers=3`
-3. Types and the full suite: `npx tsc --noEmit` then `npx jest --maxWorkers=3` (all suites pass; CI uses 3 workers). With Waves 1-3 in place this wave adds six suites and removes two (`vuln-alerts-table` and `vuln-owning-team-label`), so the full run reads 223 suites and 2780 tests.
+3. Types and the full suite: `npx tsc --noEmit` then `npx jest --maxWorkers=3` (all suites pass; CI uses 3 workers). With Waves 1-3 in place this wave adds six suites and removes two (`vuln-alerts-table` and `vuln-owning-team-label`), so the full run reads 224 suites and 2837 tests.
 4. Production build, from a clean cache: `rm -rf .next && npm run build`. `page.tsx` is unchanged and the new files export no component other than their default from a page file.
 5. No leftover import of the retired module: `grep -rn "alerts-table\|AlertsTable\|alertFilterQuery\|AlertsPanel" src` prints exactly two comment lines: one in `src/app/vulnerabilities/format.ts` and one in `src/lib/__tests__/unit/vuln-alert-list.test.tsx`.
-6. The internal-name guard on the whole wave: `: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff origin/main...HEAD | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1` succeeds (grep finds nothing). `INTERNAL_NAMES` is the maintainers' private pattern of company, host and people names and real policy values; it lives in the implementer's environment and is never written in this plan or in the repository. New files use only `acme/...`, Payments, Search and Platform.
+6. The internal-name guard on the whole wave: `: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"` then `git diff origin/main...HEAD | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }` prints nothing and the shell stays open. `INTERNAL_NAMES` is the maintainers' private pattern of company, host and people names and real policy values; it lives in the implementer's environment and is never written in this plan or in the repository. New files use only `acme/...`, Payments, Search and Platform.
 7. Headless-Chrome measurement (the harness lives outside the repository, as today). At 1024px and 1440px, in the default dark theme and one light theme, against `npm run dev:mock`, on `/vulnerabilities?view=alerts`:
    - strip 72px, card 776px, rail 260px wide, list area 560px, every row 56px, header 52px, pager 28px, before and after each of: Next page, sort by Age, Overdue on, Due ≤ 7d on, Status Resolved and back to Open, select a rail repository, clear it, Severity High only and back;
    - no horizontal scroll: `document.documentElement.scrollWidth <= window.innerWidth`;
-   - the left edge of `strip-critical` and `strip-high` is the same before and after every interaction above (the title column is a fixed width and the open and overdue figures have minimum widths); and the same holds, with no tail label cut (`scrollWidth <= clientWidth` on each tail's text), when the app is started with `VULNERABILITIES_SLA_POLICY` giving the high severity a far-future `effectiveFrom`, with an empty policy (`[]`) and with an unparseable value;
+   - the left edge of `strip-critical` and `strip-high` is the same before and after every interaction above (the title column is a fixed width and the open and overdue figures have minimum widths); and the same holds, with no tail label cut (`scrollWidth <= clientWidth` on each tail's text), when the app is started with `VULNERABILITIES_SLA_POLICY` giving the high severity a far-future `effectiveFrom`, with an empty policy (`[]`) and with an unparseable value. One exception is allowed: for an unparseable policy at 1024px with the unmeasured badge showing, the strip's tails may end in "…" with the full text in the block's `title`. At 1440px, and at 1024px without the badge, no label is cut, whatever the policy;
    - every "Nd OVERDUE" element has `scrollWidth <= clientWidth` and its left edge is inside its cell (fix 2 beyond the handoff);
    - no sort-header label is truncated (the Age header fits its 52px track with its arrow);
    - the rail's SLA note is not clipped (`scrollWidth <= clientWidth`), and with a pending high SLA (start the app with `VULNERABILITIES_SLA_POLICY` giving the high severity a far-future `effectiveFrom`) it wraps to two lines while the card stays 776px (fix 1 beyond the handoff);
@@ -14641,18 +15726,18 @@ All commands run in the repository root.
 
 ## Wave 5: Documentation, comment cleanup and final verification
 
-**Goal.** Bring the written record in line with the page Waves 1-4 built, then prove the whole branch. Task 5.1 rewrites `docs/vulnerabilities-page.md` for the new page and adds a small test that keeps it honest (every path and test file it names exists, no retired module is mentioned, and its size table matches `dimensions.ts`). Task 5.2 updates the vulnerability entry in the root `CLAUDE.md`. Task 5.3 removes the last comment-only mentions of the retired components. Task 5.4 changes nothing: it runs the type check, the full suite, the build, the internal-name guard over the branch and the headless-Chrome measurement, with pass criteria. No product code changes in this wave, so no behaviour can regress in it; the only new test is the document guard.
+**Goal.** Bring the written record in line with the page Waves 1-4 built, then prove the whole branch. Task 5.1 rewrites `docs/vulnerabilities-page.md` for the new page and adds a small test that keeps it honest (every path, module name and test file it names exists, every deployment variable it names is one `config.ts` reads and the other way round, no retired module is mentioned, and its size table matches `dimensions.ts`). Task 5.2 updates the vulnerability entry in the root `CLAUDE.md`. Task 5.3 removes the last comment-only mentions of the retired components. Task 5.4 changes nothing: it runs the type check, the full suite, the build, the internal-name guard over the branch and the headless-Chrome measurement, with pass criteria. No product code changes in this wave, so no behaviour can regress in it; the only new test is the document guard.
 
 **Verification record.** Every edit below was made in a scratch copy of the repository that had Waves 1-4 applied in order, and every claim in the document was checked against that copy's code (the sources of truth are named in each task).
 
-- With Waves 1-4 applied in order: `npx tsc --noEmit` clean; `npx jest --maxWorkers=3` 223 suites and 2780 tests, all passing; `npm run build` succeeded. After this wave: 224 suites and 2784 tests, all passing, and the build succeeded.
-- The document test fails against the current (GLOOK-43) document, all four tests, and passes against the new one. Changing the KPI row height in the document's size table from 178px to 190px fails the fourth test and names `KPI_ROW_H`.
-- The headless measurement (Task 5.4) ran against the production build with `npm run dev:mock`'s environment and a seeded mock database, at 1024px and 1440px, in dark and light, on both views, before and after about twenty interactions each (filters, a team row, a repository row, view switches, toggles, paging, search, the drawer). Zero deviations from the fixed sizes, no horizontal scroll, no console errors, the sticky bar stayed at the top while scrolling. The x positions of the header coverage line's items, of the Repositories tab and of the Alerts strip's CRIT and HIGH blocks were identical before and after every interaction. Started again with a pending, an empty and an unparseable SLA policy, the strip's tails were not cut and its blocks did not move at 1440px, nor at 1024px, with one exception: an unreadable policy at 1024px with the unmeasured badge showing, where the two blocks cannot fit their labels (each tail ends in "…" and the full text is the block's `title`). The layout-shift entries are classified in Task 5.4.
+- With Waves 1-4 applied in order: `npx tsc --noEmit` clean; `npx jest --maxWorkers=3` 224 suites and 2837 tests, all passing; `npm run build` succeeded. After this wave: 225 suites and 2843 tests, all passing, and the build succeeded.
+- The document test fails against the current (GLOOK-43) document (5 of its 6 tests; the environment-variable test passes there) and passes against the new one. Changing the KPI row height in the document's size table from 178px to 190px fails the size test and names `KPI_ROW_H`; changing `RAIL_W` to 280 fails it too, because "1280px" no longer satisfies "280px".
+- The headless measurement (Task 5.4) ran against the production build with `npm run dev:mock`'s environment and a seeded mock database, at 1024px and 1440px, in dark and light, on both views, before and after about twenty-three interactions each (filters, a team row, a repository row, the Repositories tab and its name filter, view switches, toggles, paging, search, the drawer), once under each of five SLA policy states: active, the high severity pending, both pending, no policy and an unparseable one. Under every state: zero deviations from the fixed sizes (the 94px bar included), no horizontal scroll, no console errors, the sticky bar stayed at the top while scrolling, the four filter captions were present and upper-case, and the x positions of the select controls, the date and Reset slots, the view tabs, the header coverage line's items (the COVERAGE label included), the Repositories tab and the Alerts strip's CRIT and HIGH blocks were identical before and after every interaction, with one exception: an unparseable policy at 1024px, where the strip's two blocks cannot fit their labels while the unmeasured badge shows (each tail ends in "…", its block's `title` holds the full text, and the blocks resize when the badge disappears). The Overdue and Due ≤ 7d toggles were disabled exactly when no severity's SLA was active. The layout-shift entries are classified in Task 5.4.
 
 **Wave 5 decisions.**
 
 1. **The document is replaced, not patched.** The GLOOK-43 document described a page that no longer exists, so "What it shows", "Layout stability", "Data flow" and "Key files" are new. The sections about the sync, the facts cache, the SLA and taxonomy configuration, CSV import, environment variables, rollout and configuration are unchanged except for the named wording that mentioned a retired panel. A reviewer can diff the two documents and see that.
-2. **A document test is part of the task.** Documentation rots by renaming. The test reads the document and checks the things a machine can check: named files exist, named tests exist, retired modules are not named, and the size table agrees with `dimensions.ts`. It does not check prose.
+2. **A document test is part of the task.** Documentation rots by renaming. The test reads the document and checks the things a machine can check: named files exist (by full path, or by file name for a bare module name), named tests exist, every `VULN_*` or `VULNERABILITIES_*` variable it names is one `config.ts` reads and every one `config.ts` reads is named, retired modules are not named, and each size in the Layout stability section is stated on its own (a size is not satisfied by a longer number that contains it) and agrees with `dimensions.ts`. It does not check prose, an MCP tool name, a sort key or a threshold.
 3. **Provenance comments stay.** Three test headers say "replaces vuln-team-pivot.test.tsx", "Replaces vuln-alerts-table.test.tsx" and "replaces vuln-trend-chart.test.tsx". They tell a reviewer of this branch where each old test's intent went, and the retired-name grep in Task 5.3 expects exactly those three lines. The document test's own list of retired names is the fourth expected line.
 4. **Historical specs and plans are not edited.** Everything under `docs/superpowers/` describes the repository as it was when it was written.
 5. **The Repositories footer is documented as it is built.** Wave 3's footer sums open and overdue over every row in view, an unmeasured repository's stored counts included, so a team's footer figure equals the team table, the strip, the rail and the Alerts tab. The footer's repository count, Oldest open and Next due stay measured-only. The document says so, in "Repository rows and the sum invariant" under "What a page figure includes", and in the Repositories-tab bullet.
@@ -14668,7 +15753,7 @@ None. This wave adds one test file and changes documents and comments.
 - Modify: `docs/vulnerabilities-page.md` (replace the whole file)
 
 **Interfaces:**
-- Consumes: the page, API and MCP behaviour of Waves 1-4. Every figure in the new document is read from the code: sizes from `src/app/vulnerabilities/dimensions.ts`, `alert-list.tsx` and `pager.tsx`; URL keys from `security-state.ts`; requests from `use-security-data.ts`; SLA wording from `sla-state.ts`; rows and the invariant from `computeRepoRows` in `aggregate.ts`; the MCP tools from `src/lib/mcp/tools.ts`.
+- Consumes: the page, API and MCP behaviour of Waves 1-4. Every figure in the new document is read from the code: sizes from `src/app/vulnerabilities/dimensions.ts`, `alert-list.tsx` and `pager.tsx`; URL keys from `security-state.ts`; requests from `use-security-data.ts`; the dates and the unmeasured wording from `labels.ts`; SLA wording from `sla-state.ts`; rows and the invariant from `computeRepoRows` in `aggregate.ts`; the MCP tools from `src/lib/mcp/tools.ts`; the deployment variables from `KNOWN_VULN_ENV_VARS` in `src/lib/vulnerabilities/config.ts`.
 - Produces: the document, and a test that reads it.
 
 The old document describes the GLOOK-43 page (filter chips, the pivot, "Show 20 more", `alerts-table.tsx`, four MCP tools). It is wrong in most of "What it shows", "Layout stability", "Data flow" and "Key files", so it is replaced as a whole. The sync, facts cache, SLA and taxonomy, CSV import, environment, rollout and configuration sections keep their text except for the wording that named a retired panel.
@@ -14683,9 +15768,10 @@ Create `src/lib/__tests__/unit/vuln-docs-references.test.ts`:
 // document, so it fails the day a file is renamed or deleted without the document being updated.
 import fs from 'fs';
 import path from 'path';
+import { KNOWN_VULN_ENV_VARS } from '@/lib/vulnerabilities/config';
 import {
   ALERTS_CARD_H, ALERTS_STRIP_H, ALERT_LIST_H, ALERT_ROW_H, COVERAGE_LINE_MIN_H, DRAWER_W, FILTER_BAR_H,
-  KPI_ROW_H, OWNERSHIP_BODY_H, PAGE_MAX_W, RAIL_W, SPARK_H, TREND_PLOT_H,
+  KPI_ROW_H, OWNERSHIP_BODY_H, PAGE_MAX_W, RAIL_W, RESET_SLOT_W, SELECT_W, SPARK_H, TEAM_ROW_H, TREND_PLOT_H,
 } from '@/app/vulnerabilities/dimensions';
 
 const root = path.join(__dirname, '../../../..');
@@ -14698,6 +15784,23 @@ it('every src/, scripts/ and docs/ path the document names exists', () => {
   const paths = ticked.filter(t => /^(src|scripts|docs)\/[\w./[\]-]+\.(ts|tsx|md|css|json|sql)$/.test(t));
   expect(paths.filter(p => !fs.existsSync(path.join(root, p)))).toEqual([]);
   expect(paths.length).toBeGreaterThan(40); // the extractor really found the Key files table and the prose
+});
+
+const walk = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true })
+  .flatMap(e => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.relative(root, path.join(dir, e.name))]));
+const sourceFiles = [...walk(path.join(root, 'src')), ...walk(path.join(root, 'scripts'))];
+
+it('every bare module name in the Key files and Page modules tables exists somewhere under src/ or scripts/', () => {
+  const bare = ticked.filter(t => /^[\w./[\]-]+\.(ts|tsx)$/.test(t) && !/^(src|scripts|docs)\//.test(t) && !/\.test\.tsx?$/.test(t));
+  expect(bare.filter(b => !sourceFiles.some(f => f === b || f.endsWith('/' + b)))).toEqual([]);
+  expect(bare.length).toBeGreaterThan(20);
+});
+
+it('every VULN_* / VULNERABILITIES_* variable the document names is read by config.ts, and every one config.ts reads is documented', () => {
+  const CODE_CONSTANTS = ['VULN_COMMON', 'VULN_GITHUB_TIMEOUT_MS']; // named in the document, but constants, not env vars
+  const named = ticked.filter(t => /^VULN(ERABILITIES)?_[A-Z_]+$/.test(t) && !CODE_CONSTANTS.includes(t));
+  expect(named.filter(v => !KNOWN_VULN_ENV_VARS.has(v))).toEqual([]);
+  expect([...KNOWN_VULN_ENV_VARS].filter(v => !named.includes(v))).toEqual([]);
 });
 
 it('every test file the document names exists', () => {
@@ -14716,16 +15819,18 @@ it('the Layout stability section states the sizes dimensions.ts defines', () => 
   expect(start).toBeGreaterThan(-1);
   const sizes = {
     PAGE_MAX_W, COVERAGE_LINE_MIN_H, FILTER_BAR_H, KPI_ROW_H, OWNERSHIP_BODY_H, SPARK_H, TREND_PLOT_H,
-    ALERTS_STRIP_H, ALERTS_CARD_H, ALERT_LIST_H, ALERT_ROW_H, RAIL_W, DRAWER_W,
+    ALERTS_STRIP_H, ALERTS_CARD_H, ALERT_LIST_H, ALERT_ROW_H, RAIL_W, DRAWER_W, TEAM_ROW_H, RESET_SLOT_W, SELECT_W_DATE: SELECT_W.date,
   };
-  expect(Object.entries(sizes).filter(([, px]) => !section.includes(`${px}px`)).map(([name]) => name)).toEqual([]);
+  // A size must stand alone: "280px" must not be satisfied by "1280px", nor "1.5px" by "5px".
+  const states = (px: number) => new RegExp(`(?<![\\d.])${px}px`).test(section);
+  expect(Object.entries(sizes).filter(([, px]) => !states(px)).map(([name]) => name)).toEqual([]);
 });
 ```
 
 - [ ] **Step 2: Run it and confirm it fails**
 
 Run: `npx jest src/lib/__tests__/unit/vuln-docs-references.test.ts --maxWorkers=3`
-Expected: FAIL, all four tests, each for its own reason. The path test receives `src/app/vulnerabilities/alerts-table.tsx`, `team-pivot.tsx`, `trend-chart.tsx`, `coverage-panel.tsx` and `policy-panel.tsx` as the paths that do not exist. The test-file test passes its existence check but fails its extractor guard (`Expected: > 10`, `Received: 2`), because the old document names its tests without the `.test.tsx` extension. The retired-name test receives `alerts-table`, `AlertsPanel`, `team-pivot`, `trend-chart`, `coverage-panel` and `policy-panel`. The size test receives eleven sizes the old Layout stability section does not state (`COVERAGE_LINE_MIN_H`, `FILTER_BAR_H`, `KPI_ROW_H`, `OWNERSHIP_BODY_H` and so on).
+Expected: FAIL, 5 of the 6 tests, each for its own reason. The path test receives `src/app/vulnerabilities/alerts-table.tsx`, `team-pivot.tsx`, `trend-chart.tsx`, `coverage-panel.tsx` and `policy-panel.tsx` as the paths that do not exist. The bare-module-name test receives `alerts-table.tsx`. The test-file test passes its existence check but fails its extractor guard (`Expected: > 10`, `Received: 2`), because the old document names its tests without the `.test.tsx` extension. The retired-name test receives `alerts-table`, `AlertsPanel`, `team-pivot`, `trend-chart`, `coverage-panel` and `policy-panel`. The size test receives fifteen sizes the old Layout stability section does not state (`COVERAGE_LINE_MIN_H`, `FILTER_BAR_H`, `KPI_ROW_H`, `OWNERSHIP_BODY_H` and so on). The environment-variable test passes against the old document, which already named every variable; it is a guard against a later rename, not a test of this rewrite.
 
 - [ ] **Step 3: Implement**
 
@@ -14742,7 +15847,7 @@ The Vulnerabilities page ("Security") tracks critical and high Dependabot alerts
 
 The page answers two questions. A security lead asks how each owning team is doing (Overview). A team lead asks which of their repositories have open critical or high alerts, and what those alerts are (Alerts).
 
-It is a standalone module with no coupling to `reports`/`schedules` — see the root `CLAUDE.md` architectural-decisions entry for why (Approach B, extending the report pipeline, was rejected: 52 `FROM reports` queries in 27 files would need a `report_type` discriminator).
+It is a standalone module with no coupling to `reports`/`schedules` — see the root `CLAUDE.md` architectural-decisions entry for why (Approach B, extending the report pipeline, was rejected: dozens of `FROM reports` queries across the codebase would need a `report_type` discriminator).
 
 ## What it shows
 
@@ -14750,19 +15855,20 @@ The page is one header card, one sticky filter bar and two views (Overview and A
 
 ### The header card
 
-1. **Title and meta line** — `Security · {org}`, then a line such as "Backend · 11 production repositories · 4 owning teams". The repository count and the number of distinct owning teams (Unassigned counts as one) come from the `repos` rows; the scope word ("production") comes from `summary.scope.value`, never from a literal. The header uses the shared `PageHeader` and `DataFreshness` components, which the org and team report pages also use, so it adds its own elements as `PageHeader` children instead of changing them.
+1. **Title and meta line** — `Security · {org}`, then a line such as "Backend · 11 production repositories · 4 owning teams". The repository count and the number of distinct owning teams (Unassigned counts as one) come from the `repos` rows requested with `codebase` only, never `team`, so the line describes the codebase and does not change when an owning team is chosen (with no team selected it is the same request as the Repositories tab and dedupes to one); the scope word ("production") comes from `summary.scope.value`, never from a literal. The header uses the shared `PageHeader` and `DataFreshness` components, which the org and team report pages also use, so it adds its own elements as `PageHeader` children instead of changing them.
 2. **Freshness and links** — "last successful sync …" (amber when stale: more than 36 hours since the last `succeeded`/`partial` run), an "Updating…" badge while the summary reloads, and a "Sync history →" link to the sync history tab.
 3. **Stale tag and failed-sync banner** — "▲ STALE · 42H" when the data is stale. When the latest run failed, a banner says so and shows the first issue; the page keeps serving the last good run's data, because a failed run writes nothing. The config-error banner (`configErrors`, below) also renders here.
-4. **Coverage line** — an "▲ N UNMEASURED" badge when any in-scope repo is unmeasured, "Excluded N", "Needs tagging N", and a "Coverage & policy →" link. Each opens the drawer. The line has a 22px minimum height and the badge has a reserved slot, so neither the line's height nor the items after the badge move when the badge appears or disappears.
+4. **Coverage line** — a "COVERAGE" label, then an "▲ N unmeasured repos" badge when any in-scope repo is unmeasured, "· N excluded by policy · N need tagging", and a "Coverage & policy →" link. The badge and the link open the drawer. The line has a 22px minimum height and the badge has a reserved slot, so neither the line's height nor the items after the badge move when the badge appears or disappears.
 
 ### The sticky bar
 
-The bar sticks below the top of the viewport and holds the view tabs and every filter.
+The bar sticks below the top of the viewport and holds the view tabs and every filter, in two fixed rows.
 
-- **Tabs** — "Overview" and "Alerts". The Alerts tab carries the open count under Severity for the current scope (the sum of the `repos` rows, so it includes the stored counts of unmeasured repositories). The count slot has a minimum width, so the tab does not change size when the count arrives.
-- **Filters** — Codebase (each option shows its open count: it follows Severity and Owning team, and is computed client-side from `summary.codebaseCounts`), Owning team ("All owning teams" plus `summary.knownTeams`), Severity, and Compare to (Last sync / 7 days / 30 days / A date…). Choosing "A date…" writes a concrete date immediately (the current baseline's date, else a week ago) and shows a date input.
-- **Reset filters** appears only when a filter differs from its default. It resets Codebase, Owning team, Severity, Compare to and the selected repository, and never changes the view or the Overview's ownership tab.
-- A filter that differs from its default is drawn in the accent colour. Which codebase-type values fall into each Codebase option is deployment configuration (`VULN_CODEBASE_GROUPS`, below).
+- **Tabs** — "Overview" and "Alerts". The Alerts tab carries the open count under Severity for the current scope, written "N open" (the sum of the `repos` rows, so it includes the stored counts of unmeasured repositories). The count slot has a minimum width, so the tab does not change size when the count arrives.
+- **Filters** — each select sits under a small uppercase caption that is also its accessible name (`<label htmlFor>`): CODEBASE, OWNING TEAM, SEVERITY and COMPARE TO. Codebase options show the open count of `kSev` with its unit ("Backend · 8 open crit", or "open high" under High only); the counts follow the Owning team and are computed client-side from `summary.codebaseCounts`. Owning team lists "All owning teams" plus `summary.knownTeams`. Severity is Critical + high / Critical only / High only. Compare to is Last sync / 7 days ago / 30 days ago / A date…; choosing "A date…" writes a concrete date immediately (the current baseline's date, else a week ago) and shows a date input.
+- **Reset filters** sits at the right end of the filter row and appears only when a filter differs from its default. It resets Codebase, Owning team, Severity, Compare to and the selected repository, and never changes the view or the Overview's ownership tab.
+- A filter that differs from its default is drawn with the accent border, the accent fill and accent text. Which codebase-type values fall into each Codebase option is deployment configuration (`VULN_CODEBASE_GROUPS`, below).
+- **Links are underlined** ("Coverage & policy →", "Reset filters", "Clear team filter", "Show all repositories"): the underline is the non-colour cue.
 
 ### Severity on the page
 
@@ -14772,49 +15878,55 @@ The page never sends `severity=both` to the API. One rule decides which severity
 |---|---|
 | KPI tiles, sparkline, trend | `kSev`: critical, unless Severity is "High only", then high. They show one severity, never a sum of both. |
 | Alert list, repository rail, summary strip, Alerts tab count, Repositories tab | Follow Severity. "Critical + high" sends no `severity` parameter. |
-| Codebase option counts | Follow Severity and Owning team. |
+| Codebase option counts | `kSev` (critical, or high under "High only"), for the selected Owning team; the option writes the unit ("open crit" / "open high"). |
 
 The old `?sev=` key is retired and ignored; an old `?sev=high` link now shows critical.
+
+### How dates read
+
+One function, `displayDate` (`labels.ts`), writes every date a person reads: "Oct 4" in the current year and "Jan 8, 2020" in any other year, always from the UTC date. The ISO form appears only inside `title` attributes. That covers the change sentences, the baseline and resolved captions, SLA start dates, the trend's axis, tooltip, note and messages, the Repositories table's Next due, and every date in the alert list. Other wording that more than one surface prints is defined once beside it: the reason a repository is unmeasured (`unmeasuredReason`, the drawer's wording, which the Repositories band upper-cases and the rail shows in capitals through CSS) and the unmeasured badge phrase "▲ N unmeasured repos" (`unmeasuredBadgeText`), used by the header, the Alerts strip and the team table.
 
 ### Overview
 
 1. **KPI tiles** — four tiles in a fixed row, all following `kSev`.
-   - *Open {severity} alerts*: the open count, a change sentence ("▲ 2 more than on Sep 29", "▼ 1 fewer than on Sep 29", "Same as on Sep 29", or why there is none: "No earlier measurement yet" / "No measurement on or before Sep 29"), and a 24px sparkline of the last 90 days. The sparkline sums the unscoped trend series per stored measurement date, and only the selected team's series when an owning team is selected, so the line matches the count beside it. With no measurements it reads "Not enough history yet" over "No measurements yet"; with one it reads "Not enough history yet" over "1 measurement so far ({date})"; with two or more it draws the line.
-   - *{severity} since {date}*: new / resolved (with a dismissed sub-count) / reopened since the baseline, plus `other ±N` when non-zero (change in open alerts that new, resolved and reopened do not explain) and `N repos not in baseline` when non-zero. Three one-line slots are reserved in every state.
+   - *Open {severity} alerts*: the open count, a change sentence ("▲ 2 more than on Sep 29", "▼ 1 fewer than on Sep 29", "Same as on Sep 29", or why there is none: "No earlier measurement yet" / "No measurement on or before Sep 29"), and a 24px sparkline of the last 90 days. The sparkline sums the unscoped trend series per stored measurement date, and only the selected team's series when an owning team is selected, so the line matches the count beside it. With no measurements it reads "Not enough history yet" over "No measurements yet"; with one it reads "Not enough history yet" over "1 measurement so far ({date})"; with two or more it draws the line, captioned "Open {severity} · last 90 days" once the history covers 90 days and "{N} measurements since {date}" before that (the full text is the caption's title).
+   - *{severity} since {date}*: new / resolved (with a dismissed sub-count) / reopened since the baseline, plus `other ±N` when non-zero (change in open alerts that new, resolved and reopened do not explain) and `N repos not in baseline` when non-zero. The title names the baseline date, so there is no "vs {date}" caption; with no usable baseline the caption slot says why instead. Three one-line slots are reserved in every state.
    - *Resolved {severity}*: the resolved count, "N dismissed · since {date}" (or "all time" when `VULN_RESOLVED_SINCE` is unset, "since —" when invalid), and "% of N raised are closed". A figure that includes carried-over CSV history is marked `†`, with a footnote.
-   - *SLA · open alerts*: Overdue and Due ≤ 7d per severity while that severity's policy is active; otherwise the severity's SLA state (see "SLA states"). A hidden severity (Severity filter) dims to 35% rather than disappearing.
+   - *SLA · open alerts*: Overdue and Due ≤ 7d per severity while that severity's policy is active; otherwise the severity's SLA state in the tile's own wording: "Starts {date}", "No SLA policy yet", or "! Policy error" (the title carries the full sentence; see "SLA states"). A hidden severity (Severity filter) dims to 35% rather than disappearing.
 2. **Ownership card** — one card with two tabs over one fixed-height body. Tables scroll inside the body; their header row and their Total/footer row stay pinned.
-   - *Owning teams*: one row per owning team, with a CRITICAL group and a HIGH group. Columns per severity: Open, Change vs {baseline date} (or the "No earlier measurement yet" text), Resolved (dismissed), % closed, and Overdue only while that severity's SLA is active. Unassigned is a real row. A row with unmeasured repos shows an "▲ N unmeasured" badge that opens the drawer; a row whose critical resolved figure carries history shows `†`. Sortable headers show ↕, the active one ↑ or ↓. The table makes its own summary request with no `team` parameter (same `codebase` and `baseline`; with no team selected it has the same SWR key as the KPI tiles' request and dedupes to one), so selecting a team never collapses it to one row and its Total row stays org-wide within the selected codebase.
-   - *Repositories*: one row per in-scope, non-archived repository in the current Codebase and Owning team scope, including repositories with no open alerts (greyed). Columns: Repository (codebase underneath), Owning team, Open crit, Overdue crit, Open high, Overdue high, Oldest open, Next due; the Overdue columns exist only while that severity's SLA is active, "Next due" only while at least one policy is active. A name filter narrows the rows (the footer then reads "Matching"). Unmeasured repositories are listed last as a hatched band ("▲ UNMEASURED · DEPENDABOT OFF — alert counts unknown, not zero"); they ignore sorting and show no count. The footer's Open and Overdue columns sum every row, an unmeasured repository's stored counts included, so a team's footer figure equals the team table's; the footer's repository count, Oldest open and Next due come from the measured rows only, and its second line reads "N unmeasured: totals include stored counts" (see "Repository rows and the sum invariant").
+   - *Owning teams*: one row per owning team, with a CRITICAL group and a HIGH group. Columns per severity: Open, Change vs {baseline date} (or the "No earlier measurement yet" text), Resolved (dismissed), % closed, and Overdue only while that severity's SLA is active. Unassigned is a real row. A row with unmeasured repos shows the "▲ N unmeasured repos" badge, which opens the drawer; a row whose critical resolved figure carries history shows `†`. Sortable headers show ↕, the active one ↑ or ↓. With many teams the body scrolls: a shadow above the pinned Total row, a reserved scrollbar gutter and "· scroll for more" on the card's hint say so, and while an owning team is selected the Total row reads "Total · all owning teams". The table makes its own summary request with no `team` parameter (same `codebase` and `baseline`; with no team selected it has the same SWR key as the KPI tiles' request and dedupes to one), so selecting a team never collapses it to one row and its Total row stays org-wide within the selected codebase.
+   - *Repositories*: one row per in-scope, non-archived repository in the current Codebase and Owning team scope, including repositories with no open alerts (greyed, "· no open alerts", or "· no open critical alerts" / "· no open high alerts" when Severity narrows the view). Columns: Repository (codebase underneath), Owning team, Open crit, Overdue crit, Open high, Overdue high, Oldest open, Next due; the Overdue columns exist only while that severity's SLA is active, "Next due" only while at least one policy is active. A name filter narrows the rows (the footer then reads "Matching"). Header labels never wrap, and the Owning team track is a fixed width. Unmeasured repositories are listed last as a hatched band ("▲ UNMEASURED · DEPENDABOT OFF — alert counts unknown, not zero", the reason upper-cased); they ignore sorting and show no count. The footer's Open and Overdue columns sum every row, an unmeasured repository's stored counts included, so a team's footer figure equals the team table's; the footer's repository count, Oldest open and Next due come from the measured rows only, and its second line reads "N unmeasured: totals include stored counts" (see "Repository rows and the sum invariant").
 3. **Trend card** — "Open {severity} alerts by owning team": the **open** count, one point per stored measurement per team, placed on a numeric time axis by the measurement's actual date (no reconstructed history). A Range select (All time, Last year, Last 90 days, Last 30 days; URL key `range`) picks the window; anything but "All time" adds `since=<today minus 30/90/365 days, UTC>` to the trend request. The legend always lists every owning team: the top 12 by current open count are each coloured distinctly (a CSS custom property per theme mode, `globals.css`), the rest share one grey "Other · N teams" entry whose tooltip lists the names. A selected team draws only its own line and dims the other legend entries to 0.4 opacity. The trend request is never scoped by team, so a team keeps its colour and the legend never changes; the page filters the series client-side. With no points the plot shows "No measurements yet"; with one point it shows "Not enough history yet"; a young history (under 14 days) shows a note such as "History starts Sep 29 (first sync) · 3 measurements". The footnote reads "Each dot is one stored measurement (an imported CSV run or a sync)."
 
 ### Alerts
 
-1. **Summary strip** — the scope label and title ("All owning teams / All repositories", "Owning team / {team} · all repositories", or "Repository · owning team {team} / {repo}"), a CRIT row and a HIGH row each reading "N open · {tail}" (the tail is "N overdue" while that severity's SLA is active, otherwise its state message), and an "▲ N unmeasured repos" badge when no repository is selected. The strip is computed from the `repos` rows for the current scope, never from the alert list's response, so the strip, the rail and the Alerts tab count cannot disagree with each other. Its figures include the stored counts of unmeasured repositories.
-2. **Repository rail** — 260px wide. A first row "All {team} repositories" (or "All repositories"), then one row per measured repository sorted by overdue, then open critical, then open high, then name (the sort follows the Severity filter: a hidden severity counts as 0). Each row shows "N crit · N high open" (or "no open alerts", greyed), "N OVERDUE" on the right, and "Owning team: X" only when no team filter is set. Unmeasured repositories come last as hatched rows that open the drawer. A name filter sits above the rows. The footer says how the rows are sorted and which severities the OVERDUE figures include.
+1. **Summary strip** — the scope label and title ("All owning teams / All repositories", "Owning team / {team} · all repositories", or "Repository · owning team {team} / {repo}"), a CRIT row and a HIGH row each reading "N open · {tail}" (the tail is "N overdue" while that severity's SLA is active, otherwise its state message), and the "▲ N unmeasured repos" badge when no repository is selected. The figure sits right-aligned in a fixed box so "54 open · 53 overdue" reads as one phrase and does not move. The strip is computed from the `repos` rows for the current scope, never from the alert list's response, so the strip, the rail and the Alerts tab count cannot disagree with each other. Its figures include the stored counts of unmeasured repositories.
+2. **Repository rail** — 260px wide. A first row "All {team} repositories" (or "All repositories"), then one row per measured repository sorted by overdue, then open critical, then open high, then name (the sort follows the Severity filter: a hidden severity counts as 0). Each row shows "N crit · N high open" (or "no open alerts", greyed; under a narrowed Severity "no open critical alerts" / "no open high alerts"), "N OVERDUE" on the right, and "Owning team: X" only when no team filter is set. Unmeasured repositories come last as hatched rows that open the drawer. A name filter sits above the rows. The footer says how the rows are sorted and which severities the OVERDUE figures include, following Severity ("Overdue counts critical only"), and names the state of any severity that has no active SLA ("· high: SLA starts Feb 1, 2099"; with neither active, "No SLA policy yet · no overdue counts").
 3. **Alert list** — a toolbar (search; Status: Open / Resolved / Open + resolved; toggles Overdue, Due ≤ 7d, Reopened, Runtime only), six sortable headers (Sev, Advisory with CVSS · package, Repository with owning team, Age, Due, State with scope), ten 56px rows, and a pager ("1–10 of 26 alerts · counted per Dependabot alert, not per CVE", Previous, "Page X of Y", Next). The server sorts and pages the list (see "Alert sort and offset"); the component renders rows in the order they arrive.
-   - Each key starts in its natural direction: Age starts descending (oldest first), every other key ascending; clicking the active header reverses it. With no header active the list is in the server's default order (soonest due, then severity, then newest).
-   - **Due** shows the date and "Nd OVERDUE" (red) or "in Nd" while that severity's SLA is active; otherwise a dash with the SLA state's message. A resolved alert shows "resolved on time" or "resolved Nd late". The Due track has a 120px minimum so "104d OVERDUE" is never clipped at 1024px.
-   - **State** shows the state, the dismissed reason and resolution date for non-open alerts, and "↺ reopened {date}" for a reopened alert, over the dependency scope.
-   - Before any severity's SLA is active (`summary.slaStatus`), Overdue and Due ≤ 7d are disabled with a hint ("Due dates start <date>", "No SLA policy yet" or "SLA policy can't be read"). **Overdue and Due ≤ 7d are mutually exclusive**: no alert is both past its due date and ≤ 7 days from it, so turning one on turns the other off, and `parseVulnFilters` (shared by the API and MCP) rejects `overdue=true` together with `due_soon=true` with `"overdue and due_soon are disjoint buckets — use one"`. The **Due ≤ 7d** toggle sends `due_soon` (open AND 0 ≤ days_remaining ≤ 7), not a `due_before` cutoff, which also matched already-overdue alerts. Choosing **Resolved** disables and clears both time toggles, since a resolved alert has no due date.
+   - Each key starts in its natural direction: Age starts descending (oldest first), every other key ascending; clicking the active header reverses it. With no header chosen the list is in the server's default order (soonest due, then severity, then newest), which the header row draws as "Due ↑" (except under Resolved, which has no due dates), so the first click on Due sorts descending.
+   - **Due** shows the date and "Nd OVERDUE" (red) or "in Nd" while that severity's SLA is active; otherwise a dash with the state's message ("SLA starts {date}", "no SLA policy yet", "SLA policy can't be read"). A resolved alert shows "resolved on time" or "resolved Nd late". The Due track has a 120px minimum so "104d OVERDUE" is never clipped at 1024px.
+   - **State** reads "open", or "resolved · {reason}" (the dismissed reason, else the state), truncated at the cell edge, with a "↺" after it when the alert was reopened, over the dependency scope. The dates are not in the visible line: the resolution and reopen dates ride in the cell's title and the glyph's accessible label.
+   - Before any severity's SLA is active (`summary.slaStatus`), Overdue and Due ≤ 7d are disabled with a hint ("Due dates start {date}", "no SLA policy yet" or "SLA policy can't be read"). **Overdue and Due ≤ 7d are mutually exclusive**: no alert is both past its due date and ≤ 7 days from it, so turning one on turns the other off, and `parseVulnFilters` (shared by the API and MCP) rejects `overdue=true` together with `due_soon=true` with `"overdue and due_soon are disjoint buckets — use one"`. The **Due ≤ 7d** toggle sends `due_soon` (open AND 0 ≤ days_remaining ≤ 7), not a `due_before` cutoff, which also matched already-overdue alerts. Choosing **Resolved** disables and clears both time toggles, since a resolved alert has no due date.
    - The search box applies its text 300ms after the last keystroke, and applies it at once (never drops it) when the user clicks any other control or leaves the view.
    - A page past the end (a sync shrank the result) moves to the last page. A selected repository that is not in the loaded rows, or that the alerts API rejects ("unknown repo", "repo not tracked"), shows "Repository not found · Show all repositories" inside the list area, and the page never sends that `repo` again.
 4. **The list has no owning-team select.** Owning team lives in the sticky bar, and a rail row sets only `repo`.
 
 ### Coverage & policy drawer
 
-A right-hand dialog (460px wide, at most 92% of the viewport; `role="dialog"`, `aria-modal`). Opening it focuses the close button and keeps focus inside; Esc, the backdrop and × close it; closing returns focus to the element that opened it. Its open state is local, not in the URL. It reads the same `coverage` and `summary` responses as the header line and the KPI tiles, so it follows the Codebase and Owning team filters. It groups gaps as **Unmeasured** (hatched rows with GitHub's reason, or "Dependabot off"; open counts unknown, but their resolved alerts and measured history still count), **Needs tagging** (counted under "Unassigned" until tagged) and **Excluded by policy** (not counted anywhere on this page), then lists the policy as "From deployment configuration": each severity's SLA state, each entry's derived window (e.g. "critical-2099-01 · 7 days · 2099-01-07 → open-ended", marked *pending* before it starts), the resolved-count start date and the scope rule. With no entries it says "No SLA policy yet"; with an invalid policy it says "SLA policy can't be read".
+A right-hand dialog (460px wide, at most 92% of the viewport; `role="dialog"`, `aria-modal`). Opening it focuses the close button and keeps focus inside; Esc, the backdrop and × close it; closing returns focus to the element that opened it. Its open state is local, not in the URL. It reads the same `coverage` and `summary` responses as the header line and the KPI tiles, so it follows the Codebase and Owning team filters. A subtitle under the title says what it follows ("Backend · Owning team: all · follows the page filters"). It groups gaps as **Unmeasured** (hatched rows with the one shared reason wording, "Dependabot off" or GitHub's detail; open counts unknown, but their resolved alerts and measured history still count), **Needs tagging** (counted under "Unassigned" until tagged; each row names the tags it lacks) and **Excluded by policy** (not counted anywhere on this page; each row says "outside scope ({tier})"). Each group header shows its repository count and, on the right, a summary ("open counts unknown", "N open critical"). The policy section, "From deployment configuration", has four labelled rows: **Critical SLA** and **High SLA** ("7 days · since {date}", "9 days · starts {date}", "No SLA policy yet", or, in red, "! Can't be read · check the SLA settings in the deployment config"), **Resolved count** ("Since {date} · fixed + dismissed" or "All time · fixed + dismissed") and **Scope** ("{property} = {value}"). Policy entry ids and a *pending* badge are never shown.
 
 ### SLA states
 
-Each severity has one of four SLA states, decided in one place (`sla-state.ts`) so the SLA tile, the strip, the rail, the Overdue and Due columns and the drawer cannot disagree.
+Each severity has one of four SLA states, decided in one place (`sla-state.ts`) so the SLA tile, the strip, the rail, the Overdue and Due columns and the drawer cannot disagree. The wording has one definition too, `slaStateLabel(state, { withSla })`: the SLA tile's header already says "SLA", so it uses the short form; the strip, the rail footer, the Due sub-line and the toggle hint do not, so they spell it out.
 
-| State | Meaning | Wording |
-|---|---|---|
-| active | A policy entry has taken effect | figures: Overdue, Due ≤ 7d |
-| pending | A policy exists but starts later | "Starts {date}" |
-| none | No policy configured | "No SLA policy yet" |
-| invalid | The configured policy does not parse | "SLA policy can't be read" (red) |
+| State | Meaning | SLA tile | Strip tail, rail note, Due sub-line |
+|---|---|---|---|
+| active | A policy entry has taken effect | figures: Overdue, Due ≤ 7d | figures: "N overdue", the date and "Nd OVERDUE" |
+| pending | A policy exists but starts later | "Starts {date}" | "SLA starts {date}" |
+| none | No policy configured | "No SLA policy yet" | "no SLA policy yet" |
+| invalid | The configured policy does not parse | "! Policy error" (red; the title has the full sentence) | "SLA policy can't be read" (red) |
+
+The drawer words the same states its own way (see "Coverage & policy drawer").
 
 An Overdue column, a Due ≤ 7d figure and a "Next due" column exist only while their severity's policy is active; `overdue`, `dueSoon` and `nextDue` are `null` in the data otherwise, which is different from zero. An invalid policy reads as `invalid` even though it parses to an empty policy.
 
@@ -14874,7 +15986,7 @@ State lives in the URL (`src/lib/url-state.ts`; the page's schemas are in `src/a
 
 The old "+N open critical in other codebase types" KPI line is dropped from the page: the Codebase options show those counts. `kpi.openCriticalOtherCodebases` is still in the summary response (MCP: `kpi.open_critical_other_codebases`); the page does not read it.
 
-**"Owning team" labeling:** the vulnerability pages label the repo-level `team` custom property "Owning team" everywhere it's shown to a person — the team table's first column (with a tooltip clarifying it is not a Glooker team), the sticky bar's "Owning team" select (`aria-label="Owning team"`, "All owning teams" option), the rail and the list's repository cell — specifically so it is never confused with a Glooker (people) team. This is a label-only distinction; the underlying property, its semantics, and its plumbing through `src/lib/vulnerabilities/` are unchanged, and it is never joined against Glooker's own team data.
+**"Owning team" labeling:** the vulnerability pages label the repo-level `team` custom property "Owning team" everywhere it's shown to a person — the team table's first column (with a tooltip clarifying it is not a Glooker team), the sticky bar's "Owning team" select (the "OWNING TEAM" caption, "All owning teams" option), the rail and the list's repository cell — specifically so it is never confused with a Glooker (people) team. This is a label-only distinction; the underlying property, its semantics, and its plumbing through `src/lib/vulnerabilities/` are unchanged, and it is never joined against Glooker's own team data.
 
 **Accent-token rule:** every accent color on the vulnerabilities pages and the Runs tabs uses the theme's `accent`/`accent-light`/`accent-lighter`/`accent-dark` utility classes defined in `src/app/globals.css` (`bg-accent`, `text-accent-light`, `hover:bg-accent-dark`, etc.) — never a hard-coded Tailwind color like `indigo-*`. Severity and status colours are the exception and are deliberate: critical is `red-400`, high is `orange-400`, good is `green-400`, and the unmeasured and stale amber and the column washes are the `--warn`, `--warn-bg`, `--warn-line`, `--crit-tint` and `--high-tint` variables in `globals.css`, defined for both theme modes. Chart colours come from `--vuln-series-*` and `--chart-*`; `chart-no-literal-colors.test.ts` keeps literal colours out of the chart modules. A future change to this area must not reintroduce a literal colour; add a utility or variable to `globals.css` if the token set doesn't already cover the shade needed.
 
@@ -14895,15 +16007,15 @@ The page must not jump when a filter changes. The rule is: **a filter change may
 | Element | Fixed size |
 |---|---|
 | Page container | max width 1280px; padding 32 / 24 / 40 (top / sides / bottom); 24px gap |
-| Header coverage line | 22px minimum height; the unmeasured badge's slot is always rendered, 136px wide, and hidden when there is no badge; the Excluded and Needs tagging counts sit in slots 72px and 104px wide |
-| Sticky bar | 84px: two 36px rows plus 6px top and bottom padding |
+| Header coverage line | 22px minimum height; the unmeasured badge's slot is always rendered, 168px wide, and hidden when there is no badge; the excluded and need-tagging counts sit in slots 160px and 120px wide |
+| Sticky bar | 94px: a 36px tabs row and a 46px filters row (a 14px caption, a 4px gap and a 28px select) plus 6px top and bottom padding |
 | Bar selects | Codebase 220, Owning team 170, Severity 140, Compare to 118, date input 128; each `shrink-0`, long text truncates with a `title` |
-| Bar reserved slots | "Reset filters" 116px, date input 128px: hidden, never removed |
+| Bar reserved slots | "Reset filters" 116px (at the right end of the filter row), date input 128px: hidden, never removed |
 | KPI tile row | 178px |
-| Ownership card body | 330px (team rows 50px; tables scroll inside, header and Total row pinned); each tab's count sits in a slot at least 2ch wide |
+| Ownership card body | 330px (team rows 50px, the team table's pinned header 56px; tables scroll inside, header and Total row pinned); each tab's count sits in a slot at least 2ch wide |
 | Sparkline slot | 24px |
 | Trend plot | 220px; the legend reserves two lines (32px) |
-| Alerts summary strip | 72px; the title column is a fixed 176px, the open figure has a minimum width of 72px and the overdue figure one of 96px |
+| Alerts summary strip | 72px; the title column is a fixed 176px, the open figure sits right-aligned in a 36px box and the overdue figure has a minimum width of 96px |
 | Alerts card | 776px: a 260px rail and the list column |
 | Alert list | 560px of rows (10 × 56px), a 52px header, two 32px toolbar rows, a 28px pager |
 | Drawer | 460px, at most 92% of the viewport |
@@ -14954,12 +16066,12 @@ src/app/vulnerabilities/ — use-security-data.ts (every SWR key) → vulnerabil
 
 ### What each region requests
 
-Every key uses `keepPreviousData` and is built in one place (`securityKeys()` in `use-security-data.ts`).
+Every key uses `keepPreviousData` and is built in `use-security-data.ts`: `securityKeys()` for the seven keys that do not depend on the alert list, and `alertsQueryString` (from `security-state.ts`) for the alerts key.
 
 | Element | Request | Parameters |
 |---|---|---|
 | KPI tiles, SLA tile, Codebase option counts | `summary` | `codebase`, `team`, `baseline` |
-| Header meta line | `repos` rows, plus `summary.scope.value` | `codebase`, `team` |
+| Header meta line | `repos` rows, plus `summary.scope.value` | `codebase` only; never `team` (with no team selected it shares the Repositories tab's key) |
 | Header coverage line, drawer | `coverage` (and `summary` for the drawer's policy) | `codebase`, `team` |
 | Team table | `summary` (a second key) | `codebase`, `baseline`; never `team` |
 | Sparkline | `trend` | `codebase`, `severity=kSev`, `since` fixed 90 days back; never `team` |
@@ -14973,12 +16085,12 @@ Every key uses `keepPreviousData` and is built in one place (`securityKeys()` in
 
 | Module (`src/app/vulnerabilities/`) | Role |
 |---|---|
-| `page.tsx` | Server component, feature gate (404 when disabled). Exports only `default`. |
+| `page.tsx` | Server component, feature gate (404 when disabled). Exports `default` and Next's reserved `dynamic` only. |
 | `vulnerabilities-content.tsx` | The thin composer: URL state, data and the drawer's state, full-page states, the view switch |
 | `security-state.ts` | URL schemas, `kSev`, the clearing handlers (`useSecurityUrl`), the alert list's local state (`useAlertList`), `scopeOpenCount`, the rules that sanitise hand-edited input, `alertsQueryString` |
 | `use-security-data.ts` | Every SWR key, the stale-repository status, the sync-time reconciliation |
 | `api-types.ts`, `view-props.ts` | Response types and the props every view region takes |
-| `sla-state.ts`, `dimensions.ts`, `format.ts`, `overview-format.ts` | The four SLA states and their wording; the fixed sizes; shared formatters; the change sentences and carried-resolved wording |
+| `labels.ts`, `sla-state.ts`, `dimensions.ts`, `format.ts`, `overview-format.ts` | The shared wording (dates, the unmeasured reason and badge); the four SLA states and their wording; the fixed sizes; shared formatters; the change sentences and carried-resolved wording |
 | `security-header.tsx`, `filter-bar.tsx`, `view-tabs.tsx`, `coverage-drawer.tsx` | Header card, sticky bar, tabs, drawer |
 | `kpi-tiles.tsx`, `sparkline.tsx` | Overview tiles |
 | `ownership-card.tsx`, `team-table.tsx`, `repo-table.tsx`, `ownership-model.ts` | The ownership card and its two tables (`ownership-model.ts` holds the sort, row-view and footer-sum logic) |
@@ -15078,7 +16190,7 @@ It is checked three ways: over the mock fixtures and several filter combinations
 
 **Every request the vulnerability module makes to GitHub carries a 60s timeout** (`VULN_GITHUB_TIMEOUT_MS` in `github.ts`, via `request: { signal: AbortSignal.timeout(60_000) }` on `fetchAllPages`'s two calls and `getRepoDependabotStatus` — the shared Octokit instance and every report-path call are untouched). Before this, a hung request (no response, no error — the connection just never completes) had no rate-limit header and no HTTP status, so `withRetry`'s classification never fired and the request waited forever, keeping `isSyncRunning()` true until the process restarted. `AbortSignal.timeout` rejects the underlying `fetch` with a `TimeoutError`, not `AbortError` (that name is reserved for a signal aborted by an explicit `controller.abort()` call). `@octokit/request`'s fetch wrapper only special-cases the literal name `AbortError` — rethrowing it as-is with `error.status = 500` added — so a `TimeoutError` instead falls through to the wrapper's generic branch, which wraps it in a `RequestError` with `status: 500`. Either way `withRetry` classifies the failure as a transient 5xx and retries it (up to 3 attempts) rather than as a rate limit or network error — a final timeout still fails the run visibly, just after that shallow retry budget, the same as any other transient failure.
 
-**Issue kinds and the informational rule** (`sync.ts`, `INFORMATIONAL_ISSUE_KINDS`/`assembleIssues()`): every issue recorded in a sync row's `issues` column has a `kind`. Two kinds are **informational** — `data-sanitized` (below) and `completeness-recovered` (below) — and never by themselves make a run `partial`; every other kind (`fetch`, `repo-status`, `completeness`, `repo-list-incomplete`, `write`) does. Issues are always assembled non-informational-first, informational-last, so a fatal issue (`fetch` on a failed fetch phase, `write` on a rolled-back transaction) is always `issues[0]` regardless of what else was collected. This mirrors the `countableSkips()`/`COUNTABLE_SKIP_CLASSIFICATIONS` pattern in `report-runner/types.ts`: one named, explicit set decides which kinds count, so a future issue kind is a deliberate decision, not a default.
+**Issue kinds and the informational rule** (`sync.ts`, `INFORMATIONAL_ISSUE_KINDS`/`assembleIssues()`): every issue recorded in a sync row's `issues` column has a `kind`. Two kinds are **informational** — `data-sanitized` (below) and `completeness-recovered` (below) — and never by themselves make a run `partial`; every other kind (`fetch`, `repo-status`, `config`, `completeness`, `repo-list-incomplete`, `write`) does. Issues are always assembled non-informational-first, informational-last, so a fatal issue (`fetch` on a failed fetch phase, `write` on a rolled-back transaction) is always `issues[0]` regardless of what else was collected. This mirrors the `countableSkips()`/`COUNTABLE_SKIP_CLASSIFICATIONS` pattern in `report-runner/types.ts`: one named, explicit set decides which kinds count, so a future issue kind is a deliberate decision, not a default.
 
 **4-byte characters and utf8mb3** (`bmpOnly()` in `github.ts`): dev's MySQL database is utf8mb3 (charsets are never pinned — see the root `CLAUDE.md`), and inserting a 4-byte UTF-8 character (an emoji, most supplementary-plane CJK) into any `TEXT`/`VARCHAR` column fails with `ERROR 1366 Incorrect string value`, rolling back the whole write transaction — one emoji anywhere in a GitHub alert summary, dismissed reason, package name, or repo/team/tier/type value is enough to fail the entire daily sync. `bmpOnly()` replaces every code point above U+FFFF with U+FFFD, and runs on every string field **before** `clip()` wherever both apply (`mapAlert`, `listOrgReposForVulns`, `listOrgRepoProperties`) — so `clip`'s `slice()` can never split a surrogate pair either, since bmpOnly has already collapsed it to one code unit. How many values were sanitized (and separately, how many were clipped to their column limit) is reported up through an optional `onDataNotice` callback threaded through `fetchPhase()` in `sync.ts`, and rolled into one informational `data-sanitized` issue (`"N values had 4-byte characters replaced and M were clipped to column limits"`) when the total is nonzero.
 
@@ -15104,7 +16216,7 @@ The guard trips when the count of **fresh** unexplained candidates (never withhe
 
 The cache holds **in-flight promises**, not resolved values — every concurrent caller for the same key awaits the same promise, so there's no window where one caller's write lands on a different caller's entry. A rejected load evicts its entry (only while it's still the current one), so a later call retries instead of being stuck on a poisoned entry.
 
-**After `npm run seed:reset` against a running dev server, restart the server.** `seed:reset` is `rm -f glooker.db && tsx scripts/seed.ts` — it deletes the SQLite file and a separate `tsx` process recreates it. A dev server that was already running still holds its database handle open on the deleted file (POSIX lets a process keep reading/writing an unlinked file by its old inode), so it never sees the freshly seeded data at all until it's restarted and reopens the path.
+**After `npm run seed:reset` against a running dev server, restart the server.** `seed:reset` is `rm -f glooker.db`, followed by the same `tsx scripts/seed.ts` that `npm run seed` runs — it deletes the SQLite file and a separate `tsx` process recreates it. A dev server that was already running still holds its database handle open on the deleted file (POSIX lets a process keep reading/writing an unlinked file by its old inode), so it never sees the freshly seeded data at all until it's restarted and reopens the path.
 
 ## SLA policy and org taxonomy (deployment configuration)
 
@@ -15153,7 +16265,7 @@ The message names the variable, never its value.
 
 **How a due date is computed** (`sla.ts`, pure, at read time, never stored): `clock_start = max(created_at, first policy effectiveFrom for that severity, severity_changed_at if re-rated upward)`. A reopen never moves the clock — an alert reopened after its due date is overdue immediately, because the fix didn't hold. Downward re-ratings (critical → high) follow the lower severity's policy. `due_date = date(clock_start) + days`.
 
-The drawer's policy section derives each entry's window, e.g. "critical-2099-01 · 7 days · 2099-01-07 → open-ended", and marks entries that haven't started yet as *pending*. With no entries it says "No SLA policy yet"; with an invalid policy it says "SLA policy can't be read". Every other place the page shows an SLA state uses the same four wordings (see "SLA states").
+The drawer's policy section shows each severity's window and the date it started or will start, e.g. "7 days · since Jan 8, 2020" or "7 days · starts Jan 7, 2099". With no entries it says "No SLA policy yet"; with an invalid policy it says "! Can't be read · check the SLA settings in the deployment config". Every other place the page shows an SLA state uses the shared wording (see "SLA states").
 
 ### The policy-change playbook
 
@@ -15232,7 +16344,7 @@ npm run seed:reset && npm run dev:mock
 
 `dev:mock` also sets a synthetic, already-in-effect `VULNERABILITIES_SLA_POLICY` (both severities, `effectiveFrom` in the past) and a `VULN_CODEBASE_GROUPS` with a multi-value group, so overdue rendering (red due date, Overdue column) and a non-default codebase mapping are both visible without editing any file. Overdue rendering is also covered directly by jsdom component tests that render rows from the real `listAlerts` with a `now` after the due date. `vuln-seed-repo-rows.test.ts` runs the real seed into a throwaway database and checks that the seeded data exercises every repository-row state and that the rows still sum to the pivot.
 
-The headless measurement in "Layout stability" runs against a production build with `dev:mock`'s environment and a seeded database: seed with `npm run seed:reset` (or `npx tsx scripts/seed.ts` with `SQLITE_PATH` pointing at a scratch file), then start the built app with the same environment variables `dev:mock` sets.
+The headless measurement in "Layout stability" runs against a production build with `dev:mock`'s environment and a seeded database: seed with `npm run seed:reset` (or `npx tsx scripts/seed.ts` with `SQLITE_PATH` pointing at a scratch file and the same `VULN_CODEBASE_GROUPS` that `package.json` sets for `seed`; without it the `api` repositories fall into Other), then start the built app with the same environment variables `dev:mock` sets.
 
 ## Rollout
 
@@ -15260,12 +16372,13 @@ ORDER BY s.full_name;
 
 | File | Purpose |
 |------|---------|
-| `src/app/vulnerabilities/page.tsx` | Server component, feature gate (404 when disabled) |
+| `src/app/vulnerabilities/page.tsx` | Server component, feature gate (404 when disabled); exports `default` and Next's reserved `dynamic` only |
 | `src/app/vulnerabilities/vulnerabilities-content.tsx` | Client composer: URL state, data, drawer state, full-page states, the view switch |
 | `src/app/vulnerabilities/security-state.ts` | URL schemas, `kSev`, `useSecurityUrl`, `useAlertList`, `scopeOpenCount`, `alertsQueryString`, the sanitising rules |
-| `src/app/vulnerabilities/use-security-data.ts` | Every SWR key (`securityKeys()`), the stale-repository status, sync-time reconciliation |
+| `src/app/vulnerabilities/use-security-data.ts` | Every SWR key (`securityKeys()`, plus the alerts key), the stale-repository status, sync-time reconciliation |
 | `src/app/vulnerabilities/dimensions.ts` | The fixed sizes, written once (see "Layout stability") |
-| `src/app/vulnerabilities/sla-state.ts` | The four SLA states and their wording |
+| `src/app/vulnerabilities/labels.ts` | Wording more than one surface prints: `displayDate`, `unmeasuredReason`, `unmeasuredBadgeText` |
+| `src/app/vulnerabilities/sla-state.ts` | The four SLA states and their wording (`slaStateLabel`) |
 | `src/app/vulnerabilities/security-header.tsx`, `filter-bar.tsx`, `view-tabs.tsx`, `coverage-drawer.tsx` | Header card, sticky bar, view tabs, the Coverage & policy drawer |
 | `src/app/vulnerabilities/kpi-tiles.tsx`, `sparkline.tsx` | Overview KPI tiles and the 90-day sparkline |
 | `src/app/vulnerabilities/ownership-card.tsx`, `team-table.tsx`, `repo-table.tsx`, `ownership-model.ts` | The ownership card, its two tables, and their sort, row-view and footer-sum logic |
@@ -15303,23 +16416,24 @@ ORDER BY s.full_name;
 | `VULN_SYNC_TZ` | no | `America/New_York` | Seeds the Settings → Schedules row on first boot only; validated in `env-validation.ts`. |
 | `GITHUB_TOKEN` | yes, when the feature is on | — | Needs org owner/security-manager access, `Dependabot alerts: read`, and org `Custom properties: read`. Must have access to **all** org repos — a token scoped to selected repos makes every run `partial` with `repo-list-incomplete`. |
 | `GITHUB_PROVIDER=mock` | no | unset | Used by `dev:mock`; swaps in `github-mock.ts`'s fixtures. |
-| `VULNERABILITIES_SLA_POLICY`, `VULN_RESOLVED_SINCE`, `VULN_TEAM_PROPERTY`, `VULN_TIER_PROPERTY`, `VULN_TIER_IN_SCOPE`, `VULN_CODEBASE_PROPERTY`, `VULN_CODEBASE_GROUPS` | no | see below | Deployment configuration — see [SLA policy and org taxonomy](#sla-policy-and-org-taxonomy-deployment-configuration) above for the full table, validation rules and playbook. |
+| `VULNERABILITIES_SLA_POLICY`, `VULN_RESOLVED_SINCE`, `VULN_TEAM_PROPERTY`, `VULN_TIER_PROPERTY`, `VULN_TIER_IN_SCOPE`, `VULN_CODEBASE_PROPERTY`, `VULN_CODEBASE_GROUPS` | no | see above | Deployment configuration — see [SLA policy and org taxonomy](#sla-policy-and-org-taxonomy-deployment-configuration) above for the full table, validation rules and playbook. |
 ````
 
 - [ ] **Step 4: Run tests and confirm they pass**
 
 Run: `npx jest src/lib/__tests__/unit/vuln-docs-references.test.ts --maxWorkers=3`
-Expected: PASS, 4 tests.
+Expected: PASS, 6 tests.
 
-Reverts that fail: restoring the old document fails all four. Changing the full-path token `src/app/vulnerabilities/security-state.ts` in the document to `src/app/vulnerabilities/security-states.ts` fails `every src/, scripts/ and docs/ path the document names exists`, and the failure names that path. Writing `178px` as `190px` in the Layout stability table fails `the Layout stability section states the sizes dimensions.ts defines` and names `KPI_ROW_H`. Adding the words `team-pivot` anywhere fails `does not mention a module the redesign retired`.
+Reverts that fail: restoring the old document fails 5 of the 6. Changing the full-path token `src/app/vulnerabilities/security-state.ts` in the document to `src/app/vulnerabilities/security-states.ts` fails `every src/, scripts/ and docs/ path the document names exists`, and the failure names that path. Renaming `sparkline.tsx` (a bare module name in the Key files table) fails `every bare module name in the Key files and Page modules tables exists somewhere under src/ or scripts/` and names it. Renaming `VULN_TIER_PROPERTY` in `config.ts` (and its entry in `KNOWN_VULN_ENV_VARS`) fails `every VULN_* / VULNERABILITIES_* variable the document names is read by config.ts, and every one config.ts reads is documented`. Writing `178px` as `190px` in the Layout stability table fails `the Layout stability section states the sizes dimensions.ts defines` and names `KPI_ROW_H`; changing `RAIL_W` from 260 to 280 in `dimensions.ts` fails the same test and names `RAIL_W` (a size must stand alone: "1280px" does not satisfy "280px"). Adding the words `team-pivot` anywhere fails `does not mention a module the redesign retired`.
 
-The test checks only full-path tokens (`src/…`, `scripts/…`, `docs/…`) and bare test-file names. A bare module name inside a comma-joined table cell (the Key files and Page modules tables name many, such as `repo-rail.tsx`) is not checked, so a rename of one of those is caught by reading, not by the test. Then read the new document once against the code. The test cannot check prose, so check these claims by reading the named file: the Overdue and Due ≤ 7d rules in `alert-list.tsx` and `security-state.ts`; the four SLA wordings in `sla-state.ts`; the URL keys and history modes in `security-state.ts`; the request table in `use-security-data.ts` (`securityKeys`); the MCP row shape in `limitRepoRows` and `list_vulnerability_repos` in `src/lib/mcp/tools.ts`.
+The test checks what a machine can: full-path tokens (`src/…`, `scripts/…`, `docs/…`), bare module names (matched by file name anywhere under `src/` and `scripts/`), bare test-file names, the deployment variables against `KNOWN_VULN_ENV_VARS`, the retired names and the size table. It does not check prose, an MCP tool name, a sort key or a threshold such as the 36-hour staleness limit. Then read the new document once against the code and check these claims by reading the named file: the Overdue and Due ≤ 7d rules in `alert-list.tsx` and `security-state.ts`; the SLA wordings in `sla-state.ts`; the dates and the unmeasured wording in `labels.ts`; the URL keys and history modes in `security-state.ts`; the request table in `use-security-data.ts` (`securityKeys` and the alerts key); the MCP row shape in `limitRepoRows` and `list_vulnerability_repos` in `src/lib/mcp/tools.ts`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add docs/vulnerabilities-page.md src/lib/__tests__/unit/vuln-docs-references.test.ts
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: rewrite the vulnerabilities page reference for the new page"
 ```
 
@@ -15370,7 +16484,8 @@ Expected: one line (the section the entry names).
 
 ```bash
 git add CLAUDE.md
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: record the repository-row sum invariant in CLAUDE.md"
 ```
 
@@ -15397,15 +16512,16 @@ This task has no failing-test step. Its check is a search that finds the stale m
 Run:
 
 ```bash
-grep -nE "TeamPivot|PolicyPanel|AlertsPanel|trend-chart|TrendChart|policy panel|coverage panel" src/app/vulnerabilities/format.ts src/app/globals.css src/lib/vulnerabilities/sla.ts src/lib/vulnerabilities/CLAUDE.md src/lib/__tests__/unit/vuln-series-contrast.test.ts src/lib/__tests__/setup/resize-observer.ts
+grep -nE "TeamPivot|PolicyPanel|AlertsPanel|trend-chart|TrendChart|trend chart|policy panel|coverage panel" src/app/vulnerabilities/format.ts src/app/globals.css src/lib/vulnerabilities/sla.ts src/lib/vulnerabilities/CLAUDE.md src/lib/__tests__/unit/vuln-series-contrast.test.ts src/lib/__tests__/setup/resize-observer.ts
 ```
 
-Expected, exactly these nine lines:
+Expected, exactly these ten lines (the line numbers in `format.ts` are those of the tree Tasks 2.3 and later leave):
 
 ```text
-src/app/vulnerabilities/format.ts:8: * VULN_RESOLVED_SINCE) into the caption every "resolved since" figure renders through — TeamPivot,
-src/app/vulnerabilities/format.ts:9: * the KPI tile on vulnerabilities-content.tsx, and PolicyPanel. `invalid` wins over `date` (an
-src/app/vulnerabilities/format.ts:36: * — arrived as SWR **data**, never as SWR `error`. That left AlertsPanel stuck on "Loading…"
+src/app/vulnerabilities/format.ts:9: * VULN_RESOLVED_SINCE) into the caption every "resolved since" figure renders through — TeamPivot,
+src/app/vulnerabilities/format.ts:10: * the KPI tile on vulnerabilities-content.tsx, and PolicyPanel. `invalid` wins over `date` (an
+src/app/vulnerabilities/format.ts:24: * delta figure reads as fresher than it is. Uses `takenOn` (the date the trend chart plots), not
+src/app/vulnerabilities/format.ts:40: * — arrived as SWR **data**, never as SWR `error`. That left AlertsPanel stuck on "Loading…"
 src/app/globals.css:14:  /* GLOOK-43 J2-1: trend-chart series colours, ranked by current open count (dark palette,
 src/app/globals.css:146:  /* GLOOK-43 J2-1: the light-mode trend-chart series palette, same order as the dark :root
 src/lib/vulnerabilities/sla.ts:54:/** Each entry with its derived window, for the policy panel and MCP. */
@@ -15555,7 +16671,7 @@ Run the Step 1 command again. Expected: no output.
 Then search the whole tree:
 
 ```bash
-grep -rnE "alerts-table|AlertsTable|AlertsPanel|team-pivot|TeamPivot|trend-chart|TrendChart|coverage-panel|CoveragePanel|policy-panel|PolicyPanel|policy panel|coverage panel" src scripts CLAUDE.md README.md .env.example docs/vulnerabilities-page.md
+grep -rnE "alerts-table|AlertsTable|AlertsPanel|team-pivot|TeamPivot|trend-chart|TrendChart|trend chart|coverage-panel|CoveragePanel|policy-panel|PolicyPanel|policy panel|coverage panel" src scripts CLAUDE.md README.md .env.example docs/vulnerabilities-page.md
 ```
 
 Expected, exactly these four lines. Three are the provenance notes in test headers (kept on purpose, see "Wave 5 decisions"), and one is the document test's own list of retired names:
@@ -15564,7 +16680,7 @@ Expected, exactly these four lines. Three are the provenance notes in test heade
 src/lib/__tests__/unit/vuln-team-table.test.tsx:3:// The ownership card's "Owning teams" tab (replaces vuln-team-pivot.test.tsx).
 src/lib/__tests__/unit/vuln-alert-list.test.tsx:3:// The Alerts view's list column. Replaces vuln-alerts-table.test.tsx: the rows, the fixed
 src/lib/__tests__/unit/vuln-trend-card.test.tsx:3:// The trend card (replaces vuln-trend-chart.test.tsx). Dates are built relative to today so the tests
-src/lib/__tests__/unit/vuln-docs-references.test.ts:15:const RETIRED = ['alerts-table', 'AlertsTable', 'AlertsPanel', 'team-pivot', 'TeamPivot', 'trend-chart', 'TrendChart', 'coverage-panel', 'CoveragePanel', 'policy-panel', 'PolicyPanel'];
+src/lib/__tests__/unit/vuln-docs-references.test.ts:16:const RETIRED = ['alerts-table', 'AlertsTable', 'AlertsPanel', 'team-pivot', 'TeamPivot', 'trend-chart', 'TrendChart', 'coverage-panel', 'CoveragePanel', 'policy-panel', 'PolicyPanel'];
 ```
 
 (`docs/superpowers/` is deliberately outside the search: those files record the repository as it was.)
@@ -15578,7 +16694,8 @@ Expected: no type errors; PASS, 6 suites. The first four read `globals.css` and 
 
 ```bash
 git add src/app/vulnerabilities/format.ts src/app/globals.css src/lib/vulnerabilities/sla.ts src/lib/vulnerabilities/CLAUDE.md src/lib/__tests__/unit/vuln-series-contrast.test.ts src/lib/__tests__/setup/resize-observer.ts
-: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff --cached | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff --cached | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
 git commit -m "GLOOK-64: drop comment references to the retired page components"
 ```
 
@@ -15588,7 +16705,7 @@ git commit -m "GLOOK-64: drop comment references to the retired page components"
 - None. This task creates, modifies and commits nothing. A failure is fixed in the task that owns the failing file, then this task starts again.
 
 **Interfaces:**
-- Consumes: Waves 1-5 as committed. The test ids the headless run uses are listed in the Wave 2, 3 and 4 public interfaces (`security-bar`, `security-header`, `kpi-tiles`, `ownership-card-body`, `trend-plot`, `alerts-strip`, `alerts-card`, `alert-list-rows`, `alert-row`, `repo-rail`, `alert-pager`, `repo-footer`, `alerts-tab-count`, `strip-critical-open`).
+- Consumes: Waves 1-5 as committed. The test ids the headless run uses are listed in the Wave 2, 3 and 4 public interfaces (`security-bar`, `security-header`, `kpi-tiles`, `ownership-card-body`, `trend-plot`, `alerts-strip`, `alerts-card`, `alert-list-rows`, `alert-row`, `repo-rail`, `alert-pager`, `repo-footer`, `alerts-tab-count`, `strip-critical-open`, `coverage-line`, `strip-critical`, `strip-high`). `ownership-tab-repos` is an element `id` (`#ownership-tab-repos`), not a `data-testid`; the filter bar's selects are `#security-codebase`, `#security-team`, `#security-severity` and `#security-compare`.
 - Produces: a pass or a list of failures.
 
 - [ ] **Step 1: Types**
@@ -15599,7 +16716,7 @@ Expected: no output.
 - [ ] **Step 2: The full suite**
 
 Run: `npx jest --maxWorkers=3`
-Expected: every suite passes. On the verified tree the run was 224 suites and 2784 tests. Compare counts before debugging a failure (see the CI note in the root `CLAUDE.md`): a different count means a different tree.
+Expected: every suite passes. On the verified tree the run was 225 suites and 2843 tests. Compare counts before debugging a failure (see the CI note in the root `CLAUDE.md`): a different count means a different tree.
 
 - [ ] **Step 3: The production build**
 
@@ -15608,8 +16725,15 @@ Expected: the build succeeds and lists `/vulnerabilities` and `/api/vulnerabilit
 
 - [ ] **Step 4: The internal-name guard over the whole branch**
 
-Run: `: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff origin/main...HEAD | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1`
-Expected: no output and exit status 0 for the `test`. Also run `git log origin/main..HEAD --format=%B | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1` for the commit messages.
+Run:
+
+```bash
+: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"
+git diff origin/main...HEAD | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }
+git log origin/main..HEAD --format=%B | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found in a commit message"; exit 1; }
+```
+
+Expected: no output, and the shell is still open.
 
 - [ ] **Step 5: Retired names**
 
@@ -15617,7 +16741,7 @@ Run the whole-tree search from Task 5.3 Step 3. Expected: the same four lines.
 
 - [ ] **Step 6: The headless-Chrome measurement**
 
-The harness is not in the repository. Write it outside the tree, with `playwright-core` driving the system Chrome. Seed a scratch database with `SQLITE_PATH` pointing outside the repository (`npx tsx scripts/seed.ts`, with the environment variables that `npm run dev:mock` sets for the SLA policy, the codebase groups and the mock providers), then serve the **production build** from Step 3 with the same environment. Do not run `next dev` and `next build` in the same checkout without removing `.next` between them. Stop the server when done.
+The measurement harness and the `INTERNAL_NAMES` pattern come from the lead's brief; this plan names no harness path. The harness drives the system Chrome and must FAIL, not skip, when an element named below is missing. Seed a scratch database with `SQLITE_PATH` pointing outside the repository (`npx tsx scripts/seed.ts`, with the environment variables that `npm run dev:mock` sets for the SLA policy, the codebase groups and the mock providers), then serve the **production build** from Step 3 with the same environment. Do not run `next dev` and `next build` in the same checkout without removing `.next` between them. Stop the server when done.
 
 Load `/vulnerabilities` and `/vulnerabilities?view=alerts` at viewport widths 1024 and 1440, in the default dark theme and in a light theme (set `localStorage['glooker-theme']` to `daylight-blue` before the page loads; confirm `document.documentElement.getAttribute('data-theme-mode')` reads `light`). On each, measure, then perform about ten interactions that cover: Codebase, Owning team, Severity and Compare to (including "A date…"), Reset filters, a team row click, the Repositories tab and its name filter, a repository row click (it opens Alerts), the view tabs, a rail row, All, the alert list's sort, toggles, Status, search and paging, and opening and closing the drawer (the header's "Coverage & policy →" link on Overview, the strip's unmeasured badge on Alerts). After each interaction, measure again.
 
@@ -15634,13 +16758,20 @@ Pass criteria. Every one must hold at every step, in both themes, at both widths
 | every `alert-row` height | 56 |
 | `repo-rail` width | 260 |
 | `alert-pager` height | 28 |
-| `security-bar` height | 84, the same before and after every interaction |
+| `security-bar` height | 94, the same before and after every interaction |
+| filter captions | four visible captions (CODEBASE, OWNING TEAM, SEVERITY, COMPARE TO), each `text-transform: uppercase` at 10.5px, one per select, and no inline "Compare to" text beside the select; every select is 28px tall |
+| filter controls and tabs | the left edge of each select, the date slot, the Reset slot and both view tabs is the same before and after every interaction |
+| Alerts tab count | its slot keeps the same width whatever the count |
+| table headers | no header button of the Repositories or Owning teams table is clipped (`scrollWidth <= clientWidth + 1`) or taller than one line |
+| sparkline caption | not clipped (`scrollWidth <= clientWidth + 1`) |
+| Owning teams body | with more teams than fit, the pinned Total row has a box shadow and the card's hint ends "· scroll for more" |
+| toggles under a policy without an active SLA | the Overdue and Due ≤ 7d toggles are disabled; with an active policy they are enabled |
 | `security-header` height | the same before and after every interaction within a theme (it is 2px taller in light than in dark because the light remap gives the card a border; that is not a failure) |
 | drawer width | 460 at both widths |
 | light-mode border and shadow | none of the heights above differ between dark and light |
 | horizontal scroll | `document.documentElement.scrollWidth - window.innerWidth` is 0 |
 | controls that must not slide | the left edge of each child of `coverage-line`, of `ownership-tab-repos` (Overview) and of `strip-critical` and `strip-high` (Alerts) is the same before and after every interaction, in every theme and at every width |
-| SLA state labels on the strip | restart the production server with `VULNERABILITIES_SLA_POLICY` set to a policy whose high severity starts in the far future, to `[]`, and to an unparseable value: each strip tail's text span has `scrollWidth <= clientWidth` at 1024px and 1440px (no label is cut), the unmeasured badge's right edge stays inside the strip, and the two blocks keep their left edges across a scope change |
+| SLA state labels on the strip | restart the production server with `VULNERABILITIES_SLA_POLICY` set to a policy whose high severity starts in the far future, to one whose both severities do, to `[]`, and to an unparseable value, and repeat the whole measurement under each (the toggle row above changes with the state): each strip tail's text span has `scrollWidth <= clientWidth` (no label is cut) at 1440px and at 1024px, with one accepted exception: for the unparseable policy at 1024px with the unmeasured badge showing, a tail may end in "…" provided its block's `title` carries the full text. The unmeasured badge's right edge stays inside the strip, and the two blocks keep their left edges across a scope change |
 | sticky bar | its top is 0 after scrolling the page |
 | console | no `error` messages and no uncaught exceptions |
 | layout-shift entries | see below |
@@ -15659,17 +16790,17 @@ No existing test breaks or retires in this wave. The changes are a document, one
 
 | File | Fate | Intent |
 |---|---|---|
-| `vuln-docs-references.test.ts` | New (Task 5.1) | The reference document names only files and tests that exist, never a retired module, and states the sizes `dimensions.ts` defines |
+| `vuln-docs-references.test.ts` | New (Task 5.1) | The reference document names only files, modules, tests and deployment variables that exist (and documents every variable `config.ts` reads), never a retired module, and states the sizes `dimensions.ts` defines |
 
 ### Wave 5 exit check
 
 Run each, in order, from the repository root:
 
-1. `npx jest src/lib/__tests__/unit/vuln-docs-references.test.ts --maxWorkers=3` Expected: PASS, 4 tests.
+1. `npx jest src/lib/__tests__/unit/vuln-docs-references.test.ts --maxWorkers=3` Expected: PASS, 6 tests.
 2. The Task 5.3 Step 3 searches. Expected: nothing for the six files, and the four named lines for the whole tree.
-3. `npx tsc --noEmit` then `npx jest --maxWorkers=3` Expected: no type errors; every suite passes (224 suites, 2784 tests on the verified tree).
+3. `npx tsc --noEmit` then `npx jest --maxWorkers=3` Expected: no type errors; every suite passes (225 suites, 2843 tests on the verified tree).
 4. `npm run build` from an empty `.next`. Expected: succeeds.
-5. The internal-name guard over the whole wave: `: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"; git diff origin/main...HEAD | grep -n -i -E "$INTERNAL_NAMES"; test $? -eq 1`. Expected: no output, exit status 0.
+5. The internal-name guard over the whole wave: `: "${INTERNAL_NAMES:?set INTERNAL_NAMES}"` then `git diff origin/main...HEAD | grep -qiE "$INTERNAL_NAMES" && { echo "internal name found"; exit 1; }`. Expected: no output, and the shell is still open.
 6. Task 5.4 Step 6, the headless measurement, with every pass criterion met.
 
 ## Self-review
@@ -15697,7 +16828,7 @@ Every section of the spec has a task. "Doc" means Task 5.1, which rewrites `docs
 | States: zero-alert and unmeasured repositories, more than 12 owning teams | 3.9, 4.4 (zero-alert, unmeasured band), 2.9 (drawer group), 3.11 and 3.12 (colours, "Other · N teams") |
 | States: unknown team, summary failure | 2.11 |
 | Fixes beyond the handoff | 4.4 (rail footer wraps), 4.5 ("Nd OVERDUE" not clipped), 3.9 (owning-team ellipsis) |
-| Dimensions and typography, "Rules that keep the layout still" | 2.2 (constants), applied in 2.8 to 4.5. Beyond the spec's list, three plan-level refinements keep items from sliding when a filter changes: the header coverage line's slots (2.10), the ownership card's tab counts and labels (3.10) and the Alerts strip's title column and figure slots (4.3, with a measured limit: at 1024px with the unmeasured badge showing, an unreadable SLA policy is the one state whose labels do not fit). The spec's list does not name them; Task 5.1 states the rule they serve in the reference document (a filter change must never change a slot's size or a control's position) |
+| Dimensions and typography, "Rules that keep the layout still" | 2.2 (constants), applied in 2.8 to 4.5. Beyond the spec's list, three plan-level refinements keep items from sliding when a filter changes: the header coverage line's slots (2.10), the ownership card's tab counts and labels (3.10) and the Alerts strip's title column and figure slots (4.3, with a measured limit: at 1024px with the unmeasured badge showing, an unreadable SLA policy is the one state whose labels do not fit; every other state, including a pending policy that starts in another year, fits). The spec's list does not name them; Task 5.1 states the rule they serve in the reference document (a filter change must never change a slot's size or a control's position) |
 | Rail rows, Sorting, Pager, Columns | 4.4, 4.5, 4.2, 3.7 to 3.9 (the table sorts) |
 | Carried over from today's page | 2.4 (sanitising), 2.11 (error and unknown-team pages, config banner), 3.5 (†), 4.5 (toggles) |
 | Architecture 1: data layer | 1.1 (SLA gate), 1.2 (`computeRepoRows`), 1.3 (invariant and cross-check), 1.4 (`computeCodebaseCounts`), 1.5 (coverage `codebase`), 1.6 (`lastReopenedAt`), 1.7 (sort, offset, tie-break) |
@@ -15717,14 +16848,14 @@ The plan was searched for the usual unfinished-work markers (the to-do and to-be
 
 ### Type consistency
 
-1. The code blocks come from files that were run together: the final tree with Waves 1 to 5 applied passes `npx tsc --noEmit`, `npx jest --maxWorkers=3` (224 suites, 2784 tests) and `npm run build`. Of the 67 code blocks that name a file, 53 are the whole file as it ends up, 4 are fragments in order, and 10 are earlier stages of a file that a later task extends (the Wave 2 stubs and the first versions of `security-state.ts`, `kpi-tiles.tsx` and `vuln-overview-format.test.ts`).
+1. The code blocks come from files that were run together: the final tree with Waves 1 to 5 applied passes `npx tsc --noEmit`, `npx jest --maxWorkers=3` (225 suites, 2843 tests) and `npm run build`. Of the 69 code blocks that name a file, 55 are the whole file as it ends up, 4 are fragments in order, and 10 are earlier stages of a file that a later task extends (the Wave 2 stubs and the first versions of `security-state.ts`, `kpi-tiles.tsx` and `vuln-overview-format.test.ts`).
 2. Every identifier on a "Consumes" or "Produces" line exists in that tree, except two parameter names in prose (`drawnSeries`, `selectedTeam`) and a glob (`*_SCHEMA`).
 3. Every `@/` import in a code block resolves to a file of that tree. The one exception, `alerts-table`, is imported by a test that Task 4.6 deletes in the same wave.
 4. Names that cross waves match their definitions: `RepoRow` and `RepoSevCell` (Task 1.2) in 2.5 and 3.7 to 4.5; `Slot`, `SecurityViewProps` and `OpenDrawer` (Wave 2) in every Wave 3 and 4 component; `repoTotals(measured, unmeasured = [])` (Task 3.7) in 3.9; `scopeOpenCount` (2.4) in 4.3 and 4.4; `slaState` and `slaStateLabel` (2.3) in 3.6, 3.8, 3.9, 4.3 to 4.5; and the width constants exported by `security-header.tsx`, `ownership-card.tsx` and `alerts-strip.tsx`, which their tests import.
 
 ### Review Focus coverage
 
-All five situations have a named test. Each test names its revert in a `// Revert:` comment, and every test added or changed in this assembly was mutation-checked: the revert was applied, the named test failed, and the file was restored.
+All five situations have a named test. Each test names its revert in a `// Revert:` comment, and every test added or changed in this assembly was mutation-checked, except the class-only layout guards listed under Known gaps: the revert was applied, the named test failed, and the file was restored.
 
 1. Missing repository or team: existing tests in Tasks 2.7, 2.11, 4.5 and 4.7.
 2. More than 500 alerts: Task 1.7 had the test for Open only. A second test now covers Resolved and Open + resolved (620 alerts, every sort key in both directions, reversed input).
@@ -15734,5 +16865,7 @@ All five situations have a named test. Each test names its revert in a `// Rever
 
 ### Known gaps
 
-- Wave 1 and Wave 2 code blocks were verified when those waves were built; this assembly re-ran the whole suite, type check and build over the final tree but did not rebuild the Wave 1 and Wave 2 intermediate states one task at a time.
-- The in-order counts after Waves 1 to 3 (219 suites, 2596 tests) and after Wave 4 (223 suites, 2780 tests) are derived from the per-file counts of the final run; only Wave 1 alone (210 suites, 2219 tests) and the final tree (224 suites, 2784 tests) were run directly.
+- The code blocks were checked against the tree by script, and the tree was rebuilt at each wave boundary and run in full: Wave 1 alone 210 suites and 2219 tests; Waves 1-2 210 suites and 2401 tests; Waves 1-3 220 suites and 2639 tests; Waves 1-4 224 suites and 2837 tests; all five waves 225 suites and 2843 tests. The per-task fail-then-pass counts in Waves 2 to 4 for the tasks whose tests changed in review (2.2, 2.3, 3.2, 3.7 to 3.12) were re-derived the same way (the stub-based "N of M" counts by running each task's test file against the stub). The counts of the Wave 1 tasks and of Tasks 2.4 to 2.11 were not re-derived task by task.
+- Class-only layout guards: these tests assert a CSS class or an inline style, because jsdom cannot paint or measure, so a mutation that changes the pixels but keeps the class passes them. They are the shadow and scrollbar-gutter test of the team table (Task 3.8), the header `whitespace-nowrap` test and the fixed Owning team track of the repositories table (3.9), and the card-shell checks in 2.9, 4.2, 4.4 and 4.5. The headless measurement in Task 5.4 checks the rendered effect of each (the painted shadow, a stable column position, a header that is one line, a 28px select).
+- The document test (Task 5.1) matches a size in the Layout stability section as a stand-alone number, but it cannot tell which row a number belongs to: changing `RESET_SLOT_W` from 116 to 120 passes, because another row states "120px".
+- A test that passes `today` or pins the clock reads "the current year" from that value. Tests with literal 2026 fixture dates pin `Date.now()` to a day in 2026; the year-rule tests use a "today" in 2031 so a function that ignored its argument would fail now, not in 2027. The UTC-versus-local reading of a date is exercised with an instant just after UTC midnight, which only catches a local-time bug on a machine west of UTC.
