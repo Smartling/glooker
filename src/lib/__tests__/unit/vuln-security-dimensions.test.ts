@@ -57,13 +57,16 @@ it('the coverage line\'s slots are one-digit-safe widths (measured +2px), not tw
   expect(COVERAGE_RULE_PAD).toBe(14);
 });
 
-// Revert: grow a figure row or a reserved line without shrinking another: the "since" tile (label + 3 rows + 3 reserved lines) then overflows its 142px.
-it('the KPI tiles use the mockup\'s padding, and the "since" tile\'s parts fit the room the row leaves; the SLA rows keep a ~33px pitch', () => {
+// Revert: grow a figure row or a reserved line (the old 26px rows): the "since" tile (label + 3 rows + 3 reserved lines) then needs 142px, which
+// fits the dark card but not the light one, whose remap border leaves 140px: its flex items shrink and clip their text with no scroll to show it.
+it('the KPI tiles use the mockup\'s padding, and the "since" tile\'s parts fit the room the row leaves in BOTH themes; the SLA rows keep a ~33px pitch', () => {
   expect([KPI_PAD_Y, KPI_PAD_X]).toEqual([18, 20]);
   const inner = KPI_ROW_H - 2 * KPI_PAD_Y;
+  const LIGHT_BORDER = 2;    // the light remap's 1px card border, top and bottom
   const LABEL_LINE_H = 16;   // text-xs
   expect(inner).toBe(142);
-  expect(LABEL_LINE_H + 3 * KPI_SINCE_ROW_H + 3 * KPI_NOTE_H).toBeLessThanOrEqual(inner);
+  expect(LABEL_LINE_H + 3 * KPI_SINCE_ROW_H + 3 * KPI_NOTE_H).toBeLessThanOrEqual(inner - LIGHT_BORDER);
+  expect(KPI_SINCE_ROW_H).toBe(25);
   expect(KPI_SLA_ROW_H).toBe(33);
 });
 

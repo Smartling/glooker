@@ -10,12 +10,14 @@ export const PAGE_GAP = 24;
 
 // Overview.
 export const KPI_ROW_H = 178;
-/** A KPI tile's padding, as the mockup's (18px 20px); what the row leaves a tile's content is KPI_ROW_H - 2 x KPI_PAD_Y = 142px. */
+/** A KPI tile's padding, as the mockup's (18px 20px); what the row leaves a tile's content is KPI_ROW_H - 2 x KPI_PAD_Y = 142px,
+ * and 140px in the light theme, whose remap gives the card a 1px border (border-box). */
 export const KPI_PAD_Y = 18;
 export const KPI_PAD_X = 20;
 /** The "since" tile has to fit in those 142px: its label line (16px, text-xs), three figure rows and three reserved note lines (other, the
- * reason there is no figure, repos not in the baseline). 16 + 3 x 26 + 3 x 16 = 142: the rows are as spread as the row can allow; kpi-tiles.tsx applies these. */
-export const KPI_SINCE_ROW_H = 26;
+ * reason there is no figure, repos not in the baseline). 16 + 3 x 25 + 3 x 16 = 139, inside the 140px of the light theme (26px rows made
+ * 142, which fits dark only: in light the flex items shrank by half a pixel each and clipped their text); kpi-tiles.tsx applies these. */
+export const KPI_SINCE_ROW_H = 25;
 export const KPI_NOTE_H = 16;
 /** The SLA tile's rows: a ~33px pitch, as the mockup's. */
 export const KPI_SLA_ROW_H = 33;
