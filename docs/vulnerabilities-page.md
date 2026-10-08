@@ -512,7 +512,7 @@ npm run seed:reset && npm run dev:mock
 
 `dev:mock` also sets a synthetic, already-in-effect `VULNERABILITIES_SLA_POLICY` (both severities, `effectiveFrom` in the past) and a `VULN_CODEBASE_GROUPS` with a multi-value group, so overdue rendering (red due date, Overdue column) and a non-default codebase mapping are both visible without editing any file. Overdue rendering is also covered directly by jsdom component tests that render rows from the real `listAlerts` with a `now` after the due date. `vuln-seed-repo-rows.test.ts` runs the real seed into a throwaway database and checks that the seeded data exercises every repository-row state and that the rows still sum to the pivot.
 
-The headless measurement in "Layout stability" runs against a production build with `dev:mock`'s environment and a seeded database: seed with `npm run seed:reset` (or `npx tsx scripts/seed.ts` with `SQLITE_PATH` pointing at a scratch file and the same `VULN_CODEBASE_GROUPS` that `package.json` sets for `seed`; without it the `api` repositories fall into Other), then start the built app with the same environment variables `dev:mock` sets.
+The headless measurement in "Layout stability" runs against a production build with `dev:mock`'s environment and a seeded database: seed with `npm run seed:reset` (or `npx tsx scripts/seed.ts` with `SQLITE_PATH` pointing at a scratch file and the same `VULN_CODEBASE_GROUPS` that `package.json` sets for `seed`; without it the `api` repositories fall into Other), then start the built app with the same environment variables `dev:mock` sets, plus `AUTH_ALLOW_ANONYMOUS=true` and `AUTH_ALLOW_ANONYMOUS_ADMIN=true` (a production server with auth off refuses anonymous callers without them; see `.env.example`).
 
 ## Rollout
 
