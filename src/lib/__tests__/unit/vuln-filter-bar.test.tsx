@@ -2,7 +2,10 @@
 // src/lib/__tests__/unit/vuln-filter-bar.test.tsx
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import FilterBar, { type FilterBarProps } from '@/app/vulnerabilities/filter-bar';
-import { FILTER_BAR_H, SELECT_W, RESET_SLOT_W, BAR_ROW_H, FILTER_ROW_H, FILTER_SELECT_H, FILTER_ROW_GAP, FILTER_ROW_W, ALERTS_TAB_COUNT_W, Z } from '@/app/vulnerabilities/dimensions';
+import {
+  FILTER_BAR_H, SELECT_W, RESET_SLOT_W, BAR_ROW_H, FILTER_ROW_H, FILTER_SELECT_H, FILTER_ROW_GAP, FILTER_ROW_W, ALERTS_TAB_COUNT_W, Z,
+  BAR_PAD_TOP, BAR_ROW_GAP, FILTER_PAD_BOTTOM,
+} from '@/app/vulnerabilities/dimensions';
 
 const DEFAULTS = { codebase: true, team: true, severity: true, baseline: true, repo: true, all: true };
 const COUNTS = {
@@ -80,15 +83,37 @@ describe('layout stability', () => {
     }
   });
 
-  // Revert: drop the border or the box-border class: the rule either vanishes or grows the row to 37px and the bar to 95.
-  it('a 1px rule under the tabs sits inside the tabs row, which keeps BAR_ROW_H, so the bar total stays FILTER_BAR_H', () => {
+  // Revert: drop the border-b or the box-border class: the rule either vanishes or grows the row by 1px and the bar with it.
+  it('a 1px rule under the tabs (the stronger border colour) sits inside the tabs row, which keeps BAR_ROW_H, so the bar total stays FILTER_BAR_H', () => {
     render(<FilterBar {...props()} />);
     const bar = screen.getByTestId('security-bar');
     const tabsRow = bar.children[0] as HTMLElement;
-    expect(tabsRow.style.borderBottom).toMatch(/^1px solid/);
-    expect(tabsRow.className).toContain('box-border');
+    for (const c of ['border-b', 'border-gray-700', 'box-border']) expect(tabsRow.className.split(' ')).toContain(c);
     expect(tabsRow.style.height).toBe(`${BAR_ROW_H}px`);
     expect(bar.style.height).toBe(`${FILTER_BAR_H}px`);
+  });
+
+  // Revert: put `boxShadow: '0 1px 0 var(--chart-grid)'` back on the bar and drop the filter row's border: the lower rule then runs the bar's
+  // whole width, under the page gutters, while the tab rule ends at the cards' edges.
+  it('the lower rule is the filter row\'s own border (the lighter colour, inside its height), not a shadow on the bar, so both rules end at the cards\' edges', () => {
+    render(<FilterBar {...props()} />);
+    const bar = screen.getByTestId('security-bar');
+    const filterRow = bar.children[1] as HTMLElement;
+    expect(bar.style.boxShadow).toBe('');
+    for (const c of ['border-b', 'border-gray-800', 'box-border']) expect(filterRow.className.split(' ')).toContain(c);
+    expect(filterRow.style.height).toBe(`${FILTER_ROW_H}px`);
+    expect(filterRow.style.paddingBottom).toBe(`${FILTER_PAD_BOTTOM}px`);
+  });
+
+  // Revert: give the bar its old 6px top and bottom padding, or drop the negative top margin or the gap.
+  it('the bar\'s parts: BAR_PAD_TOP of background above the tabs (taken out of the page gap), BAR_ROW_GAP of clear space under the tab rule, and the gutters covered by the side margins', () => {
+    render(<FilterBar {...props()} />);
+    const bar = screen.getByTestId('security-bar');
+    expect(bar.style.paddingTop).toBe(`${BAR_PAD_TOP}px`);
+    expect(bar.style.marginTop).toBe(`-${BAR_PAD_TOP}px`);
+    expect(bar.style.paddingBottom).toBe('');
+    expect(bar.style.gap).toBe(`${BAR_ROW_GAP}px`);
+    expect([bar.style.marginLeft, bar.style.marginRight, bar.style.paddingLeft, bar.style.paddingRight]).toEqual(['-24px', '-24px', '24px', '24px']);
   });
 
   // Revert: put the `flex-1` spacer back before the Reset slot: the row then has six gaps, and FILTER_ROW_W (five) understates it by 8px.
@@ -140,7 +165,7 @@ describe('field captions', () => {
     for (const name of ['Codebase', 'Owning team', 'Severity', 'Compare to']) {
       const caption = screen.getByText(name, { selector: 'label' });
       expect(caption.className).toContain('uppercase');
-      expect(caption.className).toContain('text-[10.5px]');
+      expect(caption.className).toContain('text-[11px]');
       const select = screen.getByLabelText(name) as HTMLSelectElement;
       expect(select.tagName).toBe('SELECT');
       expect(caption.getAttribute('for')).toBe(select.id);
@@ -330,6 +355,24 @@ describe('view tabs', () => {
     expect(screen.getByTestId('alerts-tab-count').textContent).toBe('1,234 open');
     fireEvent.click(overview);
     expect(url.setView).toHaveBeenCalledWith('overview');
+  });
+
+  // Revert: give the unselected tab a normal weight without the invisible bold copy of its label (or drop the copy): the tab is narrower than its bold
+  // label, so the other tab moves when the view changes. A tab's size is the mockup's 16px / 600.
+  it('the tabs are 16px, the selected one semibold, and each label carries an invisible semibold copy so a view switch moves nothing', () => {
+    const { rerender } = render(<FilterBar {...props({ view: 'overview' })} />);
+    const tab = (name: string | RegExp) => screen.getByRole('tab', { name });
+    expect(tab('Overview').className.split(' ')).toEqual(expect.arrayContaining(['text-base', 'font-semibold']));
+    expect(tab(/^Alerts/).className).not.toContain('font-semibold');
+    for (const t of [tab('Overview'), tab(/^Alerts/)]) {
+      const label = t.querySelector('span[data-label]') as HTMLElement;
+      expect(label.className).toContain('after:font-semibold');
+      expect(label.className).toContain('after:invisible');
+      expect(label.getAttribute('data-label')).toBe(label.textContent);
+    }
+    rerender(<FilterBar {...props({ view: 'alerts' })} />);
+    expect(tab(/^Alerts/).className).toContain('font-semibold');
+    expect(tab('Overview').className).not.toContain('font-semibold');
   });
 
   it('keeps the count slot (with a minimum width) while the count is unknown', () => {

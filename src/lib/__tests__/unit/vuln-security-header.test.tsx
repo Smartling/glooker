@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 // src/lib/__tests__/unit/vuln-security-header.test.tsx
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, cleanup } from '@testing-library/react';
 import SecurityHeader, { securityMeta, staleHours, ConfigErrorBanner, CoverageLine, type SecurityHeaderProps } from '@/app/vulnerabilities/security-header';
 import { COVERAGE_LINE_MIN_H, COVERAGE_BADGE_SLOT_W, COVERAGE_EXCLUDED_SLOT_W, COVERAGE_TAGGING_SLOT_W } from '@/app/vulnerabilities/dimensions';
 import { unmeasuredBadgeText } from '@/app/vulnerabilities/labels';
@@ -22,15 +22,15 @@ const unmeasuredRow = coverageRow({ repoId: 9, openCritical: 4, detail: 'x' });
 describe('securityMeta', () => {
   it('reads "<Codebase> · N <scope> repositories · N owning teams", with the scope label as data', () => {
     expect(securityMeta({ codebase: 'backend', scopeValue: 'production', repoCount: 11, teamCount: 4 }))
-      .toBe('Backend · 11 production repositories · 4 owning teams');
-    expect(securityMeta({ codebase: 'all', scopeValue: 'live', repoCount: 3, teamCount: 2 })).toBe('All · 3 live repositories · 2 owning teams');
+      .toBe('Backend · 11 production repositories · 4 owning teams · synced daily');
+    expect(securityMeta({ codebase: 'all', scopeValue: 'live', repoCount: 3, teamCount: 2 })).toBe('All · 3 live repositories · 2 owning teams · synced daily');
   });
   it('uses singular forms for one', () => {
     expect(securityMeta({ codebase: 'shared', scopeValue: 'production', repoCount: 1, teamCount: 1 }))
-      .toBe('Shared libraries · 1 production repository · 1 owning team');
+      .toBe('Shared libraries · 1 production repository · 1 owning team · synced daily');
   });
   it('without counts (rows still loading) it is never empty and carries no number', () => {
-    expect(securityMeta({ codebase: 'backend', scopeValue: 'production', repoCount: null, teamCount: null })).toBe('Backend · production repositories');
+    expect(securityMeta({ codebase: 'backend', scopeValue: 'production', repoCount: null, teamCount: null })).toBe('Backend · production repositories · synced daily');
   });
 });
 
@@ -43,32 +43,32 @@ describe('staleHours', () => {
 });
 
 describe('SecurityHeader', () => {
-  it('shows the title with the org, the meta line from the repos rows and the scope value, and never "synced daily"', () => {
+  // Revert: drop the " · synced daily" ending from securityMeta: the line no longer matches the mockup's header.
+  it('shows the title with the org, and the meta line from the repos rows and the scope value, ending "· synced daily"', () => {
     render(<SecurityHeader {...props()} />);
     expect(screen.getByText('Security · acme')).toBeTruthy();
     // REPO_ROWS: 4 repositories across 3 owning teams (Payments, Search, Platform).
-    expect(screen.getByText('Backend · 4 production repositories · 3 owning teams')).toBeTruthy();
-    expect(screen.getByTestId('security-header').textContent).not.toMatch(/synced daily/i);
+    expect(screen.getByText('Backend · 4 production repositories · 3 owning teams · synced daily')).toBeTruthy();
   });
 
   it('counts Unassigned as an owning team: a repository with no team still counts toward the owning teams', () => {
     render(<SecurityHeader {...props({ repos: slot(reposFixture([...REPO_ROWS, repoRow('acme/orphan', 'Unassigned')])) })} />);
     // REPO_ROWS: 4 repositories across Payments, Search and Platform; the orphan adds a fifth repository and a fourth team.
-    expect(screen.getByText('Backend · 5 production repositories · 4 owning teams')).toBeTruthy();
+    expect(screen.getByText('Backend · 5 production repositories · 4 owning teams · synced daily')).toBeTruthy();
   });
 
   // Revert: pass `repos.data` whatever `repos.stale` says: the previous codebase's counts appear under the new codebase's name.
   it('while the rows are the previous codebase\'s (stale) the line is the count-less form for the NEW codebase, never old counts under the new label', () => {
     const old = slot(reposFixture(REPO_ROWS, { codebase: 'frontend' }), { stale: true });
     render(<SecurityHeader {...props({ repos: old, codebase: 'backend' })} />);
-    expect(screen.getByText('Backend · production repositories')).toBeTruthy();
+    expect(screen.getByText('Backend · production repositories · synced daily')).toBeTruthy();
     expect(screen.getByTestId('security-header').textContent).not.toMatch(/\d+ production repositor/);
   });
 
   // Revert: label the line from the `codebase` prop while counting the slot's rows.
   it('the codebase label comes from the same response as the counts', () => {
     render(<SecurityHeader {...props({ repos: slot(reposFixture(REPO_ROWS, { codebase: 'frontend' })), codebase: 'backend' })} />);
-    expect(screen.getByText('Frontend · 4 production repositories · 3 owning teams')).toBeTruthy();
+    expect(screen.getByText('Frontend · 4 production repositories · 3 owning teams · synced daily')).toBeTruthy();
   });
 
   it('the scope label follows summary.scope.value', () => {
@@ -110,14 +110,30 @@ describe('SecurityHeader', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
-  // Revert: pass `stale={sync.stale}` to DataFreshness: the label turns amber next to the STALE tag, two stale cues.
-  it('the "▲ STALE · NH" tag is the only stale cue: the freshness label keeps its normal colour', () => {
+  // Revert: pass `stale={false}` to DataFreshness: the label keeps its normal colour beside the STALE tag, and the mockup's amber stale line is gone.
+  it('a stale sync turns the freshness label amber, and a fresh one leaves it grey', () => {
     const stale = syncInfo({ stale: true, lastSuccessfulAt: '2026-09-21T18:00:00Z' });
-    render(<SecurityHeader {...props({ summary: summaryFixture({ sync: stale }) })} />);
-    expect(screen.getByTestId('stale-tag')).toBeTruthy();
+    const { rerender } = render(<SecurityHeader {...props({ summary: summaryFixture({ sync: stale }) })} />);
+    expect(screen.getByText(/last successful sync/).className).toContain('text-amber-400');
+    rerender(<SecurityHeader {...props()} />);
     const label = screen.getByText(/last successful sync/);
     expect(label.className).toContain('text-gray-500');
     expect(label.className).not.toContain('amber');
+  });
+
+  // Revert: render the tag as a child of PageHeader again (a row of its own under the freshness line): the header grows a row.
+  it('the "▲ STALE · NH" tag sits on the freshness row (PageHeader\'s badges slot), next to the label, not in a row of its own', () => {
+    const stale = syncInfo({ stale: true, lastSuccessfulAt: '2026-09-21T18:00:00Z' });
+    render(<SecurityHeader {...props({ summary: summaryFixture({ sync: stale }) })} />);
+    const tag = screen.getByTestId('stale-tag');
+    const label = screen.getByText(/last successful sync/);
+    // The label is wrapped by DataFreshness in one div; that div and the tag are siblings in the one freshness/badges row.
+    expect(label.parentElement?.parentElement).toBe(tag.parentElement);
+    expect(tag.className).toContain('whitespace-nowrap');
+    // "Updating…" shares the row, after the tag.
+    cleanup();
+    render(<SecurityHeader {...props({ summary: summaryFixture({ sync: stale }), summaryStale: true })} />);
+    expect(screen.getByTestId('stale-tag').parentElement).toBe(screen.getByText('Updating…').parentElement);
   });
 
   // Revert: put the arrow or the bordered variant back: it no longer matches the app's other secondary button ("Download PDF" on the org report).

@@ -24,8 +24,10 @@ const PAGE_PADDING = {
   paddingTop: PAGE_PAD.top, paddingRight: PAGE_PAD.x, paddingBottom: PAGE_PAD.bottom, paddingLeft: PAGE_PAD.x,
 } as const;
 
+// `box-content`: PAGE_MAX_W is the width of the CONTENT, with the side padding outside it, so the cards are 1280px wide on a wide
+// screen (a border-box container would give them 1232px). Below PAGE_MAX_W + 2 x the side padding nothing changes.
 function Shell({ children }: { children: React.ReactNode }) {
-  return <div className="mx-auto" style={{ maxWidth: PAGE_MAX_W, ...PAGE_PADDING }}>{children}</div>;
+  return <div className="mx-auto box-content" style={{ maxWidth: PAGE_MAX_W, ...PAGE_PADDING }}>{children}</div>;
 }
 
 /**
@@ -107,7 +109,7 @@ export default function VulnerabilitiesContent() {
   const baselinePrefill = s.delta[url.kSev].baseline?.takenOn ?? addDays(localToday(), -7);
 
   return (
-    <div data-testid="security-page" className="mx-auto flex flex-col" style={{ maxWidth: PAGE_MAX_W, ...PAGE_PADDING, gap: PAGE_GAP }}>
+    <div data-testid="security-page" className="mx-auto box-content flex flex-col" style={{ maxWidth: PAGE_MAX_W, ...PAGE_PADDING, gap: PAGE_GAP }}>
       <SecurityHeader
         summary={s}
         repos={data.metaRepos}

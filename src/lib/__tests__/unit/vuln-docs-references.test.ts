@@ -77,7 +77,11 @@ const sizes: Array<[string, number, string]> = [
   ['FILTER_CAPTION_H', D.FILTER_CAPTION_H, 'Sticky bar'],
   ['FILTER_CAPTION_GAP', D.FILTER_CAPTION_GAP, 'Sticky bar'],
   ['FILTER_SELECT_H', D.FILTER_SELECT_H, 'Sticky bar'],
-  ['BAR_PAD_Y', D.BAR_PAD_Y, 'Sticky bar'],
+  ['BAR_PAD_TOP', D.BAR_PAD_TOP, 'Sticky bar'],
+  ['BAR_ROW_GAP', D.BAR_ROW_GAP, 'Sticky bar'],
+  ['FILTER_CONTROLS_H', D.FILTER_CONTROLS_H, 'Sticky bar'],
+  ['FILTER_PAD_BOTTOM', D.FILTER_PAD_BOTTOM, 'Sticky bar'],
+  ['FILTER_RULE_H', D.FILTER_RULE_H, 'Sticky bar'],
   ['SELECT_W.codebase', D.SELECT_W.codebase, 'Bar selects'],
   ['SELECT_W.team', D.SELECT_W.team, 'Bar selects'],
   ['SELECT_W.severity', D.SELECT_W.severity, 'Bar selects'],
@@ -123,6 +127,7 @@ const sizes: Array<[string, number, string]> = [
 // Numbers in a table row that are NOT a size constant, each with the reason. A number in neither list fails the test below, so a size
 // added to the table without a constant behind it (or a typo in one) cannot slip in unguarded. The value is pinned here too.
 const notASize: Array<[row: string, value: number, reason: string]> = [
+  ['Page container', D.PAGE_MAX_W + 2 * D.PAGE_PAD.x, 'PAGE_MAX_W + 2 x PAGE_PAD.x: the viewport width from which the cards are 1280px wide (the max width is the content, the padding is outside it)'],
   ['Bar selects', 0, '`shrink-0`: a Tailwind class name'],
   ['Alerts summary strip', 0, '`shrink-0`: a Tailwind class name'],
   ['Trend plot', 48, 'the legend\'s min-h-[48px] is a class literal in trend-card.tsx (3 lines x 16px), not an exported constant'],

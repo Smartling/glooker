@@ -11,14 +11,17 @@ import type { Slot } from './use-security-data';
 import type { OpenDrawer } from './coverage-drawer';
 import { COVERAGE_BADGE_SLOT_W, COVERAGE_EXCLUDED_SLOT_W, COVERAGE_LINE_MIN_H, COVERAGE_TAGGING_SLOT_W, TYPE } from './dimensions';
 
-/** "Backend · 11 production repositories · 4 owning teams". The scope value is data
- * (`summary.scope.value`), never a literal. Without counts it is still a full line. */
+const SYNCED_DAILY = ' · synced daily';
+
+/** "Backend · 11 production repositories · 4 owning teams · synced daily". The scope value is data
+ * (`summary.scope.value`), never a literal. Without counts it is still a full line. The closing "synced daily" is the design's
+ * wording; it is a literal, so it is only true while the sync schedule is daily (Settings, Schedules). */
 export function securityMeta(i: { codebase: CodebaseGroup; scopeValue: string; repoCount: number | null; teamCount: number | null }): string {
   const head = `${CODEBASE_LABELS[i.codebase]} · `;
-  if (i.repoCount === null || i.teamCount === null) return `${head}${i.scopeValue} repositories`;
+  if (i.repoCount === null || i.teamCount === null) return `${head}${i.scopeValue} repositories${SYNCED_DAILY}`;
   const repos = `${i.repoCount.toLocaleString('en-US')} ${i.scopeValue} ${i.repoCount === 1 ? 'repository' : 'repositories'}`;
   const teams = `${i.teamCount.toLocaleString('en-US')} owning ${i.teamCount === 1 ? 'team' : 'teams'}`;
-  return `${head}${repos} · ${teams}`;
+  return `${head}${repos} · ${teams}${SYNCED_DAILY}`;
 }
 
 export function staleHours(lastSuccessfulAt: string, now: Date): number {
@@ -134,14 +137,23 @@ export default function SecurityHeader({ summary, repos, coverage, codebase, sum
           <DataFreshness
             label="last successful sync"
             at={sync.lastSuccessfulAt}
-            // The "▲ STALE · NH" tag below is the one stale cue: the label stays its normal colour.
-            stale={false}
+            // The label turns amber, and the "▲ STALE · NH" tag beside it (the `badges` slot, on the same row) names the age.
+            stale={showStale}
             // Label only: the failed banner is page-local (below), full width, not squeezed into this row.
             latestFailed={false}
             failedText=""
           />
         )}
-        badges={summaryStale ? <span className="text-[11px] text-accent-light">Updating…</span> : undefined}
+        badges={(showStale || summaryStale) ? (
+          <>
+            {showStale && (
+              <span data-testid="stale-tag" className={`inline-block shrink-0 whitespace-nowrap border border-warn-line bg-warn-bg text-warn px-1.5 text-[11px] font-semibold leading-4 ${TYPE.badge}`}>
+                {`▲ STALE · ${staleHours(sync.lastSuccessfulAt as string, now ?? new Date())}H`}
+              </span>
+            )}
+            {summaryStale && <span className="text-[11px] text-accent-light">Updating…</span>}
+          </>
+        ) : undefined}
         actions={(
           <Link
             href="/reports?tab=syncs"
@@ -153,13 +165,6 @@ export default function SecurityHeader({ summary, repos, coverage, codebase, sum
         )}
       >
         <div className="flex flex-col gap-2">
-          {showStale && (
-            <div>
-              <span data-testid="stale-tag" className={`inline-block border border-warn-line bg-warn-bg text-warn px-1.5 py-0.5 text-xs font-semibold ${TYPE.badge}`}>
-                {`▲ STALE · ${staleHours(sync.lastSuccessfulAt as string, now ?? new Date())}H`}
-              </span>
-            </div>
-          )}
           {failed && (
             <div role="alert" className="flex items-start gap-2 text-xs text-red-400 border border-red-900 rounded-md p-2">
               <span aria-hidden="true" className="shrink-0 w-4 h-4 rounded-full border border-red-400 flex items-center justify-center text-[10px] leading-none font-bold">!</span>

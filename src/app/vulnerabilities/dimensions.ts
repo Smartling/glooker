@@ -53,16 +53,22 @@ export const POLICY_LABEL_W = 96;
 export const ALERTS_TAB_COUNT_W = 64;
 
 // Sticky bar. Selects have fixed widths; each is shrink-0 and truncates with a title attribute.
-// Two fixed rows: the view tabs, then the filters, each under its own caption.
+// Two fixed rows: the view tabs, then the filters, each under its own caption. The bar is
+// BAR_PAD_TOP of padding, the tabs row, BAR_ROW_GAP of clear space under the tab rule, and the filters row
+// (caption, gap, select, the space to the lower rule, and the rule itself).
 export const SELECT_W = { codebase: 220, team: 170, severity: 140, baseline: 118, date: 128 } as const;
 export const FILTER_ROW_GAP = 8;
-export const BAR_ROW_H = 36;                  // the view tabs' row
-export const FILTER_CAPTION_H = 14;           // "CODEBASE", "OWNING TEAM", ...: 10.5px uppercase, one line
-export const FILTER_CAPTION_GAP = 4;
-export const FILTER_SELECT_H = 28;
-export const FILTER_ROW_H = FILTER_CAPTION_H + FILTER_CAPTION_GAP + FILTER_SELECT_H; // 46
-export const BAR_PAD_Y = 6;
-export const FILTER_BAR_H = BAR_ROW_H + FILTER_ROW_H + 2 * BAR_PAD_Y; // 94: tabs row + filters row
+export const BAR_PAD_TOP = 12;                // background above the tabs; the bar's negative top margin takes it back out of the page gap
+export const BAR_ROW_H = 34;                  // the view tabs' row, its 1px rule included: 22px line + 10px padding + the 2px tab underline
+export const BAR_ROW_GAP = 14;                // clear space under the tab rule
+export const FILTER_CAPTION_H = 15;           // "CODEBASE", "OWNING TEAM", ...: 11px uppercase, one line
+export const FILTER_CAPTION_GAP = 5;
+export const FILTER_SELECT_H = 32;
+export const FILTER_CONTROLS_H = FILTER_CAPTION_H + FILTER_CAPTION_GAP + FILTER_SELECT_H; // 52
+export const FILTER_PAD_BOTTOM = 14;          // from the selects to the lower rule
+export const FILTER_RULE_H = 1;
+export const FILTER_ROW_H = FILTER_CONTROLS_H + FILTER_PAD_BOTTOM + FILTER_RULE_H; // 67
+export const FILTER_BAR_H = BAR_PAD_TOP + BAR_ROW_H + BAR_ROW_GAP + FILTER_ROW_H; // 127: padding + tabs row + gap + filters row
 export const RESET_SLOT_W = 116;
 /** The four selects, the date slot, the "Reset filters" slot at the row's right end, and the 5 gaps between them. */
 export const FILTER_ROW_W =

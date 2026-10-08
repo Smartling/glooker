@@ -169,9 +169,9 @@ The page must not jump when a filter changes. The rule is: **a filter change may
 
 | Element | Fixed size |
 |---|---|
-| Page container | max width 1280px; padding 32 / 24 / 40 (top / sides / bottom); 24px gap |
+| Page container | max width 1280px, measured on the content (`box-content`: the 24px side padding sits outside it, so the cards are 1280px wide from a 1328px viewport up, and nothing changes below that); padding 32 / 24 / 40 (top / sides / bottom); 24px gap |
 | Header coverage line | 22px minimum height; the unmeasured badge's slot is always rendered, 168px wide, and hidden when there is no badge; the excluded and need-tagging counts sit in slots 160px and 120px wide |
-| Sticky bar | 94px: a 36px tabs row and a 46px filters row (a 14px caption, a 4px gap and a 28px select) plus 6px top and bottom padding |
+| Sticky bar | 127px: 12px of background above the tabs (taken out of the page gap by a negative top margin), a 34px tabs row (its 1px rule included), 14px of clear space under that rule, and a 67px filters row (a 52px block of a 15px caption, a 5px gap and a 32px select, then 14px to the lower rule and the 1px rule itself). Both rules are borders, so they end at the cards' edges while the bar's background covers the gutters |
 | Bar selects | Codebase 220, Owning team 170, Severity 140, Compare to 118, date input 128; each `shrink-0`, long text truncates with a `title` |
 | Bar reserved slots | "Reset filters" 116px (at the right end of the filter row), date input 128px: hidden, never removed; the Alerts tab's "N open" slot is at least 64px wide |
 | KPI tile row | 178px |

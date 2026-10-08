@@ -35,6 +35,24 @@ describe('page frame', () => {
     expect(page.style.gap).toBe(`${PAGE_GAP}px`);
   });
 
+  // Revert: drop `box-content` from the page container: the cards are then PAGE_MAX_W minus the side padding (1232px) on a wide screen, not 1280.
+  it('the max width is the CONTENT width (box-content): the side padding sits outside it, so the cards are 1280px wide from a 1328px viewport up', async () => {
+    mount('');
+    const page = await screen.findByTestId('security-page');
+    expect(page.className.split(' ')).toContain('box-content');
+    expect(PAGE_MAX_W + 2 * PAGE_PAD.x).toBe(1328);
+  });
+
+  // Revert: drop `box-content` from the Shell: the loading and error pages are 48px narrower than the page they turn into, so the page jumps in width.
+  it('the loading page has the same box as the page (box-content, the same max width)', () => {
+    nav().__resetSearch('');
+    (global as any).fetch = jest.fn(() => new Promise(() => {}));
+    render(<SwrFresh><VulnerabilitiesContent /></SwrFresh>);
+    const shell = screen.getByText('Loading…').parentElement as HTMLElement;
+    expect(shell.className.split(' ')).toContain('box-content');
+    expect(shell.style.maxWidth).toBe(`${PAGE_MAX_W}px`);
+  });
+
   it("the sticky bar is a direct child of the container, sticky at the top, and the composer's own ancestors set no overflow", async () => {
     mount('');
     const bar = await screen.findByTestId('security-bar');
@@ -104,12 +122,12 @@ describe('header meta line', () => {
   // Revert: build the line from `data.repos` (the team-scoped rows) instead of `data.metaRepos`.
   it('describes the codebase, not the filter: choosing an owning team leaves "N repositories · N owning teams" alone, and sends the codebase-only request', async () => {
     const f = mount('', { repos: byTeam });
-    expect(await screen.findByText('Backend · 4 production repositories · 3 owning teams')).toBeTruthy();
+    expect(await screen.findByText('Backend · 4 production repositories · 3 owning teams · synced daily')).toBeTruthy();
     fireEvent.change(screen.getByLabelText('Owning team'), { target: { value: 'Search' } });
     await waitFor(() => expect(f.mock.calls.some(([u]) => String(u).includes('/repos?') && String(u).includes('team=Search'))).toBe(true));
     // Let every response, the team-scoped rows included, arrive and render; the line must still count the whole codebase.
     await act(async () => { await Promise.all(f.mock.results.map(r => r.value)); });
-    expect(screen.getByText('Backend · 4 production repositories · 3 owning teams')).toBeTruthy();
+    expect(screen.getByText('Backend · 4 production repositories · 3 owning teams · synced daily')).toBeTruthy();
     expect(f.mock.calls.some(([u]) => String(u).endsWith('/repos?codebase=backend'))).toBe(true);
   });
 });

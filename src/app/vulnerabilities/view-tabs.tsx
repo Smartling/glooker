@@ -36,7 +36,7 @@ export default function ViewTabs({ view, onChange, alertsCount }: ViewTabsProps)
   };
 
   return (
-    <div role="tablist" aria-label="Security views" className="flex h-full items-center gap-1" onKeyDown={onKeyDown}>
+    <div role="tablist" aria-label="Security views" className="flex h-full items-end gap-7" onKeyDown={onKeyDown}>
       {TABS.map((t, i) => {
         const selected = view === t.id;
         return (
@@ -50,12 +50,15 @@ export default function ViewTabs({ view, onChange, alertsCount }: ViewTabsProps)
             aria-selected={selected}
             aria-controls="security-view-panel"
             onClick={() => onChange(t.id)}
-            className={`h-full px-3 text-sm font-medium border-b-2 ${selected ? 'border-accent text-white' : 'border-transparent text-gray-400 hover:text-gray-200'}`}
+            // The underline overlaps the row's 1px rule (-mb-px); 22px line + 10px padding + the 2px underline = BAR_ROW_H.
+            className={`-mb-px flex items-baseline gap-[7px] border-b-2 px-0.5 pb-2.5 text-base leading-[22px] ${selected ? 'border-accent font-semibold text-white' : 'border-transparent text-gray-400 hover:text-gray-200'}`}
           >
-            {t.label}
+            {/* The pressed tab is semibold. The invisible ::after copy of the label is semibold on both tabs, so each tab is as wide as its
+                bold label and switching views does not move the other one. */}
+            <span data-label={t.label} className="after:invisible after:block after:h-0 after:overflow-hidden after:font-semibold after:content-[attr(data-label)]">{t.label}</span>
             {t.id === 'alerts' && (
               // The slot always renders with a minimum width, so the tab does not change size when the count arrives.
-              <span data-testid="alerts-tab-count" className="ml-2 inline-block text-left text-xs font-normal text-gray-400" style={{ minWidth: ALERTS_TAB_COUNT_W }}>
+              <span data-testid="alerts-tab-count" className="inline-block text-left text-xs font-normal text-gray-400" style={{ minWidth: ALERTS_TAB_COUNT_W }}>
                 {alertsCount === null ? '' : `${alertsCount.toLocaleString('en-US')} open`}
               </span>
             )}

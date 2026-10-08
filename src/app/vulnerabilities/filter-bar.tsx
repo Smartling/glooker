@@ -6,8 +6,8 @@ import { codebaseOptionCount, kSev, type CodebaseCounts, type SecurityUrl, type 
 import ViewTabs from './view-tabs';
 import { localToday } from './labels';
 import {
-  BAR_PAD_Y, BAR_ROW_H, FILTER_BAR_H, FILTER_CAPTION_GAP, FILTER_CAPTION_H, FILTER_ROW_GAP, FILTER_ROW_H, FILTER_SELECT_H,
-  PAGE_PAD, RESET_SLOT_W, SELECT_W, TYPE, Z,
+  BAR_PAD_TOP, BAR_ROW_GAP, BAR_ROW_H, FILTER_BAR_H, FILTER_CAPTION_GAP, FILTER_CAPTION_H, FILTER_PAD_BOTTOM, FILTER_ROW_GAP, FILTER_ROW_H,
+  FILTER_SELECT_H, PAGE_PAD, RESET_SLOT_W, SELECT_W, TYPE, Z,
 } from './dimensions';
 
 export type FilterBarUrl = Pick<
@@ -36,11 +36,11 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // A non-default select gets the accent border AND the accent fill; a default one is a plain surface.
 const selectClass = (nonDefault: boolean) =>
-  `shrink-0 px-2 text-xs truncate border ${TYPE.control} ${nonDefault ? 'border-accent bg-accent-bg text-accent-light' : 'border-gray-700 bg-chart-surface text-gray-300'}`;
+  `shrink-0 px-2 text-[13px] truncate border ${TYPE.control} ${nonDefault ? 'border-accent bg-accent-bg text-accent-light' : 'border-gray-700 bg-chart-surface text-gray-300'}`;
 const selectStyle = (width: number) => ({ width, height: FILTER_SELECT_H });
 
 /** The visible caption above a select: sentence case in the DOM (it is the select's accessible name), upper-cased by CSS. */
-const CAPTION = 'block truncate text-[10.5px] font-semibold uppercase tracking-[0.06em] text-gray-400';
+const CAPTION = 'block truncate text-[11px] font-semibold uppercase tracking-[0.06em] text-gray-400';
 
 function Field({ id, label, children }: { id: string; label: string; children: ReactNode }) {
   return (
@@ -73,18 +73,19 @@ export default function FilterBar({ url, teams, codebaseCounts, alertsCount, bas
       style={{
         position: 'sticky', top: 0, zIndex: Z.stickyBar,
         background: 'var(--body-bg, #0F0F0F)',
-        height: FILTER_BAR_H, paddingTop: BAR_PAD_Y, paddingBottom: BAR_PAD_Y,
-        // Extend over the page padding so scrolling content never shows in the gutters.
-        marginLeft: -PAGE_PAD.x, marginRight: -PAGE_PAD.x, paddingLeft: PAGE_PAD.x, paddingRight: PAGE_PAD.x,
-        boxShadow: '0 1px 0 var(--chart-grid)',
+        height: FILTER_BAR_H, paddingTop: BAR_PAD_TOP, gap: BAR_ROW_GAP,
+        // The top padding is background above the tabs that the page gap would otherwise leave empty: take it out of the gap.
+        // The sides extend over the page padding so scrolling content never shows in the gutters; the rules below end at the cards' edges.
+        marginTop: -BAR_PAD_TOP, marginLeft: -PAGE_PAD.x, marginRight: -PAGE_PAD.x, paddingLeft: PAGE_PAD.x, paddingRight: PAGE_PAD.x,
       }}
     >
-      {/* The 1px rule under the tabs is inside the row's height (border-box), so the bar's total stays FILTER_BAR_H. */}
-      <div className="box-border flex items-center" style={{ height: BAR_ROW_H, borderBottom: '1px solid var(--chart-grid)' }}>
+      {/* The 1px rule under the tabs (the stronger of the two) is inside the row's height (border-box), so the bar's total stays FILTER_BAR_H. */}
+      <div className="box-border flex flex-none items-end border-b border-gray-700" style={{ height: BAR_ROW_H }}>
         <ViewTabs view={url.view} onChange={url.setView} alertsCount={alertsCount} />
       </div>
 
-      <div className="flex items-end" style={{ height: FILTER_ROW_H, gap: FILTER_ROW_GAP }}>
+      {/* The lower rule is this row's own border (the lighter one), not a shadow on the bar, so it ends at the cards' edges like the tab rule. */}
+      <div className="box-border flex flex-none items-end border-b border-gray-800" style={{ height: FILTER_ROW_H, paddingBottom: FILTER_PAD_BOTTOM, gap: FILTER_ROW_GAP }}>
         <Field id="security-codebase" label="Codebase">
           <select
             id="security-codebase"
