@@ -19,6 +19,7 @@ describe('MCP tool registry', () => {
     'get_developer_summary', 'get_release_notes', 'get_epic_summaries',
     'get_metric_timeseries', 'query_model_usage', 'query_skills_usage',
     'list_vulnerabilities', 'get_vulnerability_summary', 'get_vulnerability_trend', 'get_vulnerability_coverage',
+    'list_vulnerability_repos',
   ];
 
   it('registers exactly the expected tools with unique names', () => {

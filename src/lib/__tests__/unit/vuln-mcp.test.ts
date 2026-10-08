@@ -2,13 +2,13 @@ jest.mock('@octokit/rest', () => ({ Octokit: jest.fn() }));
 jest.mock('@/lib/db/index', () => ({ __esModule: true, default: { execute: jest.fn() } }));
 jest.mock('@/lib/report-runner', () => ({ runReport: jest.fn(), requestStop: jest.fn() }));
 jest.mock('@/lib/vulnerabilities/queries', () => ({
-  getSummary: jest.fn(), getTrend: jest.fn(), getAlerts: jest.fn(), getCoverage: jest.fn(),
+  getSummary: jest.fn(), getTrend: jest.fn(), getAlerts: jest.fn(), getCoverage: jest.fn(), getRepos: jest.fn(),
   REASON_DISABLED: 'Vulnerability tracking is not enabled on this Glooker instance.',
 }));
 import { callTool, MCP_TOOLS } from '@/lib/mcp/tools';
-import { getAlerts, getSummary, getTrend, getCoverage } from '@/lib/vulnerabilities/queries';
+import { getAlerts, getSummary, getTrend, getCoverage, getRepos } from '@/lib/vulnerabilities/queries';
 // Real aggregate output (not toy objects), so key-name drift is caught:
-import { listAlerts, computePivot, computeTrend, computeCoverage } from '@/lib/vulnerabilities/aggregate';
+import { listAlerts, computePivot, computeTrend, computeCoverage, computeRepoRows } from '@/lib/vulnerabilities/aggregate';
 
 const repo = { repoId: 1, fullName: 'o/r1', team: 'T1', serviceTier: 'production', codebaseType: 'backend', archived: false, dependabotStatus: 'ok', dependabotStatusDetail: null } as any;
 const alert = { repoId: 1, number: 1, htmlUrl: 'u', state: 'open', severity: 'critical', severityChangedAt: null, ghsaId: 'G', cveId: 'C', summary: null, cvssScore: 9, epssPercentage: null, withdrawn: false, packageName: 'p', ecosystem: 'npm', manifestPath: 'm', relationship: 'direct', scope: null, createdAt: '2026-09-01T00:00:00Z', resolvedAt: null, dismissedReason: null, reopenedCount: 0, lastReopenedAt: null, missing: false } as any;
@@ -78,7 +78,7 @@ it('get_vulnerability_coverage emits snake_case keys from real computeCoverage o
 });
 
 it('descriptions state the unit is the alert and to check availability and staleness', () => {
-  for (const name of ['list_vulnerabilities', 'get_vulnerability_summary', 'get_vulnerability_trend', 'get_vulnerability_coverage']) {
+  for (const name of ['list_vulnerabilities', 'get_vulnerability_summary', 'get_vulnerability_trend', 'get_vulnerability_coverage', 'list_vulnerability_repos']) {
     const t = MCP_TOOLS.find(x => x.name === name)!;
     expect(t.description).toMatch(/Dependabot alert/i);
     expect(t.description).toMatch(/available/);
@@ -90,7 +90,7 @@ it('descriptions state the unit is the alert and to check availability and stale
 // config_errors through MCP's toSnake — asserted on all four tools, plus the
 // resolved_count_start_date: null default (proving a null value survives toSnake, not just a
 // present one).
-it('surfaces config_errors on all four vulnerability tools', async () => {
+it('surfaces config_errors on all five vulnerability tools', async () => {
   const configErrors = [{ source: 'startup', variable: 'VULNERABILITIES_SLA_POLICY', rule: 'Invalid JSON in VULNERABILITIES_SLA_POLICY env var' }];
 
   (getAlerts as jest.Mock).mockResolvedValue({ available: true, sync: syncBlock, appliedFilters: {}, rows: [], totalCount: 0, truncated: false, excludedByCodebase: 0, configErrors });
@@ -110,6 +110,9 @@ it('surfaces config_errors on all four vulnerability tools', async () => {
 
   (getCoverage as jest.Mock).mockResolvedValue({ available: true, sync: syncBlock, appliedFilters: {}, needsTagging: [], excludedByPolicy: [], unmeasured: [], configErrors });
   expect((await callTool('get_vulnerability_coverage', {}) as any).config_errors).toEqual(configErrors);
+
+  (getRepos as jest.Mock).mockResolvedValue({ available: true, sync: syncBlock, appliedFilters: {}, rows: [], configErrors });
+  expect((await callTool('list_vulnerability_repos', {}) as any).config_errors).toEqual(configErrors);
 });
 
 // GLOOK-43 Wave P fix round: a literal list of old (removed) vocabulary here re-planted those
@@ -134,8 +137,10 @@ it('VULN_FILTER_PROPS codebase/team descriptions and the coverage tool descripti
     + 'Always check `available` (false means the feature is off or no sync has succeeded yet — say so, never report zeros) '
     + 'and `sync.stale` (true means the data is over 36h old — tell the user the date of `sync.last_successful_at`). '
     + 'Every data response carries config_errors; non-empty means results may be incomplete. '
-    + 'Repos with open alerts that need tagging (missing tier, codebase-type or team property), repos outside the configured tracking scope, and in-scope repos whose Dependabot status is unmeasured.',
+    + 'Repos with open alerts that need tagging (missing tier, codebase-type or team property), repos outside the configured tracking scope, and in-scope repos whose Dependabot status is unmeasured. '
+    + 'Filtered to the `codebase` group (default backend; pass `all` for every repository); a repository with no codebase type counts under other and all.',
   );
+  expect(coverage.inputSchema.properties.codebase).toBe(list.inputSchema.properties.codebase);
 });
 
 it('passes parsed filters (with defaults) to the query layer', async () => {
@@ -165,4 +170,115 @@ it('feature-off check runs before filter parsing: a bad filter with tracking dis
   } finally {
     process.env.VULNERABILITIES_ORG = 'o';
   }
+});
+
+// ---------- GLOOK-64: list_vulnerability_repos, offset/sort, coverage codebase ----------
+describe('list_vulnerability_repos', () => {
+  const repoRows = (n: number) => computeRepoRows(
+    Array.from({ length: n }, (_, i) => ({ ...alert, repoId: i + 1, number: 1, htmlUrl: `u${i}` })),
+    Array.from({ length: n }, (_, i) => ({ ...repo, repoId: i + 1, fullName: `o/r${String(i + 1).padStart(3, '0')}`, carriedResolvedCritical: 0 })),
+    { codebase: 'backend', now: NOW });
+  const envelope = (rows: unknown[]) => ({ available: true, sync: syncBlock, appliedFilters: { codebase: 'backend' }, configErrors: [], rows });
+
+  it('emits snake_case rows from real computeRepoRows output, plus total_count and truncated', async () => {
+    (getRepos as jest.Mock).mockResolvedValue(envelope(repoRows(1)));
+    const out: any = await callTool('list_vulnerability_repos', {});
+    expect(Object.keys(out).sort()).toEqual(['applied_filters', 'available', 'config_errors', 'rows', 'sync', 'total_count', 'truncated']);
+    expect(Object.keys(out.rows[0]).sort()).toEqual(['codebase_group', 'critical', 'full_name', 'high', 'team', 'unmeasured']);
+    expect(Object.keys(out.rows[0].critical).sort()).toEqual(['due_soon', 'next_due', 'oldest_open_days', 'open', 'overdue']);
+    expect(out.rows[0]).toMatchObject({ full_name: 'o/r001', team: 'T1', codebase_group: 'backend', unmeasured: null });
+    expect(out.rows[0].critical).toMatchObject({ open: 1, overdue: null, due_soon: null, next_due: null }); // no SLA policy in this file's env
+    expect(out.truncated).toBe(false);
+    expect(out.total_count).toBe(1);
+  });
+
+  it('applies limit (default 100, max 500) and reports truncated; the underlying query is never given a limit to apply', async () => {
+    (getRepos as jest.Mock).mockResolvedValue(envelope(repoRows(120)));
+    const dflt: any = await callTool('list_vulnerability_repos', {});
+    expect(dflt.rows).toHaveLength(100);
+    expect(dflt.truncated).toBe(true);
+    expect(dflt.total_count).toBe(120);
+    const two: any = await callTool('list_vulnerability_repos', { limit: 2 });
+    expect(two.rows.map((r: any) => r.full_name)).toEqual(['o/r001', 'o/r002']);
+    const big: any = await callTool('list_vulnerability_repos', { limit: 5000 });
+    expect(big.rows).toHaveLength(120);
+    expect(big.truncated).toBe(false);
+    (getRepos as jest.Mock).mockResolvedValue(envelope(repoRows(600)));
+    const capped: any = await callTool('list_vulnerability_repos', { limit: 5000 });
+    expect(capped.rows).toHaveLength(500);
+    expect(capped.truncated).toBe(true);
+  });
+
+  it('passes codebase and team to getRepos, and passes unavailable and unknown-team results through', async () => {
+    (getRepos as jest.Mock).mockResolvedValue(envelope([]));
+    await callTool('list_vulnerability_repos', { codebase: 'all', team: 'T1' });
+    expect((getRepos as jest.Mock).mock.calls[0][0]).toMatchObject({ codebase: 'all', team: 'T1' });
+    (getRepos as jest.Mock).mockResolvedValue({ available: false, reason: 'No successful vulnerability sync yet.', sync: { lastSuccessfulAt: null } });
+    expect(await callTool('list_vulnerability_repos', {})).toEqual({ available: false, reason: 'No successful vulnerability sync yet.', sync: { last_successful_at: null } });
+    (getRepos as jest.Mock).mockResolvedValue({ error: 'unknown team', known_teams: ['T1'] });
+    expect(await callTool('list_vulnerability_repos', { team: 'Z' })).toEqual({ error: 'unknown team', known_teams: ['T1'] });
+  });
+
+  it('reports unavailable when the feature is off, without calling getRepos', async () => {
+    delete process.env.VULNERABILITIES_ORG;
+    const before = (getRepos as jest.Mock).mock.calls.length;
+    try {
+      expect(await callTool('list_vulnerability_repos', { codebase: 'mobile' }))
+        .toEqual({ available: false, reason: 'Vulnerability tracking is not enabled on this Glooker instance.' });
+      expect((getRepos as jest.Mock).mock.calls.length).toBe(before);
+    } finally {
+      process.env.VULNERABILITIES_ORG = 'o';
+    }
+  });
+
+  it('its description says what an unmeasured row and a null overdue mean, and how it differs from list_vulnerabilities', () => {
+    const t = MCP_TOOLS.find(x => x.name === 'list_vulnerability_repos')!;
+    expect(t.description).toMatch(/`unmeasured` set/);
+    expect(t.description).toMatch(/stored count, which may be out of date/);
+    expect(t.description).toMatch(/`overdue: null`.*SLA is not active/);
+    expect(t.description).toMatch(/list_vulnerabilities/);
+    expect(t.description).toMatch(/`repos` facet follows all list filters/);
+    expect(Object.keys(t.inputSchema.properties).sort()).toEqual(['codebase', 'limit', 'team']);
+  });
+});
+
+describe('list_vulnerabilities offset and sort, and the summary and coverage additions', () => {
+  it('forwards offset and sort to getAlerts as validated filters', async () => {
+    (getAlerts as jest.Mock).mockResolvedValue({ available: true, rows: [], totalCount: 0, truncated: false, excludedByCodebase: 0 });
+    await callTool('list_vulnerabilities', { offset: 20, sort: 'due:desc', limit: 10 });
+    expect((getAlerts as jest.Mock).mock.calls[0][0]).toMatchObject({ offset: 20, sort: 'due:desc', limit: 10 });
+    expect(await callTool('list_vulnerabilities', { sort: 'cvss:desc' })).toEqual({ error: expect.stringMatching(/sort must be/) });
+    expect(await callTool('list_vulnerabilities', { offset: -1 })).toEqual({ error: expect.stringMatching(/offset/) });
+  });
+
+  it('documents offset and sort in the schema and states the facet-versus-rows difference in the description', () => {
+    const t = MCP_TOOLS.find(x => x.name === 'list_vulnerabilities')!;
+    expect(Object.keys(t.inputSchema.properties)).toEqual(expect.arrayContaining(['offset', 'sort']));
+    expect(t.description).toMatch(/`offset`/);
+    expect(t.description).toMatch(/severity, advisory, repo, age, due, state/);
+    expect(t.description).toMatch(/always come last/);
+    expect(t.description).toMatch(/use list_vulnerability_repos/);
+  });
+
+  it('get_vulnerability_coverage forwards codebase to getCoverage', async () => {
+    (getCoverage as jest.Mock).mockResolvedValue({ available: true, sync: syncBlock, appliedFilters: {}, needsTagging: [], excludedByPolicy: [], unmeasured: [] });
+    await callTool('get_vulnerability_coverage', { codebase: 'frontend', team: 'T1' });
+    expect((getCoverage as jest.Mock).mock.calls[0][0]).toMatchObject({ codebase: 'frontend', team: 'T1' });
+  });
+
+  it('get_vulnerability_coverage without a codebase asks for backend, like every other tool (codebase=all is the opt-out)', async () => {
+    (getCoverage as jest.Mock).mockResolvedValue({ available: true, sync: syncBlock, appliedFilters: {}, needsTagging: [], excludedByPolicy: [], unmeasured: [] });
+    await callTool('get_vulnerability_coverage', {});
+    expect((getCoverage as jest.Mock).mock.calls[0][0]).toMatchObject({ codebase: 'backend' });
+    await callTool('get_vulnerability_coverage', { codebase: 'all' });
+    expect((getCoverage as jest.Mock).mock.calls[1][0]).toMatchObject({ codebase: 'all' });
+  });
+
+  it('get_vulnerability_summary carries codebase_counts through toSnake', async () => {
+    const codebaseCounts = { backend: { critical: 2, high: 1 }, frontend: { critical: 0, high: 0 }, shared: { critical: 0, high: 0 }, other: { critical: 0, high: 0 }, all: { critical: 2, high: 1 } };
+    (getSummary as jest.Mock).mockResolvedValue({ available: true, sync: syncBlock, appliedFilters: {}, codebaseCounts });
+    const s: any = await callTool('get_vulnerability_summary', {});
+    expect(s.codebase_counts).toEqual(codebaseCounts);
+    expect(MCP_TOOLS.find(x => x.name === 'get_vulnerability_summary')!.description).toMatch(/`codebase_counts`/);
+  });
 });
