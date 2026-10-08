@@ -1,0 +1,216 @@
+/** @jest-environment jsdom */
+// src/lib/__tests__/unit/vuln-security-header.test.tsx
+import { render, screen, fireEvent, within } from '@testing-library/react';
+import SecurityHeader, { securityMeta, staleHours, ConfigErrorBanner, CoverageLine, COVERAGE_BADGE_SLOT_W, COVERAGE_EXCLUDED_SLOT_W, COVERAGE_TAGGING_SLOT_W, type SecurityHeaderProps } from '@/app/vulnerabilities/security-header';
+import { COVERAGE_LINE_MIN_H } from '@/app/vulnerabilities/dimensions';
+import { unmeasuredBadgeText } from '@/app/vulnerabilities/labels';
+import type { CoverageData, Slot } from '@/app/vulnerabilities/api-types';
+import { summaryFixture, reposFixture, REPO_ROWS, repoRow, coverageFixture, coverageRow, slot, syncInfo } from '../support/security-fixtures';
+
+const NOW = new Date('2026-09-23T12:00:00Z');
+function props(over: Partial<SecurityHeaderProps> = {}): SecurityHeaderProps {
+  return {
+    summary: summaryFixture(),
+    repos: slot(reposFixture(REPO_ROWS)),
+    coverage: slot(coverageFixture()),
+    codebase: 'backend', summaryStale: false, openDrawer: jest.fn(), now: NOW,
+    ...over,
+  };
+}
+const unmeasuredRow = coverageRow({ repoId: 9, openCritical: 4, detail: 'x' });
+
+describe('securityMeta', () => {
+  it('reads "<Codebase> · N <scope> repositories · N owning teams", with the scope label as data', () => {
+    expect(securityMeta({ codebase: 'backend', scopeValue: 'production', repoCount: 11, teamCount: 4 }))
+      .toBe('Backend · 11 production repositories · 4 owning teams');
+    expect(securityMeta({ codebase: 'all', scopeValue: 'live', repoCount: 3, teamCount: 2 })).toBe('All · 3 live repositories · 2 owning teams');
+  });
+  it('uses singular forms for one', () => {
+    expect(securityMeta({ codebase: 'shared', scopeValue: 'production', repoCount: 1, teamCount: 1 }))
+      .toBe('Shared libraries · 1 production repository · 1 owning team');
+  });
+  it('without counts (rows still loading) it is never empty and carries no number', () => {
+    expect(securityMeta({ codebase: 'backend', scopeValue: 'production', repoCount: null, teamCount: null })).toBe('Backend · production repositories');
+  });
+});
+
+describe('staleHours', () => {
+  it('is the whole hours since the last successful sync, never negative', () => {
+    expect(staleHours('2026-09-21T18:00:00Z', NOW)).toBe(42);
+    expect(staleHours('2026-09-23T11:30:00Z', NOW)).toBe(0);
+    expect(staleHours('2026-09-24T00:00:00Z', NOW)).toBe(0);
+  });
+});
+
+describe('SecurityHeader', () => {
+  it('shows the title with the org, the meta line from the repos rows and the scope value, and never "synced daily"', () => {
+    render(<SecurityHeader {...props()} />);
+    expect(screen.getByText('Security · acme')).toBeTruthy();
+    // REPO_ROWS: 4 repositories across 3 owning teams (Payments, Search, Platform).
+    expect(screen.getByText('Backend · 4 production repositories · 3 owning teams')).toBeTruthy();
+    expect(screen.getByTestId('security-header').textContent).not.toMatch(/synced daily/i);
+  });
+
+  it('counts Unassigned as an owning team: a repository with no team still counts toward the owning teams', () => {
+    render(<SecurityHeader {...props({ repos: slot(reposFixture([...REPO_ROWS, repoRow('acme/orphan', 'Unassigned')])) })} />);
+    // REPO_ROWS: 4 repositories across Payments, Search and Platform; the orphan adds a fifth repository and a fourth team.
+    expect(screen.getByText('Backend · 5 production repositories · 4 owning teams')).toBeTruthy();
+  });
+
+  it('the scope label follows summary.scope.value', () => {
+    render(<SecurityHeader {...props({ summary: summaryFixture({ scope: { property: 'service_tier', value: 'live' } }) })} />);
+    expect(screen.getByText(/4 live repositories/)).toBeTruthy();
+  });
+
+  it('wraps PageHeader so its mb-6 does not stack on the page gap', () => {
+    render(<SecurityHeader {...props()} />);
+    expect(screen.getByTestId('security-header').className).toContain('[&>div]:mb-0');
+  });
+
+  it('shows the stale tag with the whole hours since the sync, and no tag when not stale', () => {
+    const stale = syncInfo({ stale: true, lastSuccessfulAt: '2026-09-21T18:00:00Z' });
+    const { rerender } = render(<SecurityHeader {...props({ summary: summaryFixture({ sync: stale }) })} />);
+    expect(screen.getByTestId('stale-tag').textContent).toBe('▲ STALE · 42H');
+    rerender(<SecurityHeader {...props()} />);
+    expect(screen.queryByTestId('stale-tag')).toBeNull();
+  });
+
+  it('shows the failed-sync banner with a "!" icon and the first issue; it is not inside the meta paragraph', () => {
+    const failed = syncInfo({ lastStatus: 'failed', issues: [{ kind: 'sync', message: 'token expired' }] });
+    render(<SecurityHeader {...props({ summary: summaryFixture({ sync: failed }) })} />);
+    const banner = screen.getByRole('alert');
+    expect(banner.textContent).toContain('The latest sync failed; showing data from the last good sync.');
+    expect(banner.textContent).toContain('token expired');
+    expect(within(banner).getByText('!')).toBeTruthy();
+    expect(banner.closest('p')).toBeNull();
+  });
+
+  it('no banner when the latest sync did not fail', () => {
+    render(<SecurityHeader {...props()} />);
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('keeps the freshness label, the Sync history action and the Updating… indicator', () => {
+    const { rerender } = render(<SecurityHeader {...props()} />);
+    expect(screen.getByText(/last successful sync/)).toBeTruthy();
+    expect(screen.getByRole('link', { name: /Sync history/ }).getAttribute('href')).toBe('/reports?tab=syncs');
+    expect(screen.queryByText('Updating…')).toBeNull();
+    rerender(<SecurityHeader {...props({ summaryStale: true })} />);
+    expect(screen.getByText('Updating…')).toBeTruthy();
+  });
+
+  it('renders the config-error banner under the header', () => {
+    render(<SecurityHeader {...props({ summary: summaryFixture({ configErrors: [{ source: 'startup', variable: 'VULN_X', rule: 'VULN_X entry 1: bad' }] }) })} />);
+    expect(screen.getByText('VULN_X entry 1: bad')).toBeTruthy();
+  });
+});
+
+describe('CoverageLine', () => {
+  it('keeps its 22px minimum height in every state: loading, error, loaded with the badge, loaded without it', () => {
+    const states = [
+      slot<CoverageData>(undefined),
+      slot<CoverageData>(undefined, { errorText: "Couldn't load coverage: boom", loading: false }),
+      slot(coverageFixture({ unmeasured: [unmeasuredRow] })),
+      slot(coverageFixture()),
+    ];
+    for (const s of states) {
+      const { unmount } = render(<CoverageLine coverage={s} openDrawer={jest.fn()} />);
+      expect(screen.getByTestId('coverage-line').style.minHeight).toBe(`${COVERAGE_LINE_MIN_H}px`);
+      unmount();
+    }
+  });
+
+  // Revert: render the badge only when the count is above zero (no slot): the items after it slide left and right.
+  it('reserves the badge slot in every state, with its width fixed and hidden when there is nothing to show', () => {
+    const states: Array<[Slot<CoverageData>, string]> = [
+      [slot<CoverageData>(undefined), 'hidden'],
+      [slot<CoverageData>(undefined, { errorText: "Couldn't load coverage: boom", loading: false }), 'hidden'],
+      [slot(coverageFixture()), 'hidden'],
+      [slot(coverageFixture({ unmeasured: [unmeasuredRow] })), 'visible'],
+    ];
+    for (const [s, visibility] of states) {
+      const { unmount } = render(<CoverageLine coverage={s} openDrawer={jest.fn()} />);
+      const reserved = screen.getByTestId('coverage-badge-slot');
+      expect(reserved.style.minWidth).toBe(`${COVERAGE_BADGE_SLOT_W}px`);
+      expect(reserved.style.visibility).toBe(visibility);
+      unmount();
+    }
+  });
+
+  // Revert: drop the min-width: "Needs tagging" and the link slide by a digit's width when a count changes.
+  it('the excluded and needs-tagging counts sit in slots with a minimum width, whatever the counts', () => {
+    for (const [excluded, tagging] of [[0, 0], [3, 1], [12, 11]]) {
+      const { unmount } = render(<CoverageLine coverage={slot(coverageFixture({
+        excludedByPolicy: Array.from({ length: excluded }, (_, i) => ({ ...unmeasuredRow, repoId: 100 + i })),
+        needsTagging: Array.from({ length: tagging }, (_, i) => ({ ...unmeasuredRow, repoId: 200 + i })),
+      }))} openDrawer={jest.fn()} />);
+      expect(screen.getByTestId('coverage-excluded').style.minWidth).toBe(`${COVERAGE_EXCLUDED_SLOT_W}px`);
+      expect(screen.getByTestId('coverage-excluded').textContent).toBe(`· ${excluded} excluded by policy`);
+      expect(screen.getByTestId('coverage-tagging').style.minWidth).toBe(`${COVERAGE_TAGGING_SLOT_W}px`);
+      expect(screen.getByTestId('coverage-tagging').textContent).toBe(`· ${tagging} need tagging`);
+      unmount();
+    }
+  });
+
+  it('shows the unmeasured badge only when there are unmeasured repositories, and opens the drawer from the clicked element', () => {
+    const openDrawer = jest.fn();
+    const { rerender } = render(<CoverageLine coverage={slot(coverageFixture({ unmeasured: [unmeasuredRow, { ...unmeasuredRow, repoId: 10 }] }))} openDrawer={openDrawer} />);
+    const badge = screen.getByRole('button', { name: /unmeasured/ });
+    // The one badge phrase: the Alerts strip and the team table print the same text.
+    expect(badge.textContent).toBe(unmeasuredBadgeText(2));
+    expect(badge.textContent).toBe('▲ 2 unmeasured repos');
+    fireEvent.click(badge);
+    expect(openDrawer).toHaveBeenCalledWith(badge);
+    rerender(<CoverageLine coverage={slot(coverageFixture({ unmeasured: [unmeasuredRow] }))} openDrawer={openDrawer} />);
+    expect(screen.getByRole('button', { name: /unmeasured/ }).textContent).toBe('▲ 1 unmeasured repo');
+    rerender(<CoverageLine coverage={slot(coverageFixture())} openDrawer={openDrawer} />);
+    expect(screen.queryByRole('button', { name: /unmeasured/ })).toBeNull();
+  });
+
+  // Revert: delete the "Coverage" label span, or make it lower-case text.
+  it('starts with a "COVERAGE" section label (sentence case in the DOM, upper-cased by CSS), before the badge slot', () => {
+    render(<CoverageLine coverage={slot(coverageFixture())} openDrawer={jest.fn()} />);
+    const label = screen.getByText('Coverage');
+    expect(label.className).toContain('uppercase');
+    expect(screen.getByTestId('coverage-line').firstElementChild).toBe(label);
+    expect(label.compareDocumentPosition(screen.getByTestId('coverage-badge-slot')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('shows the excluded and needs-tagging counts and a "Coverage & policy →" link that opens the drawer', () => {
+    const openDrawer = jest.fn();
+    render(<CoverageLine coverage={slot(coverageFixture({
+      excludedByPolicy: [{ ...unmeasuredRow, repoId: 1 }, { ...unmeasuredRow, repoId: 2 }, { ...unmeasuredRow, repoId: 3 }],
+      needsTagging: [{ ...unmeasuredRow, repoId: 4 }],
+    }))} openDrawer={openDrawer} />);
+    expect(screen.getByText('· 3 excluded by policy')).toBeTruthy();
+    expect(screen.getByText('· 1 need tagging')).toBeTruthy();
+    const link = screen.getByRole('button', { name: 'Coverage & policy →' });
+    expect(link.className).toContain('underline');
+    fireEvent.click(link);
+    expect(openDrawer).toHaveBeenCalledWith(link);
+  });
+
+  it('a coverage error shows its text and keeps the link', () => {
+    render(<CoverageLine coverage={slot<CoverageData>(undefined, { errorText: "Couldn't load coverage: boom", loading: false })} openDrawer={jest.fn()} />);
+    expect(screen.getByText("Couldn't load coverage: boom")).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Coverage & policy →' })).toBeTruthy();
+  });
+});
+
+describe('ConfigErrorBanner (carried over)', () => {
+  it('renders nothing when there are no errors', () => {
+    const { container } = render(<ConfigErrorBanner errors={[]} />);
+    expect(container.textContent).toBe('');
+    const { container: c2 } = render(<ConfigErrorBanner errors={undefined} />);
+    expect(c2.textContent).toBe('');
+  });
+  it('lists a startup entry\'s rule with no "clears after" text', () => {
+    render(<ConfigErrorBanner errors={[{ source: 'startup', variable: 'VULN_X', rule: 'VULN_X entry 1: bad' }]} />);
+    expect(screen.getByText('VULN_X entry 1: bad')).toBeTruthy();
+    expect(screen.queryByText(/clears after/)).toBeNull();
+  });
+  it('adds "clears after the next successful sync (as of …)" for a sync-sourced entry', () => {
+    render(<ConfigErrorBanner errors={[{ source: 'sync', variable: 'VULN_Y', rule: 'VULN_Y: unseen', at: '2026-09-22T06:00:00Z' }]} />);
+    expect(screen.getByText(/VULN_Y: unseen — clears after the next successful sync \(as of 2026-09-22T06:00:00Z\)/)).toBeTruthy();
+  });
+});
