@@ -261,3 +261,47 @@ export const ovDelta = (total: DeltaTeam | null, over: Partial<DeltaResult> = {}
 
 /** A delta with no baseline at all (nothing is old enough to compare against). */
 export const ovNoBaseline = (): DeltaResult => ({ available: false, baseline: null, reposNotInBaseline: 0, teams: [], total: null });
+
+import type { TrendSeries } from '@/lib/vulnerabilities/aggregate';
+
+/** A severity cell for a team or total row. Only `open` is required; the rest default to zero or null. */
+export const ovCell = (open: number, over: Partial<SevCell> = {}): SevCell => ({
+  open, resolved: 0, dismissed: 0, pctClosed: null, overdue: null, dueSoon: null, carriedResolved: 0, ...over,
+});
+
+/** A team (or Total) row built from two cells. */
+export const ovTeam = (team: string, critical: SevCell, high: SevCell, unmeasuredRepos = 0): TeamRow => ({
+  team, critical, high, unmeasuredRepos,
+});
+
+/** One team's trend series from [date, open] pairs. */
+export const ovSeries = (team: string, points: Array<[string, number]>): TrendSeries => ({
+  team, points: points.map(([date, open]) => ({ date, open })),
+});
+
+/**
+ * SecurityViewProps for the Overview slots. `summary` overrides the scoped summary (and the team
+ * table's, unless `teamSummary` is given), `url` overrides URL values, `repos` replaces the repository
+ * rows, `data` replaces any slot (for example a loading `sparkline`).
+ */
+export function ovProps(o: {
+  summary?: Partial<SummaryData>;
+  teamSummary?: Slot<SummaryData>;
+  repos?: RepoRow[];
+  url?: Partial<SecurityViewProps['url']>;
+  data?: Partial<SecurityData>;
+} = {}): SecurityViewProps {
+  const summary = summaryFixture(o.summary);
+  const base = viewProps();
+  return viewProps({
+    summary,
+    url: { ...base.url, ...o.url },
+    data: {
+      ...base.data,
+      summary: slot(summary),
+      teamSummary: o.teamSummary ?? slot(summary),
+      ...(o.repos ? { repos: slot(reposFixture(o.repos)), metaRepos: slot(reposFixture(o.repos)) } : {}),
+      ...o.data,
+    },
+  });
+}
