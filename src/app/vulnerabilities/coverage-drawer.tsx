@@ -170,6 +170,8 @@ export default function CoverageDrawer({ open, onClose, opener, coverage, summar
             <p data-testid="drawer-scope" className="mt-1 text-[13px] text-gray-400">
               {codebase ? CODEBASE_LABELS[codebase] : 'All codebases'} · Owning team: {summary.appliedFilters.team ?? 'all'} · follows the page filters
             </p>
+            {/* Always rendered, empty (no height) until a same-key refresh fails: the one live note for `coverage` (the header's line shows plain text). */}
+            <RefreshNote error={view.kind === 'data' ? view.refreshError : null} testId="coverage-refresh-note" live />
           </div>
           {/* A filled 30 x 30 button, as the mockup's. */}
           <button
@@ -191,8 +193,6 @@ export default function CoverageDrawer({ open, onClose, opener, coverage, summar
             <p className="text-[13px] text-gray-500">Loading…</p>
           ) : (
             <>
-              {/* Drawn only when a refresh failed (not reserved): the drawer's lists have no fixed height to protect. */}
-              {view.kind === 'data' && view.refreshError && <RefreshNote error={view.refreshError} testId="coverage-refresh-note" live />}
               <Group title="Unmeasured" mark dimmed={dimmed} count={c.unmeasured.length} summary="open counts unknown"
                 note="Open counts unknown, not zero. Their resolved alerts and measured history still count.">
                 {c.unmeasured.map(r => (

@@ -180,7 +180,8 @@ describe('coverage groups', () => {
     expect(screen.getByText('outside scope (staging)').className).toContain('[overflow-wrap:anywhere]');
     // Nothing in the dialog is cut, so nothing needs a title to make up for it.
     const dialog = screen.getByRole('dialog');
-    expect(dialog.querySelectorAll('.truncate')).toHaveLength(0);
+    // (The shared refresh note is a fixed short sentence in its own line, not a row; it carries `truncate` like everywhere else.)
+    expect(dialog.querySelectorAll('.truncate:not([data-testid="coverage-refresh-note"])')).toHaveLength(0);
   });
 
   // Revert: put `TYPE.link` (underline always) back on the name: the rows are then a list of underlined accent links, not the mockup's plain names.
@@ -248,9 +249,10 @@ describe('the slot rule (GLOOK-64 final review #7)', () => {
     expect(screen.queryByText("Couldn't load coverage: x")).toBeNull();
   });
 
-  it('no refresh note while nothing failed; an unavailable answer reads its short message, never an endless "Loading…"', () => {
+  it('the refresh note is an empty live region while nothing failed; an unavailable answer reads its short message, never an endless "Loading…"', () => {
     const { rerender } = render(<CoverageDrawer {...base()} />);
-    expect(screen.queryByTestId('coverage-refresh-note')).toBeNull();
+    expect(screen.getByTestId('coverage-refresh-note').textContent).toBe('');   // always in the page (a live region must exist before its text), empty while nothing failed
+    expect(screen.getByTestId('coverage-refresh-note').getAttribute('role')).toBe('status');
     rerender(<CoverageDrawer {...base({ coverage: slot<CoverageData>(undefined, { loading: false, unavailable: { available: false, reason: 'off' } as never }) })} />);
     expect(screen.getByText('Not available yet')).toBeTruthy();
     expect(screen.queryByText('Loading…')).toBeNull();

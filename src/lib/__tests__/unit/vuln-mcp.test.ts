@@ -287,7 +287,7 @@ describe('list_vulnerability_repos', () => {
     const t = MCP_TOOLS.find(x => x.name === 'list_vulnerability_repos')!;
     expect(t.description).toMatch(/`next_due` is also null when nothing is due ahead \(nothing is open, or every open alert is already overdue\)/);
     expect(t.description).toMatch(/null `next_due` next to a numeric `overdue` does not mean there is no SLA/);
-    expect(t.description).toMatch(/`open`, `overdue`, `due_soon`, `oldest_open_days` and `next_due` are all a stored count/);
+    expect(t.description).toMatch(/`open` is the stored count, which may be out of date, and `overdue`, `due_soon`, `oldest_open_days` and `next_due` are computed from the same stored alerts/);
   });
 
   it('its description says the rows are capped per call, when they sum to the summary, and that unmeasured rows are cut first', () => {
