@@ -1,6 +1,6 @@
 // src/app/vulnerabilities/filter-bar.tsx
 'use client';
-import type { ReactNode, Ref } from 'react';
+import { useRef, type ReactNode, type Ref } from 'react';
 import { CODEBASE_GROUPS, CODEBASE_LABELS } from '@/lib/vulnerabilities/codebase-labels';
 import { codebaseOptionCount, kSev, type CodebaseCounts, type SecurityUrl, type SeverityFilter } from './security-state';
 import ViewTabs from './view-tabs';
@@ -35,7 +35,8 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // A non-default select gets the accent border AND the accent fill; a default one is a plain surface.
 const selectClass = (nonDefault: boolean) =>
-  `shrink-0 h-7 px-2 text-xs truncate border ${TYPE.control} ${nonDefault ? 'border-accent bg-accent/10 text-accent-light' : 'border-gray-700 bg-chart-surface text-gray-300'}`;
+  `shrink-0 px-2 text-xs truncate border ${TYPE.control} ${nonDefault ? 'border-accent bg-accent-bg text-accent-light' : 'border-gray-700 bg-chart-surface text-gray-300'}`;
+const selectStyle = (width: number) => ({ width, height: FILTER_SELECT_H });
 
 /** The visible caption above a select: sentence case in the DOM (it is the select's accessible name), upper-cased by CSS. */
 const CAPTION = 'block truncate text-[10.5px] font-semibold uppercase tracking-[0.06em] text-gray-400';
@@ -50,6 +51,7 @@ function Field({ id, label, children }: { id: string; label: string; children: R
 }
 
 export default function FilterBar({ url, teams, codebaseCounts, alertsCount, baselinePrefill, barRef }: FilterBarProps) {
+  const codebaseRef = useRef<HTMLSelectElement>(null);
   const isDate = DATE_RE.test(url.baseline);
   const compareValue = isDate ? 'date' : url.baseline;
   const today = new Date().toISOString().slice(0, 10);
@@ -76,7 +78,8 @@ export default function FilterBar({ url, teams, codebaseCounts, alertsCount, bas
         boxShadow: '0 1px 0 var(--chart-grid)',
       }}
     >
-      <div className="flex items-center" style={{ height: BAR_ROW_H }}>
+      {/* The 1px rule under the tabs is inside the row's height (border-box), so the bar's total stays FILTER_BAR_H. */}
+      <div className="box-border flex items-center" style={{ height: BAR_ROW_H, borderBottom: '1px solid var(--chart-grid)' }}>
         <ViewTabs view={url.view} onChange={url.setView} alertsCount={alertsCount} />
       </div>
 
@@ -84,11 +87,12 @@ export default function FilterBar({ url, teams, codebaseCounts, alertsCount, bas
         <Field id="security-codebase" label="Codebase">
           <select
             id="security-codebase"
+            ref={codebaseRef}
             value={url.codebase}
             title={codebaseLabel(url.codebase)}
             onChange={e => url.setCodebase(e.target.value as (typeof CODEBASE_GROUPS)[number])}
             className={selectClass(!url.isDefault.codebase)}
-            style={{ width: SELECT_W.codebase }}
+            style={selectStyle(SELECT_W.codebase)}
           >
             {CODEBASE_GROUPS.map(g => <option key={g} value={g}>{codebaseLabel(g)}</option>)}
           </select>
@@ -101,7 +105,7 @@ export default function FilterBar({ url, teams, codebaseCounts, alertsCount, bas
             title={url.team ?? 'All owning teams'}
             onChange={e => url.setTeam(e.target.value || null)}
             className={selectClass(!url.isDefault.team)}
-            style={{ width: SELECT_W.team }}
+            style={selectStyle(SELECT_W.team)}
           >
             <option value="">All owning teams</option>
             {teams.map(t => <option key={t} value={t}>{t}</option>)}
@@ -115,7 +119,7 @@ export default function FilterBar({ url, teams, codebaseCounts, alertsCount, bas
             title={severityLabel}
             onChange={e => url.setSeverity(e.target.value as SeverityFilter)}
             className={selectClass(!url.isDefault.severity)}
-            style={{ width: SELECT_W.severity }}
+            style={selectStyle(SELECT_W.severity)}
           >
             {SEVERITY_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
@@ -132,7 +136,7 @@ export default function FilterBar({ url, teams, codebaseCounts, alertsCount, bas
               url.setBaseline(v === 'date' ? baselinePrefill : v);
             }}
             className={selectClass(!url.isDefault.baseline)}
-            style={{ width: SELECT_W.baseline }}
+            style={selectStyle(SELECT_W.baseline)}
           >
             {COMPARE_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
@@ -149,6 +153,7 @@ export default function FilterBar({ url, teams, codebaseCounts, alertsCount, bas
             tabIndex={isDate ? 0 : -1}
             onChange={e => { if (e.target.value) url.setBaseline(e.target.value); }}
             className={`${selectClass(isDate)} w-full ${isDate ? '' : 'invisible'}`}
+            style={{ height: FILTER_SELECT_H }}
           />
         </div>
 
@@ -157,7 +162,11 @@ export default function FilterBar({ url, teams, codebaseCounts, alertsCount, bas
         <div data-testid="reset-slot" className="flex shrink-0 items-center justify-end" style={{ width: RESET_SLOT_W, height: FILTER_SELECT_H }}>
           <button
             type="button"
-            onClick={() => url.resetFilters()}
+            onClick={() => {
+              url.resetFilters();
+              // The button hides itself once the filters are default: keep focus on the first filter, not on a hidden control.
+              codebaseRef.current?.focus();
+            }}
             disabled={url.isDefault.all}
             tabIndex={url.isDefault.all ? -1 : 0}
             aria-hidden={url.isDefault.all ? true : undefined}

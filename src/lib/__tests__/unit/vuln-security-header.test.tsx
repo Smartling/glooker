@@ -1,8 +1,8 @@
 /** @jest-environment jsdom */
 // src/lib/__tests__/unit/vuln-security-header.test.tsx
 import { render, screen, fireEvent, within } from '@testing-library/react';
-import SecurityHeader, { securityMeta, staleHours, ConfigErrorBanner, CoverageLine, COVERAGE_BADGE_SLOT_W, COVERAGE_EXCLUDED_SLOT_W, COVERAGE_TAGGING_SLOT_W, type SecurityHeaderProps } from '@/app/vulnerabilities/security-header';
-import { COVERAGE_LINE_MIN_H } from '@/app/vulnerabilities/dimensions';
+import SecurityHeader, { securityMeta, staleHours, ConfigErrorBanner, CoverageLine, type SecurityHeaderProps } from '@/app/vulnerabilities/security-header';
+import { COVERAGE_LINE_MIN_H, COVERAGE_BADGE_SLOT_W, COVERAGE_EXCLUDED_SLOT_W, COVERAGE_TAGGING_SLOT_W } from '@/app/vulnerabilities/dimensions';
 import { unmeasuredBadgeText } from '@/app/vulnerabilities/labels';
 import type { CoverageData, Slot } from '@/app/vulnerabilities/api-types';
 import { summaryFixture, reposFixture, REPO_ROWS, repoRow, coverageFixture, coverageRow, slot, syncInfo } from '../support/security-fixtures';
@@ -102,6 +102,27 @@ describe('SecurityHeader', () => {
   it('no banner when the latest sync did not fail', () => {
     render(<SecurityHeader {...props()} />);
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  // Revert: pass `stale={sync.stale}` to DataFreshness: the label turns amber next to the STALE tag, two stale cues.
+  it('the "▲ STALE · NH" tag is the only stale cue: the freshness label keeps its normal colour', () => {
+    const stale = syncInfo({ stale: true, lastSuccessfulAt: '2026-09-21T18:00:00Z' });
+    render(<SecurityHeader {...props({ summary: summaryFixture({ sync: stale }) })} />);
+    expect(screen.getByTestId('stale-tag')).toBeTruthy();
+    const label = screen.getByText(/last successful sync/);
+    expect(label.className).toContain('text-gray-500');
+    expect(label.className).not.toContain('amber');
+  });
+
+  // Revert: put the arrow and the link style back: it reads as an inline link, not as the page's secondary button.
+  it('"Sync history" is a secondary button (surface fill, border, no underline, no arrow) linking to the sync list', () => {
+    render(<SecurityHeader {...props()} />);
+    const btn = screen.getByRole('link', { name: 'Sync history' });
+    expect(btn.textContent).toBe('Sync history');
+    expect(btn.getAttribute('href')).toBe('/reports?tab=syncs');
+    expect(btn.className).toContain('border');
+    expect(btn.className).toContain('bg-chart-surface');
+    expect(btn.className).not.toContain('underline');
   });
 
   it('keeps the freshness label, the Sync history action and the Updating… indicator', () => {
@@ -232,8 +253,17 @@ describe('ConfigErrorBanner (carried over)', () => {
     expect(screen.getByText('VULN_X entry 1: bad')).toBeTruthy();
     expect(screen.queryByText(/clears after/)).toBeNull();
   });
-  it('adds "clears after the next successful sync (as of …)" for a sync-sourced entry', () => {
-    render(<ConfigErrorBanner errors={[{ source: 'sync', variable: 'VULN_Y', rule: 'VULN_Y: unseen', at: '2026-09-22T06:00:00Z' }]} />);
-    expect(screen.getByText(/VULN_Y: unseen — clears after the next successful sync \(as of 2026-09-22T06:00:00Z\)/)).toBeTruthy();
+  // Revert: print `e.at` raw again: the line shows an ISO instant where every other date on the page reads "Sep 22".
+  it('adds "clears after the next successful sync (as of <date>)" for a sync-sourced entry: a display date, the ISO instant in a title', () => {
+    jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-01T00:00:00Z'));
+    const { container } = render(<ConfigErrorBanner errors={[{ source: 'sync', variable: 'VULN_Y', rule: 'VULN_Y: unseen', at: '2026-09-22T06:00:00Z' }]} />);
+    expect(container.textContent).toBe('VULN_Y: unseen — clears after the next successful sync (as of Sep 22)');
+    expect(screen.getByText('Sep 22').getAttribute('title')).toBe('2026-09-22T06:00:00Z');
+    jest.restoreAllMocks();
+  });
+
+  it('a sync-sourced entry with no time reads without "(as of …)", and never prints "undefined"', () => {
+    const { container } = render(<ConfigErrorBanner errors={[{ source: 'sync', variable: 'VULN_Y', rule: 'VULN_Y: unseen' }]} />);
+    expect(container.textContent).toBe('VULN_Y: unseen — clears after the next successful sync');
   });
 });

@@ -84,7 +84,7 @@ export default function VulnerabilitiesContent() {
         <p className="text-sm text-gray-400 mt-2">{u.reason}</p>
         <div className="mt-2"><ConfigErrorBanner errors={u.configErrors} /></div>
         {u.sync?.lastStatus === 'failed' && <p className="text-sm text-red-400 mt-1">The last sync failed: {u.sync.issues?.[0]?.message}</p>}
-        <Link href="/reports?tab=syncs" className="text-xs text-accent-light mt-3 inline-block">Sync history →</Link>
+        <Link href="/reports?tab=syncs" className={`text-xs ${TYPE.link} mt-3 inline-block`}>Sync history →</Link>
       </Shell>
     );
   }

@@ -2,7 +2,7 @@
 // src/lib/__tests__/unit/vuln-filter-bar.test.tsx
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import FilterBar, { type FilterBarProps } from '@/app/vulnerabilities/filter-bar';
-import { FILTER_BAR_H, SELECT_W, RESET_SLOT_W, BAR_ROW_H, FILTER_ROW_H, Z } from '@/app/vulnerabilities/dimensions';
+import { FILTER_BAR_H, SELECT_W, RESET_SLOT_W, BAR_ROW_H, FILTER_ROW_H, FILTER_SELECT_H, ALERTS_TAB_COUNT_W, Z } from '@/app/vulnerabilities/dimensions';
 
 const DEFAULTS = { codebase: true, team: true, severity: true, baseline: true, repo: true, all: true };
 const COUNTS = {
@@ -71,6 +71,26 @@ describe('layout stability', () => {
     expect(snap()).toEqual(before);
   });
 
+  // Revert: put `h-7` back on the select class: the height is a Tailwind class, not the dimensions.ts number the tests compare.
+  it('every select and the date input take their height from FILTER_SELECT_H, inline, not from a utility class', () => {
+    render(<FilterBar {...props({ baseline: '2026-09-15', isDefault: { ...DEFAULTS, baseline: false, all: false } })} />);
+    for (const el of [...['Codebase', 'Owning team', 'Severity', 'Compare to'].map(l => screen.getByLabelText(l)), screen.getByLabelText('Compare to date')]) {
+      expect((el as HTMLElement).style.height).toBe(`${FILTER_SELECT_H}px`);
+      expect(el.className.split(' ')).not.toContain('h-7');
+    }
+  });
+
+  // Revert: drop the border or the box-border class: the rule either vanishes or grows the row to 37px and the bar to 95.
+  it('a 1px rule under the tabs sits inside the tabs row, which keeps BAR_ROW_H, so the bar total stays FILTER_BAR_H', () => {
+    render(<FilterBar {...props()} />);
+    const bar = screen.getByTestId('security-bar');
+    const tabsRow = bar.children[0] as HTMLElement;
+    expect(tabsRow.style.borderBottom).toMatch(/^1px solid/);
+    expect(tabsRow.className).toContain('box-border');
+    expect(tabsRow.style.height).toBe(`${BAR_ROW_H}px`);
+    expect(bar.style.height).toBe(`${FILTER_BAR_H}px`);
+  });
+
   it('is sticky at the top with the body background variable and a z-index between pinned rows and the drawer', () => {
     render(<FilterBar {...props()} />);
     const bar = screen.getByTestId('security-bar');
@@ -136,6 +156,16 @@ describe('Reset filters', () => {
     expect(screen.getByText('Reset filters').className).toContain('underline');
   });
 
+  // Revert: drop the focus call: once the button hides itself, focus falls to the page body and a keyboard user loses their place.
+  it('moves focus to the Codebase select, since the button hides itself when the filters are default again', () => {
+    render(<FilterBar {...props({ isDefault: { ...DEFAULTS, team: false, all: false }, team: 'Payments' })} />);
+    const btn = screen.getByText('Reset filters');
+    btn.focus();
+    expect(document.activeElement).toBe(btn);
+    fireEvent.click(btn);
+    expect(document.activeElement).toBe(screen.getByLabelText('Codebase'));
+  });
+
   it('appears when only the selected repository differs (Reset clears it too)', () => {
     render(<FilterBar {...props({ isDefault: { ...DEFAULTS, repo: false, all: false } })} />);
     expect((screen.getByText('Reset filters') as HTMLButtonElement).className).not.toContain('invisible');
@@ -147,12 +177,12 @@ describe('accent treatment', () => {
     render(<FilterBar {...props({ codebase: 'frontend', isDefault: { ...DEFAULTS, codebase: false, all: false } })} />);
     const changed = screen.getByLabelText('Codebase').className;
     expect(changed).toContain('border-accent');
-    expect(changed).toContain('bg-accent/10');
+    expect(changed).toContain('bg-accent-bg');
     expect(changed).toContain('text-accent-light');
     expect(changed).not.toContain('bg-chart-surface');
     const plain = screen.getByLabelText('Severity').className;
     expect(plain).not.toContain('border-accent');
-    expect(plain).not.toContain('bg-accent/10');
+    expect(plain).not.toContain('bg-accent-bg');
     expect(plain).toContain('bg-chart-surface');
   });
 });
@@ -259,6 +289,45 @@ describe('view tabs', () => {
     render(<FilterBar {...props({}, { alertsCount: null })} />);
     const slot = screen.getByTestId('alerts-tab-count');
     expect(slot.textContent).toBe('');
-    expect(slot.className).toContain('min-w-[64px]');
+    expect(slot.style.minWidth).toBe(`${ALERTS_TAB_COUNT_W}px`);
+  });
+
+  // Revert: render every tab with tabIndex 0 (or drop the attribute).
+  it('uses a roving tabindex: the selected tab is in the tab order, the other is not', () => {
+    const { rerender } = render(<FilterBar {...props({ view: 'overview' })} />);
+    expect([screen.getByRole('tab', { name: 'Overview' }).tabIndex, screen.getByRole('tab', { name: /^Alerts/ }).tabIndex]).toEqual([0, -1]);
+    rerender(<FilterBar {...props({ view: 'alerts' })} />);
+    expect([screen.getByRole('tab', { name: 'Overview' }).tabIndex, screen.getByRole('tab', { name: /^Alerts/ }).tabIndex]).toEqual([-1, 0]);
+  });
+
+  // Revert: delete the keydown handler, or call onChange from it (automatic activation would push a history entry per arrow press).
+  it('ArrowLeft, ArrowRight, Home and End move focus between the tabs (wrapping) and never change the view', () => {
+    const url = props({ view: 'overview' }).url;
+    render(<FilterBar {...props({}, {})} url={url} />);
+    const overview = screen.getByRole('tab', { name: 'Overview' });
+    const alerts = screen.getByRole('tab', { name: /^Alerts/ });
+    overview.focus();
+    fireEvent.keyDown(overview, { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(alerts);
+    fireEvent.keyDown(alerts, { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(overview);   // wraps
+    fireEvent.keyDown(overview, { key: 'ArrowLeft' });
+    expect(document.activeElement).toBe(alerts);     // wraps the other way
+    fireEvent.keyDown(alerts, { key: 'Home' });
+    expect(document.activeElement).toBe(overview);
+    fireEvent.keyDown(overview, { key: 'End' });
+    expect(document.activeElement).toBe(alerts);
+    expect(url.setView).not.toHaveBeenCalled();
+  });
+
+  // Revert: preventDefault Enter and Space too: a button's own activation would stop working.
+  it('Enter and Space are left to the button, which activates the focused tab (manual activation); the arrows are not', () => {
+    render(<FilterBar {...props()} />);
+    const alerts = screen.getByRole('tab', { name: /^Alerts/ });
+    alerts.focus();
+    expect(alerts.tagName).toBe('BUTTON');
+    expect(fireEvent.keyDown(alerts, { key: 'Enter' })).toBe(true);    // not default-prevented
+    expect(fireEvent.keyDown(alerts, { key: ' ' })).toBe(true);
+    expect(fireEvent.keyDown(alerts, { key: 'ArrowRight' })).toBe(false);   // prevented: no page scroll
   });
 });

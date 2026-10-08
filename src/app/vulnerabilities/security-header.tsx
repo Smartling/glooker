@@ -5,11 +5,11 @@ import PageHeader from '@/components/PageHeader';
 import DataFreshness from '@/components/runs/DataFreshness';
 import { CODEBASE_LABELS } from '@/lib/vulnerabilities/codebase-labels';
 import type { CodebaseGroup } from '@/lib/vulnerabilities/types';
-import { unmeasuredBadgeText } from './labels';
+import { displayDate, unmeasuredBadgeText } from './labels';
 import type { SummaryData, ReposData, CoverageData } from './api-types';
 import type { Slot } from './use-security-data';
 import type { OpenDrawer } from './coverage-drawer';
-import { COVERAGE_LINE_MIN_H, TYPE } from './dimensions';
+import { COVERAGE_BADGE_SLOT_W, COVERAGE_EXCLUDED_SLOT_W, COVERAGE_LINE_MIN_H, COVERAGE_TAGGING_SLOT_W, TYPE } from './dimensions';
 
 /** "Backend · 11 production repositories · 4 owning teams". The scope value is data
  * (`summary.scope.value`), never a literal. Without counts it is still a full line. */
@@ -36,18 +36,19 @@ export function ConfigErrorBanner({ errors }: { errors?: Array<{ source: string;
   return (
     <div className="text-xs text-red-400 border border-red-900 rounded p-2 space-y-0.5">
       {errors.map((e, i) => (
-        <div key={i}>{e.rule}{e.source === 'sync' ? ` — clears after the next successful sync (as of ${e.at})` : ''}</div>
+        <div key={i}>
+          {e.rule}
+          {e.source === 'sync' && (
+            <>
+              {' — clears after the next successful sync'}
+              {e.at && <> (as of <span title={e.at}>{displayDate(e.at)}</span>)</>}
+            </>
+          )}
+        </div>
       ))}
     </div>
   );
 }
-
-/** Slot widths, in px, sized for counts of up to two digits in the page's font. The unmeasured badge's
- * slot is always rendered, and the two counts sit in slots too, so the items after each keep their place
- * when a filter change moves a count between zero and non-zero or between one digit and two. */
-export const COVERAGE_BADGE_SLOT_W = 168;
-export const COVERAGE_EXCLUDED_SLOT_W = 160;
-export const COVERAGE_TAGGING_SLOT_W = 120;
 
 /** "COVERAGE", the unmeasured badge, "· N excluded by policy · N need tagging", and the drawer link. The minimum
  * height keeps the line from shrinking when the badge disappears, and the badge's slot keeps its width. */
@@ -131,14 +132,22 @@ export default function SecurityHeader({ summary, repos, coverage, codebase, sum
           <DataFreshness
             label="last successful sync"
             at={sync.lastSuccessfulAt}
-            stale={sync.stale}
+            // The "▲ STALE · NH" tag below is the one stale cue: the label stays its normal colour.
+            stale={false}
             // Label only: the failed banner is page-local (below), full width, not squeezed into this row.
             latestFailed={false}
             failedText=""
           />
         )}
         badges={summaryStale ? <span className="text-[11px] text-accent-light">Updating…</span> : undefined}
-        actions={<Link href="/reports?tab=syncs" className="text-xs text-accent-light hover:text-accent-lighter">Sync history →</Link>}
+        actions={(
+          <Link
+            href="/reports?tab=syncs"
+            className={`inline-block border border-gray-700 bg-chart-surface px-3 py-1.5 text-xs font-medium text-gray-300 hover:text-white ${TYPE.control}`}
+          >
+            Sync history
+          </Link>
+        )}
       >
         <div className="flex flex-col gap-2">
           {showStale && (

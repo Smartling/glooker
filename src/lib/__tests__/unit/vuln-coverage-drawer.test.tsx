@@ -3,9 +3,10 @@
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { renderHook, act } from '@testing-library/react';
 import CoverageDrawer, { useCoverageDrawer, type CoverageDrawerProps } from '@/app/vulnerabilities/coverage-drawer';
-import { DRAWER_W, DRAWER_MAX_W, Z } from '@/app/vulnerabilities/dimensions';
+import { DRAWER_W, DRAWER_MAX_W, POLICY_LABEL_W, Z } from '@/app/vulnerabilities/dimensions';
 import type { CoverageData } from '@/app/vulnerabilities/api-types';
 import { unmeasuredReason } from '@/app/vulnerabilities/labels';
+import { slaStateLabel } from '@/app/vulnerabilities/sla-state';
 import { coverageFixture, coverageRow as row, summaryFixture, slot } from '../support/security-fixtures';
 
 function base(over: Partial<CoverageDrawerProps> = {}): CoverageDrawerProps {
@@ -159,6 +160,35 @@ describe('coverage groups', () => {
     expect(screen.getByText(unmeasuredReason({ status: 'error', detail: null }))).toBeTruthy();
   });
 
+  // Revert: drop the `title` on the truncating spans (or the max-width on the reason): a long name or reason is cut with no way to read it.
+  it('every truncating span carries its full text in a title, and a long reason is capped so the name keeps room', () => {
+    const longReason = 'HTTP 500: the status check failed while reading the repository security settings';
+    render(<CoverageDrawer {...base({
+      coverage: slot(coverageFixture({
+        unmeasured: [row({ repoId: 1, fullName: 'acme/off-repo', dependabotStatus: 'error', detail: longReason })],
+        needsTagging: [row({ repoId: 3, fullName: 'acme/untagged', team: null, serviceTier: null, openCritical: 2, openHigh: 1 })],
+        excludedByPolicy: [row({ repoId: 4, fullName: 'acme/staging-tools', serviceTier: 'staging', openCritical: 1, openHigh: 0 })],
+      })),
+    })} />);
+    const reason = screen.getByText(longReason);
+    expect(reason.getAttribute('title')).toBe(longReason);
+    expect(reason.className).toContain('truncate');
+    expect(reason.className).toContain('max-w-[55%]');
+    expect(screen.getByText('acme/off-repo').closest('span.truncate')!.getAttribute('title')).toBe('acme/off-repo · owning team Platform');
+    expect(screen.getByText('Missing: owning team, service tier').getAttribute('title')).toBe('Missing: owning team, service tier');
+    expect(screen.getByText('1 crit · 0 high').getAttribute('title')).toBe('1 crit · 0 high');
+    expect(screen.getByText('outside scope (staging)').getAttribute('title')).toBe('outside scope (staging)');
+    expect(screen.getByText('acme/untagged').closest('span.truncate')!.getAttribute('title')).toBe('acme/untagged');
+    // Every element that truncates has a title, whatever its text.
+    const dialog = screen.getByRole('dialog');
+    for (const el of Array.from(dialog.querySelectorAll('.truncate'))) expect(el.getAttribute('title')).toBeTruthy();
+  });
+
+  it('repository links read as links: the shared underline style', () => {
+    render(<CoverageDrawer {...base({ coverage: slot(coverageFixture({ needsTagging: [row({ repoId: 3, fullName: 'acme/untagged' })] })) })} />);
+    expect(screen.getByRole('link', { name: 'acme/untagged' }).className).toContain('underline');
+  });
+
   it('Needs tagging rows name what is missing and show their open counts; Excluded rows say why they are outside the scope', () => {
     render(<CoverageDrawer {...base({
       coverage: slot(coverageFixture({
@@ -206,6 +236,11 @@ describe('policy ("From deployment configuration")', () => {
     expect(policy.textContent).not.toMatch(/critical-2020-01|high-2099-01|open-ended|pending|→/);
   });
 
+  it('the label column is POLICY_LABEL_W wide (a dimensions.ts number, not a class literal)', () => {
+    render(<CoverageDrawer {...base()} />);
+    expect(screen.getByText('Critical SLA').parentElement!.parentElement!.style.gridTemplateColumns).toBe(`${POLICY_LABEL_W}px minmax(0, 1fr)`);
+  });
+
   it('an active severity reads "N days · since <date>", a pending one "N days · starts <date>", with years for dates outside this one', () => {
     render(<CoverageDrawer {...base({ summary: summaryFixture({
       slaStatus: { critical: 'active', high: 'pending' },
@@ -225,10 +260,12 @@ describe('policy ("From deployment configuration")', () => {
     expect(value('critical').textContent).toBe('1 day · since Jan 8, 2020');
   });
 
-  it('a severity with no policy reads "No SLA policy yet"; the state is decided per severity, not once for the page', () => {
+  // Revert (with the drawer back on a literal): change the "none" wording in slaStateLabel: the drawer stops following it.
+  it('a severity with no policy reads "No SLA policy yet", in the words slaStateLabel owns; the state is decided per severity, not once for the page', () => {
     render(<CoverageDrawer {...base()} />);
     expect(value('critical').textContent).toBe('9 days · since Jan 8, 2020');
-    expect(value('high').textContent).toBe('No SLA policy yet');
+    // The wording itself is pinned in vuln-sla-state.test.ts; the drawer must print whatever that function says.
+    expect(value('high').textContent).toBe(slaStateLabel({ kind: 'none' }, { withSla: false }));
     expect(value('high').className).not.toContain('text-red-400');
   });
 

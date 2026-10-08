@@ -330,7 +330,9 @@ describe('full-page states carried over from today', () => {
     expect(await screen.findByText('No successful vulnerability sync yet.')).toBeTruthy();
     expect(screen.getByText('VULN_X entry 1: bad')).toBeTruthy();
     expect(screen.getByText('The last sync failed: boom')).toBeTruthy();
-    expect(screen.getByRole('link', { name: /Sync history/ }).getAttribute('href')).toBe('/reports?tab=syncs');
+    const link = screen.getByRole('link', { name: /Sync history/ });
+    expect(link.getAttribute('href')).toBe('/reports?tab=syncs');
+    expect(link.className).toContain('underline');   // an in-page link: the underline is its non-colour cue
   });
 
   it('shows Loading… before the summary resolves', () => {

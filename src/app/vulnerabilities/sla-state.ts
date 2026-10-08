@@ -42,7 +42,13 @@ export interface SlaLabelOptions {
   today?: string;
 }
 
-/** The user-facing text for a non-active state; null when active (the caller shows figures). The one definition of the state wording. */
+/**
+ * The user-facing text for a non-active state; null when active (the caller shows figures). The one definition of the state wording.
+ *
+ * `invalid` with `withSla: false` is "Policy error": a label for a surface that already says "SLA". It is only the
+ * words. The caller draws the red "!" badge and the full-sentence `title` beside it, as the SLA tile does; this
+ * function never decides the colour or the icon.
+ */
 export function slaStateLabel(st: SlaState, { withSla, today }: SlaLabelOptions): string | null {
   switch (st.kind) {
     case 'active': return null;

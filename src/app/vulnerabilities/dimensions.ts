@@ -32,6 +32,16 @@ export const RAIL_W = 260;
 export const DRAWER_W = 460;
 export const DRAWER_MAX_W = '92vw';
 export const COVERAGE_LINE_MIN_H = 22;
+/** The header's coverage line: slot widths in px, sized for counts of up to two digits in the page's font. The
+ * unmeasured badge's slot is always rendered, and the two counts sit in slots too, so the items after each keep
+ * their place when a filter change moves a count between zero and non-zero or between one digit and two. */
+export const COVERAGE_BADGE_SLOT_W = 168;
+export const COVERAGE_EXCLUDED_SLOT_W = 160;
+export const COVERAGE_TAGGING_SLOT_W = 120;
+/** The drawer's Policy list: the label column. */
+export const POLICY_LABEL_W = 96;
+/** The Alerts tab's "N open" slot: wide enough for "9,999 open", so the tab does not resize when the count arrives. */
+export const ALERTS_TAB_COUNT_W = 64;
 
 // Sticky bar. Selects have fixed widths; each is shrink-0 and truncates with a title attribute.
 // Two fixed rows: the view tabs, then the filters, each under its own caption.

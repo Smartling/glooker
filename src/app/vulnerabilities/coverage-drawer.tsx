@@ -8,7 +8,7 @@ import type { Slot } from './use-security-data';
 import { slaState, slaStateLabel } from './sla-state';
 import { resolvedCaption } from './format';
 import { displayDate, unmeasuredReason } from './labels';
-import { DRAWER_MAX_W, DRAWER_W, TYPE, Z } from './dimensions';
+import { DRAWER_MAX_W, DRAWER_W, POLICY_LABEL_W, TYPE, Z } from './dimensions';
 
 /** Open the drawer. Pass the clicked element (`e.currentTarget`) so focus can return to it on
  * close; without one the hook falls back to `document.activeElement`. */
@@ -44,7 +44,7 @@ const ownerLine = (r: Row) => `owning team ${r.team ?? 'Unassigned'}`;
 const missingTags = (r: Row) =>
   [!r.team && 'owning team', !r.serviceTier && 'service tier', !r.codebaseType && 'codebase type'].filter((x): x is string => !!x).join(', ');
 const repoLink = (r: Row) => (
-  <a className="text-accent-light hover:text-accent-lighter" href={`https://github.com/${r.fullName}`} target="_blank" rel="noreferrer">{r.fullName}</a>
+  <a className={TYPE.link} href={`https://github.com/${r.fullName}`} target="_blank" rel="noreferrer">{r.fullName}</a>
 );
 const plural = (n: number, word: string) => `${n.toLocaleString('en-US')} ${word}${n === 1 ? '' : 's'}`;
 const openCritical = (rows: readonly Row[]) => `${rows.reduce((n, r) => n + r.openCritical, 0).toLocaleString('en-US')} open critical`;
@@ -68,12 +68,13 @@ function Group({ title, count, summary, note, children }: { title: string; count
   );
 }
 
-/** A row's left text and its right-aligned reason, on one line each. */
-function RowLine({ left, reason, reasonClass = 'text-gray-400' }: { left: React.ReactNode; reason: string; reasonClass?: string }) {
+/** A row's left text and its right-aligned reason, on one line each. Both truncate, so both carry their full text in a `title`;
+ * the reason is capped at 55% so a long one cannot push the repository name out. */
+function RowLine({ left, leftTitle, reason, reasonClass = 'text-gray-400' }: { left: React.ReactNode; leftTitle: string; reason: string; reasonClass?: string }) {
   return (
     <div className="flex items-baseline justify-between gap-3">
-      <span className="min-w-0 truncate">{left}</span>
-      <span className={`shrink-0 ${reasonClass}`}>{reason}</span>
+      <span className="min-w-0 truncate" title={leftTitle}>{left}</span>
+      <span className={`max-w-[55%] shrink-0 truncate ${reasonClass}`} title={reason}>{reason}</span>
     </div>
   );
 }
@@ -85,7 +86,7 @@ const CANT_READ = "! Can't be read · check the SLA settings in the deployment c
 function slaValue(sev: Severity, summary: SummaryData): PolicyValue {
   const st = slaState(sev, summary);
   if (st.kind === 'invalid') return { text: CANT_READ, tone: 'error' };
-  if (st.kind === 'none') return { text: 'No SLA policy yet', tone: 'muted' };
+  if (st.kind === 'none') return { text: slaStateLabel(st, { withSla: false }) ?? '', tone: 'muted' };
   const entries = summary.policy.filter(p => p.severity === sev && p.pending === (st.kind === 'pending'))
     .sort((x, y) => x.effectiveFrom.localeCompare(y.effectiveFrom));
   // In force: the latest entry already started. Pending: the earliest one still to start.
@@ -173,6 +174,7 @@ export default function CoverageDrawer({ open, onClose, opener, coverage, summar
                   <li key={r.repoId} className={`vuln-hatch border border-warn-line px-2.5 py-2 text-xs ${TYPE.control}`}>
                     <RowLine
                       left={<>{repoLink(r)} <span className="text-gray-400">· {ownerLine(r)}</span></>}
+                      leftTitle={`${r.fullName} · ${ownerLine(r)}`}
                       reason={unmeasuredReason({ status: r.dependabotStatus ?? 'error', detail: r.detail ?? null })}
                       reasonClass="font-semibold text-warn"
                     />
@@ -182,8 +184,8 @@ export default function CoverageDrawer({ open, onClose, opener, coverage, summar
               <Group title="Needs tagging" count={c.needsTagging.length} summary={openCritical(c.needsTagging)} note="Counted under “Unassigned” until tagged.">
                 {c.needsTagging.map(r => (
                   <li key={r.repoId} className={`bg-chart-surface px-2.5 py-2 text-xs ${TYPE.control}`}>
-                    <RowLine left={repoLink(r)} reason={`${r.openCritical} crit · ${r.openHigh} high`} reasonClass="text-gray-300" />
-                    <div className="truncate text-gray-400">Missing: {missingTags(r)}</div>
+                    <RowLine left={repoLink(r)} leftTitle={r.fullName} reason={`${r.openCritical} crit · ${r.openHigh} high`} reasonClass="text-gray-300" />
+                    <div className="truncate text-gray-400" title={`Missing: ${missingTags(r)}`}>Missing: {missingTags(r)}</div>
                   </li>
                 ))}
               </Group>
@@ -192,9 +194,10 @@ export default function CoverageDrawer({ open, onClose, opener, coverage, summar
                   <li key={r.repoId} className={`bg-chart-surface px-2.5 py-2 text-xs ${TYPE.control}`}>
                     <RowLine
                       left={<>{repoLink(r)} <span className="text-gray-400">· {ownerLine(r)}</span></>}
+                      leftTitle={`${r.fullName} · ${ownerLine(r)}`}
                       reason={`outside scope (${r.serviceTier ?? 'no tier'})`}
                     />
-                    <div className="truncate text-gray-400">{`${r.openCritical} crit · ${r.openHigh} high`}</div>
+                    <div className="truncate text-gray-400" title={`${r.openCritical} crit · ${r.openHigh} high`}>{`${r.openCritical} crit · ${r.openHigh} high`}</div>
                   </li>
                 ))}
               </Group>
@@ -206,7 +209,7 @@ export default function CoverageDrawer({ open, onClose, opener, coverage, summar
               <h3 id="coverage-policy-title" className={`${TYPE.sectionLabel} text-gray-300`}>Policy</h3>
               <span className="text-xs text-gray-500">From deployment configuration</span>
             </div>
-            <dl className="mt-2 grid grid-cols-[96px_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-xs">
+            <dl className="mt-2 grid gap-x-3 gap-y-1.5 text-xs" style={{ gridTemplateColumns: `${POLICY_LABEL_W}px minmax(0, 1fr)` }}>
               {([
                 ['critical', 'Critical SLA', slaValue('critical', summary)],
                 ['high', 'High SLA', slaValue('high', summary)],
