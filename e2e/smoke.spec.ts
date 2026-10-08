@@ -27,7 +27,7 @@ const PAGES: Array<{ path: string; expectText: RegExp }> = [
   { path: '/reports', expectText: /mock-org · \d+ days/ }, // seeded report cards
   { path: '/reports?tab=syncs', expectText: /mock-org · Dependabot critical \+ high/ }, // seeded sync runs
   { path: '/settings', expectText: /Commit Analyzer/ }, // per-service LLM table from /api
-  { path: '/vulnerabilities', expectText: /By owning team/ }, // team pivot from seeded alerts
+  { path: '/vulnerabilities', expectText: /\d+ open now/ }, // trend card figure from seeded alerts (a digit only once the summary has loaded)
   { path: '/projects', expectText: /Implement rate limiting middleware/ }, // epic from mock Jira
 ];
 
