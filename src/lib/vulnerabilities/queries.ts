@@ -327,7 +327,7 @@ export async function getTrend(f: ParsedFilters, now: Date = new Date()) {
 
 const ALERT_FILTER_KEYS = [
   'codebase', 'state', 'team', 'repo', 'severity', 'overdue', 'dueSoon', 'dueBefore', 'createdSince',
-  'resolvedSince', 'dependencyScope', 'cve', 'ghsa', 'packageName', 'q', 'reopened', 'limit',
+  'resolvedSince', 'dependencyScope', 'cve', 'ghsa', 'packageName', 'q', 'reopened', 'limit', 'offset', 'sort',
 ] as const;
 
 export async function getAlerts(f: ParsedFilters, now: Date = new Date()) {

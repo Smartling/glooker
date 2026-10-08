@@ -1,5 +1,7 @@
 // The ONE parameter parser, shared by the API routes and the MCP tools (spec: API › One parameter list).
 import { CODEBASE_GROUPS } from './codebase';
+import { ALERT_SORT_KEYS, parseAlertSort } from './alert-sort';
+import type { AlertSortSpec } from './alert-sort';
 import type { AlertFilters, Baseline } from './aggregate';
 import type { CodebaseGroup, Severity } from './types';
 
@@ -52,6 +54,19 @@ export function parseVulnFilters(input: Record<string, unknown>): { ok: true; va
   const limitRaw = pick(input, 'limit');
   const limit = limitRaw === undefined ? undefined : Number(limitRaw);
   if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) return { ok: false, error: 'limit must be a positive integer' };
+  // GLOOK-64: paging and ordering of the alert list. offset is a plain non-negative integer string
+  // (the regex rejects "-1", "1.5", "1e3" and blanks); sort is exactly `<key>:<asc|desc>` with a key
+  // from the closed ALERT_SORT_KEYS list. Both are echoed in appliedFilters exactly as validated.
+  const offsetRaw = pick(input, 'offset');
+  if (offsetRaw !== undefined && (!/^\d+$/.test(offsetRaw) || !Number.isSafeInteger(Number(offsetRaw)))) {
+    return { ok: false, error: 'offset must be a non-negative integer' };
+  }
+  const offset = offsetRaw === undefined ? undefined : Number(offsetRaw);
+  const sortRaw = pick(input, 'sort');
+  if (sortRaw !== undefined && parseAlertSort(sortRaw) === null) {
+    return { ok: false, error: `sort must be <key>:<asc|desc> with key one of ${ALERT_SORT_KEYS.join(', ')}` };
+  }
+  const sort = sortRaw as AlertSortSpec | undefined;
   const overdue = parseBool('overdue', pick(input, 'overdue'));
   if (!overdue.ok) return overdue;
   const reopened = parseBool('reopened', pick(input, 'reopened'));
@@ -65,7 +80,7 @@ export function parseVulnFilters(input: Record<string, unknown>): { ok: true; va
   return {
     ok: true,
     value: {
-      codebase, state, severity, baseline, limit,
+      codebase, state, severity, baseline, limit, offset, sort,
       team: pick(input, 'team'), repo: pick(input, 'repo'),
       overdue: overdue.value, reopened: reopened.value, dueSoon: dueSoon.value,
       dueBefore: dates.due_before, createdSince: dates.created_since, resolvedSince: dates.resolved_since, since: dates.since,

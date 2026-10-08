@@ -466,3 +466,24 @@ describe('getCoverage codebase', () => {
     expect(all.appliedFilters).toEqual({ codebase: 'all' });
   });
 });
+
+describe('getAlerts offset and sort through the database', () => {
+  it('pages without repeats, reports the exact total past the end, and echoes offset and sort in appliedFilters', async () => {
+    await seedOk(); // o/r1 #1
+    await alertSql(1, 2, 'critical', '2026-09-02T00:00:00Z');
+    await alertSql(1, 3, 'high', '2026-09-03T00:00:00Z');
+    const page1 = await q.getAlerts(f({ limit: 2, offset: 0, sort: 'severity:asc' }), NOW);
+    const page2 = await q.getAlerts(f({ limit: 2, offset: 2, sort: 'severity:asc' }), NOW);
+    expect(page1.rows).toHaveLength(2);
+    expect(page1.truncated).toBe(true);
+    expect(page2.rows).toHaveLength(1);
+    expect(page2.truncated).toBe(false);
+    expect(page2.rows[0].severity).toBe('high');
+    expect(page1.totalCount).toBe(3);
+    expect(page1.appliedFilters).toMatchObject({ limit: 2, offset: 0, sort: 'severity:asc' });
+    const past = await q.getAlerts(f({ limit: 2, offset: 10 }), NOW);
+    expect(past.rows).toEqual([]);
+    expect(past.totalCount).toBe(3);
+    expect(past.truncated).toBe(false);
+  });
+});
