@@ -92,7 +92,7 @@ The rail's first row reads "All {team} repositories", or "All repositories" when
 - **Resolved-count start date unset:** "N dismissed · all time".
 - **Hidden severity:** "–" in its columns, including the Total row. It is left out of the sums, and its headers dim to 35% opacity. The SLA tile and the strip keep the row and dim it to 35%.
 - **Repositories with no open alerts:** listed and greyed, both in the rail and in the Repositories tab.
-- **Unmeasured repositories:** listed last as a hatched band reading "▲ UNMEASURED · {reason} — alert counts unknown, not zero". The UI renders their open count as unknown, although the API carries the stored count. The footer note reads "N unmeasured: open counts unknown".
+- **Unmeasured repositories:** listed last as a hatched band reading "▲ UNMEASURED · {reason} — alert counts unknown, not zero". The UI renders their open count as unknown, although the API carries the stored count. Every total that counts alerts includes the stored counts of unmeasured repositories, the Repositories footer's open and overdue sums among them, so the footer agrees with the team table, the strip, the rail and the Alerts tab; only an unmeasured row's own cells read unknown. The footer's repository count, Oldest open and Next due use the measured rows only. The footer note reads "N unmeasured: totals include stored counts".
 - **More than 12 owning teams:** the top 12 by open count get distinct colours from the existing palette; the rest share one grey "Other · N teams" legend entry.
 - **Unknown team in the URL:** the page shows the recovery action "Clear team filter".
 - **Summary request fails:** the page shows a full-page error, never half a page of stale numbers.
@@ -132,6 +132,7 @@ Rules that keep the layout still:
 
 - The selects have fixed widths: Codebase 220px, Owning team 170px, Severity 140px, Compare to 118px, date input 128px. Each is `shrink-0`, and long text truncates with a `title` attribute.
 - The bar reserves slots for "Reset filters" and the date input, so its height never changes.
+- A filter change never moves a control. The header coverage line always renders the unmeasured badge's slot (a reserved width, hidden when the count is zero) and fixed-width count slots. The ownership card's tab counts have a minimum width. The Alerts strip's title column has a fixed width and its figures have minimum widths. One accepted exception: with an unreadable SLA policy at 1024px and the unmeasured badge showing, the strip's two state messages truncate with "…" and show the full text on hover.
 - There is no horizontal scroll at 1024px. Grid tracks use `minmax(0, …)`, and long text ends in "…".
 - Below 1024px the cards scroll inside themselves. The page is not designed for narrower screens.
 
