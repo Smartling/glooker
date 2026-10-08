@@ -62,6 +62,10 @@ const ALERTS: AlertFact[] = [
       createdAt: `2026-09-${String(1 + ((i * 5 + r.repoId * 3) % 21)).padStart(2, '0')}T00:00:00Z`,
     }));
   }),
+  // the due-soon window's edges: due exactly DUE_SOON_DAYS days out (7 under the 7-day critical policy: counted) and
+  // 8 days out (high, 9-day policy: not yet due soon)
+  alert(1, 93, { severity: 'critical', createdAt: '2026-09-22T00:00:00Z' }),
+  alert(1, 94, { severity: 'high', createdAt: '2026-09-21T00:00:00Z' }),
   alert(1, 90, { state: 'fixed', resolvedAt: '2026-09-10T00:00:00Z' }),
   alert(1, 91, { missing: true }),
   alert(3, 92, { state: 'dismissed', resolvedAt: '2026-09-11T00:00:00Z', dismissedReason: 'tolerable_risk' }),
@@ -162,6 +166,21 @@ describe('independent cross-check through listAlerts', () => {
         expect(listed.totalCount).toBe(r[sev].overdue);
       }
     }
+  });
+
+  it('dueSoon per repository equals the dueSoon-filtered list for that repository, and the check is not vacuous', () => {
+    const rows = computeRepoRows(ALERTS, REPOS, { codebase: 'all', now: NOW });
+    let dueSoonSeen = 0;
+    for (const r of rows) {
+      for (const sev of SEVS) {
+        const listed = listAlerts(ALERTS, REPOS, { codebase: 'all', state: 'open', repo: r.fullName, severity: sev, dueSoon: true }, NOW);
+        expect(listed.totalCount).toBe(r[sev].dueSoon);
+        dueSoonSeen += listed.totalCount;
+      }
+    }
+    expect(dueSoonSeen).toBeGreaterThan(0);
+    // at least one repository has a due-soon alert in each severity, so neither severity is checked against zero only
+    for (const sev of SEVS) expect(rows.some(r => (r[sev].dueSoon ?? 0) > 0)).toBe(true);
   });
 });
 

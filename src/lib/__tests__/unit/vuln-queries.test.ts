@@ -469,18 +469,22 @@ describe('getCoverage codebase', () => {
 
 describe('getAlerts offset and sort through the database', () => {
   it('pages without repeats, reports the exact total past the end, and echoes offset and sort in appliedFilters', async () => {
-    await seedOk(); // o/r1 #1
+    await seedOk(); // o/r1 #1: critical, created 09-01
     await alertSql(1, 2, 'critical', '2026-09-02T00:00:00Z');
     await alertSql(1, 3, 'high', '2026-09-03T00:00:00Z');
-    const page1 = await q.getAlerts(f({ limit: 2, offset: 0, sort: 'severity:asc' }), NOW);
-    const page2 = await q.getAlerts(f({ limit: 2, offset: 2, sort: 'severity:asc' }), NOW);
-    expect(page1.rows).toHaveLength(2);
+    // Insertion order is #1, #2, #3. With no SLA policy the default (urgency) order is severity, then
+    // newest: #2, #1, #3. severity:desc puts the high alert first and breaks the tie by alert number:
+    // #3, #1, #2. All three orders differ, so a test that passes only if `sort` is honoured.
+    const urls = (r: any) => r.rows.map((x: any) => x.htmlUrl);
+    expect(urls(await q.getAlerts(f(), NOW))).toEqual(['u1-2', 'u', 'u1-3']);
+    const page1 = await q.getAlerts(f({ limit: 2, offset: 0, sort: 'severity:desc' }), NOW);
+    const page2 = await q.getAlerts(f({ limit: 2, offset: 2, sort: 'severity:desc' }), NOW);
+    expect(urls(page1)).toEqual(['u1-3', 'u']);
     expect(page1.truncated).toBe(true);
-    expect(page2.rows).toHaveLength(1);
+    expect(urls(page2)).toEqual(['u1-2']);
     expect(page2.truncated).toBe(false);
-    expect(page2.rows[0].severity).toBe('high');
     expect(page1.totalCount).toBe(3);
-    expect(page1.appliedFilters).toMatchObject({ limit: 2, offset: 0, sort: 'severity:asc' });
+    expect(page1.appliedFilters).toMatchObject({ limit: 2, offset: 0, sort: 'severity:desc' });
     const past = await q.getAlerts(f({ limit: 2, offset: 10 }), NOW);
     expect(past.rows).toEqual([]);
     expect(past.totalCount).toBe(3);

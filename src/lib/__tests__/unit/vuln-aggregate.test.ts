@@ -499,8 +499,9 @@ describe('computeCoverage codebase option (GLOOK-64)', () => {
     R(5, { fullName: 'o/be-err', dependabotStatus: 'error', dependabotStatusDetail: 'HTTP 500: x' }),
     R(6, { fullName: 'o/nonprod-fe', codebaseType: 'frontend', serviceTier: 'non-production' }),                     // excluded by policy
     R(7, { fullName: 'o/nonprod-be', serviceTier: 'non-production' }),                                               // excluded by policy
+    R(8, { fullName: 'o/be-untagged', team: null, codebaseType: 'backend' }),                                         // Unassigned like o/fe-untagged, but backend: needs tagging, must not leak into a frontend view
   ];
-  const as = [A(1, 1), A(2, 1), A(3, 1), A(6, 1), A(7, 1)];
+  const as = [A(1, 1), A(2, 1), A(3, 1), A(6, 1), A(7, 1), A(8, 1)];
   const fn = (rows: Array<{ fullName: string }>) => rows.map(r => r.fullName);
   const lists = (codebase?: 'backend' | 'frontend' | 'shared' | 'other' | 'all') => {
     const c = computeCoverage(as, rs, { codebase });
@@ -508,7 +509,7 @@ describe('computeCoverage codebase option (GLOOK-64)', () => {
   };
 
   it('filters all three lists by codebase group, placing a null codebase type under Other and All', () => {
-    expect(lists('backend')).toEqual({ needsTagging: [], excludedByPolicy: ['o/nonprod-be'], unmeasured: ['o/be-err'] });
+    expect(lists('backend')).toEqual({ needsTagging: ['o/be-untagged'], excludedByPolicy: ['o/nonprod-be'], unmeasured: ['o/be-err'] });
     expect(lists('frontend')).toEqual({ needsTagging: ['o/fe-untagged'], excludedByPolicy: ['o/nonprod-fe'], unmeasured: ['o/fe-off'] });
     expect(lists('other')).toEqual({ needsTagging: ['o/untyped'], excludedByPolicy: [], unmeasured: [] });
     expect(lists('shared')).toEqual({ needsTagging: [], excludedByPolicy: [], unmeasured: [] });
@@ -516,16 +517,19 @@ describe('computeCoverage codebase option (GLOOK-64)', () => {
 
   it('All, and no codebase option at all, return every repo', () => {
     const everything = {
-      needsTagging: ['o/fe-untagged', 'o/untyped'], excludedByPolicy: ['o/nonprod-be', 'o/nonprod-fe'], unmeasured: ['o/be-err', 'o/fe-off'],
+      needsTagging: ['o/be-untagged', 'o/fe-untagged', 'o/untyped'], excludedByPolicy: ['o/nonprod-be', 'o/nonprod-fe'], unmeasured: ['o/be-err', 'o/fe-off'],
     };
     expect(lists('all')).toEqual(everything);
     expect(lists(undefined)).toEqual(everything);
   });
 
   it('combines with the team option', () => {
+    // o/be-untagged is also Unassigned: only the codebase filter keeps it out of a frontend view
     const c = computeCoverage(as, rs, { codebase: 'frontend', team: 'Unassigned' });
     expect(fn(c.needsTagging)).toEqual(['o/fe-untagged']);
     expect(fn(c.unmeasured)).toEqual([]);
+    // and the team filter still applies inside the codebase: a named team has no untagged frontend repo
+    expect(fn(computeCoverage(as, rs, { codebase: 'frontend', team: 'T1' }).needsTagging)).toEqual([]);
   });
 });
 

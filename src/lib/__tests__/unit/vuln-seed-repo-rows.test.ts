@@ -36,7 +36,7 @@ beforeAll(async () => {
 afterAll(() => {
   for (const k of Object.keys(DEV_MOCK_ENV)) { if (prior[k] === undefined) delete process.env[k]; else process.env[k] = prior[k]; }
   __clearVulnConfigCache();
-  try { fs.unlinkSync(dbPath); } catch { /* the file may already be gone */ }
+  fs.rmSync(path.dirname(dbPath), { recursive: true, force: true }); // the whole mkdtemp directory, not just the db file
 });
 
 it('seeds every repository-row state the page needs', async () => {
