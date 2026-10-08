@@ -132,7 +132,7 @@ describe('sort keys and first directions (Wave 1 owns the keys; the page owns wh
     expect(ALERT_SORT_FIRST_DIR).toEqual({ severity: 'asc', advisory: 'asc', repo: 'asc', age: 'desc', due: 'asc', state: 'asc' });
   });
   it('the sort value alertsQueryString puts on the wire is one the server parser accepts, for every key and direction', () => {
-    const base = { codebase: 'backend' as const, team: null, repo: null, severity: 'both' as const, anySlaActive: true };
+    const base = { codebase: 'backend' as const, team: null, repo: null, severity: 'both' as const, shownSlaActive: true };
     for (const key of ALERT_SORT_KEYS) {
       for (const dir of ['asc', 'desc'] as const) {
         const wire = new URLSearchParams(alertsQueryString({ ...base, list: { ...DEFAULT_ALERT_LIST, sort: { key, dir } } })).get('sort');
@@ -141,7 +141,7 @@ describe('sort keys and first directions (Wave 1 owns the keys; the page owns wh
     }
   });
   it('no sort in the list state sends no sort parameter (the server default order)', () => {
-    const base = { codebase: 'backend' as const, team: null, repo: null, severity: 'both' as const, anySlaActive: true };
+    const base = { codebase: 'backend' as const, team: null, repo: null, severity: 'both' as const, shownSlaActive: true };
     expect(new URLSearchParams(alertsQueryString({ ...base, list: DEFAULT_ALERT_LIST })).has('sort')).toBe(false);
   });
 });
@@ -159,29 +159,29 @@ describe('keepTopDelta (scroll up only)', () => {
 describe('sanitiseAlertList', () => {
   const on: AlertListState = { ...DEFAULT_ALERT_LIST, overdue: true, dueSoon: true };
   it('keeps only Overdue when both time toggles are set (they are mutually exclusive)', () => {
-    const out = sanitiseAlertList(on, { anySlaActive: true });
+    const out = sanitiseAlertList(on, { shownSlaActive: true });
     expect(out.overdue).toBe(true);
     expect(out.dueSoon).toBe(false);
   });
   it('Resolved status clears both time toggles', () => {
-    const out = sanitiseAlertList({ ...on, status: 'resolved' }, { anySlaActive: true });
+    const out = sanitiseAlertList({ ...on, status: 'resolved' }, { shownSlaActive: true });
     expect([out.overdue, out.dueSoon]).toEqual([false, false]);
   });
   it('Open + resolved keeps the toggles', () => {
-    expect(sanitiseAlertList({ ...on, status: 'all' }, { anySlaActive: true }).overdue).toBe(true);
+    expect(sanitiseAlertList({ ...on, status: 'all' }, { shownSlaActive: true }).overdue).toBe(true);
   });
   it('clears both toggles when no SLA is active', () => {
-    const out = sanitiseAlertList(on, { anySlaActive: false });
+    const out = sanitiseAlertList(on, { shownSlaActive: false });
     expect([out.overdue, out.dueSoon]).toEqual([false, false]);
   });
   it('clamps the page to a positive integer', () => {
-    expect(sanitiseAlertList({ ...DEFAULT_ALERT_LIST, page: 0 }, { anySlaActive: true }).page).toBe(1);
-    expect(sanitiseAlertList({ ...DEFAULT_ALERT_LIST, page: 2.7 }, { anySlaActive: true }).page).toBe(2);
+    expect(sanitiseAlertList({ ...DEFAULT_ALERT_LIST, page: 0 }, { shownSlaActive: true }).page).toBe(1);
+    expect(sanitiseAlertList({ ...DEFAULT_ALERT_LIST, page: 2.7 }, { shownSlaActive: true }).page).toBe(2);
   });
 });
 
 describe('alertsQueryString', () => {
-  const base = { codebase: 'backend' as const, team: null, repo: null, severity: 'both' as const, list: DEFAULT_ALERT_LIST, anySlaActive: true };
+  const base = { codebase: 'backend' as const, team: null, repo: null, severity: 'both' as const, list: DEFAULT_ALERT_LIST, shownSlaActive: true };
   it('default scope: no severity, no team, first page of 10', () => {
     expect(alertsQueryString(base)).toBe('codebase=backend&state=open&limit=10&offset=0');
   });
@@ -218,7 +218,7 @@ describe('alertsQueryString', () => {
     expect([p1.get('overdue'), p1.has('due_soon')]).toEqual(['true', false]);
     const p2 = new URLSearchParams(alertsQueryString({ ...base, list: { ...both, status: 'resolved' } }));
     expect([p2.has('overdue'), p2.has('due_soon')]).toEqual([false, false]);
-    const p3 = new URLSearchParams(alertsQueryString({ ...base, anySlaActive: false, list: both }));
+    const p3 = new URLSearchParams(alertsQueryString({ ...base, shownSlaActive: false, list: both }));
     expect([p3.has('overdue'), p3.has('due_soon')]).toEqual([false, false]);
   });
 });

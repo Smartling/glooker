@@ -53,7 +53,7 @@ const button = (name: string | RegExp) => screen.getByRole('button', { name });
 /** The real controller wired into the list, so behaviour that lives in useAlertList shows through the UI. */
 function Harness({ summary = active, onList, total }: { summary?: SecurityViewProps['summary']; onList?: (l: AlertListState) => void; total?: number }) {
   const ctl = useAlertList({ codebase: 'backend', team: null, repo: null, severity: 'both' });
-  const effective = sanitiseAlertList(ctl.list, { anySlaActive: anySlaActive(summary) });
+  const effective = sanitiseAlertList(ctl.list, { shownSlaActive: anySlaActive(summary) });
   onList?.(effective);
   const base = props({ summary, total });
   return <AlertList {...base} list={{ ...ctl, list: effective }} />;

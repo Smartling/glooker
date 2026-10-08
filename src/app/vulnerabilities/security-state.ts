@@ -133,11 +133,11 @@ export const DEFAULT_ALERT_LIST: AlertListState = {
 
 /** The list as it may actually be sent. Applied at request-build time, so a bad combination never
  * costs a wasted request. */
-export function sanitiseAlertList(l: AlertListState, ctx: { anySlaActive: boolean }): AlertListState {
+export function sanitiseAlertList(l: AlertListState, ctx: { shownSlaActive: boolean }): AlertListState {
   const page = Number.isFinite(l.page) ? Math.max(1, Math.floor(l.page)) : 1;
   // Resolved has no due date, and with no active SLA there is nothing to be overdue against.
-  // `ctx.anySlaActive` is true when a severity the Severity filter SHOWS has an active SLA (use-security-data decides it).
-  const timeAllowed = l.status !== 'resolved' && ctx.anySlaActive;
+  // `ctx.shownSlaActive` is true when a severity the Severity filter SHOWS has an active SLA (use-security-data decides it).
+  const timeAllowed = l.status !== 'resolved' && ctx.shownSlaActive;
   const overdue = timeAllowed && l.overdue;
   // Overdue and Due ≤ 7d are disjoint buckets; the API rejects both together. Keep Overdue.
   const dueSoon = timeAllowed && l.dueSoon && !overdue;
@@ -150,12 +150,12 @@ export interface AlertsQueryInput {
   repo: string | null;
   severity: SeverityFilter;
   list: AlertListState;
-  anySlaActive: boolean;
+  shownSlaActive: boolean;
 }
 
 /** The alerts request's query string. `severity` is omitted for "both" (never `severity=both`). */
 export function alertsQueryString(i: AlertsQueryInput): string {
-  const l = sanitiseAlertList(i.list, { anySlaActive: i.anySlaActive });
+  const l = sanitiseAlertList(i.list, { shownSlaActive: i.shownSlaActive });
   const p = new URLSearchParams({ codebase: i.codebase });
   if (i.team) p.set('team', i.team);
   if (i.repo) p.set('repo', i.repo);

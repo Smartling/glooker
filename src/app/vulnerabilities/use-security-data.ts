@@ -138,7 +138,7 @@ export function useSecurityData(scope: SecurityScope, listState: AlertListState)
   // loads, assume an SLA is active (nothing to clear yet). "Active" means a severity the Severity filter
   // shows: under "High only" with only critical active, Overdue / Due ≤ 7d could never match.
   const slaActive = summarySlot.data ? shownSlaActive(summarySlot.data, scope.severity) : true;
-  const effectiveList = sanitiseAlertList(listState, { anySlaActive: slaActive });
+  const effectiveList = sanitiseAlertList(listState, { shownSlaActive: slaActive });
 
   // ── Stale repository ───────────────────────────────────────────────────────────────────────────
   const repoKey = scope.repo ? `${scope.codebase}\u0000${scope.team ?? ''}\u0000${scope.repo}` : null;
@@ -165,7 +165,7 @@ export function useSecurityData(scope: SecurityScope, listState: AlertListState)
     ? null
     : `${BASE}/alerts?${alertsQueryString({
         codebase: scope.codebase, team: scope.team, repo: scope.repo, severity: scope.severity,
-        list: effectiveList, anySlaActive: slaActive,
+        list: effectiveList, shownSlaActive: slaActive,
       })}`;
   const alerts = useSWR(alertsKey, fetcher, SWR_OPTS);
   // A repository the alerts API rejects reads as not found in the SAME render its error arrives: the effect below only
