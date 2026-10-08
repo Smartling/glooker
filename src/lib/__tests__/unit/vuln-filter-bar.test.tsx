@@ -1,0 +1,264 @@
+/** @jest-environment jsdom */
+// src/lib/__tests__/unit/vuln-filter-bar.test.tsx
+import { render, screen, fireEvent, within } from '@testing-library/react';
+import FilterBar, { type FilterBarProps } from '@/app/vulnerabilities/filter-bar';
+import { FILTER_BAR_H, SELECT_W, RESET_SLOT_W, BAR_ROW_H, FILTER_ROW_H, Z } from '@/app/vulnerabilities/dimensions';
+
+const DEFAULTS = { codebase: true, team: true, severity: true, baseline: true, repo: true, all: true };
+const COUNTS = {
+  backend: { critical: 5, high: 3 }, frontend: { critical: 2, high: 0 }, shared: { critical: 0, high: 0 },
+  other: { critical: 1, high: 1 }, all: { critical: 8, high: 4 },
+};
+
+function props(over: Partial<FilterBarProps['url']> = {}, rest: Partial<FilterBarProps> = {}): FilterBarProps {
+  return {
+    url: {
+      view: 'overview', codebase: 'backend', team: null, severity: 'both', baseline: 'last', isDefault: DEFAULTS,
+      setView: jest.fn(), setCodebase: jest.fn(), setTeam: jest.fn(), setSeverity: jest.fn(), setBaseline: jest.fn(), resetFilters: jest.fn(),
+      ...over,
+    },
+    teams: ['Payments', 'Search', 'Unassigned'],
+    codebaseCounts: COUNTS,
+    alertsCount: 13,
+    baselinePrefill: '2026-09-08',
+    ...rest,
+  };
+}
+
+describe('layout stability', () => {
+  it('every select has a fixed inline width, is shrink-0, truncates and carries a title', () => {
+    render(<FilterBar {...props({ team: 'A very long owning team name that cannot fit in 170 pixels' })} />);
+    const expected: Array<[string, number]> = [
+      ['Codebase', SELECT_W.codebase], ['Owning team', SELECT_W.team], ['Severity', SELECT_W.severity], ['Compare to', SELECT_W.baseline],
+    ];
+    for (const [label, width] of expected) {
+      const el = screen.getByLabelText(label) as HTMLSelectElement;
+      expect(el.style.width).toBe(`${width}px`);
+      expect(el.className).toContain('shrink-0');
+      expect(el.className).toContain('truncate');
+      expect(el.getAttribute('title')).toBeTruthy();
+    }
+    expect(screen.getByLabelText('Owning team').getAttribute('title')).toBe('A very long owning team name that cannot fit in 170 pixels');
+  });
+
+  it('the bar keeps the same height, the same slot classes and the same slot widths whether Reset and the date input are hidden or shown', () => {
+    const hidden = render(<FilterBar {...props()} />);
+    const bar1 = screen.getByTestId('security-bar');
+    const snap = () => ({
+      barHeight: screen.getByTestId('security-bar').style.height,
+      rowHeights: Array.from(screen.getByTestId('security-bar').children).map(c => (c as HTMLElement).style.height),
+      resetClass: screen.getByTestId('reset-slot').className,
+      resetWidth: (screen.getByTestId('reset-slot') as HTMLElement).style.width,
+      dateClass: screen.getByTestId('date-slot').className,
+      dateWidth: (screen.getByTestId('date-slot') as HTMLElement).style.width,
+      // Hidden, not removed: both controls exist in every state.
+      hasResetButton: !!screen.queryByText('Reset filters'),
+      hasDateInput: !!screen.queryByLabelText('Compare to date'),
+    });
+    const before = snap();
+    expect(before.barHeight).toBe(`${FILTER_BAR_H}px`);
+    expect(before.rowHeights).toEqual([`${BAR_ROW_H}px`, `${FILTER_ROW_H}px`]);
+    expect(before.resetWidth).toBe(`${RESET_SLOT_W}px`);
+    expect(before.dateWidth).toBe(`${SELECT_W.date}px`);
+    expect([before.hasResetButton, before.hasDateInput]).toEqual([true, true]);
+    expect(bar1).toBeTruthy();
+    hidden.unmount();
+
+    render(<FilterBar {...props({
+      codebase: 'frontend', team: 'Payments', severity: 'high', baseline: '2026-09-15',
+      isDefault: { codebase: false, team: false, severity: false, baseline: false, repo: true, all: false },
+    })} />);
+    expect(snap()).toEqual(before);
+  });
+
+  it('is sticky at the top with the body background variable and a z-index between pinned rows and the drawer', () => {
+    render(<FilterBar {...props()} />);
+    const bar = screen.getByTestId('security-bar');
+    expect(bar.style.position).toBe('sticky');
+    expect(bar.style.top).toBe('0px');
+    expect(bar.style.zIndex).toBe(String(Z.stickyBar));
+    expect(bar.getAttribute('style')).toContain('background: var(--body-bg, #0F0F0F)');
+  });
+});
+
+describe('field captions', () => {
+  // Revert: delete a <label htmlFor> (or its `uppercase` class), or put the "Compare to" span back inline.
+  it('every select sits under a visible caption that is its accessible name, upper-cased by CSS (the DOM text stays sentence case)', () => {
+    render(<FilterBar {...props()} />);
+    for (const name of ['Codebase', 'Owning team', 'Severity', 'Compare to']) {
+      const caption = screen.getByText(name, { selector: 'label' });
+      expect(caption.className).toContain('uppercase');
+      expect(caption.className).toContain('text-[10.5px]');
+      const select = screen.getByLabelText(name) as HTMLSelectElement;
+      expect(select.tagName).toBe('SELECT');
+      expect(caption.getAttribute('for')).toBe(select.id);
+      // The caption is above the select inside one field.
+      expect(caption.parentElement).toBe(select.parentElement);
+      expect(caption.compareDocumentPosition(select) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+  });
+
+  it('"Compare to" is a caption only: there is no second, inline "Compare to" text', () => {
+    render(<FilterBar {...props()} />);
+    expect(screen.getAllByText('Compare to')).toHaveLength(1);
+  });
+});
+
+describe('Reset filters', () => {
+  it('stays in the DOM but hidden (invisible, disabled, out of the tab order) when every filter is at its default', () => {
+    render(<FilterBar {...props()} />);
+    const btn = screen.getByText('Reset filters') as HTMLButtonElement;
+    expect(btn.className).toContain('invisible');
+    expect(btn.disabled).toBe(true);
+    expect(btn.tabIndex).toBe(-1);
+    expect(btn.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('is visible when any filter differs and calls resetFilters', () => {
+    const resetFilters = jest.fn();
+    render(<FilterBar {...props({ resetFilters, isDefault: { ...DEFAULTS, team: false, all: false }, team: 'Payments' })} />);
+    const btn = screen.getByText('Reset filters') as HTMLButtonElement;
+    expect(btn.className).not.toContain('invisible');
+    expect(btn.disabled).toBe(false);
+    fireEvent.click(btn);
+    expect(resetFilters).toHaveBeenCalledTimes(1);
+  });
+
+  // Revert: move the slot back into the tabs row.
+  it('sits at the right end of the filter row, after the date slot, and reads as a link', () => {
+    render(<FilterBar {...props({ isDefault: { ...DEFAULTS, team: false, all: false }, team: 'Payments' })} />);
+    const bar = screen.getByTestId('security-bar');
+    const filterRow = bar.children[1] as HTMLElement;
+    const slot = screen.getByTestId('reset-slot');
+    expect(filterRow.contains(slot)).toBe(true);
+    expect(filterRow.lastElementChild).toBe(slot);
+    expect(screen.getByTestId('date-slot').compareDocumentPosition(slot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText('Reset filters').className).toContain('underline');
+  });
+
+  it('appears when only the selected repository differs (Reset clears it too)', () => {
+    render(<FilterBar {...props({ isDefault: { ...DEFAULTS, repo: false, all: false } })} />);
+    expect((screen.getByText('Reset filters') as HTMLButtonElement).className).not.toContain('invisible');
+  });
+});
+
+describe('accent treatment', () => {
+  it('a non-default select gets the accent border, fill and text; a default one gets none of them', () => {
+    render(<FilterBar {...props({ codebase: 'frontend', isDefault: { ...DEFAULTS, codebase: false, all: false } })} />);
+    const changed = screen.getByLabelText('Codebase').className;
+    expect(changed).toContain('border-accent');
+    expect(changed).toContain('bg-accent/10');
+    expect(changed).toContain('text-accent-light');
+    expect(changed).not.toContain('bg-chart-surface');
+    const plain = screen.getByLabelText('Severity').className;
+    expect(plain).not.toContain('border-accent');
+    expect(plain).not.toContain('bg-accent/10');
+    expect(plain).toContain('bg-chart-surface');
+  });
+});
+
+describe('Codebase options', () => {
+  // Revert: sum critical and high again, or drop the unit.
+  it('show the kSev count with its unit: "open crit" under Critical + high and Critical only, "open high" under High only', () => {
+    const { rerender } = render(<FilterBar {...props()} />);
+    expect(screen.getByRole('option', { name: 'Backend · 5 open crit' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'All · 8 open crit' })).toBeTruthy();
+    rerender(<FilterBar {...props({ severity: 'critical' })} />);
+    expect(screen.getByRole('option', { name: 'Backend · 5 open crit' })).toBeTruthy();
+    rerender(<FilterBar {...props({ severity: 'high' })} />);
+    expect(screen.getByRole('option', { name: 'Backend · 3 open high' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'All · 4 open high' })).toBeTruthy();
+  });
+
+  it('show the label alone while the counts have not loaded', () => {
+    render(<FilterBar {...props({}, { codebaseCounts: undefined })} />);
+    expect(screen.getByRole('option', { name: 'Backend' })).toBeTruthy();
+  });
+});
+
+describe('controls call the url handlers', () => {
+  it('Codebase, Owning team and Severity', () => {
+    const url = props().url;
+    render(<FilterBar {...props({}, {})} url={url} />);
+    fireEvent.change(screen.getByLabelText('Codebase'), { target: { value: 'frontend' } });
+    expect(url.setCodebase).toHaveBeenCalledWith('frontend');
+    fireEvent.change(screen.getByLabelText('Owning team'), { target: { value: 'Search' } });
+    expect(url.setTeam).toHaveBeenCalledWith('Search');
+    fireEvent.change(screen.getByLabelText('Owning team'), { target: { value: '' } });
+    expect(url.setTeam).toHaveBeenLastCalledWith(null);
+    fireEvent.change(screen.getByLabelText('Severity'), { target: { value: 'high' } });
+    expect(url.setSeverity).toHaveBeenCalledWith('high');
+  });
+
+  it('lists the severity choices as Critical + high / Critical only / High only', () => {
+    render(<FilterBar {...props()} />);
+    const sev = screen.getByLabelText('Severity');
+    expect(within(sev).getAllByRole('option').map(o => o.textContent)).toEqual(['Critical + high', 'Critical only', 'High only']);
+  });
+
+  it('lists the Compare to choices as Last sync / 7 days ago / 30 days ago / A date…', () => {
+    render(<FilterBar {...props()} />);
+    const compare = screen.getByLabelText('Compare to');
+    expect(within(compare).getAllByRole('option').map(o => o.textContent)).toEqual(['Last sync', '7 days ago', '30 days ago', 'A date…']);
+  });
+});
+
+describe('Compare to', () => {
+  it('7 days and 30 days write the preset; the date input stays hidden', () => {
+    const url = props().url;
+    render(<FilterBar {...props({}, {})} url={url} />);
+    fireEvent.change(screen.getByLabelText('Compare to'), { target: { value: '7d' } });
+    expect(url.setBaseline).toHaveBeenCalledWith('7d');
+    expect(screen.getByLabelText('Compare to date').className).toContain('invisible');
+    expect((screen.getByLabelText('Compare to date') as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it('"A date…" immediately writes the pre-filled date, so the select cannot snap back', () => {
+    const url = props().url;
+    render(<FilterBar {...props({}, { baselinePrefill: '2026-09-08' })} url={url} />);
+    fireEvent.change(screen.getByLabelText('Compare to'), { target: { value: 'date' } });
+    expect(url.setBaseline).toHaveBeenCalledWith('2026-09-08');
+  });
+
+  it('with a date baseline the select reads "A date…" and the date input is visible, enabled and filled', () => {
+    render(<FilterBar {...props({ baseline: '2026-09-15', isDefault: { ...DEFAULTS, baseline: false, all: false } })} />);
+    expect((screen.getByLabelText('Compare to') as HTMLSelectElement).value).toBe('date');
+    const input = screen.getByLabelText('Compare to date') as HTMLInputElement;
+    expect(input.value).toBe('2026-09-15');
+    expect(input.className).not.toContain('invisible');
+    expect(input.disabled).toBe(false);
+    expect(input.max).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('changing the date writes it; clearing the input is ignored', () => {
+    const url = props({ baseline: '2026-09-15', isDefault: { ...DEFAULTS, baseline: false, all: false } }).url;
+    render(<FilterBar {...props({}, {})} url={url} />);
+    const input = screen.getByLabelText('Compare to date');
+    fireEvent.change(input, { target: { value: '2026-09-01' } });
+    expect(url.setBaseline).toHaveBeenCalledWith('2026-09-01');
+    (url.setBaseline as jest.Mock).mockClear();
+    fireEvent.change(input, { target: { value: '' } });
+    expect(url.setBaseline).not.toHaveBeenCalled();
+  });
+});
+
+describe('view tabs', () => {
+  it('shows Overview and Alerts with the open count, marks the active tab and calls setView on click', () => {
+    const url = props({ view: 'alerts' }).url;
+    render(<FilterBar {...props({}, { alertsCount: 1234 })} url={url} />);
+    const overview = screen.getByRole('tab', { name: 'Overview' });
+    const alerts = screen.getByRole('tab', { name: /^Alerts/ });
+    expect(alerts.getAttribute('aria-selected')).toBe('true');
+    expect(overview.getAttribute('aria-selected')).toBe('false');
+    expect(screen.getByTestId('alerts-tab-count').textContent).toBe('1,234 open');
+    fireEvent.click(overview);
+    expect(url.setView).toHaveBeenCalledWith('overview');
+  });
+
+  it('keeps the count slot (with a minimum width) while the count is unknown', () => {
+    render(<FilterBar {...props({}, { alertsCount: null })} />);
+    const slot = screen.getByTestId('alerts-tab-count');
+    expect(slot.textContent).toBe('');
+    expect(slot.className).toContain('min-w-[64px]');
+  });
+});
