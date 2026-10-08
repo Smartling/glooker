@@ -183,7 +183,7 @@ The page must not jump when a filter changes. The rule is: **a filter change may
 | Alerts card | 776px: a 260px rail and the list column |
 | Repository rail | 260px wide; its footer is at least 87px tall (a top border, 10px padding, a 16px sort line, a 2px gap and three 16px lines for the SLA note) |
 | Alert list | 560px of rows (10 × 56px), a 52px header, a Due column track at least 120px wide so a long overdue label is never clipped, two 32px toolbar rows (8px apart), a 28px pager whose "Page X of Y" slot is 112px; 16px top and 12px bottom padding, 20px at the sides, 12px between parts; the pieces add up to the 776px card |
-| Drawer | 460px, at most 92% of the viewport; its Policy list's label column is 96px |
+| Drawer | 460px, at most 92% of the viewport; its Policy list's label column is 96px; its "Couldn't refresh" note sits out of flow in the header's bottom padding, so it moves nothing |
 
 What holds the sizes constant:
 

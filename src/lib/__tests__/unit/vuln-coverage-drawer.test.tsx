@@ -249,6 +249,20 @@ describe('the slot rule (GLOOK-64 final review #7)', () => {
     expect(screen.queryByText("Couldn't load coverage: x")).toBeNull();
   });
 
+  it('the refresh note sits out of flow in the header padding, so filling it moves nothing', () => {
+    const { rerender } = render(<CoverageDrawer {...base()} />);
+    const note = screen.getByTestId('coverage-refresh-note');
+    expect(note.textContent).toBe('');
+    expect(note.classList.contains('absolute')).toBe(true);        // out of flow: the header keeps its height with and without the note
+    expect(note.classList.contains('leading-4')).toBe(true);
+    expect(note.parentElement?.classList.contains('relative')).toBe(true);   // the scope block is its positioning parent
+    expect(note.parentElement?.contains(screen.getByTestId('drawer-scope'))).toBe(true);
+    rerender(<CoverageDrawer {...base({ coverage: slot(coverageFixture(), { error: new Error('x'), errorText: "Couldn't load coverage: x" }) })} />);
+    const filled = screen.getByTestId('coverage-refresh-note');
+    expect(filled.textContent).toBe("Couldn't refresh · showing last load");
+    expect(filled.classList.contains('absolute')).toBe(true);
+  });
+
   it('the refresh note is an empty live region while nothing failed; an unavailable answer reads its short message, never an endless "Loading…"', () => {
     const { rerender } = render(<CoverageDrawer {...base()} />);
     expect(screen.getByTestId('coverage-refresh-note').textContent).toBe('');   // always in the page (a live region must exist before its text), empty while nothing failed

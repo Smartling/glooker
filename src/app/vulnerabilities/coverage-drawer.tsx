@@ -165,13 +165,14 @@ export default function CoverageDrawer({ open, onClose, opener, coverage, summar
         style={{ width: DRAWER_W, maxWidth: DRAWER_MAX_W }}
       >
         <div className="flex flex-none items-start justify-between gap-4 px-6 pb-[22px] pt-6">
-          <div className="min-w-0">
+          <div className="relative min-w-0">
             <h2 id={TITLE_ID} className="text-xl font-bold text-white">Coverage &amp; policy</h2>
             <p data-testid="drawer-scope" className="mt-1 text-[13px] text-gray-400">
               {codebase ? CODEBASE_LABELS[codebase] : 'All codebases'} · Owning team: {summary.appliedFilters.team ?? 'all'} · follows the page filters
             </p>
-            {/* Always rendered, empty (no height) until a same-key refresh fails: the one live note for `coverage` (the header's line shows plain text). */}
-            <RefreshNote error={view.kind === 'data' ? view.refreshError : null} testId="coverage-refresh-note" live />
+            {/* Always rendered, empty until a same-key refresh fails: the one live note for `coverage` (the header's line shows plain text).
+                Out of flow, in the header's bottom padding (22px holds its 16px line), so the header keeps its height with and without it and nothing below moves. */}
+            <RefreshNote error={view.kind === 'data' ? view.refreshError : null} testId="coverage-refresh-note" live className="absolute left-0 right-0 top-full mt-0.5 leading-4" />
           </div>
           {/* A filled 30 x 30 button, as the mockup's. */}
           <button
