@@ -33,13 +33,13 @@ const HEAD_PAD = 'pl-1 pr-2';
 const NAME_TITLE = "The repository's team custom property — not a Glooker team";
 const GLYPH_GAP = 'gap-0.5';
 /**
- * The Owning team track's share, against 1fr per numeric column. Measured at 1024px with both Overdue columns (10 numeric columns, the
- * 15px scrollbar): the table is 928.9px wide, so 1fr = (928.9 - 8) / (1.6 + 10) = 79.4px. The widest header, "% CLOSED ↕", needs 69.25px
- * (light theme; 69.95px with the overlay scrollbar) in a button that is 67px (1fr - 12px padding). Adding 3.6px to every numeric column
- * leaves 70.6px, so 1fr = 83.0px = 920.9 / (a + 10), which gives a = 1.1. The Owning team cell goes from 127px to 91px; its name and
- * badge are cut with an ellipsis (the full text is in their titles). The label spans clip as a last resort.
+ * The Owning team track's share, against 1fr per numeric column. At 1024px with both Overdue columns the table is 928.9px wide, so
+ * 1fr = (928.9 - 8) / (1.5 + 10) = 80.1px (79.4px at 1.6). 1.1 gave the numeric columns 3.6px more but cut three team names and the
+ * "Owning team" header, so the label's width is reduced instead (HEAD_TRACKING) and the name track only gives up 0.1fr.
  */
-const NAME_FR = 1.1;
+const NAME_FR = 1.5;
+/** The header labels use normal letter-spacing: the 0.06em tracking of TYPE.tableHeader is about 0.7px per letter, which put "% CLOSED" 2px past its cell at 1024px. Team table only. Important (`!`), because two letter-spacing utilities on one element are decided by their order in the generated stylesheet, not by their order in the class list. */
+const HEAD_TRACKING = '!tracking-normal';
 /** A row that holds a focusable child (the unmeasured badge) scrolls whole into view when that child takes focus. */
 const scrollRowIntoView = (e: { currentTarget: HTMLElement }) => e.currentTarget.scrollIntoView?.({ block: 'nearest' });
 /** A keyboard-focused row: an inset ring, so the scrolling body does not clip it. */
@@ -149,7 +149,7 @@ export default function TeamTable({ data, url, openDrawer }: SecurityViewProps) 
       <div role="columnheader" aria-sort={active ? (active.dir === 'asc' ? 'ascending' : 'descending') : 'none'} className={`${g.tint} ${HEAD_PAD} ${shown ? '' : DIM}`} title={title}>
         <button
           type="button" disabled={!shown} title={title ?? label}
-          className={`${TYPE.tableHeader} flex w-full items-center justify-end ${GLYPH_GAP} whitespace-nowrap ${active ? 'text-white' : 'text-gray-400'} disabled:cursor-default`}
+          className={`${TYPE.tableHeader} ${HEAD_TRACKING} flex w-full items-center justify-end ${GLYPH_GAP} whitespace-nowrap ${active ? 'text-white' : 'text-gray-400'} disabled:cursor-default`}
           onClick={() => setSort(s => nextSort(shownTeamSort(s, url.severity), key, TEAM_SORT_FIRST[key]))}
         >
           <span className="min-w-0 truncate">{label}</span>
@@ -195,7 +195,7 @@ export default function TeamTable({ data, url, openDrawer }: SecurityViewProps) 
         </div>
         <div role="row" style={{ ...rowStyle, height: TEAM_COLHEAD_H }} className="box-border items-end border-b border-gray-800">
           <div role="columnheader" aria-sort={nameActive ? (nameActive.dir === 'asc' ? 'ascending' : 'descending') : 'none'} className="px-2 pb-[18px]" title={NAME_TITLE}>
-            <button type="button" title={NAME_TITLE} className={`${TYPE.tableHeader} flex max-w-full items-center gap-1 whitespace-nowrap ${nameActive ? 'text-white' : 'text-gray-400'}`} onClick={() => setSort(s => nextSort(shownTeamSort(s, url.severity), nameKey, TEAM_SORT_FIRST[nameKey]))}>
+            <button type="button" title={NAME_TITLE} className={`${TYPE.tableHeader} ${HEAD_TRACKING} flex max-w-full items-center gap-1 whitespace-nowrap ${nameActive ? 'text-white' : 'text-gray-400'}`} onClick={() => setSort(s => nextSort(shownTeamSort(s, url.severity), nameKey, TEAM_SORT_FIRST[nameKey]))}>
               <span className="min-w-0 truncate">Owning team</span>
               <span aria-hidden="true" className={`shrink-0 ${nameActive ? 'text-accent-light' : 'text-gray-600'}`}>{sortGlyph(nameActive)}</span>
             </button>

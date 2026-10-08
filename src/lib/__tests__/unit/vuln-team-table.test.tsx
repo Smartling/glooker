@@ -77,7 +77,7 @@ describe('layout', () => {
     const policy = (['critical', 'high'] as const).filter(s => status[s] === 'active')
       .map(severity => ({ id: `${severity}-1`, severity, days: 7, effectiveFrom: '2020-01-08', until: null, pending: false }));
     render(<TeamTable {...table({ slaStatus: status as SummaryData['slaStatus'], policy: policy as SummaryData['policy'] })} />);
-    const expected = `minmax(0, 1.1fr) repeat(${nC}, minmax(0, 1fr)) 8px repeat(${nH}, minmax(0, 1fr))`;
+    const expected = `minmax(0, 1.5fr) repeat(${nC}, minmax(0, 1fr)) 8px repeat(${nH}, minmax(0, 1fr))`;
     for (const row of [rowOf('Payments'), screen.getByTestId('team-total-row')]) expect(row.style.gridTemplateColumns).toBe(expected);
   });
 
@@ -348,13 +348,22 @@ describe('header labels clip instead of spilling (round 3)', () => {
     }
   });
 
-  // Revert: the old 1.6fr: at 1024px with ten numeric columns each is 79px and "% CLOSED ↕" needs about 70px in a 67px button.
-  it('the Owning team track is 1.1fr, which leaves each of ten numeric columns about 3.6px more at 1024px', () => {
+  // Revert: 1.1fr (cuts three team names and the "Owning team" header at 1024px) or 1.6fr (the numeric columns lose 0.7px each).
+  it('the Owning team track is 1.5fr', () => {
     render(<TeamTable {...table()} />);
-    const template = rowOf('Payments').style.gridTemplateColumns;
-    expect(template.startsWith('minmax(0, 1.1fr) ')).toBe(true);
-    const u = (928.9 - 8) / (1.1 + 10);
-    expect(u - (928.9 - 8) / (1.6 + 10)).toBeGreaterThan(3.5);
+    expect(rowOf('Payments').style.gridTemplateColumns.startsWith('minmax(0, 1.5fr) ')).toBe(true);
+  });
+
+  // Revert: drop the override: TYPE.tableHeader's 0.06em tracking puts "% CLOSED ↕" about 2px past its cell at 1024px. Team table only.
+  it('every header button uses normal letter-spacing, overriding the tracking of the shared header type', () => {
+    render(<TeamTable {...table()} />);
+    const buttons = screen.getAllByRole('columnheader').flatMap(h => Array.from(h.querySelectorAll('button')));
+    expect(buttons.length).toBeGreaterThanOrEqual(9);
+    for (const b of buttons) {
+      // important, so it wins over the shared type's tracking whatever the stylesheet order
+      expect(b.className.split(' ')).toContain('!tracking-normal');
+      expect(b.className).toContain('tracking-[0.06em]'); // the shared type is untouched
+    }
   });
 });
 
