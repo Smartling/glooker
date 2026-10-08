@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getJiraClient } from '@/lib/jira/client';
 import { requireAdmin } from '@/lib/auth';
 import { withRequestLog } from '@/lib/logger';
+import { isValidIssueKey } from '@/lib/jira-key-utils';
+import { internalError } from '@/lib/api-error';
 
 async function patchHandler(
   req: NextRequest,
@@ -11,6 +13,11 @@ async function patchHandler(
   if (denied) return denied;
 
   const { key } = await params;
+  // Reject at the boundary so a malformed key is a 400 rather than a 500
+  // from deep in the Jira client, and so it never reaches a log line.
+  if (!isValidIssueKey(key)) {
+    return NextResponse.json({ error: 'Invalid Jira issue key' }, { status: 400 });
+  }
   const body = await req.json();
   const { dueDate } = body; // "2026-04-15" or null
 
@@ -27,11 +34,7 @@ async function patchHandler(
     await client.updateDueDate(key, dueDate);
     return NextResponse.json({ success: true, key, dueDate });
   } catch (err) {
-    console.error(`[due-date] Error updating ${key}:`, err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Failed to update due date' },
-      { status: 500 },
-    );
+    return internalError('due-date', err);
   }
 }
 

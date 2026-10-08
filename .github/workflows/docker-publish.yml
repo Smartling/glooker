@@ -5,9 +5,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
-permissions:
-  contents: read
-  packages: write
+# Deny by default at the workflow level; each job opts in to exactly what it
+# needs. Previously `packages: write` sat here, so the `test` job — which runs
+# code from the dispatched ref — inherited the ability to publish to GHCR.
+permissions: {}
 
 concurrency:
   group: docker-publish-${{ github.ref }}
@@ -16,11 +17,18 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
-          node-version: 20
+          # workflow_dispatch can target any ref, so this job may run
+          # contributor-controlled code. Never leave the token where that code
+          # can read it.
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 22
           cache: 'npm'
       - run: npm ci
       - run: npm test -- --ci
@@ -28,15 +36,21 @@ jobs:
   build-and-push:
     needs: test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          # This job does not push commits; it only needs the tree to build.
+          persist-credentials: false
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -44,22 +58,94 @@ jobs:
 
       - name: Determine image tags
         id: tags
+        # Context values are passed through `env` rather than interpolated into
+        # the script. GitHub substitutes ${{ }} textually before bash runs, and
+        # `github.ref` derives from a branch name, which may contain quotes,
+        # backticks, $() or newlines — so interpolating it directly let a
+        # contributor-chosen branch name execute commands in this job.
+        env:
+          SHA: ${{ github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          SHA="${{ github.sha }}"
+          set -euo pipefail
           SHORT_SHA="${SHA:0:7}"
+          # GITHUB_REPOSITORY is provided by the runner, not an expression —
+          # no interpolation needed.
           IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
           # Always tag with short commit SHA.
           # workflow_dispatch can target any branch — this allows building
           # feature branch images for testing before merge.
           TAGS="${IMAGE}:${SHORT_SHA}"
-          # Only tag :latest on push to main (not on manual workflow_dispatch)
-          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" ]]; then
-            TAGS="${TAGS},${IMAGE}:latest"
+          # Only tag :latest on push to main (not on manual workflow_dispatch).
+          if [[ "$EVENT_NAME" == "push" && "$REF" == "refs/heads/main" ]]; then
+            # ...and only when this commit is STILL the head of main. Re-running
+            # an old workflow run replays its original SHA while event_name and
+            # ref both still read as a push to main, so the event check alone
+            # would let a rerun move :latest backwards onto a superseded commit
+            # — silently redeploying old code, including code whose
+            # vulnerabilities have since been fixed.
+            HEAD_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq '.sha')"
+            if [[ "$HEAD_SHA" == "$SHA" ]]; then
+              TAGS="${TAGS},${IMAGE}:latest"
+            else
+              echo "::notice::Skipping :latest — ${SHA} is no longer the head of main (${HEAD_SHA}); this run is a replay of a superseded commit."
+            fi
           fi
           echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+          # The short-SHA tag; the pre-publish scan reads it from the local daemon.
+          echo "image-ref=${IMAGE}:${SHORT_SHA}" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v6
+      # Pre-publish gate: build into the local daemon, scan it, and push only
+      # if the scan passes — a failing scan must leave nothing in GHCR.
+      - name: Build image locally (pre-publish, not pushed)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          load: true
+          push: false
+          tags: ${{ steps.tags.outputs.tags }}
+          build-args: |
+            COMMIT_SHA=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # One Trivy run (one DB download); the gate below reads the same report.
+      - name: Pre-publish scan of the local image (full report)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.tags.outputs.image-ref }}
+          format: json
+          output: trivy.json
+          exit-code: '0'
+
+      - name: Upload scan report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: trivy-report
+          path: trivy.json
+          retention-days: 30
+
+      - name: Pre-publish gate — fail on fixable CRITICAL/HIGH vulnerabilities
+        run: |
+          set -euo pipefail
+          FIXABLE="$(jq -r '[.Results[]? | .Target as $t | .Vulnerabilities[]?
+            | select((.Severity == "CRITICAL" or .Severity == "HIGH") and ((.FixedVersion // "") != ""))
+            | "\(.Severity)\t\(.VulnerabilityID)\t\(.PkgName) \(.InstalledVersion) -> \(.FixedVersion)\t\($t)"]
+            | unique | .[]' trivy.json)"
+          if [[ -n "$FIXABLE" ]]; then
+            echo "::error::Fixable CRITICAL/HIGH vulnerabilities found; image NOT published:"
+            echo "$FIXABLE"
+            exit 1
+          fi
+          echo "No fixable CRITICAL/HIGH vulnerabilities."
+
+      # Same inputs + gha cache, so this rebuild is a cache hit of the image scanned above.
+      - name: Publish image (gate passed)
+        id: push
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           push: true
@@ -67,4 +153,21 @@ jobs:
           build-args: |
             COMMIT_SHA=${{ github.sha }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+
+      # Contract with the deploy repo: artifact `image-digest`, file `digest.txt`,
+      # a single line `sha256:<64 hex>` — the registry digest of the pushed image.
+      - name: Record pushed image digest
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          set -euo pipefail
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::unexpected digest '$DIGEST'"; exit 1; }
+          printf '%s\n' "$DIGEST" > digest.txt
+          cat digest.txt
+
+      - name: Upload image digest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: image-digest
+          path: digest.txt
+          retention-days: 90

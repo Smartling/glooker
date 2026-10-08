@@ -83,7 +83,8 @@ describe('GET /api/projects/[key]/status', () => {
     const res = await GET(makeGetRequest(), makeParams('EPIC-1'));
     expect(res.status).toBe(500);
     const body = await res.json();
-    expect(body.error).toContain('Jira API error (404)');
+    expect(body.error).toBe('internal_error');
+      expect(String(body.error)).not.toContain('Jira API error');
   });
 });
 
@@ -133,7 +134,8 @@ describe('PATCH /api/projects/[key]/status', () => {
     const res = await PATCH(makeRequest({ transitionId: '99' }), makeParams('EPIC-42'));
     expect(res.status).toBe(500);
     const body = await res.json();
-    expect(body.error).toContain('Jira API error (400)');
+    expect(body.error).toBe('internal_error');
+      expect(String(body.error)).not.toContain('Jira API error');
   });
 
   it('requires admin — returns denied response when requireAdmin returns a response', async () => {

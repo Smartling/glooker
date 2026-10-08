@@ -20,7 +20,8 @@ export default function NavBar() {
 
   const { data: config } = useSWR('/api/llm-config');
   const latestReport = config?.latestReport ?? null;
-  const projectsEnabled = Boolean(config?.jira?.enabled && config?.jira?.projectsJql);
+  // projectsEnabled is in both the admin and the public config; the JQL itself is admin-only.
+  const projectsEnabled = Boolean(config?.jira?.enabled && config?.jira?.projectsEnabled);
   const vulnerabilitiesEnabled = Boolean(config?.vulnerabilities?.enabled);
 
   const isReportPage = pathname.match(/^\/report\/[^/]+\//);

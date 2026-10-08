@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { listDevelopers, listDevelopersFromGitHub } from '@/lib/developers/service';
 import { withRequestLog } from '@/lib/logger';
+import { requireAllowedOrg } from '@/lib/orgs/guard';
 
 async function getHandler(req: NextRequest) {
-  const org = req.nextUrl.searchParams.get('org');
+  const orgParam = req.nextUrl.searchParams.get('org');
   const q = req.nextUrl.searchParams.get('q') || '';
   const source = req.nextUrl.searchParams.get('source');
 
-  if (!org) return NextResponse.json({ error: 'org is required' }, { status: 400 });
+  const orgCheck = requireAllowedOrg(orgParam);
+  if (!orgCheck.ok) return orgCheck.res;
+  const org = orgCheck.org;
 
   if (source === 'github') {
     try {

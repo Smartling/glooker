@@ -4,15 +4,17 @@ services:
   app:
     build: .
     ports:
-      - "3000:3000"
+      # Loopback only. Publishing on all interfaces put an app whose auth was
+      # off by default (see AUTH_ENABLED below) on the host's network.
+      - "127.0.0.1:3000:3000"
     environment:
       # Database — use MySQL from the mysql service
       DB_TYPE: mysql
       DB_HOST: mysql
       DB_PORT: 3306
-      DB_USER: glooker
-      DB_PASSWORD: glooker
-      DB_NAME: glooker
+      DB_USER: ${DB_USER:?DB_USER is required}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      DB_NAME: ${DB_NAME:-glooker}
 
       # GitHub
       GITHUB_TOKEN: ${GITHUB_TOKEN}
@@ -44,12 +46,30 @@ services:
       AUTH_ENABLED: ${AUTH_ENABLED:-}
       AUTH_HEADER: ${AUTH_HEADER:-x-amzn-oidc-data}
       AUTH_ADMIN_GROUP: ${AUTH_ADMIN_GROUP:-}
-      AUTH_TEST_USER: ${AUTH_TEST_USER:-}
-      AUTH_TEST_EMAIL: ${AUTH_TEST_EMAIL:-}
-      # This image runs NODE_ENV=production (see Dockerfile), so the
-      # AUTH_TEST_USER bypass needs this explicit second opt-in — see
-      # auth.ts and .env.example. Never set in a real deployment.
-      AUTH_TEST_ALLOW_IN_PRODUCTION: ${AUTH_TEST_ALLOW_IN_PRODUCTION:-}
+      # Exactly one of these is required whenever AUTH_ENABLED=true — they are
+      # how the identity token's signature gets verified. Without one, every
+      # request is denied rather than trusted.
+      AUTH_ALB_REGION: ${AUTH_ALB_REGION:-}
+      AUTH_JWKS_URL: ${AUTH_JWKS_URL:-}
+      AUTH_EXPECTED_ISS: ${AUTH_EXPECTED_ISS:-}
+      # Required with AUTH_ALB_REGION (the token's signer) / AUTH_JWKS_URL (audience).
+      AUTH_ALB_ARN: ${AUTH_ALB_ARN:-}
+      AUTH_EXPECTED_AUD: ${AUTH_EXPECTED_AUD:-}
+      # MCP identity: Okta access token forwarded by mcp-okta-proxy (see .env.example).
+      AUTH_OKTA_ISSUER: ${AUTH_OKTA_ISSUER:-}
+      AUTH_OKTA_AUDIENCE: ${AUTH_OKTA_AUDIENCE:-}
+      AUTH_OKTA_CLIENT_ID: ${AUTH_OKTA_CLIENT_ID:-}
+      # Needed to open admin routes with AUTH_ENABLED=false under NODE_ENV=production —
+      # i.e. this local compose flow, which has no load balancer to verify a token.
+      AUTH_ALLOW_ANONYMOUS_ADMIN: ${AUTH_ALLOW_ANONYMOUS_ADMIN:-}
+      # ...and this to let anything through at all with auth off in production.
+      AUTH_ALLOW_ANONYMOUS: ${AUTH_ALLOW_ANONYMOUS:-}
+      # Comma-separated org allowlist; unset accepts any well-shaped org name.
+      ALLOWED_ORGS: ${ALLOWED_ORGS:-}
+      # AUTH_TEST_USER / AUTH_TEST_EMAIL are deliberately NOT passed through.
+      # This image runs NODE_ENV=production, where that bypass is now inert by
+      # construction; wiring it here is what made a full authentication bypass
+      # a copy-paste away for anyone using this file as a deployment template.
 
       # Anthropic Analytics API (Claude usage cost ingestion)
       ANTHROPIC_ANALYTICS_API_KEY: ${ANTHROPIC_ANALYTICS_API_KEY:-}
@@ -81,12 +101,12 @@ services:
   mysql:
     image: mysql:8.4
     environment:
-      MYSQL_DATABASE: glooker
-      MYSQL_USER: glooker
-      MYSQL_PASSWORD: glooker
-      MYSQL_ROOT_PASSWORD: rootpassword
-    ports:
-      - "3307:3306"
+      MYSQL_DATABASE: ${DB_NAME:-glooker}
+      MYSQL_USER: ${DB_USER:?DB_USER is required}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
+    # No `ports:` — the app reaches MySQL over the compose network. Publishing
+    # 3307 exposed a database whose credentials were hardcoded in this file.
     volumes:
       - mysql_data:/var/lib/mysql
       - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql

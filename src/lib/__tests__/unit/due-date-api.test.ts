@@ -90,7 +90,8 @@ describe('PATCH /api/projects/[key]/due', () => {
       const res = await PATCH(makeRequest({ dueDate: '2026-04-15' }), makeParams('PROJ-42'));
       expect(res.status).toBe(500);
       const body = await res.json();
-      expect(body.error).toContain('Jira API error (403)');
+      expect(body.error).toBe('internal_error');
+      expect(String(body.error)).not.toContain('Jira API error');
     });
 
     it('returns generic error message when error is not an Error instance', async () => {
@@ -100,7 +101,7 @@ describe('PATCH /api/projects/[key]/due', () => {
       const res = await PATCH(makeRequest({ dueDate: '2026-04-15' }), makeParams('PROJ-42'));
       expect(res.status).toBe(500);
       const body = await res.json();
-      expect(body.error).toBe('Failed to update due date');
+      expect(body.error).toBe('internal_error');
     });
   });
 });

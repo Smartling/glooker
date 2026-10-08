@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { getVersion } from '@/lib/build-info';
 import { withRequestLog } from '@/lib/logger';
 
 async function getHandler() {
@@ -19,15 +20,17 @@ async function getHandler() {
       ...(res.ok ? {} : { error: `HTTP ${res.status}` }),
     };
   } catch (err) {
-    checks.github = {
-      status: 'unreachable',
-      error: err instanceof Error ? err.message : String(err),
-    };
+    // Unauthenticated endpoint: report reachability, not the underlying error,
+    // which can name the proxy, DNS or token state.
+    console.error('[health] github check failed', err);
+    checks.github = { status: 'unreachable' };
   }
 
   return NextResponse.json({
     status: 'ok',
-    version: process.env.npm_package_version || 'unknown',
+    // Unauthenticated: no commit SHA here (fingerprinting). get_build_info (MCP,
+    // authenticated) reports the running commit.
+    version: getVersion(),
     checks,
   });
 }

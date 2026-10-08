@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import SafeMarkdown from '@/components/SafeMarkdown';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -262,19 +263,7 @@ function ChatMarkdown({ content }: { content: string }) {
         // Text block
         return (
           <div key={bi}>
-            {block.lines.map((line, li) => {
-              if (line.trim() === '') return <br key={li} />;
-              if (line.startsWith('## ')) return <p key={li} className="font-bold text-white text-sm mt-1">{line.slice(3)}</p>;
-              if (line.startsWith('- ')) {
-                return (
-                  <div key={li} className="flex gap-1.5 items-start">
-                    <span className="text-gray-600 mt-0.5">•</span>
-                    <span dangerouslySetInnerHTML={{ __html: formatInline(line.slice(2)) }} />
-                  </div>
-                );
-              }
-              return <p key={li} dangerouslySetInnerHTML={{ __html: formatInline(line) }} />;
-            })}
+            <SafeMarkdown>{block.lines.join('\n')}</SafeMarkdown>
           </div>
         );
       })}
@@ -282,8 +271,3 @@ function ChatMarkdown({ content }: { content: string }) {
   );
 }
 
-function formatInline(text: string): string {
-  return text
-    .replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>')
-    .replace(/`(.*?)`/g, '<code class="bg-gray-700 px-1 rounded text-[11px]">$1</code>');
-}

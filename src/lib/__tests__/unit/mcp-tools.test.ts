@@ -20,6 +20,7 @@ describe('MCP tool registry', () => {
     'get_metric_timeseries', 'query_model_usage', 'query_skills_usage',
     'list_vulnerabilities', 'get_vulnerability_summary', 'get_vulnerability_trend', 'get_vulnerability_coverage',
     'list_vulnerability_repos',
+    'get_build_info',
   ];
 
   it('registers exactly the expected tools with unique names', () => {
@@ -41,6 +42,14 @@ describe('MCP tool registry', () => {
     mockExecute.mockResolvedValueOnce([[{ id: 'r1', org: 'acme', period_days: 30, status: 'completed', created_at: 'x', completed_at: 'y' }], null]);
     const out = await callTool('list_reports', { limit: 5 });
     expect(out.reports).toHaveLength(1);
+  });
+
+  it('get_build_info returns { commit, version } with no db access', async () => {
+    const out = await callTool('get_build_info', {});
+    expect(Object.keys(out).sort()).toEqual(['commit', 'version']);
+    expect(typeof out.commit).toBe('string');
+    expect(typeof out.version).toBe('string');
+    expect(mockExecute).not.toHaveBeenCalled();
   });
 
   it('callTool returns an error object for an unknown tool', async () => {

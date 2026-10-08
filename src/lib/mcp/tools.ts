@@ -10,6 +10,7 @@ import { getReleaseNotes } from '@/lib/release-notes/service';
 import { getReportHighlights } from '@/lib/report-highlights';
 import { getDevSummary } from '@/lib/report/summary';
 import { getTeamPulse } from '@/lib/team-pulse';
+import { getBuildInfo } from '@/lib/build-info';
 import type { Requester } from '@/lib/cost-visibility';
 import { getSummary as getVulnSummary, getTrend as getVulnTrend, getAlerts as getVulnAlerts, getCoverage as getVulnCoverage, getRepos as getVulnRepos, REASON_DISABLED as VULN_REASON_DISABLED } from '@/lib/vulnerabilities/queries';
 import { parseVulnFilters } from '@/lib/vulnerabilities/filters';
@@ -320,6 +321,12 @@ export const MCP_TOOLS: McpTool[] = [
       offset: { type: 'integer', minimum: 0, description: 'rows to skip; page with offset += limit while truncated is true' },
     } },
     handler: (a) => vulnCall(a, async f => limitRepoRows(await getVulnRepos(f), f.limit, f.offset)),
+  },
+  {
+    name: 'get_build_info',
+    description: 'Reports which Glooker build is running: the commit SHA the build was made from (full in CI images, may be short in local builds; "unknown" if absent) and the package version. Use it to check what is deployed. Takes no arguments; no data access.',
+    inputSchema: { type: 'object', properties: {} },
+    handler: async () => getBuildInfo(),
   },
 ];
 

@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { listTeams, createTeam, TeamDuplicateError } from '@/lib/teams/service';
 import { requireAdmin } from '@/lib/auth';
 import { withRequestLog } from '@/lib/logger';
+import { requireAllowedOrg } from '@/lib/orgs/guard';
 
 async function getHandler(req: NextRequest) {
-  const org = req.nextUrl.searchParams.get('org');
-  if (!org) return NextResponse.json({ error: 'org is required' }, { status: 400 });
+  const orgCheck = requireAllowedOrg(req.nextUrl.searchParams.get('org'));
+  if (!orgCheck.ok) return orgCheck.res;
 
-  return NextResponse.json(await listTeams(org));
+  return NextResponse.json(await listTeams(orgCheck.org));
 }
 
 async function postHandler(req: NextRequest) {
@@ -16,7 +17,9 @@ async function postHandler(req: NextRequest) {
   const body = await req.json();
   const { org, name } = body;
 
-  if (!org || !name) return NextResponse.json({ error: 'org and name are required' }, { status: 400 });
+  const orgCheck = requireAllowedOrg(org);
+  if (!orgCheck.ok) return orgCheck.res;
+  if (!name) return NextResponse.json({ error: 'name is required' }, { status: 400 });
 
   try {
     const team = await createTeam(body);
