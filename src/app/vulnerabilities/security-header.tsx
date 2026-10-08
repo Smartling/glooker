@@ -145,7 +145,8 @@ export default function SecurityHeader({ summary, repos, coverage, codebase, sum
         actions={(
           <Link
             href="/reports?tab=syncs"
-            className={`inline-block border border-gray-700 bg-chart-surface px-3 py-1.5 text-xs font-medium text-gray-300 hover:text-white ${TYPE.control}`}
+            // The app's secondary button, as "Download PDF" on the org report: a filled gray-800 button, no border, 28px tall.
+            className="inline-block shrink-0 rounded-lg bg-gray-800 px-3 py-1.5 text-xs font-medium text-gray-300 transition-colors hover:bg-gray-700"
           >
             Sync history
           </Link>

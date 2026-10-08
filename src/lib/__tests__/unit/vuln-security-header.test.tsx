@@ -120,15 +120,16 @@ describe('SecurityHeader', () => {
     expect(label.className).not.toContain('amber');
   });
 
-  // Revert: put the arrow and the link style back: it reads as an inline link, not as the page's secondary button.
-  it('"Sync history" is a secondary button (surface fill, border, no underline, no arrow) linking to the sync list', () => {
+  // Revert: put the arrow or the bordered variant back: it no longer matches the app's other secondary button ("Download PDF" on the org report).
+  it('"Sync history" is the app\'s secondary button (filled gray-800, no border, no underline, no arrow, 28px: py-1.5 text-xs) linking to the sync list', () => {
     render(<SecurityHeader {...props()} />);
     const btn = screen.getByRole('link', { name: 'Sync history' });
     expect(btn.textContent).toBe('Sync history');
     expect(btn.getAttribute('href')).toBe('/reports?tab=syncs');
-    expect(btn.className).toContain('border');
-    expect(btn.className).toContain('bg-chart-surface');
-    expect(btn.className).not.toContain('underline');
+    const classes = btn.className.split(' ');
+    for (const c of ['bg-gray-800', 'hover:bg-gray-700', 'text-gray-300', 'rounded-lg', 'px-3', 'py-1.5', 'text-xs', 'font-medium']) expect(classes).toContain(c);
+    expect(classes).not.toContain('border');
+    expect(classes).not.toContain('underline');
   });
 
   it('keeps the freshness label, the Sync history action and the Updating… indicator', () => {
@@ -283,10 +284,13 @@ describe('ConfigErrorBanner (carried over)', () => {
   // Revert: print `e.at` raw again: the line shows an ISO instant where every other date on the page reads "Sep 22".
   it('adds "clears after the next successful sync (as of <date>)" for a sync-sourced entry: a display date, the ISO instant in a title', () => {
     jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-01T00:00:00Z'));
-    const { container } = render(<ConfigErrorBanner errors={[{ source: 'sync', variable: 'VULN_Y', rule: 'VULN_Y: unseen', at: '2026-09-22T06:00:00Z' }]} />);
-    expect(container.textContent).toBe('VULN_Y: unseen — clears after the next successful sync (as of Sep 22)');
-    expect(screen.getByText('Sep 22').getAttribute('title')).toBe('2026-09-22T06:00:00Z');
-    jest.restoreAllMocks();
+    try {
+      const { container } = render(<ConfigErrorBanner errors={[{ source: 'sync', variable: 'VULN_Y', rule: 'VULN_Y: unseen', at: '2026-09-22T06:00:00Z' }]} />);
+      expect(container.textContent).toBe('VULN_Y: unseen — clears after the next successful sync (as of Sep 22)');
+      expect(screen.getByText('Sep 22').getAttribute('title')).toBe('2026-09-22T06:00:00Z');
+    } finally {
+      jest.restoreAllMocks();
+    }
   });
 
   it('a sync-sourced entry with no time reads without "(as of …)", and never prints "undefined"', () => {

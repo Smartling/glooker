@@ -167,6 +167,24 @@ describe('Alerts tab count', () => {
   });
 });
 
+describe('"A date…" prefill', () => {
+  // Revert: build "today" from toISOString() (UTC) in vulnerabilities-content: the prefill and the date input's max can name different days.
+  it('is a week before the browser\'s own calendar day (local date parts), the same day the date input\'s max uses', async () => {
+    // The local clock says 2031-03-15, nothing like the real UTC day, so only a local-parts "today" can give 2031-03-08.
+    jest.spyOn(Date.prototype, 'getFullYear').mockReturnValue(2031);
+    jest.spyOn(Date.prototype, 'getMonth').mockReturnValue(2);
+    jest.spyOn(Date.prototype, 'getDate').mockReturnValue(15);
+    try {
+      mount('');
+      fireEvent.change(await screen.findByLabelText('Compare to'), { target: { value: 'date' } });
+      await waitFor(() => expect(nav().__calls.length).toBe(1));
+      expect(params(nav().__calls[0].url).get('baseline')).toBe('2031-03-08');
+    } finally {
+      jest.restoreAllMocks();
+    }
+  });
+});
+
 describe('filters write the URL without scrolling and without switching the view', () => {
   it.each([
     ['Codebase', 'frontend', 'codebase'],

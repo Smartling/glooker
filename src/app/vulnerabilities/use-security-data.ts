@@ -91,12 +91,14 @@ export function securityKeys(scope: SecurityScope, now: Date): SecurityKeys {
  * none. A revalidation that fails on a key that has its own data keeps that data (`stale` stays false).
  */
 function toSlot<T>(label: string, r: { data?: unknown; error?: unknown; isLoading: boolean }, ownsData: boolean): Slot<T> {
-  const payload = (r.error && !ownsData ? undefined : r.data) as { available?: boolean } | undefined;
+  // An error on a key that has no data of its own is the whole answer for that key, even while SWR retries it (isLoading stays true then).
+  const failedHere = !!r.error && !ownsData;
+  const payload = (failedHere ? undefined : r.data) as { available?: boolean } | undefined;
   const data = payload && payload.available === true ? (payload as unknown as T) : undefined;
   const unavailable = payload && payload.available === false ? (payload as unknown as UnavailableData) : undefined;
   return {
     data, unavailable, error: r.error, errorText: panelError(r.error, label),
-    loading: r.isLoading && !payload,
+    loading: r.isLoading && !payload && !failedHere,
     stale: r.isLoading && !!payload,
   };
 }

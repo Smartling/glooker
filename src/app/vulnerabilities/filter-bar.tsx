@@ -4,6 +4,7 @@ import { useRef, type ReactNode, type Ref } from 'react';
 import { CODEBASE_GROUPS, CODEBASE_LABELS } from '@/lib/vulnerabilities/codebase-labels';
 import { codebaseOptionCount, kSev, type CodebaseCounts, type SecurityUrl, type SeverityFilter } from './security-state';
 import ViewTabs from './view-tabs';
+import { localToday } from './labels';
 import {
   BAR_PAD_Y, BAR_ROW_H, FILTER_BAR_H, FILTER_CAPTION_GAP, FILTER_CAPTION_H, FILTER_ROW_GAP, FILTER_ROW_H, FILTER_SELECT_H,
   PAGE_PAD, RESET_SLOT_W, SELECT_W, TYPE, Z,
@@ -32,11 +33,6 @@ const SEVERITY_OPTIONS: ReadonlyArray<[SeverityFilter, string]> = [
 ];
 const COMPARE_OPTIONS = [['last', 'Last sync'], ['7d', '7 days ago'], ['30d', '30 days ago'], ['date', 'A date…']] as const;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-/** The browser's own calendar day: the date input's `max` is what the picker lets the user choose, so it follows the user's day, not UTC's. */
-function localToday(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
 
 // A non-default select gets the accent border AND the accent fill; a default one is a plain surface.
 const selectClass = (nonDefault: boolean) =>

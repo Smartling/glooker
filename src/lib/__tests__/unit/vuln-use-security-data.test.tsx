@@ -220,6 +220,28 @@ describe('an error never shows another key\'s data', () => {
     expect(latest.data.summary.loading).toBe(false);
   });
 
+  // Revert: `loading: r.isLoading && !payload` alone: during SWR's retry the failed key reads loading, and a consumer that checks `loading` first never shows the error.
+  it('a failed key reads loading:false, stale:false with its error text and no data, also while SWR is retrying it', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>(r => { release = r; });
+    let frontendCalls = 0;
+    const f = mount('', {
+      summary: async url => {
+        if (url.searchParams.get('codebase') !== 'frontend') return { body: summaryFixture({ org: 'acme' }) };
+        frontendCalls += 1;
+        if (frontendCalls > 1) await gate;   // the retry stays in flight
+        return { status: 500, body: { error: 'Internal Server Error' } };
+      },
+    }, { ...PRODUCTION_SWR, errorRetryInterval: 10 });
+    await waitFor(() => expect(latest.data.summary.data?.org).toBe('acme'));
+    act(() => { latest.url.setCodebase('frontend'); });
+    await waitFor(() => expect(latest.data.summary.errorText).toContain('Internal Server Error'));
+    await waitFor(() => expect(callsTo(f, 'summary').filter(u => u.searchParams.get('codebase') === 'frontend')).toHaveLength(2));   // the retry is in flight
+    expect(latest.data.summary).toMatchObject({ loading: false, stale: false, data: undefined });
+    expect(latest.data.summary.errorText).toContain('Internal Server Error');
+    await act(async () => { release(); });
+  });
+
   it('while the new key is still loading the previous data stays and is marked stale (no error yet)', async () => {
     let release!: () => void;
     const gate = new Promise<void>(r => { release = r; });

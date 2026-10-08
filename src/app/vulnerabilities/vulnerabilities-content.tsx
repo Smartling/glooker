@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef } from 'react';
 import Link from 'next/link';
 import { addDays } from '@/lib/vulnerabilities/time';
 import { panelError } from './format';
+import { localToday } from './labels';
 import { keepTopDelta, scopeOpenCount, useAlertList, useSecurityUrl } from './security-state';
 import { useSecurityData } from './use-security-data';
 import SecurityHeader, { ConfigErrorBanner } from './security-header';
@@ -102,7 +103,7 @@ export default function VulnerabilitiesContent() {
   const alertsCount = data.repos.data && !(data.effectiveRepo !== null && data.repos.stale)
     ? scopeOpenCount(data.repos.data.rows, url.severity, data.effectiveRepo)
     : null;
-  const baselinePrefill = s.delta[url.kSev].baseline?.takenOn ?? addDays(new Date().toISOString().slice(0, 10), -7);
+  const baselinePrefill = s.delta[url.kSev].baseline?.takenOn ?? addDays(localToday(), -7);
 
   return (
     <div data-testid="security-page" className="mx-auto flex flex-col" style={{ maxWidth: PAGE_MAX_W, ...PAGE_PADDING, gap: PAGE_GAP }}>

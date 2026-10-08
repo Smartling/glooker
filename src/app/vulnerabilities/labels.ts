@@ -7,6 +7,12 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 /** Today's date, YYYY-MM-DD, in UTC. Reads `Date.now()` so a test can pin the clock without fake timers. */
 export const utcToday = (): string => new Date(Date.now()).toISOString().slice(0, 10);
 
+/** The browser's own calendar day, YYYY-MM-DD: what a date picker's `max` and a "a week ago" prefill must agree on. */
+export function localToday(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 /**
  * The one way a date is shown on the page: "Oct 4" within the current year, "Jan 8, 2020" in any other
  * year. `iso` is a YYYY-MM-DD date or an ISO instant, read in UTC; anything unparseable is returned as
