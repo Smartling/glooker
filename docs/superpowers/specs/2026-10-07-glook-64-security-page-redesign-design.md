@@ -36,8 +36,8 @@ The page has two views that share one sticky filter bar. Both views and the main
   - a "Sync history" action.
   - `PageHeader` and `DataFreshness` stay unchanged, because the org and team report pages use them. The stale tag, the banner and the coverage line are page-local elements passed as `PageHeader`'s `children`. The meta line cannot hold them, because `PageHeader` renders `meta` inside a `<p>`.
 - **Sticky bar:**
-  - view tabs: Overview, and Alerts with its open count;
-  - filters: Codebase (each option shows its open count), Owning team, Severity (Critical + high / Critical only / High only), Compare to (Last sync / 7 days / 30 days / A date…). "A date…" opens its date input pre-filled with a date;
+  - view tabs: Overview, and Alerts with its open count under Severity, written "N open";
+  - filters, each under a small uppercase caption: Codebase (each option shows its `kSev` open count with its unit), Owning team, Severity (Critical + high / Critical only / High only), Compare to (Last sync / 7 days ago / 30 days ago / A date…). "A date…" opens its date input pre-filled with a date;
   - a non-default filter gets the accent treatment, and "Reset filters" appears only when a filter differs from its default.
 - **Overview:**
   - KPI tiles: open alerts with a change sentence and a sparkline; new / resolved / reopened since the baseline; resolved with % closed; SLA overdue and due ≤ 7d per severity;
@@ -57,7 +57,7 @@ The page never sends `severity=both` to the API. One rule decides which severity
 | `kSev` | `critical`, unless Severity is "High only", then `high`. |
 | KPI tiles, sparkline, trend | Use `kSev`. They show one severity, never a sum of both. |
 | Alert list, rail, summary strip, Alerts tab count | Follow Severity. "Critical + high" sends no `severity` parameter. |
-| Codebase option counts | Follow Severity and Owning team. The page computes them client-side from the per-severity counts in `codebaseCounts`. |
+| Codebase option counts | Use `kSev` and follow Owning team. The page computes them client-side from the per-severity counts in `codebaseCounts` and writes the unit: "Backend · 8 open crit", or "open high" under "High only". The count is the number the KPI tile beside the option shows. |
 
 The old `?sev=` key is ignored. An old `?sev=high` link now shows critical. That is accepted.
 
@@ -86,7 +86,8 @@ The rail's first row reads "All {team} repositories", or "All repositories" when
 
 ### States the implementation must cover
 
-- **SLA policy per severity:** active, pending ("Starts {date}"), none ("No SLA policy yet"), invalid ("SLA policy can't be read", in red). Each state appears on the SLA tile, the strip, the rail and the overdue columns. An overdue column exists only while its severity's policy is active.
+- **SLA policy per severity:** active, pending, none, invalid. Each state appears on the SLA tile, the strip, the rail and the overdue columns. An overdue column exists only while its severity's policy is active. The wording has one definition with two forms. Where the header already says SLA (the SLA tile): "Starts {date}", "No SLA policy yet", and for an invalid policy "! Policy error" (red; the title holds the full sentence). Where it does not (the strip tails, the rail footer, the Due column's sub-line, the toggle hint): "SLA starts {date}", "no SLA policy yet", "SLA policy can't be read" (red). The rail footer follows Severity and, while no SLA is active, names the state before "· no overdue counts".
+- **Dates:** one rule writes every visible date: "Oct 4" within the current year, "Jan 8, 2020" in any other year, always from the UTC date. The ISO form appears only in `title` attributes.
 - **History:** a sparkline with 0, 1 or ≥2 measurements ("No measurements yet", "Not enough history yet" with "1 measurement so far ({date})", or a line), and the trend's short-history note.
 - **Baseline:** "No earlier measurement yet" or "No measurement on or before {date}" when the baseline set doesn't exist or doesn't cover the view.
 - **Resolved-count start date unset:** "N dismissed · all time".
@@ -318,7 +319,7 @@ The new components are page-local. `page.tsx` keeps exporting only its default, 
 | Element | Request | Parameters |
 |---|---|---|
 | KPI tiles, SLA tile, Codebase options | `summary` | `codebase`, `team`, `baseline` |
-| Header meta line | `repos` rows, plus `summary.scope.value` | `codebase`, `team`. The repository count and the number of distinct owning teams (Unassigned counts as one) come from the rows; the scope label comes from `summary.scope.value`. |
+| Header meta line | `repos` rows, plus `summary.scope.value` | `codebase` only, never `team`. The repository count and the number of distinct owning teams (Unassigned counts as one) come from the rows; the scope label comes from `summary.scope.value`. The line describes the codebase, so choosing an owning team does not change it. With no team selected the request is the same as the Repositories tab's and dedupes to one. |
 | Header coverage line | `coverage` | `codebase`, `team` |
 | Team table | `summary` (a second key) | `codebase`, `baseline`. It is never scoped to the team, so every team stays listed. |
 | Sparkline | `trend` (its own key) | `codebase`, `severity=kSev`, `since` fixed at 90 days back. No `team`. |
@@ -347,7 +348,7 @@ The new components are page-local. `page.tsx` keeps exporting only its default, 
 - Closing returns focus to the element that opened it.
 - Its z-index is above the sticky bar.
 - Its open state is local, not in the URL.
-- It follows the Codebase and Owning team filters. It groups gaps as Unmeasured (hatched rows, open counts unknown; their resolved alerts and measured history still count), Needs tagging (counted under "Unassigned") and Excluded by policy (not counted), then lists the policy as "From deployment configuration".
+- It follows the Codebase and Owning team filters. A subtitle says what it follows ("{Codebase} · Owning team: {team or all} · follows the page filters"). It groups gaps as Unmeasured (hatched rows, open counts unknown; their resolved alerts and measured history still count), Needs tagging (counted under "Unassigned") and Excluded by policy (not counted). Each group header shows its repository count and a right-aligned summary ("open counts unknown", "N open critical"), and each row gives its reason (the unmeasured reason, the missing tags, "outside scope ({tier})"). The policy section, "From deployment configuration", has four labelled rows and shows no entry ids: Critical SLA and High SLA ("N days · since {date}", "N days · starts {date}", "No SLA policy yet", or in red "! Can't be read · check the SLA settings in the deployment config"), Resolved count ("Since {date} · fixed + dismissed" or "All time · fixed + dismissed") and Scope ("{property} = {value}").
 
 **Trend.**
 
@@ -457,4 +458,4 @@ jsdom cannot measure layout, so the layout work has two kinds of check.
 - There is no horizontal scroll at 1024px, and the fixed heights hold in the headless run in dark and light.
 - Repository rows sum to team rows for every filter combination tested.
 - The MCP tool returns the same figures as the page.
-- The full Jest suite passes under Node 24, and `npm run build` succeeds.
+- The full Jest suite passes, and `npm run build` succeeds.
