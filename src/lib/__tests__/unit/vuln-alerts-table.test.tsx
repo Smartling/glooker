@@ -166,7 +166,7 @@ function alertRow(i: number, overrides: Partial<import('@/lib/vulnerabilities/ag
     packageName: 'pkg', ecosystem: 'npm', manifestPath: 'm', relationship: 'direct', scope: 'runtime',
     createdAt: '2026-09-01T00:00:00Z', ageDays: 1, clockStart: null, dueDate: null, daysRemaining: null,
     slaPolicyId: null, state: 'open' as const, dismissedReason: null, resolvedAt: null,
-    resolvedOnTime: null, resolvedDaysLate: null, reopenedCount: 0, htmlUrl: `u${i}`,
+    resolvedOnTime: null, resolvedDaysLate: null, reopenedCount: 0, lastReopenedAt: null, htmlUrl: `u${i}`,
     ...overrides,
   };
 }

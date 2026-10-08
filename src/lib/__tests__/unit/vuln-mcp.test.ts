@@ -35,7 +35,7 @@ it('emits snake_case keys everywhere (rows, sync block, pivot) — the names the
   expect(Object.keys(out.sync).sort()).toEqual(['issues', 'issues_count', 'last_status', 'last_successful_at', 'running', 'stale']);
   expect(Object.keys(out.rows[0]).sort()).toEqual([
     'age_days', 'clock_start', 'created_at', 'cve_id', 'cvss', 'days_remaining', 'dismissed_reason', 'due_date', 'ecosystem', 'epss',
-    'ghsa_id', 'html_url', 'manifest_path', 'package_name', 'relationship', 'reopened_count', 'repo', 'resolved_at',
+    'ghsa_id', 'html_url', 'last_reopened_at', 'manifest_path', 'package_name', 'relationship', 'reopened_count', 'repo', 'resolved_at',
     'resolved_days_late', 'resolved_on_time', 'scope', 'severity', 'severity_changed_at', 'sla_policy_id', 'state', 'summary', 'team',
   ]);
   const pv = computePivot([alert], [repo], { codebase: 'backend', now: NOW });

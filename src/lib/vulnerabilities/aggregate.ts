@@ -298,7 +298,9 @@ export interface AlertRow {
   packageName: string | null; ecosystem: string | null; manifestPath: string | null; relationship: string | null; scope: string | null;
   createdAt: string; ageDays: number; clockStart: string | null; dueDate: string | null; daysRemaining: number | null;
   slaPolicyId: string | null; state: AlertState; dismissedReason: string | null; resolvedAt: string | null;
-  resolvedOnTime: boolean | null; resolvedDaysLate: number | null; reopenedCount: number; htmlUrl: string;
+  resolvedOnTime: boolean | null; resolvedDaysLate: number | null; reopenedCount: number;
+  /** ISO instant of the latest reopen, or null; the list shows it as a UTC date in "reopened {date}". */
+  lastReopenedAt: string | null; htmlUrl: string;
 }
 /** GLOOK-43: distinct repos (with counts) matching every filter except `repo`
  * itself, ignoring `limit` — so a repo dropdown's options don't come from the (possibly
@@ -360,7 +362,7 @@ function toAlertRow(a: AlertFact, r: RepoFact, now: Date): AlertRow {
     daysRemaining: open && due ? daysRemaining(due.dueDate, now) : null, slaPolicyId: due?.policyId ?? null,
     state: a.state, dismissedReason: a.dismissedReason, resolvedAt: a.resolvedAt,
     resolvedOnTime: timing ? timing.onTime : null, resolvedDaysLate: timing ? timing.daysLate : null,
-    reopenedCount: a.reopenedCount, htmlUrl: a.htmlUrl,
+    reopenedCount: a.reopenedCount, lastReopenedAt: a.lastReopenedAt, htmlUrl: a.htmlUrl,
   };
 }
 

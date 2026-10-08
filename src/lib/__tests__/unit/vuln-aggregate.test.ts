@@ -526,3 +526,13 @@ describe('computeCoverage codebase option (GLOOK-64)', () => {
     expect(fn(c.unmeasured)).toEqual([]);
   });
 });
+
+describe('AlertRow.lastReopenedAt (GLOOK-64)', () => {
+  it('carries the latest reopen instant, and null for an alert that was never reopened', () => {
+    const reopened = A(1, 1, { reopenedCount: 2, lastReopenedAt: '2026-09-10T08:30:00Z' });
+    const plain = A(1, 2);
+    const { rows } = listAlerts([reopened, plain], [R(1)], { codebase: 'backend', state: 'open' }, NOW);
+    expect(rows.find(r => r.cveId === 'CVE-1')!.lastReopenedAt).toBe('2026-09-10T08:30:00Z');
+    expect(rows.find(r => r.cveId === 'CVE-2')!.lastReopenedAt).toBeNull();
+  });
+});
