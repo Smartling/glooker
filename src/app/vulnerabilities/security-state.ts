@@ -6,7 +6,8 @@
 //
 // Client-safe: type-only imports from aggregate.ts (it pulls in server config), and the calendar
 // check below is re-implemented because filters.ts also imports server config.
-import type { UrlSchema } from '@/lib/url-state';
+import { useState } from 'react';
+import { useUrlBatch, useUrlState, type UrlSchema } from '@/lib/url-state';
 import type { CodebaseGroup, Severity } from '@/lib/vulnerabilities/types';
 import type { CodebaseCounts, RepoRow } from '@/lib/vulnerabilities/aggregate';
 import { ALERT_SORT_KEYS, type AlertSortDir, type AlertSortKey, type AlertSortSpec } from '@/lib/vulnerabilities/alert-sort';
@@ -159,4 +160,167 @@ export function alertsQueryString(i: AlertsQueryInput): string {
     p.set('sort', sort);
   }
   return p.toString();
+}
+
+// ── Hooks ──────────────────────────────────────────────────────────────────────────────────────
+
+export interface SecurityUrl {
+  view: SecurityView;
+  own: OwnTab;
+  codebase: CodebaseGroup;
+  team: string | null;
+  repo: string | null;
+  severity: SeverityFilter;
+  /** Already sanitised: a hand-edited value the API would reject reads as 'last'. */
+  baseline: string;
+  range: TrendRange;
+  kSev: Severity;
+  setView(v: SecurityView): void;
+  setOwn(o: OwnTab): void;
+  setSeverity(s: SeverityFilter): void;
+  setBaseline(b: string): void;
+  setRange(r: TrendRange): void;
+  /** Writes `repo: null` in the same URL write: the selected repository belongs to the old scope. */
+  setCodebase(c: CodebaseGroup): void;
+  /** Writes `repo: null` in the same URL write. */
+  setTeam(t: string | null): void;
+  /** Select (or clear, with null) a repository from INSIDE the Alerts view, i.e. a rail row. Writes only
+   * `repo`, as a replace: no history entry, `view` and `team` untouched. Use selectRepoRow for the
+   * Overview Repositories-tab rows instead (that one is a push to the Alerts view). */
+  setRepo(repo: string | null): void;
+  /** "Show all repositories". */
+  clearRepo(): void;
+  /** Overview team row. Selecting sets the team and switches the card to Repositories (a push);
+   * clicking the selected team again clears it. Never changes the view. */
+  selectTeamRow(team: string): void;
+  /** Repository row: one push to the Alerts view with that repository and its owning team. */
+  selectRepoRow(row: { fullName: string; team: string }): void;
+  /** Codebase, Owning team, Severity, Compare to and the repository back to defaults. Never changes the view. */
+  resetFilters(): void;
+  isDefault: { codebase: boolean; team: boolean; severity: boolean; baseline: boolean; repo: boolean; all: boolean };
+}
+
+export type SecurityScope = Pick<SecurityUrl, 'codebase' | 'team' | 'repo' | 'severity' | 'baseline' | 'range'>;
+
+/** Handlers are recreated on every render; consumers must not depend on their identity. */
+export function useSecurityUrl(): SecurityUrl {
+  const batch = useUrlBatch();
+  const [view, setViewRaw] = useUrlState(VIEW_SCHEMA);
+  const [own, setOwnRaw] = useUrlState(OWN_SCHEMA);
+  const [codebase, setCodebaseRaw] = useUrlState(CODEBASE_SCHEMA);
+  const [team, setTeamRaw] = useUrlState(TEAM_SCHEMA);
+  const [repo, setRepoRaw] = useUrlState(REPO_SCHEMA);
+  const [severity, setSeverityRaw] = useUrlState(SEVERITY_SCHEMA);
+  const [rawBaseline, setBaselineRaw] = useUrlState(BASELINE_SCHEMA);
+  const [range, setRangeRaw] = useUrlState(RANGE_SCHEMA);
+  const baseline = sanitiseBaseline(rawBaseline);
+
+  const isDefault = {
+    codebase: codebase === 'backend',
+    team: team === null,
+    severity: severity === 'both',
+    baseline: baseline === 'last',
+    repo: repo === null,
+    all: false,
+  };
+  isDefault.all = isDefault.codebase && isDefault.team && isDefault.severity && isDefault.baseline && isDefault.repo;
+
+  return {
+    view, own, codebase, team, repo, severity, baseline, range, kSev: kSev(severity),
+    setView: setViewRaw,
+    setOwn: setOwnRaw,
+    setSeverity: setSeverityRaw,
+    setBaseline: setBaselineRaw,
+    setRange: setRangeRaw,
+    setCodebase: c => batch(() => { setCodebaseRaw(c); setRepoRaw(null); }),
+    setTeam: t => batch(() => { setTeamRaw(t); setRepoRaw(null); }),
+    setRepo: setRepoRaw,
+    clearRepo: () => setRepoRaw(null),
+    selectTeamRow: next => batch(() => {
+      if (team === next) {
+        setTeamRaw(null);
+      } else {
+        setTeamRaw(next);
+        setOwnRaw('repos'); // `own` is declared push, so this batch pushes a history entry
+      }
+      setRepoRaw(null);
+    }),
+    // Raw setters, in this order, on purpose: the wrapped setTeam above also writes repo: null.
+    selectRepoRow: row => batch(() => {
+      setViewRaw('alerts');
+      setTeamRaw(row.team);
+      setRepoRaw(row.fullName);
+    }),
+    resetFilters: () => batch(() => {
+      setCodebaseRaw('backend');
+      setTeamRaw(null);
+      setSeverityRaw('both');
+      setBaselineRaw('last');
+      setRepoRaw(null);
+    }),
+    isDefault,
+  };
+}
+
+export interface AlertListController {
+  /** The list state. Via SecurityViewProps this is the EFFECTIVE (sanitised) state. */
+  list: AlertListState;
+  /** 'resolved' clears overdue and dueSoon. */
+  setStatus(s: AlertStatus): void;
+  /** Turning Overdue on turns Due ≤ 7d off. */
+  toggleOverdue(): void;
+  /** Turning Due ≤ 7d on turns Overdue off. */
+  toggleDueSoon(): void;
+  toggleReopened(): void;
+  toggleRuntimeOnly(): void;
+  /** Call after the caller's own debounce; this hook does not debounce. */
+  setQuery(q: string): void;
+  /** The same key flips the direction; a new key starts in its ALERT_SORT_FIRST_DIR direction, except that with no header chosen the first click on `due` sorts descending (the list draws the default order as "Due ↑"). */
+  setSort(key: AlertSortKey): void;
+  setPage(page: number): void;
+}
+
+/**
+ * The alert list's local state (not URL). Every setter except setPage resets the page to 1. A change
+ * of the page-wide scope (codebase, team, repo, severity) resets it too, in the SAME render: the state
+ * is adjusted during render rather than in an effect, so the very first alerts request after the
+ * change already has offset=0 (an effect would let one request out with the new scope and the old
+ * page). The returned `list.page` is already 1 in that render's own pass for the same reason.
+ */
+export function useAlertList(scope: { codebase: CodebaseGroup; team: string | null; repo: string | null; severity: SeverityFilter }): AlertListController {
+  const [stored, setStored] = useState<AlertListState>(DEFAULT_ALERT_LIST);
+  const scopeKey = JSON.stringify([
+    scope.codebase, scope.team, scope.repo, scope.severity,
+    stored.status, stored.overdue, stored.dueSoon, stored.reopened, stored.runtimeOnly, stored.q, stored.sort,
+  ]);
+  const [prevKey, setPrevKey] = useState(scopeKey);
+  const reset = prevKey !== scopeKey;
+  if (reset) {
+    setPrevKey(scopeKey);
+    if (stored.page !== 1) setStored(s => (s.page === 1 ? s : { ...s, page: 1 }));
+  }
+  const list = reset && stored.page !== 1 ? { ...stored, page: 1 } : stored;
+
+  const patch = (p: Partial<AlertListState>) => setStored(s => ({ ...s, ...p, page: 1 }));
+  return {
+    list,
+    setStatus: status => setStored(s => ({
+      ...s, status, page: 1,
+      ...(status === 'resolved' ? { overdue: false, dueSoon: false } : {}),
+    })),
+    toggleOverdue: () => setStored(s => ({ ...s, overdue: !s.overdue, dueSoon: s.overdue ? s.dueSoon : false, page: 1 })),
+    toggleDueSoon: () => setStored(s => ({ ...s, dueSoon: !s.dueSoon, overdue: s.dueSoon ? s.overdue : false, page: 1 })),
+    toggleReopened: () => setStored(s => ({ ...s, reopened: !s.reopened, page: 1 })),
+    toggleRuntimeOnly: () => setStored(s => ({ ...s, runtimeOnly: !s.runtimeOnly, page: 1 })),
+    setQuery: q => patch({ q }),
+    // With no header active the list is in the server's default order (soonest due first), and the list draws "Due ↑" as its
+    // active header. So the first click on Due reverses it (due:desc); any other first click starts in the key's own direction.
+    setSort: key => setStored(s => ({
+      ...s, page: 1,
+      sort: s.sort?.key === key
+        ? { key, dir: s.sort.dir === 'asc' ? 'desc' : 'asc' }
+        : { key, dir: s.sort === null && key === 'due' ? 'desc' : ALERT_SORT_FIRST_DIR[key] },
+    })),
+    setPage: page => setStored(s => ({ ...s, page: Math.max(1, Math.floor(page)) })),
+  };
 }
