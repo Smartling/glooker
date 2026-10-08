@@ -228,6 +228,35 @@ describe('coverage groups', () => {
   });
 });
 
+describe('the slot rule (GLOOK-64 final review #7)', () => {
+  const GROUPS = [/^Unmeasured/, /^Needs tagging/, /^Excluded by policy/];
+  const dimClasses = () => GROUPS.map(name => screen.getByRole('region', { name }).className.includes('opacity-60'));
+
+  // Revert: read `coverage.data` without `slotView` (no dim class while `stale`).
+  it('the lists carry the dim class while a new scope loads (stale), and not when fresh; the subtitle stays', () => {
+    const { rerender } = render(<CoverageDrawer {...base({ coverage: slot(coverageFixture(), { stale: true }) })} />);
+    expect(dimClasses()).toEqual([true, true, true]);
+    expect(screen.getByTestId('drawer-scope').textContent).toMatch(/follows the page filters/);
+    rerender(<CoverageDrawer {...base({ coverage: slot(coverageFixture(), { stale: false }) })} />);
+    expect(dimClasses()).toEqual([false, false, false]);
+  });
+
+  it('a failed refresh of the same scope keeps the lists (not dimmed) and adds the note', () => {
+    render(<CoverageDrawer {...base({ coverage: slot(coverageFixture(), { error: new Error('x'), errorText: "Couldn't load coverage: x" }) })} />);
+    expect(dimClasses()).toEqual([false, false, false]);
+    expect(screen.getByTestId('coverage-refresh-note').textContent).toBe("Couldn't refresh · showing last load");
+    expect(screen.queryByText("Couldn't load coverage: x")).toBeNull();
+  });
+
+  it('no refresh note while nothing failed; an unavailable answer reads its short message, never an endless "Loading…"', () => {
+    const { rerender } = render(<CoverageDrawer {...base()} />);
+    expect(screen.queryByTestId('coverage-refresh-note')).toBeNull();
+    rerender(<CoverageDrawer {...base({ coverage: slot<CoverageData>(undefined, { loading: false, unavailable: { available: false, reason: 'off' } as never }) })} />);
+    expect(screen.getByText('Not available yet')).toBeTruthy();
+    expect(screen.queryByText('Loading…')).toBeNull();
+  });
+});
+
 describe('policy ("From deployment configuration")', () => {
   const value = (key: string) => screen.getByTestId(`policy-value-${key}`);
 

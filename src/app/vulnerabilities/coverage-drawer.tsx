@@ -6,6 +6,8 @@ import type { Severity } from '@/lib/vulnerabilities/types';
 import type { CoverageData, SummaryData } from './api-types';
 import type { Slot } from './use-security-data';
 import { slaState, slaStateLabel } from './sla-state';
+import { slotView } from './slot-view';
+import RefreshNote from './refresh-note';
 import { resolvedCaption } from './format';
 import { displayDate, unmeasuredReason } from './labels';
 import { DRAWER_MAX_W, DRAWER_W, POLICY_LABEL_W, TYPE, Z } from './dimensions';
@@ -52,10 +54,10 @@ const openCritical = (rows: readonly Row[]) => `${rows.reduce((n, r) => n + r.op
 
 /** One group, as the mockup's: a rule above it, its title (15px, sentence case, with a ▲ for the unmeasured group), repository count and a
  * right-aligned summary, then the rows as filled boxes, then the counting rule. */
-function Group({ title, count, summary, note, mark, children }: { title: string; count: number; summary: string; note: string; mark?: boolean; children: React.ReactNode }) {
+function Group({ title, count, summary, note, mark, dimmed, children }: { title: string; count: number; summary: string; note: string; mark?: boolean; dimmed?: boolean; children: React.ReactNode }) {
   const id = `coverage-group-${title.toLowerCase().replace(/[^a-z]+/g, '-')}`;
   return (
-    <section aria-labelledby={id} className="flex flex-col gap-2 border-t border-gray-800 pt-4">
+    <section aria-labelledby={id} className={`flex flex-col gap-2 border-t border-gray-800 pt-4${dimmed ? ' opacity-60' : ''}`}>
       <div className="flex items-baseline justify-between gap-3">
         <h3 id={id} className="text-[15px] font-semibold text-white">
           {mark && <span aria-hidden="true" className="mr-2 text-warn">▲</span>}
@@ -146,7 +148,9 @@ export default function CoverageDrawer({ open, onClose, opener, coverage, summar
   }, [open, opener]);
 
   if (!open) return null;
-  const c = coverage.data;
+  const view = slotView(coverage);
+  const c = view.kind === 'data' ? view.data : undefined;
+  const dimmed = view.kind === 'data' && view.dimmed;
   const codebase = summary.appliedFilters.codebase;
 
   return (
@@ -177,13 +181,19 @@ export default function CoverageDrawer({ open, onClose, opener, coverage, summar
         </div>
 
         <div className="flex flex-1 flex-col gap-[22px] overflow-y-auto px-6 pb-6">
-          {coverage.errorText ? (
-            <p className="text-[13px] text-red-400">{coverage.errorText}</p>
+          {/* The slot-view rule: the slot's own lists win (dimmed while a new scope loads, with a note when a same-key refresh failed);
+              without lists, an error, then an unavailable answer's short message, then "Loading…". */}
+          {view.kind === 'error' ? (
+            <p className="text-[13px] text-red-400">{view.text}</p>
+          ) : view.kind === 'unavailable' ? (
+            <p className="text-[13px] text-gray-500" title={view.title}>{view.text}</p>
           ) : !c ? (
             <p className="text-[13px] text-gray-500">Loading…</p>
           ) : (
             <>
-              <Group title="Unmeasured" mark count={c.unmeasured.length} summary="open counts unknown"
+              {/* Drawn only when a refresh failed (not reserved): the drawer's lists have no fixed height to protect. */}
+              {view.kind === 'data' && view.refreshError && <RefreshNote error={view.refreshError} testId="coverage-refresh-note" live />}
+              <Group title="Unmeasured" mark dimmed={dimmed} count={c.unmeasured.length} summary="open counts unknown"
                 note="Open counts unknown, not zero. Their resolved alerts and measured history still count.">
                 {c.unmeasured.map(r => (
                   <li key={r.repoId} className={ROW_HATCH}>
@@ -195,7 +205,7 @@ export default function CoverageDrawer({ open, onClose, opener, coverage, summar
                   </li>
                 ))}
               </Group>
-              <Group title="Needs tagging" count={c.needsTagging.length} summary={openCritical(c.needsTagging)} note="Counted under “Unassigned” until tagged.">
+              <Group title="Needs tagging" dimmed={dimmed} count={c.needsTagging.length} summary={openCritical(c.needsTagging)} note="Counted under “Unassigned” until tagged.">
                 {c.needsTagging.map(r => (
                   <li key={r.repoId} className={ROW_FILL}>
                     <RowLine left={repoLink(r)} reason={`${r.openCritical} crit · ${r.openHigh} high`} reasonClass="text-gray-300" />
@@ -203,7 +213,7 @@ export default function CoverageDrawer({ open, onClose, opener, coverage, summar
                   </li>
                 ))}
               </Group>
-              <Group title="Excluded by policy" count={c.excludedByPolicy.length} summary={openCritical(c.excludedByPolicy)} note="Not counted anywhere on this page.">
+              <Group title="Excluded by policy" dimmed={dimmed} count={c.excludedByPolicy.length} summary={openCritical(c.excludedByPolicy)} note="Not counted anywhere on this page.">
                 {c.excludedByPolicy.map(r => (
                   <li key={r.repoId} className={ROW_FILL}>
                     <RowLine

@@ -371,6 +371,41 @@ describe('Overdue and Due ≤ 7d toggles: disabled with a hint while no SLA is a
       expect(screen.queryByTestId('alert-sla-hint')).toBeNull();
     });
 
+  // Revert: `shownSlaActive(summary, url.severity)` back to `anySlaActive(summary)` (and noSlaHint back to both severities) in alert-list.tsx.
+  describe('Severity narrows which SLA decides (GLOOK-64 final review #6)', () => {
+    const withSeverity = (severity: 'both' | 'critical' | 'high', summary: SecurityViewProps['summary']) => {
+      const p = props({ summary });
+      return <AlertList {...p} url={{ ...p.url, severity }} />;
+    };
+
+    it.each<['critical' | 'high', AlSlaKind, AlSlaKind, string]>([
+      ['high', 'active', 'none', 'no SLA policy yet'],
+      ['high', 'active', 'pending', 'Due dates start Feb 1, 2099'],
+      ['high', 'active', 'invalid', "SLA policy can't be read"],
+      ['critical', 'none', 'active', 'no SLA policy yet'],
+      ['critical', 'pending', 'active', 'Due dates start Feb 1, 2099'],
+    ])('Severity %s with critical %s and high %s: both toggles are disabled and the hint names the shown severity\'s state (%s)', (severity, critical, high, text) => {
+      render(withSeverity(severity, alSummary({ critical, high })));
+      for (const t of timeToggles()) { expect(t.disabled).toBe(true); expect(t.title).toBe(text); }
+      expect(screen.getByTestId('alert-sla-hint').textContent).toBe(text);
+    });
+
+    it.each<['both' | 'critical' | 'high', AlSlaKind, AlSlaKind]>([
+      ['high', 'none', 'active'], ['critical', 'active', 'none'], ['both', 'active', 'none'], ['both', 'none', 'active'],
+    ])('Severity %s with critical %s and high %s: a shown severity is active, so both toggles are enabled and there is no hint', (severity, critical, high) => {
+      render(withSeverity(severity, alSummary({ critical, high })));
+      for (const t of timeToggles()) { expect(t.disabled).toBe(false); expect(t.title).toBe(''); }
+      expect(screen.queryByTestId('alert-sla-hint')).toBeNull();
+    });
+
+    it('noSlaHint takes the severity: only the shown severities decide', () => {
+      const s = alSummary({ critical: 'active', high: 'none' });
+      expect(noSlaHint(s, '2026-09-30')).toBeNull();
+      expect(noSlaHint(s, '2026-09-30', 'critical')).toBeNull();
+      expect(noSlaHint(s, '2026-09-30', 'high')).toBe('no SLA policy yet');
+    });
+  });
+
   it('a disabled toggle ignores clicks, and Reopened and Runtime only stay enabled', () => {
     const p = props({ summary: alSummary({ critical: 'none', high: 'none' }) });
     render(<AlertList {...p} />);
@@ -513,6 +548,25 @@ describe('sort headers', () => {
   it('under Resolved there is no due date, so no header is drawn as active until one is chosen', () => {
     render(<AlertList {...props({ list: { status: 'resolved' } })} />);
     for (const k of ALERT_SORT_KEYS) expect(screen.getByTestId(`sort-arrow-${k}`).textContent).toBe(SORT_ARROW.none);
+  });
+
+  // Revert: draw Due ↑ whenever the status is not Resolved (`l.status === 'open'` back to `!== 'resolved'` for shownSort in alert-list.tsx).
+  it('under Open + resolved the default order is not due:asc, so no header is drawn as active until one is chosen', () => {
+    render(<AlertList {...props({ list: { status: 'all' } })} />);
+    for (const k of ALERT_SORT_KEYS) {
+      expect(screen.getByTestId(`sort-arrow-${k}`).textContent).toBe(SORT_ARROW.none);
+      expect(screen.getByRole('columnheader', { name: new RegExp(HEAD_LABELS[k]) }).getAttribute('aria-sort')).toBe('none');
+    }
+  });
+
+  it('under Open + resolved the first click on Due draws it ascending (real controller)', () => {
+    const seen: AlertListState[] = [];
+    render(<Harness onList={l => seen.push(l)} />);
+    fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'all' } });
+    expect(screen.getByTestId('sort-arrow-due').textContent).toBe(SORT_ARROW.none);
+    fireEvent.click(screen.getByTestId('sort-due'));
+    expect(seen[seen.length - 1].sort).toEqual({ key: 'due', dir: 'asc' });
+    expect(screen.getByTestId('sort-arrow-due').textContent).toBe('↑');
   });
 
   // Revert: sort ascending on the first click (nothing would change on screen) — the controller rule is pinned in the hooks test.

@@ -11,7 +11,7 @@ import {
   alertsQueryString, kSev, sanitiseAlertList, sparklineSince, trendSince,
   type AlertListState, type SecurityScope,
 } from './security-state';
-import { anySlaActive } from './sla-state';
+import { shownSlaActive } from './sla-state';
 
 const BASE = '/api/vulnerabilities';
 const SWR_OPTS = { keepPreviousData: true, ...vulnSwrOptions };
@@ -135,8 +135,9 @@ export function useSecurityData(scope: SecurityScope, listState: AlertListState)
   const sparklineSlot = toSlot<TrendData>('trend', sparkline, ownsData(keys.sparkline));
 
   // Sanitise at key-build time: a bad combination never costs a wasted request. Until the summary
-  // loads, assume an SLA is active (nothing to clear yet).
-  const slaActive = summarySlot.data ? anySlaActive(summarySlot.data) : true;
+  // loads, assume an SLA is active (nothing to clear yet). "Active" means a severity the Severity filter
+  // shows: under "High only" with only critical active, Overdue / Due ≤ 7d could never match.
+  const slaActive = summarySlot.data ? shownSlaActive(summarySlot.data, scope.severity) : true;
   const effectiveList = sanitiseAlertList(listState, { anySlaActive: slaActive });
 
   // ── Stale repository ───────────────────────────────────────────────────────────────────────────

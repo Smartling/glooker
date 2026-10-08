@@ -228,10 +228,22 @@ describe('useAlertList', () => {
     expect(result.current.list.sort).toEqual({ key: 'due', dir: 'asc' });
   });
 
-  // Revert: drop `s.status !== 'resolved'` from the setSort condition: under Resolved nothing is drawn, so Due must start in its own (ascending) direction.
+  // Revert: change `s.status === 'open'` in the setSort condition back to `s.status !== 'resolved'`, or drop it: under Resolved nothing is drawn, so Due must start in its own (ascending) direction.
   it('under Resolved no header is drawn, so the first click on Due sorts ascending (its own first direction); the next flips it', () => {
     const { result } = renderHook(() => useAlertList(scope));
     act(() => result.current.setStatus('resolved'));
+    expect(result.current.list.sort).toBeNull();
+    act(() => result.current.setSort('due'));
+    expect(result.current.list.sort).toEqual({ key: 'due', dir: 'asc' });
+    act(() => result.current.setSort('due'));
+    expect(result.current.list.sort).toEqual({ key: 'due', dir: 'desc' });
+  });
+
+  // Revert: change `s.status === 'open'` in the setSort condition to `s.status !== 'resolved'`. Under Open + resolved the default order
+  // is not due:asc and the list draws no header active, so a first click on Due that sorted descending would flip nothing drawn.
+  it('under Open + resolved no header is drawn either, so the first click on Due sorts ascending; the next flips it', () => {
+    const { result } = renderHook(() => useAlertList(scope));
+    act(() => result.current.setStatus('all'));
     expect(result.current.list.sort).toBeNull();
     act(() => result.current.setSort('due'));
     expect(result.current.list.sort).toEqual({ key: 'due', dir: 'asc' });

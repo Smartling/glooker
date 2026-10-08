@@ -166,6 +166,24 @@ describe('sanitising at key-build time', () => {
   });
 });
 
+describe('sanitising follows the severities the Severity filter shows (GLOOK-64 final review #6)', () => {
+  // Revert: decide from `anySlaActive(summary)` in useSecurityData (every severity, not the shown ones).
+  it.each([
+    ['high', { critical: 'active', high: 'none' }, false],
+    ['critical', { critical: 'none', high: 'active' }, false],
+    ['high', { critical: 'none', high: 'active' }, true],
+    ['critical', { critical: 'active', high: 'none' }, true],
+    ['both', { critical: 'active', high: 'none' }, true],
+  ] as const)('Severity %s with SLA states %j: an Overdue toggle is sent only when a shown severity is active (%s)', async (severity, slaStatus, sent) => {
+    const f = mount(severity === 'both' ? '' : `severity=${severity}`, { summary: { body: summaryFixture({ slaStatus: { ...slaStatus } }) } });
+    await allLoaded();
+    act(() => { latest.list.toggleOverdue(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(latest.data.effectiveList.overdue).toBe(sent);
+    expect(callsTo(f, 'alerts').some(u => u.searchParams.get('overdue') === 'true')).toBe(sent);
+  });
+});
+
 describe('keepPreviousData', () => {
   it('keeps the previous summary on screen (stale) while the next key loads', async () => {
     let release!: () => void;

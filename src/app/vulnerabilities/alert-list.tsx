@@ -5,9 +5,10 @@
 // `offset`, `sort`), so rows render in the order they arrive and this component never re-sorts them.
 import { useEffect, useRef, useState } from 'react';
 import type { AlertRow } from '@/lib/vulnerabilities/aggregate';
+import type { Severity } from '@/lib/vulnerabilities/types';
 import type { SecurityViewProps } from './view-props';
 import type { AlertSortKey, AlertStatus } from './security-state';
-import { anySlaActive, slaState, slaStateLabel, type SlaSource } from './sla-state';
+import { shownSeverities, shownSlaActive, slaState, slaStateLabel, type SlaSource } from './sla-state';
 import { displayDate } from './labels';
 import { slotView } from './slot-view';
 import RefreshNote from './refresh-note';
@@ -37,11 +38,11 @@ export const ALERT_GRID_COLS =
   `${ALERT_SEV_W}px minmax(0,2.2fr) minmax(0,1.8fr) ${ALERT_AGE_W}px minmax(${ALERT_DUE_MIN_W}px,1fr) minmax(0,1fr)`;
 
 /**
- * Why Overdue and Due ≤ 7d are disabled when no severity has an active SLA, or null when one does.
+ * Why Overdue and Due ≤ 7d are disabled when no severity the Severity filter shows has an active SLA, or null when one does.
  * Invalid wins over pending, which wins over none, so an unreadable policy never reads as "no policy".
  */
-export function noSlaHint(sla: SlaSource, today?: string): string | null {
-  const states = [slaState('critical', sla), slaState('high', sla)];
+export function noSlaHint(sla: SlaSource, today?: string, severity: 'both' | Severity = 'both'): string | null {
+  const states = shownSeverities(severity).map(sev => slaState(sev, sla));
   if (states.some(s => s.kind === 'active')) return null;
   if (states.some(s => s.kind === 'invalid')) return slaStateLabel({ kind: 'invalid' }, { withSla: true });
   const starts: string[] = [];
@@ -200,8 +201,8 @@ function Toggle({ label, on, disabled, title, onClick }: { label: string; on: bo
 export default function AlertList({ summary, data, url, list: ctl }: SecurityViewProps) {
   const l = ctl.list;
   const alerts = data.alerts;
-  const timeEnabled = anySlaActive(summary) && l.status !== 'resolved';
-  const slaHint = noSlaHint(summary);
+  const timeEnabled = shownSlaActive(summary, url.severity) && l.status !== 'resolved';
+  const slaHint = noSlaHint(summary, undefined, url.severity);
 
   // ── Search: typed text is local, applied SEARCH_DEBOUNCE_MS after the last keystroke, and applied
   // at once (never dropped) when the user clicks any other control or leaves the view.
@@ -255,9 +256,11 @@ export default function AlertList({ summary, data, url, list: ctl }: SecurityVie
   // The toolbar hint says why the time toggles are off: under Resolved, that there is no due date; otherwise the SLA state (red, with the strip's "!", when the policy cannot be read).
   const hint = resolved ? RESOLVED_HINT : slaHint;
   const hintInvalid = !resolved && slaHint !== null && slaState('critical', summary).kind === 'invalid';
-  // With no header chosen the server's order is "soonest due first", so Due is drawn as the active header (ascending).
-  // The first click on it sorts descending (the list controller's rule), so the arrow always flips.
-  const shownSort = l.sort ?? (l.status === 'resolved' ? null : DEFAULT_SORT);
+  // With no header chosen under Open the server's order is "soonest due first", so Due is drawn as the active header (ascending).
+  // The first click on it sorts descending (the list controller's rule), so the arrow always flips. Under Resolved there
+  // is no due date, and under Open + resolved the default order (soonest due, resolved rows last) is not `due:asc`, so no
+  // header is drawn active: a first click would not reverse what is shown.
+  const shownSort = l.sort ?? (l.status === 'open' ? DEFAULT_SORT : null);
 
   return (
     <section

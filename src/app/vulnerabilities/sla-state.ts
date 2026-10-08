@@ -66,7 +66,17 @@ export function slaActive(sev: Severity, s: SlaSource): boolean {
   return slaState(sev, s).kind === 'active';
 }
 
-/** True when at least one severity is active: the "Next due" column, and the Overdue / Due ≤ 7d toggles. */
+/** The severities a Severity filter shows: both, or the one chosen. */
+export function shownSeverities(severity: 'both' | Severity): Severity[] {
+  return severity === 'both' ? ['critical', 'high'] : [severity];
+}
+
+/** True when a severity the Severity filter shows has an active policy: what the Overdue / Due ≤ 7d toggles need, since under "High only" with only critical active they could never match an alert. */
+export function shownSlaActive(s: SlaSource, severity: 'both' | Severity): boolean {
+  return shownSeverities(severity).some(sev => slaActive(sev, s));
+}
+
+/** True when at least one severity is active: the "Next due" column. */
 export function anySlaActive(s: SlaSource): boolean {
   return slaActive('critical', s) || slaActive('high', s);
 }
