@@ -287,7 +287,9 @@ describe('list_vulnerability_repos', () => {
     const t = MCP_TOOLS.find(x => x.name === 'list_vulnerability_repos')!;
     expect(t.description).not.toMatch(/every tracked/);
     expect(t.description).toMatch(/up to `limit` rows per call/);
-    expect(t.description).toMatch(/only when `truncated` is false and the same `codebase` and `team` are passed/);
+    expect(t.description).toMatch(/only over the rows of all pages together/);
+    expect(t.description).toMatch(/single call with `offset` 0 and `truncated` false/);
+    expect(t.description).toMatch(/same `codebase` and `team` are passed on every call/);
     expect(t.description).toMatch(/unmeasured rows last, so `limit` cuts them first/);
     expect(t.description).toMatch(/`offset`/);
     expect(t.description).toMatch(/no codebase type is grouped under Other.*`codebase=other` or `codebase=all`.*default is `backend`/);
