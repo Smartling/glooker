@@ -1,7 +1,7 @@
 // Pure aggregation. Every number the UI and MCP show is computed here, from stored rows.
 import { getVulnConfig } from './config';
 import { computeDue, daysRemaining, slaStatus, resolvedTiming } from './sla';
-import { inCodebaseView, isInScope } from './codebase';
+import { inCodebaseView, isInScope, codebaseGroupOf } from './codebase';
 import { diffDays, utcDate, toIsoSecond } from './time';
 import type { AlertFact, RepoFact, CodebaseGroup, Severity, AlertState, SnapshotRow, DependabotStatus } from './types';
 
@@ -144,6 +144,73 @@ export function computePivot(alerts: AlertFact[], repos: RepoFact[], opts: { cod
   return { rows: list, total };
 }
 
+export interface RepoSevCell {
+  open: number;
+  overdue: number | null;          // null unless this severity's SLA is active
+  dueSoon: number | null;          // null unless this severity's SLA is active
+  oldestOpenDays: number | null;   // max age of open alerts; same age rule as toAlertRow (ageDays, UTC days, floor 0)
+  nextDue: { date: string; daysRemaining: number } | null; // earliest due >= 0 days out; null unless SLA active
+}
+export interface RepoRow {
+  fullName: string; team: string; codebaseGroup: Exclude<CodebaseGroup, 'all'>;
+  critical: RepoSevCell;
+  high: RepoSevCell;
+  unmeasured: { status: 'error' | 'dependabot-off'; detail: string | null } | null;
+}
+interface RepoSevAcc { open: number; overdue: number; dueSoon: number; oldest: number | null; next: { date: string; daysRemaining: number } | null }
+const emptyRepoAcc = (): RepoSevAcc => ({ open: 0, overdue: 0, dueSoon: 0, oldest: null, next: null });
+
+/**
+ * GLOOK-64: one row per in-scope, non-archived repository in the view (including repositories with
+ * no open alerts), built on the same viewRepos / isOpen / computeDue as computePivot so that, per
+ * team and severity, the rows sum to the pivot cell (open, overdue, dueSoon) and the rows with
+ * `unmeasured` set count to the team's `unmeasuredRepos`. An unmeasured repository carries its
+ * STORED counts (that is what keeps the sums exact); the UI renders them as unknown.
+ * Row order is fixed here: measured rows by critical open desc, high open desc, then name; then
+ * unmeasured rows by name.
+ */
+export function computeRepoRows(alerts: AlertFact[], repos: RepoFact[], opts: { codebase: CodebaseGroup; team?: string; now: Date }): RepoRow[] {
+  const inView = viewRepos(repos, opts.codebase, opts.team);
+  const today = opts.now.toISOString().slice(0, 10);
+  const acc = new Map<number, { critical: RepoSevAcc; high: RepoSevAcc }>();
+  for (const r of inView.values()) if (!r.archived) acc.set(r.repoId, { critical: emptyRepoAcc(), high: emptyRepoAcc() });
+  for (const a of alerts) {
+    const r = inView.get(a.repoId);
+    const both = acc.get(a.repoId);
+    if (!r || !both || !isOpen(a, r)) continue;
+    const c = both[a.severity];
+    c.open++;
+    const age = ageDaysBetween(a.createdAt, today);
+    if (c.oldest === null || age > c.oldest) c.oldest = age;
+    const due = computeDue(a);
+    if (!due) continue;
+    const d = daysRemaining(due.dueDate, opts.now);
+    if (d < 0) { c.overdue++; continue; }
+    if (d <= 7) c.dueSoon++;
+    if (c.next === null || d < c.next.daysRemaining) c.next = { date: due.dueDate, daysRemaining: d };
+  }
+  const cell = (x: RepoSevAcc, sev: Severity): RepoSevCell => {
+    const active = isSlaActive(sev, opts.now);
+    return {
+      open: x.open, overdue: active ? x.overdue : null, dueSoon: active ? x.dueSoon : null,
+      oldestOpenDays: x.oldest, nextDue: active ? x.next : null,
+    };
+  };
+  const rows: RepoRow[] = [...inView.values()].filter(r => !r.archived).map(r => {
+    const x = acc.get(r.repoId)!;
+    return {
+      fullName: r.fullName, team: teamOf(r), codebaseGroup: codebaseGroupOf(r.codebaseType),
+      critical: cell(x.critical, 'critical'), high: cell(x.high, 'high'),
+      unmeasured: isUnmeasured(r) ? { status: r.dependabotStatus as 'error' | 'dependabot-off', detail: r.dependabotStatusDetail } : null,
+    };
+  });
+  const byName = (a: RepoRow, b: RepoRow) => a.fullName.localeCompare(b.fullName);
+  const measured = rows.filter(r => !r.unmeasured)
+    .sort((a, b) => b.critical.open - a.critical.open || b.high.open - a.high.open || byName(a, b));
+  const unmeasured = rows.filter(r => r.unmeasured).sort(byName);
+  return [...measured, ...unmeasured];
+}
+
 export interface Kpi { openCriticalOtherCodebases: number | null }
 
 export function computeKpi(alerts: AlertFact[], repos: RepoFact[], opts: { codebase: CodebaseGroup; team?: string; now: Date }): Kpi {
@@ -251,6 +318,10 @@ function matches(a: AlertFact, r: RepoFact, f: AlertFilters, now: Date, ignoreCo
   return true;
 }
 
+/** Whole UTC days from an alert's creation to `endDate` (YYYY-MM-DD), floored at 0. One rule for the
+ * alert list's `ageDays` and the repository rows' `oldestOpenDays`. */
+function ageDaysBetween(createdAt: string, endDate: string): number { return Math.max(0, diffDays(endDate, utcDate(createdAt))); }
+
 function toAlertRow(a: AlertFact, r: RepoFact, now: Date): AlertRow {
   const due = computeDue(a);
   const open = isOpen(a, r);
@@ -260,7 +331,7 @@ function toAlertRow(a: AlertFact, r: RepoFact, now: Date): AlertRow {
     repo: r.fullName, team: teamOf(r), severity: a.severity, severityChangedAt: a.severityChangedAt,
     cveId: a.cveId, ghsaId: a.ghsaId, summary: a.summary, cvss: a.cvssScore, epss: a.epssPercentage,
     packageName: a.packageName, ecosystem: a.ecosystem, manifestPath: a.manifestPath, relationship: a.relationship, scope: a.scope,
-    createdAt: a.createdAt, ageDays: Math.max(0, diffDays(ageEnd, utcDate(a.createdAt))),
+    createdAt: a.createdAt, ageDays: ageDaysBetween(a.createdAt, ageEnd),
     clockStart: due?.clockStart ?? null, dueDate: due?.dueDate ?? null,
     daysRemaining: open && due ? daysRemaining(due.dueDate, now) : null, slaPolicyId: due?.policyId ?? null,
     state: a.state, dismissedReason: a.dismissedReason, resolvedAt: a.resolvedAt,
