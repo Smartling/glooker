@@ -256,7 +256,7 @@ export interface CoverageRow {
 }
 export interface Coverage { needsTagging: CoverageRow[]; excludedByPolicy: CoverageRow[]; unmeasured: CoverageRow[] }
 
-export function computeCoverage(alerts: AlertFact[], repos: RepoFact[], opts: { team?: string }): Coverage {
+export function computeCoverage(alerts: AlertFact[], repos: RepoFact[], opts: { team?: string; codebase?: CodebaseGroup }): Coverage {
   const open = new Map<number, { c: number; h: number }>();
   const byId = new Map(repos.map(r => [r.repoId, r]));
   for (const a of alerts) {
@@ -271,7 +271,10 @@ export function computeCoverage(alerts: AlertFact[], repos: RepoFact[], opts: { 
     openCritical: open.get(r.repoId)?.c ?? 0, openHigh: open.get(r.repoId)?.h ?? 0, detail: r.dependabotStatusDetail,
     dependabotStatus: r.dependabotStatus,
   });
-  const teamOk = (r: RepoFact) => !opts.team || teamOf(r) === opts.team;
+  // GLOOK-64: `codebase` is optional here (undefined = every codebase), so direct callers that never
+  // scoped by codebase keep their behaviour; getCoverage always passes the parsed filter.
+  const teamOk = (r: RepoFact) => (!opts.team || teamOf(r) === opts.team)
+    && (opts.codebase === undefined || inCodebaseView(r.codebaseType, opts.codebase));
   const byOpen = (a: CoverageRow, b: CoverageRow) => b.openCritical - a.openCritical || b.openHigh - a.openHigh || a.fullName.localeCompare(b.fullName);
   const hasOpen = (r: RepoFact) => open.has(r.repoId);
   return {

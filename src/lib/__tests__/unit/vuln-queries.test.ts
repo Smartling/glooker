@@ -120,7 +120,7 @@ it('appliedFilters echoes only the fields each endpoint consumes', async () => {
   await seedOk();
   expect((await q.getSummary(f(), NOW)).appliedFilters).toEqual({ codebase: 'backend', baseline: 'last' });
   expect((await q.getTrend(f(), NOW)).appliedFilters).toEqual({ codebase: 'backend', severity: 'critical' });
-  expect((await q.getCoverage(f({ codebase: 'frontend', team: 'T1' }), NOW)).appliedFilters).toEqual({ team: 'T1' });
+  expect((await q.getCoverage(f({ codebase: 'frontend', team: 'T1' }), NOW)).appliedFilters).toEqual({ codebase: 'frontend', team: 'T1' });
 });
 
 it('listSyncs binds LIMIT as a string (mysql2 execute() rejects a numeric LIMIT), newest first', async () => {
@@ -236,9 +236,12 @@ it('getCoverage success path flags an untagged repo needing tagging', async () =
   await seedOk();
   await db.execute(`INSERT INTO vulnerability_repos (repo_id, org, full_name, team, service_tier, codebase_type, archived, dependabot_status, first_seen_at, last_seen_at) VALUES (3,'o','o/r3',NULL,'production',NULL,0,'ok','2026-09-22T10:00:00Z','2026-09-22T10:00:00Z')`);
   await db.execute(`INSERT INTO vulnerability_alerts (repo_id, number, org, html_url, state, severity, created_at, first_seen_sync_id, last_seen_sync_id) VALUES (3,1,'o','u3','open','critical','2026-09-01T00:00:00Z',1,1)`);
-  const r = await q.getCoverage(f(), NOW);
+  // o/r3 has no codebase type, so it belongs to Other and All; the default Backend view does not list it.
+  const r = await q.getCoverage(f({ codebase: 'all' }), NOW);
   expect(r.available).toBe(true);
   expect(r.needsTagging.map((x: any) => x.fullName)).toEqual(['o/r3']);
+  expect((await q.getCoverage(f({ codebase: 'other' }), NOW)).needsTagging.map((x: any) => x.fullName)).toEqual(['o/r3']);
+  expect((await q.getCoverage(f({ codebase: 'backend' }), NOW)).needsTagging).toEqual([]);
 });
 
 it('carried resolved — latest CSV snapshot wins, a repo with no snapshot gets 0, an archived repo with a stored alert or a non-archived repo does not qualify', async () => {
@@ -444,5 +447,22 @@ describe('getSummary codebaseCounts', () => {
     expect((await q.getSummary(f({ team: 'T1' }), NOW)).codebaseCounts).toEqual({
       backend: { critical: 1, high: 0 }, frontend: zero, shared: zero, other: { critical: 1, high: 0 }, all: { critical: 2, high: 0 },
     });
+  });
+});
+
+describe('getCoverage codebase', () => {
+  it('scopes the three lists by codebase and echoes it', async () => {
+    await seedOk();
+    await repoRowSql(2, 'o/fe-unmeasured', { codebase: 'frontend', status: 'error', detail: 'HTTP 500: x' });
+    await repoRowSql(3, 'o/untyped', { codebase: null, team: null }); await alertSql(3, 1);
+    const be = await q.getCoverage(f({ codebase: 'backend' }), NOW);
+    expect(be.unmeasured).toEqual([]);
+    expect(be.needsTagging).toEqual([]);
+    const fe = await q.getCoverage(f({ codebase: 'frontend' }), NOW);
+    expect(fe.unmeasured.map((x: any) => x.fullName)).toEqual(['o/fe-unmeasured']);
+    const all = await q.getCoverage(f({ codebase: 'all' }), NOW);
+    expect(all.unmeasured.map((x: any) => x.fullName)).toEqual(['o/fe-unmeasured']);
+    expect(all.needsTagging.map((x: any) => x.fullName)).toEqual(['o/untyped']);
+    expect(all.appliedFilters).toEqual({ codebase: 'all' });
   });
 });
