@@ -109,7 +109,7 @@ export function computePivot(alerts: AlertFact[], repos: RepoFact[], opts: { cod
   const reposWithAlerts = new Set(alerts.map(a => a.repoId));
   for (const r of inView.values()) {
     const tr = row(teamOf(r));
-    if (isUnmeasured(r)) tr.unmeasuredRepos++;
+    if (!r.archived && isUnmeasured(r)) tr.unmeasuredRepos++; // an archived repo is never a row, so it is never an unmeasured one
     if (r.archived && r.carriedResolvedCritical > 0 && !reposWithAlerts.has(r.repoId)) {
       tr.critical.resolved += r.carriedResolvedCritical;
       tr.critical.carriedResolved += r.carriedResolvedCritical;
@@ -285,7 +285,7 @@ export function computeCoverage(alerts: AlertFact[], repos: RepoFact[], opts: { 
   return {
     needsTagging: repos.filter(r => inScopeView(r) && hasOpen(r) && (!r.serviceTier || !r.codebaseType || !r.team)).map(toRow).sort(byOpen),
     excludedByPolicy: repos.filter(r => inScopeView(r) && hasOpen(r) && r.serviceTier !== null && !isInScope(r.serviceTier)).map(toRow).sort(byOpen),
-    unmeasured: repos.filter(r => inScopeView(r) && isInScope(r.serviceTier) && isUnmeasured(r)).map(toRow).sort(byOpen),
+    unmeasured: repos.filter(r => inScopeView(r) && isInScope(r.serviceTier) && !r.archived && isUnmeasured(r)).map(toRow).sort(byOpen),
   };
 }
 

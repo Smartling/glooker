@@ -2,7 +2,7 @@
 // filter combination. Fixtures are invented (no real org data) and cover every row kind: a
 // zero-alert repo, an unmeasured repo that still has stored open alerts, an archived repo with
 // alerts, an out-of-scope repo, a repo with no team and a repo with no codebase type.
-import { computePivot, computeRepoRows, computeCodebaseCounts, listAlerts } from '@/lib/vulnerabilities/aggregate';
+import { computePivot, computeRepoRows, computeCoverage, computeCodebaseCounts, listAlerts } from '@/lib/vulnerabilities/aggregate';
 import { __clearVulnConfigCache } from '@/lib/vulnerabilities/config';
 import { CODEBASE_GROUPS } from '@/lib/vulnerabilities/codebase-labels';
 import type { AlertFact, RepoFact, CodebaseGroup, Severity } from '@/lib/vulnerabilities/types';
@@ -51,6 +51,8 @@ const REPOS: RepoFact[] = [
   repo(11, 'acme/legacy', { team: 'Payments', archived: true, dependabotStatus: 'archived' }),                      // archived (the sync writes 'archived')
   repo(12, 'acme/internal', { team: 'Platform', serviceTier: 'non-production' }),                                   // outside the tracking scope
   repo(13, 'acme/kiosk', { team: 'Platform', codebaseType: 'mobile' }),                                             // a codebase type no group claims → Other
+  // archived but with a stale 'error' status (the sync normally writes 'archived'): never a row, so never counted as unmeasured
+  repo(14, 'acme/stale-archive', { team: 'Payments', archived: true, dependabotStatus: 'error', dependabotStatusDetail: 'HTTP 500: stale' }),
 ];
 const NO_ALERT_REPOS = new Set([8, 10]);
 const ALERTS: AlertFact[] = [
@@ -100,6 +102,7 @@ describe('the fixtures are not vacuous', () => {
     expect(rows.find(r => r.fullName === 'acme/quiet')).toMatchObject({ critical: { open: 0 }, high: { open: 0 } });
     expect(rows.map(r => r.fullName)).not.toContain('acme/legacy');
     expect(rows.map(r => r.fullName)).not.toContain('acme/internal');
+    expect(rows.map(r => r.fullName)).not.toContain('acme/stale-archive');
   });
 });
 
@@ -181,6 +184,17 @@ describe('independent cross-check through listAlerts', () => {
     expect(dueSoonSeen).toBeGreaterThan(0);
     // at least one repository has a due-soon alert in each severity, so neither severity is checked against zero only
     for (const sev of SEVS) expect(rows.some(r => (r[sev].dueSoon ?? 0) > 0)).toBe(true);
+  });
+});
+
+describe('an archived repository with an unmeasured status is excluded from every unmeasured count', () => {
+  it('computeCoverage().unmeasured omits it, like computeRepoRows does', () => {
+    const cov = computeCoverage(ALERTS, REPOS, { codebase: 'all' });
+    expect(cov.unmeasured.map(r => r.fullName).sort()).toEqual(['acme/flaky', 'acme/silent']);
+  });
+  it('unmeasuredRepos in the pivot omits it', () => {
+    const { total } = computePivot(ALERTS, REPOS, { codebase: 'all', now: NOW });
+    expect(total.unmeasuredRepos).toBe(2);
   });
 });
 
