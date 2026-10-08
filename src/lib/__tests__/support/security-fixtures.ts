@@ -305,3 +305,92 @@ export function ovProps(o: {
     },
   });
 }
+
+// ── Wave 4 (Alerts view) fixtures. Every name starts with `al`; Wave 3 appends `ov` names below its own marker. ──
+
+/** The four SLA states of one severity, as the summary reports them. `invalid` is a policy that cannot be read. */
+export type AlSlaKind = 'active' | 'pending' | 'none' | 'invalid';
+
+/**
+ * A summary whose critical and high SLA states are the given ones. `pending` starts on 2099-02-01
+ * (the date the UI prints); `invalid` sets `slaPolicyInvalid`, which makes both severities invalid
+ * (an unreadable policy parses to no entries, so the real summary reports 'none' for both).
+ */
+export function alSummary(states: { critical: AlSlaKind; high: AlSlaKind }, over: Partial<SummaryData> = {}): SummaryData {
+  const invalid = states.critical === 'invalid' || states.high === 'invalid';
+  const status = (k: AlSlaKind): 'active' | 'pending' | 'none' => (k === 'active' || k === 'pending' ? k : 'none');
+  const policy: SummaryData['policy'] = invalid ? [] : (['critical', 'high'] as const).flatMap(sev => {
+    const k = states[sev];
+    if (k !== 'active' && k !== 'pending') return [];
+    return [{ id: `${sev}-policy`, severity: sev, days: sev === 'critical' ? 7 : 9, effectiveFrom: k === 'active' ? '2020-01-08' : '2099-02-01', until: null, pending: k === 'pending' }];
+  });
+  return summaryFixture({
+    slaStatus: { critical: status(states.critical), high: status(states.high) },
+    slaPolicyInvalid: invalid,
+    policy,
+    ...over,
+  });
+}
+
+/** An open/overdue/due-soon cell for a severity whose SLA is active. */
+const alActive = (open: number, overdue: number) => cell({ open, overdue, dueSoon: 0, oldestOpenDays: open ? 30 : null });
+
+/**
+ * Rail rows whose SERVER order (critical open desc, high open desc, name) differs from the RAIL order
+ * (overdue, then open critical, then open high, then name). Both SLAs active.
+ *   server: ledger-service, checkout-api, audit-log, zeta-jobs, billing-worker, quiet-service, then unmeasured
+ *   rail:   checkout-api (4 overdue), billing-worker (1), ledger-service, audit-log, zeta-jobs, quiet-service, then unmeasured
+ */
+export const AL_RAIL_ROWS: RepoRow[] = [
+  repoRow('acme/ledger-service', 'Payments', { critical: alActive(5, 0), high: alActive(0, 0) }),
+  repoRow('acme/checkout-api', 'Payments', { critical: alActive(3, 1), high: alActive(2, 3) }),
+  repoRow('acme/audit-log', 'Platform', { critical: alActive(2, 0), high: alActive(5, 0) }),
+  repoRow('acme/zeta-jobs', 'Platform', { critical: alActive(2, 0), high: alActive(5, 0) }),
+  repoRow('acme/billing-worker', 'Payments', { critical: alActive(2, 1), high: alActive(1, 0) }),
+  repoRow('acme/quiet-service', 'Search', { critical: alActive(0, 0), high: alActive(0, 0) }),
+  repoRow('acme/invoice-render', 'Payments', {
+    critical: alActive(7, 2), high: alActive(0, 0), unmeasured: { status: 'dependabot-off', detail: null },
+  }),
+  repoRow('acme/legacy-batch', 'Platform', {
+    critical: alActive(4, 0), high: alActive(1, 0), unmeasured: { status: 'error', detail: 'HTTP 500: status check failed' },
+  }),
+];
+
+/** One alert row; `n` makes the advisory id, the package and the alert distinct. */
+export const alAlertRow = (n: number, over: Partial<AlertRow> = {}): AlertRow => alertRow({
+  cveId: `CVE-2026-${String(1000 + n)}`, ghsaId: `GHSA-${n}`, packageName: `pkg-${n}`, ageDays: 10 + n,
+  htmlUrl: `https://example.invalid/acme/checkout-api/security/dependabot/${n}`, ...over,
+});
+
+/** `n` distinct open alerts, newest advisory last. */
+export const alAlertRows = (n: number, over: Partial<AlertRow> = {}): AlertRow[] =>
+  Array.from({ length: n }, (_, i) => alAlertRow(i + 1, over));
+
+/** An open critical alert 71 days past its due date. */
+export const AL_OVERDUE_ROW: AlertRow = alAlertRow(1, {
+  cveId: 'CVE-2026-43102', cvss: 9.1, packageName: 'golang.org/x/net', ecosystem: 'go', scope: 'runtime',
+  ageDays: 77, dueDate: '2026-07-21', daysRemaining: -71, state: 'open',
+});
+
+/** A fixed alert, resolved on time, that was reopened once. */
+export const AL_RESOLVED_ROW: AlertRow = alAlertRow(2, {
+  cveId: 'CVE-2026-41871', cvss: 7.5, packageName: 'semver', ecosystem: 'npm', scope: 'development',
+  state: 'fixed', dueDate: null, daysRemaining: null, resolvedAt: '2026-09-03T08:00:00Z', resolvedOnTime: true, resolvedDaysLate: null,
+  reopenedCount: 1, lastReopenedAt: '2026-08-14T10:30:00Z',
+});
+
+/**
+ * An alerts route that serves `all` as the server would: it honours `limit` and `offset`, reports the
+ * full `totalCount`, and echoes limit, offset and sort. Pass it to `fetchRouter({ alerts: alAlertsRoute(all) })`.
+ */
+export const alAlertsRoute = (all: AlertRow[]) => (url: URL) => {
+  const limit = Number(url.searchParams.get('limit') ?? 10);
+  const offset = Number(url.searchParams.get('offset') ?? 0);
+  const sort = url.searchParams.get('sort');
+  const applied: AlertsData['appliedFilters'] = {
+    codebase: (url.searchParams.get('codebase') ?? 'backend') as ReposData['appliedFilters']['codebase'],
+    state: (url.searchParams.get('state') ?? 'open') as 'open', limit, offset,
+    ...(sort ? { sort: sort as NonNullable<AlertsData['appliedFilters']['sort']> } : {}),
+  };
+  return { body: alertsFixture(all.slice(offset, offset + limit), all.length, applied) };
+};
