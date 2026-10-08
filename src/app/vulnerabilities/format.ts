@@ -37,8 +37,8 @@ export const deltaClass = (v: number) => (v > 0 ? 'text-red-400' : v < 0 ? 'text
  * Vulnerabilities page and the syncs tab on Report History used a bare
  * `fetch(u).then(r => r.json())`, so an error response body — a route exception's 500
  * `{ error: 'Internal Server Error' }` (`src/lib/logger.ts`), or `withFilters`'s 400 `{ error }`
- * — arrived as SWR **data**, never as SWR `error`. That left AlertsPanel stuck on "Loading…"
- * forever (its `data` prop is derived from `alerts?.rows`, which is never present on an error
+ * — arrived as SWR **data**, never as SWR `error`. That left the alerts panel stuck on "Loading…"
+ * forever (its rows are read from `alerts?.rows`, which is never present on an error
  * body) and let the syncs tab overwrite its last good table with the error object. Throwing here
  * on `!r.ok` moves both cases onto SWR's `error` channel, where `keepPreviousData` (or SWR's
  * default revalidation behavior) keeps the last good `data` around and callers can show a banner

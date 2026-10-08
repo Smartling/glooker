@@ -11,7 +11,7 @@
   --accent-darker: #92400E;
   --accent-bg: #78350F;
 
-  /* GLOOK-43 J2-1: trend-chart series colours, ranked by current open count (dark palette,
+  /* GLOOK-43 J2-1: trend series colours, ranked by current open count (dark palette,
      the app's default). Up to 12 teams get a distinct colour by rank; rank 12+ shares "other". */
   --vuln-series-1: #f87171;
   --vuln-series-2: #60a5fa;
@@ -146,7 +146,7 @@
 [data-theme-mode="light"] {
   color-scheme: light;
 
-  /* GLOOK-43 J2-1: the light-mode trend-chart series palette, same order as the dark :root
+  /* GLOOK-43 J2-1: the light-mode trend series palette, same order as the dark :root
      block above. --vuln-series-other stays #6b7280 here (min 4.62 against this palette's light
      bodyBgs) — the dark palette's grey needed to change instead (see :root above), because the
      two modes' bodyBgs differ.
