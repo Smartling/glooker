@@ -1,5 +1,7 @@
 import { computePivot, computeKpi, computeCoverage, computeRepoRows, listAlerts, knownTeams, isResolvedSinceStart, isSlaActive } from '@/lib/vulnerabilities/aggregate';
-import type { TeamRow, RepoRow } from '@/lib/vulnerabilities/aggregate';
+import type { TeamRow, RepoRow, AlertRow } from '@/lib/vulnerabilities/aggregate';
+import { ALERT_SORT_KEYS } from '@/lib/vulnerabilities/alert-sort';
+import type { AlertSortSpec } from '@/lib/vulnerabilities/alert-sort';
 import { __clearVulnConfigCache } from '@/lib/vulnerabilities/config';
 import type { AlertFact, RepoFact } from '@/lib/vulnerabilities/types';
 
@@ -534,5 +536,148 @@ describe('AlertRow.lastReopenedAt (GLOOK-64)', () => {
     const { rows } = listAlerts([reopened, plain], [R(1)], { codebase: 'backend', state: 'open' }, NOW);
     expect(rows.find(r => r.cveId === 'CVE-1')!.lastReopenedAt).toBe('2026-09-10T08:30:00Z');
     expect(rows.find(r => r.cveId === 'CVE-2')!.lastReopenedAt).toBeNull();
+  });
+});
+
+// ---------- listAlerts sort and offset (GLOOK-64) ----------
+describe('listAlerts sort', () => {
+  // Critical policy only, effective since 2020: critical alerts have a due date (created + 7 days), high alerts have none.
+  beforeEach(() => useActivePolicy());
+  const rs = [R(1), R(2), R(3)];
+  const as = [
+    A(1, 1, { createdAt: '2026-09-01T00:00:00Z', cveId: 'CVE-2026-0003' }),                  // x: age 21, due 09-08
+    A(2, 1, { createdAt: '2026-09-15T00:00:00Z', cveId: 'CVE-2026-0001' }),                  // y: age 7,  due 09-22
+    A(3, 1, { severity: 'high', createdAt: '2026-09-10T00:00:00Z', cveId: null, ghsaId: 'GHSA-zzzz' }), // z: age 12, no due date
+    A(3, 2, { state: 'fixed', resolvedAt: '2026-09-12T00:00:00Z', createdAt: '2026-09-05T00:00:00Z', cveId: null, ghsaId: null }), // w: resolved, no advisory id, age 7, due 09-12
+  ];
+  const label = (r: AlertRow) => r.cveId ?? r.ghsaId ?? 'no-advisory';
+  const order = (sort?: AlertSortSpec) => listAlerts(as, rs, { codebase: 'backend', state: 'all', sort }, NOW).rows.map(label);
+  const X = 'CVE-2026-0003'; const Y = 'CVE-2026-0001'; const Z = 'GHSA-zzzz'; const W = 'no-advisory';
+
+  it.each([
+    ['severity:asc', [X, Y, W, Z]],      // critical first; ties by repo, then alert number
+    ['severity:desc', [Z, X, Y, W]],     // high first; the tie-break is NOT reversed
+    ['advisory:asc', [Y, X, Z, W]],      // cve id, else ghsa id; no id last
+    ['advisory:desc', [Z, X, Y, W]],     // no id still last
+    ['repo:asc', [X, Y, Z, W]],          // z and w share a repo: alert number decides
+    ['repo:desc', [Z, W, Y, X]],         // repo reversed, alert number not
+    ['age:asc', [Y, W, Z, X]],           // y and w are both 7 days: repo decides
+    ['age:desc', [X, Z, Y, W]],          // still y before w
+    ['due:asc', [X, W, Y, Z]],           // no due date (z) last
+    ['due:desc', [Y, W, X, Z]],          // z still last
+    ['state:asc', [X, Y, Z, W]],         // open, then fixed
+    ['state:desc', [W, X, Y, Z]],
+  ] as Array<[AlertSortSpec, string[]]>)('%s', (sort, expected) => {
+    expect(order(sort)).toEqual(expected);
+  });
+
+  it('without a sort keeps the urgency order (soonest due, severity, newest), then repo and alert number', () => {
+    // x is due first, then y. z (open, no due date) and w (resolved) both have no days remaining, so severity decides: critical w before high z.
+    expect(order()).toEqual([X, Y, W, Z]);
+    const ties = [A(2, 1), A(1, 2), A(1, 1)]; // identical createdAt and severity, so only the tie-break orders them
+    const rows = listAlerts(ties, [R(1), R(2)], { codebase: 'backend', state: 'open' }, NOW).rows;
+    expect(rows.map(r => `${r.repo}#${r.cveId}`)).toEqual(['o/r1#CVE-1', 'o/r1#CVE-2', 'o/r2#CVE-1']);
+  });
+});
+
+describe('listAlerts offset, limit and truncated', () => {
+  const rs = [R(1)];
+  const three = [A(1, 3), A(1, 1), A(1, 2)]; // default order falls through to alert number: CVE-1, CVE-2, CVE-3
+  const page = (over: object) => listAlerts(three, rs, { codebase: 'backend', state: 'open', ...over }, NOW);
+
+  it('skips offset rows before the limit applies, and truncated means rows remain after this page', () => {
+    expect(page({ limit: 2, offset: 0 })).toMatchObject({ totalCount: 3, truncated: true });
+    expect(page({ limit: 2, offset: 0 }).rows.map(r => r.cveId)).toEqual(['CVE-1', 'CVE-2']);
+    expect(page({ limit: 2, offset: 1 }).rows.map(r => r.cveId)).toEqual(['CVE-2', 'CVE-3']);
+    expect(page({ limit: 2, offset: 1 }).truncated).toBe(false);
+    expect(page({ limit: 1, offset: 2 }).truncated).toBe(false);
+    expect(page({ limit: 1, offset: 1 }).truncated).toBe(true);
+  });
+
+  it('an offset at or past the total returns no rows, the exact total and truncated false', () => {
+    for (const offset of [3, 4, 999]) {
+      const r = page({ offset });
+      expect(r.rows).toEqual([]);
+      expect(r.totalCount).toBe(3);
+      expect(r.truncated).toBe(false);
+    }
+  });
+
+  it('the repo facet ignores offset and sort', () => {
+    const plain = page({});
+    const paged = page({ offset: 2, limit: 1, sort: 'age:desc' });
+    expect(paged.repos).toEqual(plain.repos);
+    expect(paged.repos).toEqual([{ repo: 'o/r1', count: 3 }]);
+  });
+});
+
+describe('listAlerts pages never repeat or skip a row (more than 500 matches, tied due dates)', () => {
+  const rs = Array.from({ length: 7 }, (_, i) => R(i + 1));
+  // 620 open alerts; only 3 distinct created dates, so due dates (and every other sort value) tie massively.
+  const all = Array.from({ length: 620 }, (_, i) => A((i % 7) + 1, 100 + Math.floor(i / 7), {
+    createdAt: `2026-09-${String(1 + (i % 3)).padStart(2, '0')}T00:00:00Z`,
+    severity: i % 5 === 0 ? 'high' as const : 'critical' as const,
+  }));
+  const reversed = [...all].reverse();
+  const key = (r: AlertRow) => `${r.repo}#${r.cveId}`;
+  function walk(input: typeof all, sort: AlertSortSpec | undefined, limit: number): string[] {
+    const out: string[] = [];
+    for (let offset = 0; ; offset += limit) {
+      const r = listAlerts(input, rs, { codebase: 'backend', state: 'open', limit, offset, sort }, NOW);
+      expect(r.totalCount).toBe(620);
+      out.push(...r.rows.map(key));
+      if (!r.truncated) break;
+    }
+    return out;
+  }
+
+  it('limit 500 (the cap) then the remaining 120', () => {
+    const first = listAlerts(all, rs, { codebase: 'backend', state: 'open', limit: 5000 }, NOW);
+    expect(first.rows).toHaveLength(500);
+    expect(first.truncated).toBe(true);
+    const second = listAlerts(all, rs, { codebase: 'backend', state: 'open', limit: 5000, offset: 500 }, NOW);
+    expect(second.rows).toHaveLength(120);
+    expect(second.truncated).toBe(false);
+    expect(new Set([...first.rows, ...second.rows].map(key)).size).toBe(620);
+  });
+
+  it.each([undefined, ...ALERT_SORT_KEYS.flatMap(k => [`${k}:asc` as const, `${k}:desc` as const])])('sort=%s: 100-row pages cover all 620 alerts exactly once, in an order independent of the input order', (sort) => {
+    const forward = walk(all, sort, 100);
+    expect(forward).toHaveLength(620);
+    expect(new Set(forward).size).toBe(620);
+    expect(walk(reversed, sort, 100)).toEqual(forward);
+  });
+});
+
+describe('listAlerts pages never repeat or skip a row under Resolved and Open + resolved (more than 500 matches, tied values)', () => {
+  const rs = Array.from({ length: 7 }, (_, i) => R(i + 1));
+  // 620 alerts with three distinct created dates and two distinct resolved dates, so every sort value ties massively.
+  // Under `resolved` all 620 are fixed. Under `all` every second alert is open and the rest are fixed (310 + 310).
+  const make = (everyOtherOpen: boolean) => Array.from({ length: 620 }, (_, i) => A((i % 7) + 1, 100 + Math.floor(i / 7), {
+    createdAt: `2026-09-${String(1 + (i % 3)).padStart(2, '0')}T00:00:00Z`,
+    severity: i % 5 === 0 ? 'high' as const : 'critical' as const,
+    ...(everyOtherOpen && i % 2 === 0 ? {} : { state: 'fixed' as const, resolvedAt: `2026-09-1${i % 2}T00:00:00Z` }),
+  }));
+  const key = (r: AlertRow) => `${r.repo}#${r.cveId}`;
+  function walk(input: AlertFact[], state: 'resolved' | 'all', sort: AlertSortSpec | undefined): string[] {
+    const out: string[] = [];
+    for (let offset = 0; ; offset += 100) {
+      const r = listAlerts(input, rs, { codebase: 'backend', state, limit: 100, offset, sort }, NOW);
+      expect(r.totalCount).toBe(620);
+      out.push(...r.rows.map(key));
+      if (!r.truncated) break;
+    }
+    return out;
+  }
+
+  // Revert: drop the tie-break (repository name, then alert number) from the comparator, or apply it only when the state is open.
+  it.each([
+    ...(['resolved', 'all'] as const).flatMap(state => [undefined, ...ALERT_SORT_KEYS.flatMap(k => [`${k}:asc` as const, `${k}:desc` as const])].map(sort => [state, sort] as const)),
+  ])('state=%s sort=%s: 100-row pages cover all 620 alerts exactly once, in an order independent of the input order', (state, sort) => {
+    const input = make(state === 'all');
+    const forward = walk(input, state, sort);
+    expect(forward).toHaveLength(620);
+    expect(new Set(forward).size).toBe(620);
+    expect(walk([...input].reverse(), state, sort)).toEqual(forward);
   });
 });

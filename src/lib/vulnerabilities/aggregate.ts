@@ -3,6 +3,8 @@ import { getVulnConfig } from './config';
 import { computeDue, daysRemaining, slaStatus, resolvedTiming } from './sla';
 import { inCodebaseView, isInScope, codebaseGroupOf, CODEBASE_GROUPS } from './codebase';
 import { diffDays, utcDate, toIsoSecond } from './time';
+import { parseAlertSort } from './alert-sort';
+import type { AlertSortKey, AlertSortSpec } from './alert-sort';
 import type { AlertFact, RepoFact, CodebaseGroup, Severity, AlertState, SnapshotRow, DependabotStatus } from './types';
 
 export const UNASSIGNED = 'Unassigned';
@@ -291,6 +293,10 @@ export interface AlertFilters {
   overdue?: boolean; dueSoon?: boolean; dueBefore?: string; createdSince?: string; resolvedSince?: string;
   dependencyScope?: string; cve?: string; ghsa?: string; packageName?: string; q?: string; reopened?: boolean;
   limit?: number;
+  /** Rows to skip before `limit` applies (default 0). Paging is in memory, never SQL OFFSET. */
+  offset?: number;
+  /** `<key>:<asc|desc>`, validated by parseVulnFilters. Absent = soonest due, then severity, then newest. */
+  sort?: AlertSortSpec;
 }
 export interface AlertRow {
   repo: string; team: string; severity: Severity; severityChangedAt: string | null;
@@ -384,23 +390,67 @@ function repoFacet(alerts: AlertFact[], byId: Map<number, RepoFact>, f: AlertFil
     .sort((a, b) => b.count - a.count || a.repo.localeCompare(b.repo));
 }
 
+const SEVERITY_RANK: Record<Severity, number> = { critical: 0, high: 1 };
+const STATE_RANK: Record<AlertState, number> = { open: 0, fixed: 1, dismissed: 2, auto_dismissed: 3 };
+/** An alert row paired with its alert number, which the row itself doesn't carry but the tie-break needs. */
+interface Hit { row: AlertRow; number: number }
+
+/** What each sort key compares. null sorts last in both directions. */
+function sortValue(h: Hit, key: AlertSortKey): string | number | null {
+  const r = h.row;
+  switch (key) {
+    case 'severity': return SEVERITY_RANK[r.severity];   // asc = critical first
+    case 'advisory': return r.cveId ?? r.ghsaId;
+    case 'repo': return r.repo;
+    case 'age': return r.ageDays;                         // asc = youngest first
+    case 'due': return r.dueDate;                         // YYYY-MM-DD; null = no SLA applies
+    case 'state': return STATE_RANK[r.state];             // asc = open, fixed, dismissed, auto_dismissed
+  }
+}
+
+function compareValues(a: string | number, b: string | number): number {
+  return typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b));
+}
+
+/** The total order for the alert list: the chosen sort (or today's urgency order), then, always last
+ * and never reversed, repository full name and alert number, so equal rows never swap between pages. */
+function compareHits(x: Hit, y: Hit, sort: ReturnType<typeof parseAlertSort>): number {
+  if (sort) {
+    const a = sortValue(x, sort.key);
+    const b = sortValue(y, sort.key);
+    if (a === null && b !== null) return 1;   // nulls last, handled before direction is applied
+    if (b === null && a !== null) return -1;
+    if (a !== null && b !== null) {
+      const c = compareValues(a, b);
+      if (c !== 0) return sort.dir === 'asc' ? c : -c;
+    }
+  } else {
+    // Most urgent first: soonest due, then severity, then newest.
+    const urgency = (x.row.daysRemaining ?? 1e9) - (y.row.daysRemaining ?? 1e9)
+      || (x.row.severity === y.row.severity ? 0 : x.row.severity === 'critical' ? -1 : 1)
+      || y.row.createdAt.localeCompare(x.row.createdAt);
+    if (urgency !== 0) return urgency;
+  }
+  return x.row.repo.localeCompare(y.row.repo) || x.number - y.number;
+}
+
 export function listAlerts(alerts: AlertFact[], repos: RepoFact[], f: AlertFilters, now: Date): AlertListResult {
   const byId = new Map(repos.map(r => [r.repoId, r]));
   const limit = Math.min(Math.max(f.limit ?? 100, 1), 500);
-  const hits: AlertRow[] = [];
+  const offset = Math.max(Math.floor(f.offset ?? 0), 0);
+  const sort = f.sort ? parseAlertSort(f.sort) : null;
+  const hits: Hit[] = [];
   let excludedByCodebase = 0;
   for (const a of alerts) {
     const r = byId.get(a.repoId);
     if (!r) continue;
-    if (matches(a, r, f, now, false)) hits.push(toAlertRow(a, r, now));
+    if (matches(a, r, f, now, false)) hits.push({ row: toAlertRow(a, r, now), number: a.number });
     else if (f.codebase !== 'all' && matches(a, r, f, now, true)) excludedByCodebase++;
   }
-  // Most urgent first: soonest due, then severity, then newest.
-  hits.sort((x, y) => (x.daysRemaining ?? 1e9) - (y.daysRemaining ?? 1e9)
-    || (x.severity === y.severity ? 0 : x.severity === 'critical' ? -1 : 1)
-    || y.createdAt.localeCompare(x.createdAt));
+  hits.sort((x, y) => compareHits(x, y, sort));
+  const rows = hits.slice(offset, offset + limit).map(h => h.row);
   return {
-    rows: hits.slice(0, limit), totalCount: hits.length, truncated: hits.length > limit, excludedByCodebase,
+    rows, totalCount: hits.length, truncated: offset + rows.length < hits.length, excludedByCodebase,
     repos: repoFacet(alerts, byId, f, now),
   };
 }
