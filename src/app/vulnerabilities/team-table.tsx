@@ -182,7 +182,8 @@ export default function TeamTable({ summary, data, url, openDrawer }: SecurityVi
             className={`cursor-pointer items-center border-b border-gray-800/60 hover:bg-gray-800/30${selected ? ' bg-accent/10' : ''}`}
             style={{ ...rowStyle, height: TEAM_ROW_H }}
             onClick={() => url.selectTeamRow(r.team)}
-            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); url.selectTeamRow(r.team); } }}
+            // A key pressed on the nested badge button belongs to the badge: the row must not preventDefault its click.
+            onKeyDown={e => { if (e.target !== e.currentTarget) return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); url.selectTeamRow(r.team); } }}
           >
             <div role="cell" className="flex min-w-0 flex-col justify-center px-2">
               <div className="flex min-w-0 items-center gap-1">

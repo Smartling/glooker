@@ -214,6 +214,18 @@ describe('unmeasured badge', () => {
     expect(p.url.selectTeamRow).not.toHaveBeenCalled();
   });
 
+  // Revert: drop the `e.target !== e.currentTarget` guard from the row's key handler. The row's preventDefault would then cancel the
+  // badge's native click (a keydown's default action on a button is its click), so a keyboard user could never open the drawer.
+  // jsdom does not synthesise the click from a keydown, so this asserts what the row does with the key: nothing.
+  it.each(['Enter', ' '])('a %j keydown on the badge is left to the badge: the row neither selects the team nor cancels the key', key => {
+    const p = table();
+    render(<TeamTable {...p} />);
+    const badge = within(rowOf('Payments')).getByRole('button', { name: /2 unmeasured/ });
+    const notCancelled = fireEvent.keyDown(badge, { key });
+    expect(p.url.selectTeamRow).not.toHaveBeenCalled();
+    expect(notCancelled).toBe(true);
+  });
+
   it('appears only for a team with unmeasured repositories, and on the Total row with the total', () => {
     render(<TeamTable {...table()} />);
     expect(within(rowOf('Unassigned')).queryByText(/unmeasured/)).toBeNull();
