@@ -1,8 +1,9 @@
 // src/app/vulnerabilities/security-state.ts
 'use client';
-// GLOOK-64: the Security page's URL schemas, the severity rule, the sanitising rules for
-// hand-edited input, and the alert-list query builder. This task is the pure half; Task 2.6 adds
-// the two hooks (useSecurityUrl, useAlertList) to this file.
+// GLOOK-64: the Security page's client state. The pure half: URL schemas, the severity rule, the
+// sanitising rules for hand-edited input, the trend date windows and the alert-list query builder.
+// The hook half: useSecurityUrl (the filters, view and ownership tab, all in the URL) and
+// useAlertList (the alert list's local state).
 //
 // Client-safe: type-only imports from aggregate.ts (it pulls in server config), and the calendar
 // check below is re-implemented because filters.ts also imports server config.
@@ -40,8 +41,9 @@ export const RANGE_SCHEMA: UrlSchema<TrendRange> = { key: 'range', type: 'enum',
 export const kSev = (s: SeverityFilter): Severity => (s === 'high' ? 'high' : 'critical');
 
 /**
- * The count on a Codebase option: the open count of `kSev` (critical, or high under "High only") and, server-side,
- * of the Owning team. It is the number the KPI tile reads, and the option writes its unit ("open crit" / "open high").
+ * The count on a Codebase option: the open count of `kSev` (critical, or high under "High only"). The counts arrive
+ * already scoped to the Owning team by the server, so nothing here filters by team. It is the number the KPI tile
+ * reads, and the option writes its unit ("open crit" / "open high").
  */
 export function codebaseOptionCount(counts: CodebaseCounts | undefined, group: CodebaseGroup, severity: SeverityFilter): number | null {
   const c = counts?.[group];
@@ -281,11 +283,12 @@ export interface AlertListController {
 }
 
 /**
- * The alert list's local state (not URL). Every setter except setPage resets the page to 1. A change
- * of the page-wide scope (codebase, team, repo, severity) resets it too, in the SAME render: the state
- * is adjusted during render rather than in an effect, so the very first alerts request after the
- * change already has offset=0 (an effect would let one request out with the new scope and the old
- * page). The returned `list.page` is already 1 in that render's own pass for the same reason.
+ * The alert list's local state (not URL). The page resets to 1 whenever the page-wide scope (codebase,
+ * team, repo, severity) or any list filter (status, toggles, search text, sort) changes, and by that
+ * one mechanism only: `scopeKey` below. It resets in the SAME render: the state is adjusted during
+ * render rather than in an effect, so the very first alerts request after the change already has
+ * offset=0 (an effect would let one request out with the new scope and the old page). The returned
+ * `list.page` is already 1 in that render's own pass for the same reason. Only setPage moves it.
  */
 export function useAlertList(scope: { codebase: CodebaseGroup; team: string | null; repo: string | null; severity: SeverityFilter }): AlertListController {
   const [stored, setStored] = useState<AlertListState>(DEFAULT_ALERT_LIST);
@@ -301,26 +304,27 @@ export function useAlertList(scope: { codebase: CodebaseGroup; team: string | nu
   }
   const list = reset && stored.page !== 1 ? { ...stored, page: 1 } : stored;
 
-  const patch = (p: Partial<AlertListState>) => setStored(s => ({ ...s, ...p, page: 1 }));
+  // No setter touches `page` (except setPage): a changed filter changes `scopeKey`, and that is the one place the page resets.
   return {
     list,
     setStatus: status => setStored(s => ({
-      ...s, status, page: 1,
+      ...s, status,
       ...(status === 'resolved' ? { overdue: false, dueSoon: false } : {}),
     })),
-    toggleOverdue: () => setStored(s => ({ ...s, overdue: !s.overdue, dueSoon: s.overdue ? s.dueSoon : false, page: 1 })),
-    toggleDueSoon: () => setStored(s => ({ ...s, dueSoon: !s.dueSoon, overdue: s.dueSoon ? s.overdue : false, page: 1 })),
-    toggleReopened: () => setStored(s => ({ ...s, reopened: !s.reopened, page: 1 })),
-    toggleRuntimeOnly: () => setStored(s => ({ ...s, runtimeOnly: !s.runtimeOnly, page: 1 })),
-    setQuery: q => patch({ q }),
+    toggleOverdue: () => setStored(s => ({ ...s, overdue: !s.overdue, dueSoon: s.overdue ? s.dueSoon : false })),
+    toggleDueSoon: () => setStored(s => ({ ...s, dueSoon: !s.dueSoon, overdue: s.dueSoon ? s.overdue : false })),
+    toggleReopened: () => setStored(s => ({ ...s, reopened: !s.reopened })),
+    toggleRuntimeOnly: () => setStored(s => ({ ...s, runtimeOnly: !s.runtimeOnly })),
+    setQuery: q => setStored(s => ({ ...s, q })),
     // With no header active the list is in the server's default order (soonest due first), and the list draws "Due ↑" as its
     // active header. So the first click on Due reverses it (due:desc); any other first click starts in the key's own direction.
     setSort: key => setStored(s => ({
-      ...s, page: 1,
+      ...s,
       sort: s.sort?.key === key
         ? { key, dir: s.sort.dir === 'asc' ? 'desc' : 'asc' }
         : { key, dir: s.sort === null && key === 'due' ? 'desc' : ALERT_SORT_FIRST_DIR[key] },
     })),
-    setPage: page => setStored(s => ({ ...s, page: Math.max(1, Math.floor(page)) })),
+    // A non-finite page (NaN from a bad input) is page 1, as sanitiseAlertList reads it.
+    setPage: page => setStored(s => ({ ...s, page: Number.isFinite(page) ? Math.max(1, Math.floor(page)) : 1 })),
   };
 }

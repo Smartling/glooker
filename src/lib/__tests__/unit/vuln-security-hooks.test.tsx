@@ -247,6 +247,30 @@ describe('useAlertList', () => {
     }
   });
 
+  // Revert: leave `stored.q` (or any filter) out of scopeKey: the setter no longer resets the page by itself.
+  it('a list filter change resets the page in the SAME render too: no render pairs the new filter with the old page', () => {
+    const seen: Array<[string, number]> = [];
+    const { result } = renderHook(() => {
+      const c = useAlertList(scope);
+      seen.push([c.list.q, c.list.page]);
+      return c;
+    });
+    act(() => result.current.setPage(4));
+    seen.length = 0;
+    act(() => result.current.setQuery('lodash'));
+    expect(result.current.list.page).toBe(1);
+    expect(seen.filter(([q, page]) => q === 'lodash' && page !== 1)).toEqual([]);
+  });
+
+  it('setPage: floors, clamps to 1, and reads a non-finite page (NaN, Infinity) as page 1', () => {
+    const { result } = renderHook(() => useAlertList(scope));
+    for (const [input, expected] of [[3.9, 3], [0, 1], [-2, 1], [NaN, 1], [Infinity, 1], [-Infinity, 1]] as const) {
+      act(() => result.current.setPage(4));
+      act(() => result.current.setPage(input));
+      expect([input, result.current.list.page]).toEqual([input, expected]);
+    }
+  });
+
   it('a scope change resets the page in the SAME render: no render ever pairs the new scope with the old page', () => {
     const seen: Array<[string | null, number]> = [];
     const { result, rerender } = renderHook(p => {

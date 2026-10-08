@@ -52,11 +52,11 @@ describe('fetchRouter', () => {
   it('answers by route name, echoes the applied filters from the URL, and honours a status', async () => {
     const f = fetchRouter({ alerts: { status: 400, body: { error: 'unknown repo' } } });
 
-    const ok = await f('/api/vulnerabilities/repos?codebase=frontend&team=Search');
+    const ok = await f('/api/vulnerabilities/repos?codebase=backend&team=Search');
     expect(ok.ok).toBe(true);
     const body = await ok.json();
-    expect(body.appliedFilters).toEqual({ codebase: 'frontend', team: 'Search' });
-    expect(body.rows).toHaveLength(REPO_ROWS.length);
+    expect(body.appliedFilters).toEqual({ codebase: 'backend', team: 'Search' });
+    expect(body.rows.map((r: { fullName: string }) => r.fullName)).toEqual(['acme/search-index']);
 
     const bad = await f('/api/vulnerabilities/alerts?codebase=backend');
     expect([bad.ok, bad.status]).toEqual([false, 400]);
@@ -103,6 +103,38 @@ describe('fetchRouter', () => {
   it('trend echo includes team, and severity defaults to critical', async () => {
     const t = await (await fetchRouter()('/api/vulnerabilities/trend?team=Payments')).json();
     expect(t.appliedFilters).toEqual({ codebase: 'backend', team: 'Payments', severity: 'critical' });
+  });
+
+  // Revert: return REPO_ROWS whatever the request asks (the old default): a test for "no rows in this codebase" can never see one.
+  it('repos: answers only the rows of the requested codebase view and team, as the real route does', async () => {
+    const rows = async (q: string) => ((await (await fetchRouter()(`/api/vulnerabilities/repos${q}`)).json()).rows as Array<{ fullName: string }>).map(r => r.fullName);
+    expect(await rows('?codebase=backend')).toHaveLength(REPO_ROWS.length);
+    expect(await rows('?codebase=all')).toHaveLength(REPO_ROWS.length);
+    expect(await rows('?codebase=frontend')).toEqual([]);
+    expect(await rows('?codebase=backend&team=Payments')).toEqual(['acme/checkout-api', 'acme/ledger']);
+    expect(await rows('?codebase=frontend&team=Payments')).toEqual([]);
+  });
+
+  // Revert: accept any team in the default summary: a hand-edited ?team=Nope renders a healthy page in tests but 400s in production.
+  it('summary: a team that is not among its known teams is answered 400 { error, known_teams }, as the real route does', async () => {
+    const res = await fetchRouter()('/api/vulnerabilities/summary?team=Nope');
+    expect([res.ok, res.status]).toEqual([false, 400]);
+    expect(await res.json()).toEqual({ error: 'unknown team', known_teams: summaryFixture().knownTeams });
+    expect((await fetchRouter()('/api/vulnerabilities/summary?team=Search')).ok).toBe(true);
+  });
+
+  // Revert: echo the raw query parameters again in the summary, repos and coverage defaults.
+  it('summary, repos and coverage echo through the shared parser: defaults filled, the keys the real route picks, a bad request 400', async () => {
+    const f = fetchRouter();
+    const applied = async (name: string, q = '') => (await (await f(`/api/vulnerabilities/${name}${q}`)).json()).appliedFilters;
+    expect(await applied('summary')).toEqual({ codebase: 'backend', baseline: 'last' });
+    expect(await applied('summary', '?team=Search&baseline=7d&state=all')).toEqual({ codebase: 'backend', team: 'Search', baseline: '7d' });
+    expect(await applied('repos', '?team=Search&severity=high&limit=5')).toEqual({ codebase: 'backend', team: 'Search' });
+    expect(await applied('coverage', '?codebase=shared&baseline=7d')).toEqual({ codebase: 'shared' });
+    for (const name of ['summary', 'repos', 'coverage']) {
+      const res = await f(`/api/vulnerabilities/${name}?codebase=nope`);
+      expect([res.ok, res.status]).toEqual([false, 400]);
+    }
   });
 
   it('an undefined route entry falls back to the default', async () => {

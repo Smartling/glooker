@@ -3,6 +3,7 @@
 // Real SWR against a routed fetch mock: the assertions are on the requests the page would make.
 import React from 'react';
 import { render, act, waitFor } from '@testing-library/react';
+import { useSWRConfig, type SWRConfiguration } from 'swr';
 import {
   useSecurityUrl, useAlertList, sparklineSince, trendSince,
   type SecurityUrl, type AlertListController,
@@ -13,22 +14,26 @@ import { SwrFresh, fetchRouter, callsTo, summaryFixture, reposFixture, alertsFix
 jest.mock('next/navigation', () => require('../support/security-nav-mock').createNavigationMock());
 const nav = () => jest.requireMock('next/navigation') as any;
 
-let latest: { url: SecurityUrl; list: AlertListController; data: SecurityData };
+let latest: { url: SecurityUrl; list: AlertListController; data: SecurityData; mutate: ReturnType<typeof useSWRConfig>['mutate'] };
 function Probe() {
   const url = useSecurityUrl();
   const list = useAlertList({ codebase: url.codebase, team: url.team, repo: url.repo, severity: url.severity });
   const data = useSecurityData(url, list.list);
-  latest = { url, list, data };
+  const { mutate } = useSWRConfig();
+  latest = { url, list, data, mutate };
   return null;
 }
 
-function mount(search = '', routes: Parameters<typeof fetchRouter>[0] = {}) {
+function mount(search = '', routes: Parameters<typeof fetchRouter>[0] = {}, swr?: SWRConfiguration) {
   nav().__resetSearch(search);
   const fetchMock = fetchRouter(routes);
   (global as any).fetch = fetchMock;
-  render(<SwrFresh><Probe /></SwrFresh>);
+  render(<SwrFresh config={swr}><Probe /></SwrFresh>);
   return fetchMock;
 }
+
+/** The settings the app's SWRProvider applies (src/lib/swr-provider.tsx), which SwrFresh otherwise turns off. */
+const PRODUCTION_SWR: SWRConfiguration = { dedupingInterval: 60_000, errorRetryCount: 1 };
 
 const allLoaded = () => waitFor(() => {
   const d = latest.data;
@@ -200,6 +205,51 @@ describe('keepPreviousData', () => {
   });
 });
 
+describe('an error never shows another key\'s data', () => {
+  it('a new key that fails exposes the error and none of the previous key\'s rows', async () => {
+    mount('', {
+      summary: url => (url.searchParams.get('codebase') === 'frontend'
+        ? { status: 500, body: { error: 'Internal Server Error' } }
+        : { body: summaryFixture({ org: 'acme' }) }),
+    });
+    await waitFor(() => expect(latest.data.summary.data?.org).toBe('acme'));
+    act(() => { latest.url.setCodebase('frontend'); });
+    await waitFor(() => expect(latest.data.summary.errorText).toContain('Internal Server Error'));
+    expect(latest.data.summary.data).toBeUndefined();
+    expect(latest.data.summary.stale).toBe(false);
+    expect(latest.data.summary.loading).toBe(false);
+  });
+
+  it('while the new key is still loading the previous data stays and is marked stale (no error yet)', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>(r => { release = r; });
+    mount('', {
+      summary: async url => {
+        if (url.searchParams.get('codebase') === 'frontend') await gate;
+        return { body: summaryFixture({ org: url.searchParams.get('codebase') === 'frontend' ? 'frontend-org' : 'acme' }) };
+      },
+    });
+    await waitFor(() => expect(latest.data.summary.data?.org).toBe('acme'));
+    act(() => { latest.url.setCodebase('frontend'); });
+    await waitFor(() => expect(latest.data.summary.stale).toBe(true));
+    expect(latest.data.summary.data?.org).toBe('acme');
+    expect(latest.data.summary.errorText).toBeNull();
+    await act(async () => { release(); });
+    await waitFor(() => expect(latest.data.summary.data?.org).toBe('frontend-org'));
+  });
+
+  it('a revalidation that fails on the SAME key keeps that key\'s own data, with the error beside it and stale false', async () => {
+    let fail = false;
+    mount('', { summary: () => (fail ? { status: 500, body: { error: 'Internal Server Error' } } : { body: summaryFixture({ org: 'acme' }) }) });
+    await waitFor(() => expect(latest.data.summary.data?.org).toBe('acme'));
+    fail = true;
+    await act(async () => { await latest.mutate(latest.data.keys.summary); });
+    await waitFor(() => expect(latest.data.summary.errorText).toContain('Internal Server Error'));
+    expect(latest.data.summary.data?.org).toBe('acme');
+    expect(latest.data.summary.stale).toBe(false);
+  });
+});
+
 describe('the stale-repository state', () => {
   it('a repo absent from the loaded rows is not-found, and its alerts are never requested again', async () => {
     const f = mount('repo=acme%2Fghost');
@@ -223,6 +273,46 @@ describe('the stale-repository state', () => {
     const before = callsTo(f, 'alerts').length;
     act(() => { latest.list.toggleRuntimeOnly(); });
     await act(async () => { await new Promise(r => setTimeout(r, 20)); });
+    expect(callsTo(f, 'alerts')).toHaveLength(before);
+  });
+
+  it('a new sync clears the rejection AND the cached 4xx: the repo is requested again under the app\'s own SWR settings and its rows show', async () => {
+    let synced = false;
+    const at = () => (synced ? '2026-09-23T06:00:00Z' : '2026-09-22T06:00:00Z');
+    const f = mount('repo=acme%2Fledger', {
+      summary: () => ({ body: summaryFixture({ sync: syncInfo({ lastSuccessfulAt: at() }) }) }),
+      repos: () => ({ body: reposFixture(REPO_ROWS, { codebase: 'backend' }, { sync: syncInfo({ lastSuccessfulAt: at() }) }) }),
+      alerts: () => (synced
+        ? { body: alertsFixture([alertRow({ repo: 'acme/ledger', cveId: 'CVE-2026-7777' })]) }
+        : { status: 400, body: { error: 'repo not tracked', repo: 'acme/ledger' } }),
+    }, PRODUCTION_SWR);
+    await waitFor(() => expect(latest.data.repoStatus).toBe('not-found'));
+    expect(latest.data.keys.alerts).toBeNull();
+
+    synced = true;   // the next sync tracks the repository
+    await act(async () => { await latest.mutate(latest.data.keys.summary); });
+
+    await waitFor(() => expect(latest.data.repoStatus).toBe('ok'));
+    await waitFor(() => expect(latest.data.alerts.data?.rows[0]?.cveId).toBe('CVE-2026-7777'));
+    expect(latest.data.keys.alerts).not.toBeNull();
+    expect(callsTo(f, 'alerts')).toHaveLength(2);   // the rejected request, then exactly one fresh one
+  });
+
+  it('rejections are remembered per scope: after visiting another codebase, coming back to the rejected one sends no new alerts request', async () => {
+    const f = mount('repo=acme%2Fledger', {
+      alerts: { status: 400, body: { error: 'repo not tracked', repo: 'acme/ledger' } },
+      repos: url => ({ body: reposFixture(REPO_ROWS, { codebase: (url.searchParams.get('codebase') ?? 'backend') as 'backend' }) }),
+    });
+    await waitFor(() => expect(latest.data.repoStatus).toBe('not-found'));
+    act(() => { nav().__resetSearch('codebase=frontend&repo=acme%2Fledger'); });
+    await waitFor(() => expect(latest.data.keys.alerts).toContain('codebase=frontend'));   // a second scope, rejected in turn
+    await waitFor(() => expect(latest.data.repoStatus).toBe('not-found'));
+    const before = callsTo(f, 'alerts').length;
+    act(() => { nav().__resetSearch('repo=acme%2Fledger'); });
+    await waitFor(() => expect(latest.data.keys.repos).toMatch(/codebase=backend$/));
+    await act(async () => { await new Promise(r => setTimeout(r, 30)); });
+    expect(latest.data.repoStatus).toBe('not-found');
+    expect(latest.data.keys.alerts).toBeNull();
     expect(callsTo(f, 'alerts')).toHaveLength(before);
   });
 
@@ -276,6 +366,37 @@ describe('refetch on sync change', () => {
     await act(async () => { await new Promise(r => setTimeout(r, 50)); });
     expect(callsTo(f, 'summary')).toHaveLength(2);   // refetched once, then agreed: no loop
     expect(callsTo(f, 'repos')).toHaveLength(1);     // the newer one is left alone
+  });
+
+  // With a team selected the team table's summary and the header's codebase-only repos are keys of their own.
+  // Revert: leave teamSummary / metaRepos out of the disagreement check (or its refresh list).
+  it.each([
+    ['the team table summary', 'summary', (u: URL) => !u.searchParams.has('team')],
+    ['the header meta rows', 'repos', (u: URL) => !u.searchParams.has('team')],
+  ] as const)('with a team selected, when %s is the one behind, only that key is refetched, once, and the page settles', async (_label, route, isUnscoped) => {
+    const OLD = '2026-09-22T06:00:00Z', NEW = '2026-09-23T06:00:00Z';
+    let behindCalls = 0;
+    const answer = (url: URL) => {
+      if (!isUnscoped(url)) return NEW;
+      behindCalls += 1;
+      return behindCalls === 1 ? OLD : NEW;
+    };
+    const routes = route === 'summary'
+      ? {
+        summary: (url: URL) => ({ body: summaryFixture({ sync: syncInfo({ lastSuccessfulAt: answer(url) }) }) }),
+        repos: () => ({ body: reposFixture(REPO_ROWS, { codebase: 'backend' }, { sync: syncInfo({ lastSuccessfulAt: NEW }) }) }),
+      }
+      : {
+        summary: () => ({ body: summaryFixture({ sync: syncInfo({ lastSuccessfulAt: NEW }) }) }),
+        repos: (url: URL) => ({ body: reposFixture(REPO_ROWS, { codebase: 'backend' }, { sync: syncInfo({ lastSuccessfulAt: answer(url) }) }) }),
+      };
+    const f = mount('team=Payments', routes);
+    await waitFor(() => expect(callsTo(f, route).filter(isUnscoped)).toHaveLength(2));
+    const behind = () => (route === 'summary' ? latest.data.teamSummary : latest.data.metaRepos).data;
+    await waitFor(() => expect(behind()?.sync.lastSuccessfulAt).toBe(NEW));
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    expect(callsTo(f, route).filter(isUnscoped)).toHaveLength(2);                       // the lagging key: refetched once
+    expect(callsTo(f, route).filter(u => !isUnscoped(u))).toHaveLength(1);              // the team-scoped key: left alone
   });
 
   it('a server that keeps answering with the old time does not cause a refetch loop', async () => {

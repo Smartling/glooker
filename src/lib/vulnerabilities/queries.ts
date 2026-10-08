@@ -325,7 +325,7 @@ export async function getTrend(f: ParsedFilters, now: Date = new Date()) {
     series: computeTrend(snaps, p.repos, { codebase: f.codebase, team: f.team, severity, since: f.since }) };
 }
 
-const ALERT_FILTER_KEYS = [
+export const ALERT_FILTER_KEYS = [
   'codebase', 'state', 'team', 'repo', 'severity', 'overdue', 'dueSoon', 'dueBefore', 'createdSince',
   'resolvedSince', 'dependencyScope', 'cve', 'ghsa', 'packageName', 'q', 'reopened', 'limit', 'offset', 'sort',
 ] as const;

@@ -98,7 +98,10 @@ export default function VulnerabilitiesContent() {
     list: { ...alertList, list: data.effectiveList },
     openDrawer: drawer.openDrawer,
   };
-  const alertsCount = data.repos.data ? scopeOpenCount(data.repos.data.rows, url.severity, data.effectiveRepo) : null;
+  // With a repository selected, the previous scope's rows (stale) do not contain it: they would count 0 for it. No number until the new rows arrive.
+  const alertsCount = data.repos.data && !(data.effectiveRepo !== null && data.repos.stale)
+    ? scopeOpenCount(data.repos.data.rows, url.severity, data.effectiveRepo)
+    : null;
   const baselinePrefill = s.delta[url.kSev].baseline?.takenOn ?? addDays(new Date().toISOString().slice(0, 10), -7);
 
   return (

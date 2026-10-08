@@ -54,6 +54,8 @@ export const COVERAGE_TAGGING_SLOT_W = 120;
 export function CoverageLine({ coverage, openDrawer }: { coverage: Slot<CoverageData>; openDrawer: OpenDrawer }) {
   const c = coverage.data;
   const unmeasured = c?.unmeasured.length ?? 0;
+  // The counts on screen are the previous scope's while the new ones load: dim them, as the tables dim their rows.
+  const dim = coverage.stale ? { opacity: 0.6 } : undefined;
   return (
     <div
       data-testid="coverage-line"
@@ -64,7 +66,7 @@ export function CoverageLine({ coverage, openDrawer }: { coverage: Slot<Coverage
       <span
         data-testid="coverage-badge-slot"
         className="inline-flex shrink-0"
-        style={{ minWidth: COVERAGE_BADGE_SLOT_W, visibility: unmeasured > 0 ? 'visible' : 'hidden' }}
+        style={{ minWidth: COVERAGE_BADGE_SLOT_W, visibility: unmeasured > 0 ? 'visible' : 'hidden', ...dim }}
       >
         {unmeasured > 0 && (
           <button
@@ -78,8 +80,8 @@ export function CoverageLine({ coverage, openDrawer }: { coverage: Slot<Coverage
       </span>
       {c && (
         <>
-          <span data-testid="coverage-excluded" className="shrink-0" style={{ minWidth: COVERAGE_EXCLUDED_SLOT_W }}>· {c.excludedByPolicy.length} excluded by policy</span>
-          <span data-testid="coverage-tagging" className="shrink-0" style={{ minWidth: COVERAGE_TAGGING_SLOT_W }}>· {c.needsTagging.length} need tagging</span>
+          <span data-testid="coverage-excluded" className="shrink-0" style={{ minWidth: COVERAGE_EXCLUDED_SLOT_W, ...dim }}>· {c.excludedByPolicy.length} excluded by policy</span>
+          <span data-testid="coverage-tagging" className="shrink-0" style={{ minWidth: COVERAGE_TAGGING_SLOT_W, ...dim }}>· {c.needsTagging.length} need tagging</span>
         </>
       )}
       {coverage.errorText && <span className="text-red-400">{coverage.errorText}</span>}
@@ -104,9 +106,13 @@ export interface SecurityHeaderProps {
 }
 
 export default function SecurityHeader({ summary, repos, coverage, codebase, summaryStale, openDrawer, now }: SecurityHeaderProps) {
-  const rows = repos.data?.rows;
+  // The counts and the codebase label come from the same response. While the rows are the previous
+  // codebase's (keepPreviousData, `stale`) they are not counted under the new codebase's name: the line
+  // falls back to the count-less form until the new rows arrive.
+  const reposData = repos.stale ? undefined : repos.data;
+  const rows = reposData?.rows;
   const meta = securityMeta({
-    codebase,
+    codebase: reposData?.appliedFilters.codebase ?? codebase,
     scopeValue: summary.scope.value,
     repoCount: rows ? rows.length : null,
     teamCount: rows ? new Set(rows.map(r => r.team)).size : null,

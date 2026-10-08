@@ -3,7 +3,7 @@
 // Platform): this repository is public. Every builder returns the real response type from
 // api-types.ts, so a test fixture that drifts from the API fails `tsc` instead of passing quietly.
 import React from 'react';
-import { SWRConfig } from 'swr';
+import { SWRConfig, type SWRConfiguration } from 'swr';
 import type { AlertRow, CoverageRow, DeltaResult, RepoRow, RepoSevCell, SevCell, TeamRow } from '@/lib/vulnerabilities/aggregate';
 import type { SyncStatusInfo } from '@/lib/vulnerabilities/queries';
 import type { CodebaseGroup } from '@/lib/vulnerabilities/types';
@@ -114,22 +114,15 @@ export function slot<T>(data: T | undefined, over: Partial<Slot<T>> = {}): Slot<
   return { data, unavailable: undefined, error: undefined, errorText: null, loading: data === undefined, stale: false, ...over };
 }
 
-/** A fresh SWR cache per test, with no dedupe window (otherwise a second test sees the first one's data). */
-export function SwrFresh({ children }: { children: React.ReactNode }) {
-  return React.createElement(SWRConfig, { value: { provider: () => new Map(), dedupingInterval: 0 } }, children);
+/** A fresh SWR cache per test, with no dedupe window (otherwise a second test sees the first one's data).
+ * `config` overrides it: a test that depends on the app's real SWR settings passes them here. */
+export function SwrFresh({ children, config }: { children: React.ReactNode; config?: SWRConfiguration }) {
+  return React.createElement(SWRConfig, { value: { provider: () => new Map(), dedupingInterval: 0, ...config } }, children);
 }
 
 export type RouteName = 'summary' | 'repos' | 'coverage' | 'trend' | 'alerts';
 export type Reply = { status?: number; body: unknown };
 export type Route = Reply | ((url: URL) => Reply | Promise<Reply>);
-
-/** The codebase and team a request carried, as the repos and coverage routes echo them. */
-const scopeApplied = (url: URL): ReposData['appliedFilters'] => {
-  const a: ReposData['appliedFilters'] = { codebase: (url.searchParams.get('codebase') ?? 'backend') as CodebaseGroup };
-  const team = url.searchParams.get('team');
-  if (team) a.team = team;
-  return a;
-};
 
 /** The request's query string as the real routes read it, through the one shared parser. */
 const parseRequest = (url: URL) => parseVulnFilters(Object.fromEntries(url.searchParams.entries()));
@@ -144,11 +137,17 @@ const pick = <T extends object>(f: T, keys: readonly (keyof T)[]): Partial<T> =>
   return out;
 };
 
-/** The key list getAlerts echoes (ALERT_FILTER_KEYS in queries.ts). */
-const ALERT_ECHO_KEYS = [
+/** The key list getAlerts echoes (ALERT_FILTER_KEYS in queries.ts; vuln-security-fixture-keys.test.ts pins them equal). */
+export const ALERT_ECHO_KEYS = [
   'codebase', 'state', 'team', 'repo', 'severity', 'overdue', 'dueSoon', 'dueBefore', 'createdSince',
   'resolvedSince', 'dependencyScope', 'cve', 'ghsa', 'packageName', 'q', 'reopened', 'limit', 'offset', 'sort',
 ] as const;
+
+/** The codebase and team a request carried, as the summary, repos and coverage routes echo them (through the shared parser, like alerts and trend). */
+const scopeReply = (url: URL, keys: readonly ('codebase' | 'team' | 'baseline')[], build: (applied: Record<string, unknown>) => unknown): Reply => {
+  const p = parseRequest(url);
+  return p.ok ? { body: build(pick(p.value, keys)) } : rejected(p.error);
+};
 
 /** What the alerts route echoes: the parsed request, picked to the same key list as the real route,
  * so defaults (codebase, state), camelCase names, numbers and booleans all match what the server sends. */
@@ -173,9 +172,20 @@ const trendReply = (url: URL): Reply => {
  */
 export function fetchRouter(routes: Partial<Record<RouteName, Route>> = {}) {
   const defaults: Record<RouteName, Route> = {
-    summary: url => ({ body: summaryFixture({ appliedFilters: { ...scopeApplied(url), baseline: url.searchParams.get('baseline') ?? 'last' } }) }),
-    repos: url => ({ body: reposFixture(REPO_ROWS, scopeApplied(url)) }),
-    coverage: url => ({ body: coverageFixture({ appliedFilters: scopeApplied(url) }) }),
+    summary: url => {
+      // The real route validates the team against the repositories it knows.
+      const team = url.searchParams.get('team');
+      const known = summaryFixture().knownTeams;
+      if (team && !known.includes(team)) return { status: 400, body: { error: 'unknown team', known_teams: known } };
+      return scopeReply(url, ['codebase', 'team', 'baseline'], applied => summaryFixture({ appliedFilters: applied as SummaryData['appliedFilters'] }));
+    },
+    // The real route answers only the repositories in the codebase view and, with a team, that team's.
+    repos: url => scopeReply(url, ['codebase', 'team'], applied => {
+      const a = applied as ReposData['appliedFilters'];
+      const rows = REPO_ROWS.filter(r => (a.codebase === 'all' || r.codebaseGroup === a.codebase) && (!a.team || r.team === a.team));
+      return reposFixture(rows, a);
+    }),
+    coverage: url => scopeReply(url, ['codebase', 'team'], applied => coverageFixture({ appliedFilters: applied as CoverageData['appliedFilters'] })),
     trend: trendReply,
     alerts: alertsReply,
   };

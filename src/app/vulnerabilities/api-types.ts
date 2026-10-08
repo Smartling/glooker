@@ -17,7 +17,9 @@ export type UnavailableData = Unavailable;
 /** One data slot as `useSecurityData` (Task 2.7) returns it. Defined here so the test fixtures can
  * type `slot()` without importing a module a later task creates; `use-security-data.ts` re-exports it. */
 export interface Slot<T> {
-  /** The available:true payload, or undefined. */
+  /** The available:true payload, or undefined. While the key loads this is the previous key's payload
+   * (`stale: true`); once the key has failed it is undefined unless the key has data of its own, so an
+   * error never sits next to another key's figures. */
   data: T | undefined;
   unavailable: UnavailableData | undefined;
   error: unknown;
@@ -25,6 +27,7 @@ export interface Slot<T> {
   errorText: string | null;
   /** The key has never resolved and there is nothing to show. */
   loading: boolean;
-  /** The previous key's data is on screen while the new key loads (isLoading with data in hand). */
+  /** The previous key's data is on screen while the new key loads (isLoading with data in hand). A
+   * revalidation failure on a key that has its own data keeps that data and leaves this false. */
   stale: boolean;
 }

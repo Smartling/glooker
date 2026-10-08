@@ -8,7 +8,7 @@ import {
   KPI_ROW_H, OWNERSHIP_BODY_H, TREND_PLOT_H, ALERTS_STRIP_H, ALERTS_CARD_H, ALERT_LIST_H, RAIL_W,
   PAGE_MAX_W, PAGE_PAD, PAGE_GAP, FILTER_BAR_H, Z,
 } from '@/app/vulnerabilities/dimensions';
-import { SwrFresh, fetchRouter, summaryFixture, coverageFixture, coverageRow, reposFixture, REPO_ROWS, syncInfo } from '../support/security-fixtures';
+import { SwrFresh, fetchRouter, summaryFixture, coverageFixture, coverageRow, reposFixture, repoRow, cell, REPO_ROWS, syncInfo } from '../support/security-fixtures';
 
 jest.mock('next/navigation', () => require('../support/security-nav-mock').createNavigationMock());
 const nav = () => jest.requireMock('next/navigation') as any;
@@ -125,6 +125,42 @@ describe('Alerts tab count', () => {
     await waitFor(() => expect(screen.getByTestId('alerts-tab-count').textContent).toBe('3 open'));
   });
 
+  // Revert: always count from `data.repos.data`: the old scope's rows do not hold the repository, so the tab reads "0 open".
+  it('with a repository selected, shows no number while the rows are the previous scope\'s, then the real one', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>(r => { release = r; });
+    mount('repo=acme%2Fledger', {
+      repos: async url => {
+        const frontend = url.searchParams.get('codebase') === 'frontend';
+        if (frontend) await gate;
+        return { body: reposFixture(frontend ? [repoRow('acme/ledger', 'Payments', { critical: cell({ open: 7 }) })] : REPO_ROWS, { codebase: frontend ? 'frontend' : 'backend' }) };
+      },
+    });
+    await waitFor(() => expect(screen.getByTestId('alerts-tab-count').textContent).toBe('2 open'));
+    act(() => { nav().__resetSearch('codebase=frontend&repo=acme%2Fledger'); });
+    await waitFor(() => expect(screen.getByTestId('alerts-tab-count').textContent).toBe(''));
+    await act(async () => { release(); });
+    await waitFor(() => expect(screen.getByTestId('alerts-tab-count').textContent).toBe('7 open'));
+  });
+
+  it('without a repository the previous scope\'s number stays while the new rows load', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>(r => { release = r; });
+    mount('', {
+      repos: async url => {
+        const frontend = url.searchParams.get('codebase') === 'frontend';
+        if (frontend) await gate;
+        return { body: reposFixture(frontend ? [] : REPO_ROWS, { codebase: frontend ? 'frontend' : 'backend' }) };
+      },
+    });
+    await waitFor(() => expect(screen.getByTestId('alerts-tab-count').textContent).toBe('13 open'));
+    act(() => { nav().__resetSearch('codebase=frontend'); });
+    await act(async () => { await new Promise(r => setTimeout(r, 30)); });
+    expect(screen.getByTestId('alerts-tab-count').textContent).toBe('13 open');
+    await act(async () => { release(); });
+    await waitFor(() => expect(screen.getByTestId('alerts-tab-count').textContent).toBe('0 open'));
+  });
+
   it('narrows to the selected repository', async () => {
     mount('repo=acme%2Fledger');
     await waitFor(() => expect(screen.getByTestId('alerts-tab-count').textContent).toBe('2 open'));
@@ -172,7 +208,7 @@ describe('filters write the URL without scrolling and without switching the view
     fireEvent.change(await screen.findByLabelText('Owning team'), { target: { value: 'Search' } });
     await waitFor(() => {
       const urls = f.mock.calls.map(([u]) => String(u));
-      for (const route of ['summary', 'coverage', 'repos']) {
+      for (const route of ['summary', 'coverage', 'repos', 'alerts']) {
         expect(urls.some(u => u.includes(`/${route}?`) && u.includes('team=Search'))).toBe(true);
       }
     });

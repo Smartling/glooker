@@ -57,6 +57,20 @@ describe('SecurityHeader', () => {
     expect(screen.getByText('Backend · 5 production repositories · 4 owning teams')).toBeTruthy();
   });
 
+  // Revert: pass `repos.data` whatever `repos.stale` says: the previous codebase's counts appear under the new codebase's name.
+  it('while the rows are the previous codebase\'s (stale) the line is the count-less form for the NEW codebase, never old counts under the new label', () => {
+    const old = slot(reposFixture(REPO_ROWS, { codebase: 'frontend' }), { stale: true });
+    render(<SecurityHeader {...props({ repos: old, codebase: 'backend' })} />);
+    expect(screen.getByText('Backend · production repositories')).toBeTruthy();
+    expect(screen.getByTestId('security-header').textContent).not.toMatch(/\d+ production repositor/);
+  });
+
+  // Revert: label the line from the `codebase` prop while counting the slot's rows.
+  it('the codebase label comes from the same response as the counts', () => {
+    render(<SecurityHeader {...props({ repos: slot(reposFixture(REPO_ROWS, { codebase: 'frontend' })), codebase: 'backend' })} />);
+    expect(screen.getByText('Frontend · 4 production repositories · 3 owning teams')).toBeTruthy();
+  });
+
   it('the scope label follows summary.scope.value', () => {
     render(<SecurityHeader {...props({ summary: summaryFixture({ scope: { property: 'service_tier', value: 'live' } }) })} />);
     expect(screen.getByText(/4 live repositories/)).toBeTruthy();
@@ -150,6 +164,15 @@ describe('CoverageLine', () => {
       expect(screen.getByTestId('coverage-tagging').textContent).toBe(`· ${tagging} need tagging`);
       unmount();
     }
+  });
+
+  // Revert: ignore `coverage.stale`: the previous scope's counts look like the new scope's.
+  it('dims the badge and both counts while the coverage is the previous scope\'s (stale), and not otherwise', () => {
+    const loaded = coverageFixture({ unmeasured: [unmeasuredRow], excludedByPolicy: [{ ...unmeasuredRow, repoId: 1 }] });
+    const { rerender } = render(<CoverageLine coverage={slot(loaded)} openDrawer={jest.fn()} />);
+    for (const id of ['coverage-badge-slot', 'coverage-excluded', 'coverage-tagging']) expect(screen.getByTestId(id).style.opacity).toBe('');
+    rerender(<CoverageLine coverage={slot(loaded, { stale: true })} openDrawer={jest.fn()} />);
+    for (const id of ['coverage-badge-slot', 'coverage-excluded', 'coverage-tagging']) expect(screen.getByTestId(id).style.opacity).toBe('0.6');
   });
 
   it('shows the unmeasured badge only when there are unmeasured repositories, and opens the drawer from the clicked element', () => {

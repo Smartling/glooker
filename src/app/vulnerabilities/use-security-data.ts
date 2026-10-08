@@ -4,7 +4,7 @@
 // Every key uses keepPreviousData, so a scope change keeps rendering the previous key's data
 // (`stale: true`) instead of blanking the section while the new key loads.
 import { useEffect, useRef, useState } from 'react';
-import useSWR from 'swr';
+import useSWR, { useSWRConfig } from 'swr';
 import { fetcher, vulnSwrOptions, panelError } from './format';
 import type { SummaryData, ReposData, CoverageData, AlertsData, TrendData, UnavailableData, Slot } from './api-types';
 import {
@@ -84,8 +84,14 @@ export function securityKeys(scope: SecurityScope, now: Date): SecurityKeys {
   };
 }
 
-function toSlot<T>(label: string, r: { data?: unknown; error?: unknown; isLoading: boolean }): Slot<T> {
-  const payload = r.data as { available?: boolean } | undefined;
+/**
+ * `ownsData`: the cache holds a response for THIS key. keepPreviousData makes `r.data` the previous key's
+ * response while the new key has none, which is right while it loads (`stale`) and wrong once it has
+ * failed: an error never shows another key's figures, so a failed key with no data of its own exposes
+ * none. A revalidation that fails on a key that has its own data keeps that data (`stale` stays false).
+ */
+function toSlot<T>(label: string, r: { data?: unknown; error?: unknown; isLoading: boolean }, ownsData: boolean): Slot<T> {
+  const payload = (r.error && !ownsData ? undefined : r.data) as { available?: boolean } | undefined;
   const data = payload && payload.available === true ? (payload as unknown as T) : undefined;
   const unavailable = payload && payload.available === false ? (payload as unknown as UnavailableData) : undefined;
   return {
@@ -107,6 +113,8 @@ const syncAt = (d: { sync?: { lastSuccessfulAt: string | null } } | undefined): 
 
 export function useSecurityData(scope: SecurityScope, listState: AlertListState): SecurityData {
   const keys = securityKeys(scope, new Date());
+  const { cache, mutate } = useSWRConfig();
+  const ownsData = (key: string | null) => key !== null && (cache.get(key) as { data?: unknown } | undefined)?.data !== undefined;
 
   const summary = useSWR(keys.summary, fetcher, SWR_OPTS);
   const teamSummary = useSWR(keys.teamSummary, fetcher, SWR_OPTS);
@@ -116,13 +124,13 @@ export function useSecurityData(scope: SecurityScope, listState: AlertListState)
   const trend = useSWR(keys.trend, fetcher, SWR_OPTS);
   const sparkline = useSWR(keys.sparkline, fetcher, SWR_OPTS);
 
-  const summarySlot = toSlot<SummaryData>('summary', summary);
-  const teamSummarySlot = toSlot<SummaryData>('team table', teamSummary);
-  const coverageSlot = toSlot<CoverageData>('coverage', coverage);
-  const reposSlot = toSlot<ReposData>('repositories', repos);
-  const metaReposSlot = toSlot<ReposData>('repositories', metaRepos);
-  const trendSlot = toSlot<TrendData>('trend', trend);
-  const sparklineSlot = toSlot<TrendData>('trend', sparkline);
+  const summarySlot = toSlot<SummaryData>('summary', summary, ownsData(keys.summary));
+  const teamSummarySlot = toSlot<SummaryData>('team table', teamSummary, ownsData(keys.teamSummary));
+  const coverageSlot = toSlot<CoverageData>('coverage', coverage, ownsData(keys.coverage));
+  const reposSlot = toSlot<ReposData>('repositories', repos, ownsData(keys.repos));
+  const metaReposSlot = toSlot<ReposData>('repositories', metaRepos, ownsData(keys.metaRepos));
+  const trendSlot = toSlot<TrendData>('trend', trend, ownsData(keys.trend));
+  const sparklineSlot = toSlot<TrendData>('trend', sparkline, ownsData(keys.sparkline));
 
   // Sanitise at key-build time: a bad combination never costs a wasted request. Until the summary
   // loads, assume an SLA is active (nothing to clear yet).
@@ -131,7 +139,11 @@ export function useSecurityData(scope: SecurityScope, listState: AlertListState)
 
   // ── Stale repository ───────────────────────────────────────────────────────────────────────────
   const repoKey = scope.repo ? `${scope.codebase}\u0000${scope.team ?? ''}\u0000${scope.repo}` : null;
-  const [rejectedKey, setRejectedKey] = useState<string | null>(null);
+  // Repositories the alerts API rejected, per scope (codebase + team + repo) -> the alerts key whose cached
+  // error has to be evicted when the memory is cleared.
+  const [rejected, setRejected] = useState<ReadonlyMap<string, string>>(() => new Map());
+  const rejectedRef = useRef(rejected);
+  rejectedRef.current = rejected;
   const applied = reposSlot.data?.appliedFilters as { codebase?: string; team?: string } | undefined;
   // Only rows that belong to THIS scope can say a repo is absent: keepPreviousData otherwise shows
   // the previous scope's rows, and judging by them would mark a valid repo as not found.
@@ -139,7 +151,7 @@ export function useSecurityData(scope: SecurityScope, listState: AlertListState)
     && applied?.codebase === scope.codebase && (applied?.team ?? null) === scope.team;
   let repoStatus: RepoStatus = 'none';
   if (scope.repo) {
-    if (repoKey !== null && rejectedKey === repoKey) repoStatus = 'not-found';
+    if (repoKey !== null && rejected.has(repoKey)) repoStatus = 'not-found';
     else if (rowsAreForThisScope) repoStatus = reposSlot.data!.rows.some(r => r.fullName === scope.repo) ? 'ok' : 'not-found';
     else repoStatus = 'pending';
   }
@@ -151,13 +163,15 @@ export function useSecurityData(scope: SecurityScope, listState: AlertListState)
         list: effectiveList, anySlaActive: slaActive,
       })}`;
   const alerts = useSWR(alertsKey, fetcher, SWR_OPTS);
-  const alertsSlot: Slot<AlertsData> = alertsKey === null ? EMPTY_SLOT : toSlot<AlertsData>('alerts', alerts);
+  const alertsSlot: Slot<AlertsData> = alertsKey === null ? EMPTY_SLOT : toSlot<AlertsData>('alerts', alerts, ownsData(alertsKey));
 
   // Remember a repo the API rejected, per scope, so it is never sent again.
   const alertsError = alerts.error;
   useEffect(() => {
-    if (repoKey && isRepoRejection(alertsError)) setRejectedKey(repoKey);
-  }, [alertsError, repoKey]);
+    if (repoKey && alertsKey && isRepoRejection(alertsError)) {
+      setRejected(m => (m.has(repoKey) ? m : new Map(m).set(repoKey, alertsKey)));
+    }
+  }, [alertsError, repoKey, alertsKey]);
 
   // ── Sync time ──────────────────────────────────────────────────────────────────────────────────
   const settled = <T extends { sync?: { lastSuccessfulAt: string | null } }>(s: Slot<T>) =>
@@ -167,11 +181,17 @@ export function useSecurityData(scope: SecurityScope, listState: AlertListState)
   const reposAt = settled(reposSlot);
   const metaAt = settled(metaReposSlot);
 
-  // A new sync clears the "rejected" memory: the repo may be tracked now.
+  // A new sync clears the "rejected" memory: the repo may be tracked now. The cached 4xx is evicted first:
+  // the same alerts key comes back as soon as the memory is clear, and SWR would serve it the error it
+  // still holds (which would put the repo straight back in the memory).
   const prevSummaryAt = useRef<string | null>(null);
   useEffect(() => {
-    if (prevSummaryAt.current && summaryAt && prevSummaryAt.current !== summaryAt) setRejectedKey(null);
+    if (prevSummaryAt.current && summaryAt && prevSummaryAt.current !== summaryAt && rejectedRef.current.size > 0) {
+      rejectedRef.current.forEach(alertsKeyOfRejection => { void mutate(alertsKeyOfRejection, undefined, { revalidate: false }); });
+      setRejected(new Map());
+    }
     if (summaryAt) prevSummaryAt.current = summaryAt;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the settled sync time only
   }, [summaryAt]);
 
   // The summary and repos requests can straddle a sync. When their settled responses disagree,
