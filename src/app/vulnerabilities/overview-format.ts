@@ -55,3 +55,11 @@ export function openChange(d: DeltaResult | null | undefined, sev: Severity, tod
   }
   return { text: baselineUnavailableText(d, today), toneClass: 'text-gray-500', hasChange: false, delta: null };
 }
+
+/** The tooltip on a † beside a resolved figure that includes carried-over CSV history. */
+export const carriedTitle = (n: number): string =>
+  `Includes ${n} carried over from imported CSV history (archived repo with no alert data)`;
+
+/** The footnote that explains the †. */
+export const carriedFootnote = (n: number): string =>
+  `† Resolved includes ${n} carried over from imported CSV history for archived repos Glooker never synced.`;

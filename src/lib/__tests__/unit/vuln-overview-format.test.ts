@@ -1,6 +1,6 @@
 // src/lib/__tests__/unit/vuln-overview-format.test.ts
 // The Overview's change sentences: one wording and one tone for the Open tile and the trend header.
-import { baselineUnavailableText, changeSentence, changeToneClass, openChange, usableTotal } from '@/app/vulnerabilities/overview-format';
+import { baselineUnavailableText, carriedFootnote, carriedTitle, changeSentence, changeToneClass, openChange, usableTotal } from '@/app/vulnerabilities/overview-format';
 import { ovBaseline, ovDelta, ovDeltaTeam, ovNoBaseline } from '../support/security-fixtures';
 
 // "Today" is passed in, so the year rule does not depend on the day the suite runs.
@@ -64,5 +64,13 @@ describe('usableTotal and openChange', () => {
 
   it('no delta at all reads as no earlier measurement', () => {
     expect(openChange(undefined, 'high', TODAY)).toEqual({ text: 'No earlier measurement yet', toneClass: 'text-gray-500', hasChange: false, delta: null });
+  });
+});
+
+describe('carried-resolved wording', () => {
+  // Revert: reword either string (the tile and the table both read these).
+  it('the † tooltip and footnote keep their wording', () => {
+    expect(carriedTitle(3)).toBe('Includes 3 carried over from imported CSV history (archived repo with no alert data)');
+    expect(carriedFootnote(3)).toBe('† Resolved includes 3 carried over from imported CSV history for archived repos Glooker never synced.');
   });
 });

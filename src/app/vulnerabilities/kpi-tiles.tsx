@@ -5,9 +5,9 @@
 // the team-scoped summary (`props.summary`), so with an owning team selected they show that team.
 import type { SecurityViewProps } from './view-props';
 import { KPI_ROW_H, TYPE } from './dimensions';
-import { dash, signed } from './format';
+import { dash, resolvedCaption, signed } from './format';
 import { displayDate, utcToday } from './labels';
-import { baselineUnavailableText, openChange, usableTotal } from './overview-format';
+import { baselineUnavailableText, carriedFootnote, carriedTitle, openChange, usableTotal } from './overview-format';
 import Sparkline, { sparkPoints } from './sparkline';
 
 const TILE = 'bg-gray-900 rounded-xl p-4 min-w-0 h-full overflow-hidden flex flex-col';
@@ -94,6 +94,37 @@ function SinceTile({ summary, url }: SecurityViewProps) {
   );
 }
 
+function ResolvedTile({ summary, url }: SecurityViewProps) {
+  const sev = url.kSev;
+  const c = summary.pivot.total[sev];
+  // `resolved` is null when the start date is invalid: nothing carried can be trusted either.
+  const carried = c.resolved !== null && c.carriedResolved > 0 ? c.carriedResolved : 0;
+  const raised = c.open + (c.resolved ?? 0);
+  const closedLine = c.resolved === null
+    ? `${dash(c.pctClosed, '%')} closed`
+    : raised === 0 ? 'None raised yet' : `${dash(c.pctClosed, '%')} of ${raised} raised are closed`;
+  const footnote = carried > 0 ? carriedFootnote(carried) : null;
+  return (
+    <div data-testid="kpi-resolved" className={TILE}>
+      <div className={LABEL}>Resolved {sev}</div>
+      <div className={`${TYPE.kpiValue} mt-1 text-white`}>
+        {dash(c.resolved)}
+        {carried > 0 && <span className="ml-0.5 text-sm text-warn" title={carriedTitle(carried)}>†</span>}
+      </div>
+      <div data-testid="kpi-resolved-since" className="h-4 truncate text-xs leading-4 text-gray-400">
+        {dash(c.dismissed)} dismissed · {resolvedCaption(summary.resolvedSince)}
+      </div>
+      <div
+        data-testid="kpi-resolved-footnote" aria-hidden={footnote ? undefined : true}
+        className="h-4 truncate text-[11px] leading-4 text-gray-500" title={footnote ?? undefined}
+      >
+        {footnote ?? '\u00a0'}
+      </div>
+      <div data-testid="kpi-resolved-closed" className="mt-auto h-4 truncate text-xs leading-4 text-gray-400">{closedLine}</div>
+    </div>
+  );
+}
+
 export default function KpiTiles(props: SecurityViewProps) {
   const stale = props.data.summary.stale;
   return (
@@ -105,6 +136,7 @@ export default function KpiTiles(props: SecurityViewProps) {
     >
       <OpenTile {...props} />
       <SinceTile {...props} />
+      <ResolvedTile {...props} />
     </section>
   );
 }
