@@ -3,6 +3,7 @@
 // The alert list's pager: its text, its page numbering and its fixed height.
 import { render, screen, fireEvent } from '@testing-library/react';
 import Pager, { PAGER_H, PAGER_NOTE, pageCount, pagerText } from '@/app/vulnerabilities/pager';
+import { PAGER_INDICATOR_W } from '@/app/vulnerabilities/dimensions';
 
 const NOTE = 'counted per Dependabot alert, not per CVE';
 
@@ -80,6 +81,36 @@ describe('Pager', () => {
     expect((screen.getByRole('button', { name: /Previous/ }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: /Next/ }));
     expect(onPage).toHaveBeenCalledWith(2);
+  });
+
+  // Revert: call pagerText(page, ...) instead of pagerText(shown, ...): the range would read "26–26 of 26 alerts" beside "Page 3 of 3".
+  it('a page number ahead of a shrunken result reads the last page\'s range beside "Page 3 of 3"', () => {
+    render(<Pager page={4} pageSize={10} totalCount={26} onPage={jest.fn()} />);
+    expect(screen.getByText('Page 3 of 3')).toBeTruthy();
+    expect(screen.getByText(`21–26 of 26 alerts · ${NOTE}`)).toBeTruthy();
+  });
+
+  it('carries the full note as a title, since a narrow row truncates it', () => {
+    render(<Pager page={1} pageSize={10} totalCount={26} onPage={jest.fn()} />);
+    expect(screen.getByText(`1–10 of 26 alerts · ${NOTE}`).getAttribute('title')).toBe(NOTE);
+  });
+
+  // Revert: drop the indicator's fixed width: Previous would shift left when "Page 9 of 10" becomes "Page 10 of 10".
+  it('the page indicator has one fixed width and tabular numerals, whatever it reads', () => {
+    const widthOf = (page: number, total: number) => {
+      const { unmount } = render(<Pager page={page} pageSize={10} totalCount={total} onPage={jest.fn()} />);
+      const el = screen.getByTestId('alert-pager-page');
+      const out = { width: el.style.width, cls: el.className.split(/\s+/), text: el.textContent };
+      unmount();
+      return out;
+    };
+    const short = widthOf(1, 26);
+    const long = widthOf(10, 120);
+    expect(short.text).toBe('Page 1 of 3');
+    expect(long.text).toBe('Page 10 of 12');
+    expect(short.width).toBe(`${PAGER_INDICATOR_W}px`);
+    expect(long.width).toBe(short.width);
+    expect(short.cls).toEqual(expect.arrayContaining(['tabular-nums', 'text-center']));
   });
 
   it.each([

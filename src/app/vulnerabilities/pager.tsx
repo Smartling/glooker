@@ -2,6 +2,8 @@
 // GLOOK-64: the alert list's pager (spec "Columns and sorting", Pager). Presentational: the page
 // number lives in the alert-list controller, this only draws it and reports a click.
 
+import { PAGER_INDICATOR_W } from './dimensions';
+
 /** The pager row's fixed height in px. The alert list's column chrome adds it up, so it is a constant. */
 export const PAGER_H = 28;
 export const PAGER_NOTE = 'counted per Dependabot alert, not per CVE';
@@ -41,14 +43,18 @@ export default function Pager({ page, pageSize, totalCount, onPage }: PagerProps
       className="box-border flex items-center justify-between gap-3 text-xs text-gray-400"
       style={{ height: PAGER_H }}
     >
-      <span className="min-w-0 truncate" aria-hidden={known ? undefined : true}>
-        {known ? pagerText(page, pageSize, totalCount) : '\u00a0'}
+      <span className="min-w-0 truncate" title={known ? PAGER_NOTE : undefined} aria-hidden={known ? undefined : true}>
+        {known ? pagerText(shown, pageSize, totalCount) : '\u00a0'}
       </span>
       <div className="flex shrink-0 items-center gap-1.5">
         <button type="button" className={`${buttonClass} text-gray-300`} disabled={!known || shown <= 1} onClick={() => onPage(shown - 1)}>
           ‹ Previous
         </button>
-        <span className="px-1.5 whitespace-nowrap" aria-hidden={known ? undefined : true}>{known ? `Page ${shown} of ${pages}` : '\u00a0'}</span>
+        <span
+          className="box-border px-1.5 text-center whitespace-nowrap tabular-nums"
+          style={{ width: PAGER_INDICATOR_W }}
+          data-testid="alert-pager-page"
+          aria-hidden={known ? undefined : true}>{known ? `Page ${shown} of ${pages}` : '\u00a0'}</span>
         <button type="button" className={`${buttonClass} text-gray-300`} disabled={!known || shown >= pages} onClick={() => onPage(shown + 1)}>
           Next ›
         </button>

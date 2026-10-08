@@ -26,6 +26,9 @@ export const ALERTS_CARD_H = 776;
 export const ALERT_ROW_H = 56;
 export const ALERT_PAGE_SIZE = 10;
 export const ALERT_LIST_H = ALERT_ROW_H * ALERT_PAGE_SIZE; // 560
+/** The pager's "Page X of Y" slot, in px (border-box, padding included): fits "Page 99 of 99" at text-xs with tabular-nums,
+ * so Previous and Next keep their place when the page count gains a digit. */
+export const PAGER_INDICATOR_W = 112;
 export const RAIL_W = 260;
 
 // Drawer and header.
