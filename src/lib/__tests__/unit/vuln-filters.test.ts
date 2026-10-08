@@ -65,3 +65,27 @@ it('overdue and due_soon are disjoint buckets — passing both together is rejec
   expect(parseVulnFilters({ due_soon: 'true' })).toMatchObject({ ok: true, value: { overdue: undefined, dueSoon: true } });
   expect(parseVulnFilters({ overdue: 'false', due_soon: 'false' })).toMatchObject({ ok: true, value: { overdue: false, dueSoon: false } });
 });
+
+describe('offset and sort (GLOOK-64)', () => {
+  it('default to undefined, and accept a non-negative integer offset in string or number form', () => {
+    expect(parseVulnFilters({})).toMatchObject({ ok: true, value: { offset: undefined, sort: undefined } });
+    expect(parseVulnFilters({ offset: '0' })).toMatchObject({ ok: true, value: { offset: 0 } });
+    expect(parseVulnFilters({ offset: '20' })).toMatchObject({ ok: true, value: { offset: 20 } });
+    expect(parseVulnFilters({ offset: 40 })).toMatchObject({ ok: true, value: { offset: 40 } }); // MCP passes numbers
+  });
+
+  it.each(['-1', '1.5', '1e3', 'abc', ' ', '0x10', '9007199254740993'])('rejects offset %p', (offset) => {
+    expect(parseVulnFilters({ offset })).toEqual({ ok: false, error: 'offset must be a non-negative integer' });
+  });
+
+  it.each(['severity', 'advisory', 'repo', 'age', 'due', 'state'])('accepts sort=%s:asc and :desc and echoes the validated string', (key) => {
+    expect(parseVulnFilters({ sort: `${key}:asc` })).toMatchObject({ ok: true, value: { sort: `${key}:asc` } });
+    expect(parseVulnFilters({ sort: `${key}:desc` })).toMatchObject({ ok: true, value: { sort: `${key}:desc` } });
+  });
+
+  it.each(['due', 'due:', 'due:up', ':asc', 'cvss:asc', 'Due:asc', 'due:ASC', 'due:asc:desc', 'due asc'])('rejects sort %p with the list of valid keys', (sort) => {
+    expect(parseVulnFilters({ sort })).toEqual({
+      ok: false, error: 'sort must be <key>:<asc|desc> with key one of severity, advisory, repo, age, due, state',
+    });
+  });
+});

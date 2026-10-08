@@ -203,7 +203,7 @@ Glooker exposes a **read-only [MCP](https://modelcontextprotocol.io) server** at
 - **Claude usage:** `query_model_usage` (per-model `cost_cents`/requests, all Anthropic surfaces — cost-gated per developer), `query_skills_usage` (skills invoked per product — ungated activity volume)
 - **LLM/semantic:** `get_project_insights`, `get_project_details`, `get_highlights`, `get_team_pulse`, `get_developer_summary`, `get_release_notes`, `get_epic_summaries`
 - **Build:** `get_build_info` (no arguments; returns `{ commit, version }` — which build is running; commit is the full SHA in CI images, may be short in local builds)
-- **Vulnerabilities:** `list_vulnerabilities`, `get_vulnerability_summary`, `get_vulnerability_trend`, `get_vulnerability_coverage`
+- **Vulnerabilities:** `list_vulnerabilities`, `list_vulnerability_repos`, `get_vulnerability_summary`, `get_vulnerability_trend`, `get_vulnerability_coverage`
 - **Time-series:** `get_metric_timeseries` (`metric` × `group_by` = week/month/report/developer/repo/type)
 
 Connect from Claude Code:

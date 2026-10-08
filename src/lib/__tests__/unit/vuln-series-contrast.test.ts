@@ -1,5 +1,5 @@
 // src/lib/__tests__/unit/vuln-series-contrast.test.ts
-// the trend-chart legend renders each series colour as 11px text (WCAG AA needs 4.5:1 for
+// the trend card legend renders each series colour as 11px text (WCAG AA needs 4.5:1 for
 // text; the polyline/dot themselves are graphics, which only need 3:1 and are out of scope here).
 // This asserts every --vuln-series-* custom property in globals.css meets 4.5:1 against every
 // theme's bodyBg (src/app/themes.ts) in its own mode — not just the specific colours previously

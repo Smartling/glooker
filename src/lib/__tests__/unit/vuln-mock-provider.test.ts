@@ -54,3 +54,31 @@ it('silent-service returns zero alerts and its status is dependabot-off, not err
   expect(s1.some(a => a.repoId === silent.repoId)).toBe(false);
   expect(await p.getRepoDependabotStatus(silent.fullName)).toMatchObject({ status: 'dependabot-off' });
 });
+
+// GLOOK-64 fixtures: a repo with nothing open, and one that stays flagged unmeasured while keeping alerts.
+it('quiet-service returns zero alerts but a healthy status, so a sync leaves it measured with nothing open', async () => {
+  const p = createMockGitHubProvider();
+  const repos = await p.listOrgReposForVulns('mock-org');
+  const quiet = repos.find(r => r.fullName.endsWith('quiet-service'))!;
+  const s1 = await p.listOrgDependabotAlerts('mock-org');
+  expect(s1.some(a => a.repoId === quiet.repoId)).toBe(false);
+  expect(await p.getRepoDependabotStatus(quiet.fullName)).toEqual({ status: 'ok' });
+});
+
+it('stale-scanner returns alerts like any other repo; the seed, not the sweep, marks it unmeasured afterwards', async () => {
+  const p = createMockGitHubProvider();
+  const repos = await p.listOrgReposForVulns('mock-org');
+  const stale = repos.find(r => r.fullName.endsWith('stale-scanner'))!;
+  const s1 = await p.listOrgDependabotAlerts('mock-org');
+  expect(s1.some(a => a.repoId === stale.repoId && a.state === 'open')).toBe(true);
+  expect(await p.getRepoDependabotStatus(stale.fullName)).toEqual({ status: 'ok' });
+});
+
+it('the owning teams are repository property values, not people teams', async () => {
+  const { MOCK_VULN_REPOS, MOCK_TEAMS } = await import('../../../../scripts/mock-identities');
+  const owning = new Set(MOCK_VULN_REPOS.filter(r => r.serviceTier === 'production' && r.team).map(r => r.team));
+  expect(owning.size).toBeGreaterThanOrEqual(13); // more than the page's 12 distinct colours
+  for (const t of ['Payments', 'Search', 'Identity', 'Messaging', 'Observability', 'Analytics', 'Media', 'Storage', 'Mobile', 'Compliance']) {
+    expect(MOCK_TEAMS.map(m => m.name)).not.toContain(t);
+  }
+});

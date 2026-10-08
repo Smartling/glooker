@@ -1,41 +1,45 @@
 import type { ResolvedSince } from '@/lib/vulnerabilities/types';
 import type { DeltaResult } from '@/lib/vulnerabilities/aggregate';
+import { displayDate } from './labels';
 
 export const dash = (v: number | null | undefined, suffix = '') => (v === null || v === undefined ? '—' : `${v.toLocaleString()}${suffix}`);
 
 /**
  * GLOOK-43 Wave P: the one place that turns a `ResolvedSince` (config.ts's parsed
- * VULN_RESOLVED_SINCE) into the caption every "resolved since" figure renders through — TeamPivot,
- * the KPI tile on vulnerabilities-content.tsx, and PolicyPanel. `invalid` wins over `date` (an
+ * VULN_RESOLVED_SINCE) into the caption every "resolved since" figure renders through — the team
+ * table, the Resolved KPI tile and the coverage drawer. `invalid` wins over `date` (an
  * invalid value never leaves a stale date on screen); `date === null` means the variable is unset,
- * i.e. "count all time".
+ * i.e. "count all time". The date reads through `displayDate` ("since Jan 8, 2020"), like every other
+ * date on the page.
  */
-export function resolvedCaption(r: ResolvedSince): string {
+export function resolvedCaption(r: ResolvedSince, today?: string): string {
   if (r.invalid) return 'since —';
-  return r.date === null ? 'all time' : `since ${r.date}`;
+  return r.date === null ? 'all time' : `since ${displayDate(r.date, today)}`;
 }
-export const signed = (v: number) => (v > 0 ? `+${v}` : `${v}`);
+export const signed = (v: number) => (v > 0 ? `+${dash(v)}` : dash(v));
 
 /**
  * When a delta is available, names the baseline date it's measured against — a snapshot-history
  * gap can make e.g. "7 days" silently resolve to a measurement many weeks old, and without this a
- * delta figure reads as fresher than it is. Uses `takenOn` (the date the trend chart plots), not
- * `measuredAt`, so the caption matches what the rest of the page calls that snapshot's date.
+ * delta figure reads as fresher than it is. Uses `takenOn` (the date the trend card plots), not
+ * `measuredAt`, so the caption matches what the rest of the page calls that snapshot's date. The
+ * date reads through `displayDate` ("vs Sep 29"); a caller that wants the ISO date for a `title`
+ * reads `delta.baseline.takenOn`.
  */
-export function deltaBaselineCaption(delta: DeltaResult | null | undefined): string | null {
+export function deltaBaselineCaption(delta: DeltaResult | null | undefined, today?: string): string | null {
   if (!delta?.available || !delta.baseline) return null;
-  return `vs ${delta.baseline.takenOn}`;
+  return `vs ${displayDate(delta.baseline.takenOn, today)}`;
 }
 export const deltaClass = (v: number) => (v > 0 ? 'text-red-400' : v < 0 ? 'text-green-400' : 'text-gray-500');
 
 /**
- * Shared SWR fetcher (GLOOK-43 Wave D / D1, hardened in Wave E / E1): every panel on the
- * Vulnerabilities page and the syncs tab on Report History used a bare
- * `fetch(u).then(r => r.json())`, so an error response body — a route exception's 500
- * `{ error: 'Internal Server Error' }` (`src/lib/logger.ts`), or `withFilters`'s 400 `{ error }`
- * — arrived as SWR **data**, never as SWR `error`. That left AlertsPanel stuck on "Loading…"
- * forever (its `data` prop is derived from `alerts?.rows`, which is never present on an error
- * body) and let the syncs tab overwrite its last good table with the error object. Throwing here
+ * Shared SWR fetcher for the Security page's views and the syncs tab on the Reports page.
+ * History (GLOOK-43 Wave D / D1, hardened in Wave E / E1): both once used a bare
+ * `fetch(u).then(r => r.json())`. With a bare fetch, an error response body — a route
+ * exception's 500 `{ error: 'Internal Server Error' }` (`src/lib/logger.ts`), or `withFilters`'s
+ * 400 `{ error }` — arrives as SWR **data**, never as SWR `error`: a list reads its rows from
+ * `data?.rows`, which an error body never carries, so it would sit on "Loading…" forever, and the
+ * syncs tab would overwrite its last good table with the error object. Throwing here
  * on `!r.ok` moves both cases onto SWR's `error` channel, where `keepPreviousData` (or SWR's
  * default revalidation behavior) keeps the last good `data` around and callers can show a banner
  * over it instead of blanking the view.

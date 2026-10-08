@@ -4,7 +4,7 @@ import { getVulnerabilitiesOrg, getSyncSchedule, getVulnConfig } from './config'
 import { getSyncProgress, type SyncProgress } from './progress';
 import { rowToAlertFact, rowToRepoFact } from './db-helpers';
 import {
-  computePivot, computeKpi, computeCoverage, listAlerts, computeDelta, computeTrend, snapshotSets, pickBaseline, knownTeams, teamOf, setKey,
+  computePivot, computeKpi, computeCoverage, computeRepoRows, computeCodebaseCounts, listAlerts, computeDelta, computeTrend, snapshotSets, pickBaseline, knownTeams, teamOf, setKey,
   pickTrendSets,
 } from './aggregate';
 import { isInScope } from './codebase';
@@ -303,6 +303,8 @@ export async function getSummary(f: ParsedFilters, now: Date = new Date()) {
     slaStatus: { critical: slaStatus('critical', now), high: slaStatus('high', now) },
     pivot: computePivot(p.alerts, p.repos, { codebase: f.codebase, team: f.team, now }),
     kpi: computeKpi(p.alerts, p.repos, { codebase: f.codebase, team: f.team, now }),
+    // GLOOK-64: open critical/high per codebase group, ignoring `codebase` (every option shows its own count), honouring `team`.
+    codebaseCounts: computeCodebaseCounts(p.alerts, p.repos, { team: f.team, now }),
     delta: {
       critical: computeDelta(p.alerts, p.repos, baselineRows, baseline, { codebase: f.codebase, team: f.team, severity: 'critical' }),
       high: computeDelta(p.alerts, p.repos, baselineRows, baseline, { codebase: f.codebase, team: f.team, severity: 'high' }),
@@ -323,9 +325,9 @@ export async function getTrend(f: ParsedFilters, now: Date = new Date()) {
     series: computeTrend(snaps, p.repos, { codebase: f.codebase, team: f.team, severity, since: f.since }) };
 }
 
-const ALERT_FILTER_KEYS = [
+export const ALERT_FILTER_KEYS = [
   'codebase', 'state', 'team', 'repo', 'severity', 'overdue', 'dueSoon', 'dueBefore', 'createdSince',
-  'resolvedSince', 'dependencyScope', 'cve', 'ghsa', 'packageName', 'q', 'reopened', 'limit',
+  'resolvedSince', 'dependencyScope', 'cve', 'ghsa', 'packageName', 'q', 'reopened', 'limit', 'offset', 'sort',
 ] as const;
 
 export async function getAlerts(f: ParsedFilters, now: Date = new Date()) {
@@ -342,7 +344,21 @@ export async function getAlerts(f: ParsedFilters, now: Date = new Date()) {
 export async function getCoverage(f: ParsedFilters, now: Date = new Date()) {
   const p = await prepare(f, now, { teamScope: 'all' });
   if (failed(p)) return p;
-  return { available: true as const, sync: p.sync, appliedFilters: pickApplied(f, ['team']), configErrors: p.configErrors, ...computeCoverage(p.alerts, p.repos, { team: f.team }) };
+  return { available: true as const, sync: p.sync, appliedFilters: pickApplied(f, ['codebase', 'team']), configErrors: p.configErrors,
+    ...computeCoverage(p.alerts, p.repos, { team: f.team, codebase: f.codebase }) };
+}
+
+/**
+ * GLOOK-64: one row per in-scope, non-archived repository in the view, with per-severity open /
+ * overdue / due-soon counts (see computeRepoRows for the sum invariant against the team pivot).
+ * Every row is returned: `limit` is parsed by the shared filter parser but deliberately not applied
+ * here (the page needs all rows); the MCP tool applies its own limit around this function.
+ */
+export async function getRepos(f: ParsedFilters, now: Date = new Date()) {
+  const p = await prepare(f, now);
+  if (failed(p)) return p;
+  return { available: true as const, sync: p.sync, appliedFilters: pickApplied(f, ['codebase', 'team']), configErrors: p.configErrors,
+    rows: computeRepoRows(p.alerts, p.repos, { codebase: f.codebase, team: f.team, now }) };
 }
 
 /** One row of `listSyncs`'s `syncs` array — also the shape the syncs tab (`vulnerability-syncs-tab.tsx`)

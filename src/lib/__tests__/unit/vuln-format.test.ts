@@ -2,7 +2,7 @@
 // the shared SWR fetcher (src/app/vulnerabilities/format.ts) hardened —
 // status carried on the thrown error, a lenient error-body parse on the !ok path only, and a
 // shouldRetryOnError predicate so SWR doesn't retry a 4xx.
-import { fetcher, shouldRetryVulnFetch, deltaBaselineCaption } from '@/app/vulnerabilities/format';
+import { fetcher, shouldRetryVulnFetch, deltaBaselineCaption, resolvedCaption } from '@/app/vulnerabilities/format';
 import type { DeltaResult } from '@/lib/vulnerabilities/aggregate';
 
 beforeEach(() => {
@@ -66,9 +66,10 @@ describe('shouldRetryVulnFetch', () => {
 describe('deltaBaselineCaption', () => {
   const baseline = (takenOn: string) => ({ source: 'sync' as const, key: 'sync:1', takenOn, measuredAt: `${takenOn}T06:00:00Z` });
 
-  it('returns "vs <takenOn>" for an available delta with a baseline', () => {
+  it('returns "vs <takenOn as a display date>" for an available delta with a baseline', () => {
     const delta: DeltaResult = { available: true, baseline: baseline('2099-01-01'), reposNotInBaseline: 0, teams: [], total: null };
-    expect(deltaBaselineCaption(delta)).toBe('vs 2099-01-01');
+    expect(deltaBaselineCaption(delta, '2099-06-01')).toBe('vs Jan 1');
+    expect(deltaBaselineCaption(delta, '2100-06-01')).toBe('vs Jan 1, 2099');
   });
 
   it('returns null when the delta is unavailable', () => {
@@ -84,5 +85,15 @@ describe('deltaBaselineCaption', () => {
   it('returns null for undefined/null input', () => {
     expect(deltaBaselineCaption(undefined)).toBeNull();
     expect(deltaBaselineCaption(null)).toBeNull();
+  });
+});
+
+describe('resolvedCaption', () => {
+  it('reads "since <display date>", "all time" with no start date, and "since —" when the value is invalid', () => {
+    // "today" is in 2031, a year the suite never runs in, so a caption that ignored the argument would fail.
+    expect(resolvedCaption({ date: '2020-01-08', invalid: false }, '2031-10-07')).toBe('since Jan 8, 2020');
+    expect(resolvedCaption({ date: '2031-03-02', invalid: false }, '2031-10-07')).toBe('since Mar 2');
+    expect(resolvedCaption({ date: null, invalid: false })).toBe('all time');
+    expect(resolvedCaption({ date: '2020-01-08', invalid: true })).toBe('since —');
   });
 });

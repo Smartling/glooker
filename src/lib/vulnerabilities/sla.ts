@@ -51,7 +51,7 @@ export function resolvedTiming(dueDate: string, resolvedAt: string): { onTime: b
   return late <= 0 ? { onTime: true, daysLate: 0 } : { onTime: false, daysLate: late };
 }
 
-/** Each entry with its derived window, for the policy panel and MCP. */
+/** Each entry with its derived window, for the coverage drawer and MCP. */
 export function policyWindows(policy: readonly SlaEntry[] = getVulnConfig().slaPolicy, now: Date = new Date()) {
   const today = now.toISOString().slice(0, 10);
   return (['critical', 'high'] as const).flatMap(sev => {

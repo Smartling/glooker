@@ -1,5 +1,7 @@
-import { computePivot, computeKpi, computeCoverage, listAlerts, knownTeams, isResolvedSinceStart } from '@/lib/vulnerabilities/aggregate';
-import type { TeamRow } from '@/lib/vulnerabilities/aggregate';
+import { computePivot, computeKpi, computeCoverage, computeRepoRows, listAlerts, knownTeams, isResolvedSinceStart, isSlaActive } from '@/lib/vulnerabilities/aggregate';
+import type { TeamRow, RepoRow, AlertRow } from '@/lib/vulnerabilities/aggregate';
+import { ALERT_SORT_KEYS } from '@/lib/vulnerabilities/alert-sort';
+import type { AlertSortSpec } from '@/lib/vulnerabilities/alert-sort';
 import { __clearVulnConfigCache } from '@/lib/vulnerabilities/config';
 import type { AlertFact, RepoFact } from '@/lib/vulnerabilities/types';
 
@@ -320,5 +322,366 @@ describe('isResolvedSinceStart / resolvedSinceInvalid', () => {
     expect(total.high.dismissed).toBeNull();
     // The open count and carriedResolved stay real numbers — only resolved/pctClosed/dismissed go null.
     expect(total.critical.open).toBe(1);
+  });
+});
+
+describe('isSlaActive (the one SLA gate)', () => {
+  it('is false while a policy is pending or absent, and true from its first effective day', () => {
+    // File default policy: critical-2099-04 (pending on NOW) and no high entry at all.
+    expect(isSlaActive('critical', NOW)).toBe(false);
+    expect(isSlaActive('high', NOW)).toBe(false);
+    expect(isSlaActive('critical', new Date('2099-04-14T23:59:59Z'))).toBe(false);
+    expect(isSlaActive('critical', new Date('2099-04-15T00:00:00Z'))).toBe(true);
+    expect(isSlaActive('high', new Date('2099-04-15T00:00:00Z'))).toBe(false);
+  });
+
+  it('the pivot nulls overdue and dueSoon exactly when the gate is closed', () => {
+    for (const [policy, active] of [[SYNTHETIC_POLICY, false], [SYNTHETIC_ACTIVE_POLICY, true]] as const) {
+      process.env.VULNERABILITIES_SLA_POLICY = policy;
+      __clearVulnConfigCache();
+      const { total } = computePivot([A(1, 1)], [R(1)], { codebase: 'backend', now: NOW });
+      expect(isSlaActive('critical', NOW)).toBe(active);
+      expect(total.critical.overdue === null).toBe(!active);
+      expect(total.critical.dueSoon === null).toBe(!active);
+      expect(total.high.overdue).toBeNull(); // neither policy has a high entry
+    }
+  });
+});
+
+// ---------- computeRepoRows (GLOOK-64) ----------
+// Both severities active since 2020-01-08: critical 7 days, high 9 days.
+const SYNTHETIC_BOTH_ACTIVE_POLICY = JSON.stringify([
+  { id: 'critical-2020-01', severity: 'critical', effectiveFrom: '2020-01-08', days: 7 },
+  { id: 'high-2020-01', severity: 'high', effectiveFrom: '2020-01-08', days: 9 },
+]);
+function useBothActivePolicy(): void {
+  process.env.VULNERABILITIES_SLA_POLICY = SYNTHETIC_BOTH_ACTIVE_POLICY;
+  __clearVulnConfigCache();
+}
+const names = (rows: RepoRow[]) => rows.map(r => r.fullName);
+
+describe('computeRepoRows', () => {
+  const rs = [
+    R(1, { fullName: 'o/a-low' }), R(2, { fullName: 'o/b-many' }), R(3, { fullName: 'o/c-high' }), R(4, { fullName: 'o/d-zero' }),
+    R(5, { fullName: 'o/e-unmeasured', dependabotStatus: 'dependabot-off', dependabotStatusDetail: 'Dependabot alerts are disabled for this repository.' }),
+    R(6, { fullName: 'o/f-unmeasured-err', dependabotStatus: 'error', dependabotStatusDetail: 'HTTP 500: x' }),
+    R(7, { fullName: 'o/z-archived', archived: true, dependabotStatus: 'archived' }),
+    R(8, { fullName: 'o/a-tie' }),
+    R(9, { fullName: 'o/nonprod', serviceTier: 'non-production' }),
+  ];
+  const as = [
+    A(1, 1),
+    A(2, 1), A(2, 2), A(2, 3),
+    A(3, 1, { severity: 'high' }), A(3, 2, { severity: 'high' }),
+    A(5, 1), A(5, 2), A(5, 3), A(5, 4), A(5, 5),   // unmeasured, more open than any measured repo
+    A(7, 1), A(8, 1), A(9, 1),
+  ];
+
+  it('orders measured rows by critical open, then high open, then name, and unmeasured rows last by name', () => {
+    expect(names(computeRepoRows(as, rs, { codebase: 'backend', now: NOW }))).toEqual([
+      'o/b-many',            // 3 critical
+      'o/a-low', 'o/a-tie',  // 1 critical each: tie broken by name
+      'o/c-high',            // 0 critical, 2 high
+      'o/d-zero',            // nothing open: still listed
+      'o/e-unmeasured',      // 5 stored critical, but unmeasured rows always come last
+      'o/f-unmeasured-err',
+    ]);
+  });
+
+  it('lists repos with no open alerts, and leaves out archived and out-of-scope repos', () => {
+    const rows = computeRepoRows(as, rs, { codebase: 'backend', now: NOW });
+    const zero = rows.find(r => r.fullName === 'o/d-zero')!;
+    expect(zero.critical.open).toBe(0);
+    expect(zero.high.open).toBe(0);
+    expect(zero.critical.oldestOpenDays).toBeNull();
+    expect(names(rows)).not.toContain('o/z-archived'); // archived: has open-looking alerts, contributes nothing
+    expect(names(rows)).not.toContain('o/nonprod');    // outside the configured tracking scope
+  });
+
+  it('an unmeasured repo carries its stored counts and its status, never a zero', () => {
+    const rows = computeRepoRows(as, rs, { codebase: 'backend', now: NOW });
+    const off = rows.find(r => r.fullName === 'o/e-unmeasured')!;
+    expect(off.critical.open).toBe(5);
+    expect(off.unmeasured).toEqual({ status: 'dependabot-off', detail: 'Dependabot alerts are disabled for this repository.' });
+    const err = rows.find(r => r.fullName === 'o/f-unmeasured-err')!;
+    expect(err.critical.open).toBe(0);
+    expect(err.unmeasured).toEqual({ status: 'error', detail: 'HTTP 500: x' });
+    expect(rows.find(r => r.fullName === 'o/a-low')!.unmeasured).toBeNull();
+  });
+
+  it('while no SLA is active, overdue, dueSoon and nextDue are null but open and oldestOpenDays still count', () => {
+    const rows = computeRepoRows(as, rs, { codebase: 'backend', now: NOW }); // file default: critical pending, high none
+    for (const r of rows) {
+      for (const cell of [r.critical, r.high]) {
+        expect(cell.overdue).toBeNull();
+        expect(cell.dueSoon).toBeNull();
+        expect(cell.nextDue).toBeNull();
+      }
+    }
+    const many = rows.find(r => r.fullName === 'o/b-many')!;
+    expect(many.critical.open).toBe(3);
+    expect(many.critical.oldestOpenDays).toBe(21); // created 2026-09-01, NOW 2026-09-22
+  });
+
+  describe('with both SLAs active', () => {
+    beforeEach(() => useBothActivePolicy());
+    const slaRepos = [
+      R(10, { fullName: 'o/sla' }), R(11, { fullName: 'o/today' }), R(12, { fullName: 'o/future' }), R(13, { fullName: 'o/late' }),
+    ];
+    const slaAlerts = [
+      // critical, 7 days: due = created + 7. NOW is 2026-09-22.
+      A(10, 1, { createdAt: '2026-09-01T00:00:00Z' }),  // due 09-08: 14 days overdue
+      A(10, 2, { createdAt: '2026-09-10T00:00:00Z' }),  // due 09-17: 5 days overdue
+      A(10, 3, { createdAt: '2026-09-17T00:00:00Z' }),  // due 09-24: in 2 days
+      A(10, 4, { createdAt: '2026-09-20T00:00:00Z' }),  // due 09-27: in 5 days
+      A(10, 5, { createdAt: '2026-09-22T00:00:00Z' }),  // due 09-29: in 7 days (still "due soon")
+      // high, 9 days
+      A(10, 6, { severity: 'high', createdAt: '2026-09-01T00:00:00Z' }), // due 09-10: overdue
+      A(10, 7, { severity: 'high', createdAt: '2026-09-15T00:00:00Z' }), // due 09-24: in 2 days
+      // never counted: resolved, and missing from the last sweep
+      A(10, 8, { state: 'fixed', resolvedAt: '2026-09-05T00:00:00Z', createdAt: '2020-02-01T00:00:00Z' }),
+      A(10, 9, { missing: true, createdAt: '2019-01-01T00:00:00Z' }),
+      A(11, 1, { createdAt: '2026-09-15T00:00:00Z' }),  // due 09-22: today, 0 days left
+      A(12, 1, { createdAt: '2026-09-23T00:00:00Z' }),  // created "tomorrow": age floors at 0; due 09-30, in 8 days
+      A(13, 1, { createdAt: '2026-08-01T00:00:00Z' }),  // long overdue, nothing upcoming
+    ];
+    const rows = () => computeRepoRows(slaAlerts, slaRepos, { codebase: 'backend', now: NOW });
+    const row = (n: string) => rows().find(r => r.fullName === n)!;
+
+    it('counts overdue and due-soon per severity, with the same buckets as the pivot', () => {
+      expect(row('o/sla').critical).toEqual({
+        open: 5, overdue: 2, dueSoon: 3, oldestOpenDays: 21, nextDue: { date: '2026-09-24', daysRemaining: 2 },
+      });
+      expect(row('o/sla').high).toEqual({
+        open: 2, overdue: 1, dueSoon: 1, oldestOpenDays: 21, nextDue: { date: '2026-09-24', daysRemaining: 2 },
+      });
+    });
+
+    it('nextDue is the earliest due date that is not yet overdue, and includes today', () => {
+      expect(row('o/today').critical.nextDue).toEqual({ date: '2026-09-22', daysRemaining: 0 });
+      expect(row('o/today').critical.dueSoon).toBe(1);
+      expect(row('o/future').critical.nextDue).toEqual({ date: '2026-09-30', daysRemaining: 8 });
+      expect(row('o/future').critical.dueSoon).toBe(0);            // 8 days out is beyond the 7-day window
+      expect(row('o/late').critical.nextDue).toBeNull();           // only overdue alerts
+      expect(row('o/late').critical).toMatchObject({ open: 1, overdue: 1, dueSoon: 0 });
+    });
+
+    it('oldestOpenDays follows the alert list age rule: UTC days, floor 0, open alerts only', () => {
+      expect(row('o/future').critical.oldestOpenDays).toBe(0);   // created after NOW → floored
+      expect(row('o/sla').critical.oldestOpenDays).toBe(21);     // the 2020 fixed and 2019 missing alerts are ignored
+      const [listed] = listAlerts([slaAlerts[0]], slaRepos, { codebase: 'backend', state: 'open' }, NOW).rows;
+      expect(listed.ageDays).toBe(row('o/sla').critical.oldestOpenDays);
+    });
+  });
+
+  it('honours codebase and team, groups a null codebase type under Other, and shows Unassigned', () => {
+    const rs2 = [
+      R(20, { fullName: 'o/fe', codebaseType: 'frontend', team: 'T2' }),
+      R(21, { fullName: 'o/untyped', codebaseType: null, team: null }),
+      R(22, { fullName: 'o/be' }),
+    ];
+    const as2 = [A(20, 1), A(21, 1), A(22, 1)];
+    expect(names(computeRepoRows(as2, rs2, { codebase: 'frontend', now: NOW }))).toEqual(['o/fe']);
+    const other = computeRepoRows(as2, rs2, { codebase: 'other', now: NOW });
+    expect(other).toHaveLength(1);
+    expect(other[0]).toMatchObject({ fullName: 'o/untyped', team: 'Unassigned', codebaseGroup: 'other' });
+    expect(names(computeRepoRows(as2, rs2, { codebase: 'all', team: 'T2', now: NOW }))).toEqual(['o/fe']);
+    expect(computeRepoRows(as2, rs2, { codebase: 'all', now: NOW })).toHaveLength(3);
+  });
+});
+
+describe('computeCoverage codebase option (GLOOK-64)', () => {
+  const rs = [
+    R(1, { fullName: 'o/be' }),
+    R(2, { fullName: 'o/fe-untagged', codebaseType: 'frontend', team: null }),                                       // needs tagging: no team
+    R(3, { fullName: 'o/untyped', codebaseType: null }),                                                             // needs tagging: no codebase type (Other and All)
+    R(4, { fullName: 'o/fe-off', codebaseType: 'frontend', dependabotStatus: 'dependabot-off', dependabotStatusDetail: 'off' }),
+    R(5, { fullName: 'o/be-err', dependabotStatus: 'error', dependabotStatusDetail: 'HTTP 500: x' }),
+    R(6, { fullName: 'o/nonprod-fe', codebaseType: 'frontend', serviceTier: 'non-production' }),                     // excluded by policy
+    R(7, { fullName: 'o/nonprod-be', serviceTier: 'non-production' }),                                               // excluded by policy
+    R(8, { fullName: 'o/be-untagged', team: null, codebaseType: 'backend' }),                                         // Unassigned like o/fe-untagged, but backend: needs tagging, must not leak into a frontend view
+  ];
+  const as = [A(1, 1), A(2, 1), A(3, 1), A(6, 1), A(7, 1), A(8, 1)];
+  const fn = (rows: Array<{ fullName: string }>) => rows.map(r => r.fullName);
+  const lists = (codebase?: 'backend' | 'frontend' | 'shared' | 'other' | 'all') => {
+    const c = computeCoverage(as, rs, { codebase });
+    return { needsTagging: fn(c.needsTagging), excludedByPolicy: fn(c.excludedByPolicy), unmeasured: fn(c.unmeasured) };
+  };
+
+  it('filters all three lists by codebase group, placing a null codebase type under Other and All', () => {
+    expect(lists('backend')).toEqual({ needsTagging: ['o/be-untagged'], excludedByPolicy: ['o/nonprod-be'], unmeasured: ['o/be-err'] });
+    expect(lists('frontend')).toEqual({ needsTagging: ['o/fe-untagged'], excludedByPolicy: ['o/nonprod-fe'], unmeasured: ['o/fe-off'] });
+    expect(lists('other')).toEqual({ needsTagging: ['o/untyped'], excludedByPolicy: [], unmeasured: [] });
+    expect(lists('shared')).toEqual({ needsTagging: [], excludedByPolicy: [], unmeasured: [] });
+  });
+
+  it('All, and no codebase option at all, return every repo', () => {
+    const everything = {
+      needsTagging: ['o/be-untagged', 'o/fe-untagged', 'o/untyped'], excludedByPolicy: ['o/nonprod-be', 'o/nonprod-fe'], unmeasured: ['o/be-err', 'o/fe-off'],
+    };
+    expect(lists('all')).toEqual(everything);
+    expect(lists(undefined)).toEqual(everything);
+  });
+
+  it('combines with the team option', () => {
+    // o/be-untagged is also Unassigned: only the codebase filter keeps it out of a frontend view
+    const c = computeCoverage(as, rs, { codebase: 'frontend', team: 'Unassigned' });
+    expect(fn(c.needsTagging)).toEqual(['o/fe-untagged']);
+    expect(fn(c.unmeasured)).toEqual([]);
+    // and the team filter still applies inside the codebase: a named team has no untagged frontend repo
+    expect(fn(computeCoverage(as, rs, { codebase: 'frontend', team: 'T1' }).needsTagging)).toEqual([]);
+  });
+});
+
+describe('AlertRow.lastReopenedAt (GLOOK-64)', () => {
+  it('carries the latest reopen instant, and null for an alert that was never reopened', () => {
+    const reopened = A(1, 1, { reopenedCount: 2, lastReopenedAt: '2026-09-10T08:30:00Z' });
+    const plain = A(1, 2);
+    const { rows } = listAlerts([reopened, plain], [R(1)], { codebase: 'backend', state: 'open' }, NOW);
+    expect(rows.find(r => r.cveId === 'CVE-1')!.lastReopenedAt).toBe('2026-09-10T08:30:00Z');
+    expect(rows.find(r => r.cveId === 'CVE-2')!.lastReopenedAt).toBeNull();
+  });
+});
+
+// ---------- listAlerts sort and offset (GLOOK-64) ----------
+describe('listAlerts sort', () => {
+  // Critical policy only, effective since 2020: critical alerts have a due date (created + 7 days), high alerts have none.
+  beforeEach(() => useActivePolicy());
+  const rs = [R(1), R(2), R(3)];
+  const as = [
+    A(1, 1, { createdAt: '2026-09-01T00:00:00Z', cveId: 'CVE-2026-0003' }),                  // x: age 21, due 09-08
+    A(2, 1, { createdAt: '2026-09-15T00:00:00Z', cveId: 'CVE-2026-0001' }),                  // y: age 7,  due 09-22
+    A(3, 1, { severity: 'high', createdAt: '2026-09-10T00:00:00Z', cveId: null, ghsaId: 'GHSA-zzzz' }), // z: age 12, no due date
+    A(3, 2, { state: 'fixed', resolvedAt: '2026-09-12T00:00:00Z', createdAt: '2026-09-05T00:00:00Z', cveId: null, ghsaId: null }), // w: resolved, no advisory id, age 7, due 09-12
+  ];
+  const label = (r: AlertRow) => r.cveId ?? r.ghsaId ?? 'no-advisory';
+  const order = (sort?: AlertSortSpec) => listAlerts(as, rs, { codebase: 'backend', state: 'all', sort }, NOW).rows.map(label);
+  const X = 'CVE-2026-0003'; const Y = 'CVE-2026-0001'; const Z = 'GHSA-zzzz'; const W = 'no-advisory';
+
+  it.each([
+    ['severity:asc', [X, Y, W, Z]],      // critical first; ties by repo, then alert number
+    ['severity:desc', [Z, X, Y, W]],     // high first; the tie-break is NOT reversed
+    ['advisory:asc', [Y, X, Z, W]],      // cve id, else ghsa id; no id last
+    ['advisory:desc', [Z, X, Y, W]],     // no id still last
+    ['repo:asc', [X, Y, Z, W]],          // z and w share a repo: alert number decides
+    ['repo:desc', [Z, W, Y, X]],         // repo reversed, alert number not
+    ['age:asc', [Y, W, Z, X]],           // y and w are both 7 days: repo decides
+    ['age:desc', [X, Z, Y, W]],          // still y before w
+    ['due:asc', [X, W, Y, Z]],           // no due date (z) last
+    ['due:desc', [Y, W, X, Z]],          // z still last
+    ['state:asc', [X, Y, Z, W]],         // open, then fixed
+    ['state:desc', [W, X, Y, Z]],
+  ] as Array<[AlertSortSpec, string[]]>)('%s', (sort, expected) => {
+    expect(order(sort)).toEqual(expected);
+  });
+
+  it('without a sort keeps the urgency order (soonest due, severity, newest), then repo and alert number', () => {
+    // x is due first, then y. z (open, no due date) and w (resolved) both have no days remaining, so severity decides: critical w before high z.
+    expect(order()).toEqual([X, Y, W, Z]);
+    const ties = [A(2, 1), A(1, 2), A(1, 1)]; // identical createdAt and severity, so only the tie-break orders them
+    const rows = listAlerts(ties, [R(1), R(2)], { codebase: 'backend', state: 'open' }, NOW).rows;
+    expect(rows.map(r => `${r.repo}#${r.cveId}`)).toEqual(['o/r1#CVE-1', 'o/r1#CVE-2', 'o/r2#CVE-1']);
+  });
+});
+
+describe('listAlerts offset, limit and truncated', () => {
+  const rs = [R(1)];
+  const three = [A(1, 3), A(1, 1), A(1, 2)]; // default order falls through to alert number: CVE-1, CVE-2, CVE-3
+  const page = (over: object) => listAlerts(three, rs, { codebase: 'backend', state: 'open', ...over }, NOW);
+
+  it('skips offset rows before the limit applies, and truncated means rows remain after this page', () => {
+    expect(page({ limit: 2, offset: 0 })).toMatchObject({ totalCount: 3, truncated: true });
+    expect(page({ limit: 2, offset: 0 }).rows.map(r => r.cveId)).toEqual(['CVE-1', 'CVE-2']);
+    expect(page({ limit: 2, offset: 1 }).rows.map(r => r.cveId)).toEqual(['CVE-2', 'CVE-3']);
+    expect(page({ limit: 2, offset: 1 }).truncated).toBe(false);
+    expect(page({ limit: 1, offset: 2 }).truncated).toBe(false);
+    expect(page({ limit: 1, offset: 1 }).truncated).toBe(true);
+  });
+
+  it('an offset at or past the total returns no rows, the exact total and truncated false', () => {
+    for (const offset of [3, 4, 999]) {
+      const r = page({ offset });
+      expect(r.rows).toEqual([]);
+      expect(r.totalCount).toBe(3);
+      expect(r.truncated).toBe(false);
+    }
+  });
+
+  it('the repo facet ignores offset and sort', () => {
+    const plain = page({});
+    const paged = page({ offset: 2, limit: 1, sort: 'age:desc' });
+    expect(paged.repos).toEqual(plain.repos);
+    expect(paged.repos).toEqual([{ repo: 'o/r1', count: 3 }]);
+  });
+});
+
+describe('listAlerts pages never repeat or skip a row (more than 500 matches, tied due dates)', () => {
+  const rs = Array.from({ length: 7 }, (_, i) => R(i + 1));
+  // 620 open alerts; only 3 distinct created dates, so due dates (and every other sort value) tie massively.
+  const all = Array.from({ length: 620 }, (_, i) => A((i % 7) + 1, 100 + Math.floor(i / 7), {
+    createdAt: `2026-09-${String(1 + (i % 3)).padStart(2, '0')}T00:00:00Z`,
+    severity: i % 5 === 0 ? 'high' as const : 'critical' as const,
+  }));
+  const reversed = [...all].reverse();
+  const key = (r: AlertRow) => `${r.repo}#${r.cveId}`;
+  function walk(input: typeof all, sort: AlertSortSpec | undefined, limit: number): string[] {
+    const out: string[] = [];
+    for (let offset = 0; ; offset += limit) {
+      const r = listAlerts(input, rs, { codebase: 'backend', state: 'open', limit, offset, sort }, NOW);
+      expect(r.totalCount).toBe(620);
+      out.push(...r.rows.map(key));
+      if (!r.truncated) break;
+    }
+    return out;
+  }
+
+  it('limit 500 (the cap) then the remaining 120', () => {
+    const first = listAlerts(all, rs, { codebase: 'backend', state: 'open', limit: 5000 }, NOW);
+    expect(first.rows).toHaveLength(500);
+    expect(first.truncated).toBe(true);
+    const second = listAlerts(all, rs, { codebase: 'backend', state: 'open', limit: 5000, offset: 500 }, NOW);
+    expect(second.rows).toHaveLength(120);
+    expect(second.truncated).toBe(false);
+    expect(new Set([...first.rows, ...second.rows].map(key)).size).toBe(620);
+  });
+
+  it.each([undefined, ...ALERT_SORT_KEYS.flatMap(k => [`${k}:asc` as const, `${k}:desc` as const])])('sort=%s: 100-row pages cover all 620 alerts exactly once, in an order independent of the input order', (sort) => {
+    const forward = walk(all, sort, 100);
+    expect(forward).toHaveLength(620);
+    expect(new Set(forward).size).toBe(620);
+    expect(walk(reversed, sort, 100)).toEqual(forward);
+  });
+});
+
+describe('listAlerts pages never repeat or skip a row under Resolved and Open + resolved (more than 500 matches, tied values)', () => {
+  const rs = Array.from({ length: 7 }, (_, i) => R(i + 1));
+  // 620 alerts with three distinct created dates and two distinct resolved dates, so every sort value ties massively.
+  // Under `resolved` all 620 are fixed. Under `all` every second alert is open and the rest are fixed (310 + 310).
+  const make = (everyOtherOpen: boolean) => Array.from({ length: 620 }, (_, i) => A((i % 7) + 1, 100 + Math.floor(i / 7), {
+    createdAt: `2026-09-${String(1 + (i % 3)).padStart(2, '0')}T00:00:00Z`,
+    severity: i % 5 === 0 ? 'high' as const : 'critical' as const,
+    ...(everyOtherOpen && i % 2 === 0 ? {} : { state: 'fixed' as const, resolvedAt: `2026-09-1${i % 2}T00:00:00Z` }),
+  }));
+  const key = (r: AlertRow) => `${r.repo}#${r.cveId}`;
+  function walk(input: AlertFact[], state: 'resolved' | 'all', sort: AlertSortSpec | undefined): string[] {
+    const out: string[] = [];
+    for (let offset = 0; ; offset += 100) {
+      const r = listAlerts(input, rs, { codebase: 'backend', state, limit: 100, offset, sort }, NOW);
+      expect(r.totalCount).toBe(620);
+      out.push(...r.rows.map(key));
+      if (!r.truncated) break;
+    }
+    return out;
+  }
+
+  // Revert: drop the tie-break (repository name, then alert number) from the comparator, or apply it only when the state is open.
+  it.each([
+    ...(['resolved', 'all'] as const).flatMap(state => [undefined, ...ALERT_SORT_KEYS.flatMap(k => [`${k}:asc` as const, `${k}:desc` as const])].map(sort => [state, sort] as const)),
+  ])('state=%s sort=%s: 100-row pages cover all 620 alerts exactly once, in an order independent of the input order', (state, sort) => {
+    const input = make(state === 'all');
+    const forward = walk(input, state, sort);
+    expect(forward).toHaveLength(620);
+    expect(new Set(forward).size).toBe(620);
+    expect(walk([...input].reverse(), state, sort)).toEqual(forward);
   });
 });

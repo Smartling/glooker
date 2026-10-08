@@ -12,7 +12,7 @@ import { getDevSummary } from '@/lib/report/summary';
 import { getTeamPulse } from '@/lib/team-pulse';
 import { getBuildInfo } from '@/lib/build-info';
 import type { Requester } from '@/lib/cost-visibility';
-import { getSummary as getVulnSummary, getTrend as getVulnTrend, getAlerts as getVulnAlerts, getCoverage as getVulnCoverage, REASON_DISABLED as VULN_REASON_DISABLED } from '@/lib/vulnerabilities/queries';
+import { getSummary as getVulnSummary, getTrend as getVulnTrend, getAlerts as getVulnAlerts, getCoverage as getVulnCoverage, getRepos as getVulnRepos, REASON_DISABLED as VULN_REASON_DISABLED } from '@/lib/vulnerabilities/queries';
 import { parseVulnFilters } from '@/lib/vulnerabilities/filters';
 import { isVulnerabilitiesEnabled } from '@/lib/vulnerabilities/config';
 
@@ -81,6 +81,22 @@ async function vulnCall(args: Record<string, unknown>, run: (f: any) => Promise<
   const parsed = parseVulnFilters(args ?? {});
   if (!parsed.ok) return { error: parsed.error };
   return toSnake(await run(parsed.value));
+}
+
+// GLOOK-64: the repos tool is the only vulnerability tool whose query returns every row and lets the
+// tool layer cut it (the page's HTTP route needs all rows). `limit` defaults to 100, max 500, like
+// list_vulnerabilities, and `offset` (default 0) pages the same way (`truncated` = offset + rows <
+// total_count); an unavailable or error result passes through untouched. The window is echoed in
+// `applied_filters` here only: the query and the HTTP envelope never apply a limit.
+function limitRepoRows(r: any, limit: number | undefined, offset: number | undefined) {
+  if (!r || !Array.isArray(r.rows)) return r;
+  const n = Math.min(Math.max(limit ?? 100, 1), 500);
+  const skip = offset ?? 0;
+  const rows = r.rows.slice(skip, skip + n);
+  return {
+    ...r, rows, totalCount: r.rows.length, truncated: skip + rows.length < r.rows.length,
+    appliedFilters: { ...r.appliedFilters, limit: n, offset: skip },
+  };
 }
 
 export const MCP_TOOLS: McpTool[] = [
@@ -243,7 +259,9 @@ export const MCP_TOOLS: McpTool[] = [
   },
   {
     name: 'list_vulnerabilities',
-    description: VULN_COMMON + 'Lists critical/high Dependabot alerts with SLA fields (due_date, days_remaining — negative means overdue, sla_policy_id), age, state, dismissed_reason and a link. Use for "our new CVEs" (created_since) and "what is due" (due_before / overdue). Returns total_count and truncated. The response also includes `repos` (per-repo counts under the current filters, ignoring `repo`) to help pick a `repo` filter.',
+    description: VULN_COMMON + 'Lists critical/high Dependabot alerts with SLA fields (due_date, days_remaining — negative means overdue, sla_policy_id), age, state, dismissed_reason and a link. Use for "our new CVEs" (created_since) and "what is due" (due_before / overdue). Returns total_count and truncated. The response also includes `repos` (per-repo counts under the current filters, ignoring `repo`) to help pick a `repo` filter. '
+      + 'Page with `limit` and `offset` (offset default 0; `truncated` is true when offset + rows is below total_count) and order with `sort` = `<key>:<asc|desc>`, key one of severity, advisory, repo, age, due, state; rows without a value for the key (for example no due date) always come last, and ties are broken by repo then alert number, so pages never repeat or skip a row. '
+      + 'Each row carries `last_reopened_at`. The `repos` facet follows every list filter (state, severity, overdue, ...) and is not affected by offset or sort, so it is not a per-repository open count: for open critical and high counts per repository, including repositories with none, use list_vulnerability_repos.',
     inputSchema: { type: 'object', properties: {
       ...VULN_FILTER_PROPS,
       state: { type: 'string', enum: ['open', 'resolved', 'all'], description: 'default open' },
@@ -255,7 +273,9 @@ export const MCP_TOOLS: McpTool[] = [
       dependency_scope: { type: 'string', enum: ['runtime', 'development', 'unknown'] },
       cve: { type: 'string' }, ghsa: { type: 'string' },
       package: { type: 'string', description: 'echoed as applied_filters.package_name' },
-      limit: { type: 'number', description: 'default 100, max 500' },
+      limit: { type: 'number', description: 'default 100, max 500 (per page)' },
+      offset: { type: 'integer', minimum: 0, description: 'rows to skip before limit applies; default 0' },
+      sort: { type: 'string', description: 'severity|advisory|repo|age|due|state, then :asc or :desc (for example due:asc). age:desc = oldest first; due:asc = soonest due first; severity:asc = critical first; rows without a value for the key always come last. Default: soonest due, then severity, then newest.' },
     } },
     handler: (a) => vulnCall(a, f => getVulnAlerts(f)),
   },
@@ -263,7 +283,8 @@ export const MCP_TOOLS: McpTool[] = [
     name: 'get_vulnerability_summary',
     description: VULN_COMMON + 'Per-team pivot: open, resolved since the start date (resolved_count_start_date), dismissed, % closed (null when nothing to close), overdue, due in 7 days, unmeasured_repos; plus the delta since a baseline (new / resolved / reopened / other, which always reconcile) and the SLA policy in effect. '
       + '`resolved` includes `carried_resolved` from imported CSV history for archived repos with no alert data in Glooker. '
-      + '`sla_policy_invalid` true means the SLA policy configuration is invalid and no SLA applies (so `sla_status` \'none\' does not mean "no policy"); `resolved_count_start_date` null means all time; when `resolved_count_invalid` is true, `resolved` and `pct_closed` are null.',
+      + '`sla_policy_invalid` true means the SLA policy configuration is invalid and no SLA applies (so `sla_status` \'none\' does not mean "no policy"); `resolved_count_start_date` null means all time; when `resolved_count_invalid` is true, `resolved` and `pct_closed` are null. '
+      + '`codebase_counts` gives open critical and high counts for every codebase group (and `all`), ignoring the `codebase` filter but honouring `team`.',
     inputSchema: { type: 'object', properties: {
       codebase: VULN_FILTER_PROPS.codebase, team: VULN_FILTER_PROPS.team,
       baseline: { type: 'string', description: "last (previous sync), 7d, 30d or YYYY-MM-DD. Default last." },
@@ -281,9 +302,25 @@ export const MCP_TOOLS: McpTool[] = [
   },
   {
     name: 'get_vulnerability_coverage',
-    description: VULN_COMMON + 'Repos with open alerts that need tagging (missing tier, codebase-type or team property), repos outside the configured tracking scope, and in-scope repos whose Dependabot status is unmeasured.',
-    inputSchema: { type: 'object', properties: { team: VULN_FILTER_PROPS.team } },
+    description: VULN_COMMON + 'Repos with open alerts that need tagging (missing tier, codebase-type or team property), repos outside the configured tracking scope, and in-scope repos whose Dependabot status is unmeasured. '
+      + 'Filtered to the `codebase` group (default backend; pass `all` for every repository); a repository with no codebase type is grouped under Other, so it appears only with `codebase=other` or `codebase=all` (the default is `backend`).',
+    inputSchema: { type: 'object', properties: { codebase: VULN_FILTER_PROPS.codebase, team: VULN_FILTER_PROPS.team } },
     handler: (a) => vulnCall(a, f => getVulnCoverage(f)),
+  },
+  {
+    name: 'list_vulnerability_repos',
+    description: VULN_COMMON + 'Lists each tracked, non-archived repository in the scope, up to `limit` rows per call, with its owning team, codebase group and, per severity (`critical`, `high`), `open` alerts, `overdue` and `due_soon` counts, `oldest_open_days` and `next_due` ({date, days_remaining}: the earliest due date that is not yet overdue). '
+      + 'Repositories with no open alerts are included, with `open: 0`. `overdue: null` or `due_soon: null` means that severity\'s SLA is not active, not zero. `next_due` is also null when nothing is due ahead (nothing is open, or every open alert is already overdue), so a null `next_due` next to a numeric `overdue` does not mean there is no SLA. '
+      + 'A row with `unmeasured` set (Dependabot status `error` or `dependabot-off`) shows only figures from the last successful check: `open` is the stored count, which may be out of date, and `overdue`, `due_soon`, `oldest_open_days` and `next_due` are computed from the same stored alerts as of the last successful check, so report them as unknown, not as verified numbers. '
+      + 'Rows are ordered by open critical, then open high, then repo name, with unmeasured rows last, so `limit` cuts them first. For each team and severity the rows sum to that team\'s open, overdue and due_soon in get_vulnerability_summary only over the rows of all pages together (every page of one `limit`, `offset += limit` until `truncated` is false), or in a single call with `offset` 0 and `truncated` false, and only when the same `codebase` and `team` are passed on every call. '
+      + 'Differs from list_vulnerabilities: that tool\'s `repos` facet follows all list filters (state, severity, overdue, ...) and counts the alerts matching them, while these rows always give OPEN counts per repository for the codebase and team scope. '
+      + 'Returns `rows`, `total_count` and `truncated` (true when offset + rows is below total_count); page with `offset`. A repository with no codebase type is grouped under Other, so it appears only with `codebase=other` or `codebase=all` (the default is `backend`).',
+    inputSchema: { type: 'object', properties: {
+      codebase: VULN_FILTER_PROPS.codebase, team: VULN_FILTER_PROPS.team,
+      limit: { type: 'number', description: 'default 100, max 500 (per page)' },
+      offset: { type: 'integer', minimum: 0, description: 'rows to skip; page with offset += limit while truncated is true' },
+    } },
+    handler: (a) => vulnCall(a, async f => limitRepoRows(await getVulnRepos(f), f.limit, f.offset)),
   },
   {
     name: 'get_build_info',
