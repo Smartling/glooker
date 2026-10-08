@@ -46,6 +46,11 @@ describe('one source for every count', () => {
       repos: url => ({ body: reposFixture(REPO_ROWS.filter(r => r.team === (url.searchParams.get('team') ?? r.team)), { codebase: 'backend', team: 'Payments' }) }),
     });
     expect((await screen.findByTestId('strip-critical-open')).textContent).toBe('5');
+    // The Alerts tab counts the same rows: critical + high open over the Payments rows of the fixture (the strip's critical 5 + high 1).
+    const payments = REPO_ROWS.filter(r => r.team === 'Payments');
+    const open = payments.reduce((n, r) => n + r.critical.open + r.high.open, 0);
+    expect(open).toBe(6);
+    await waitFor(() => expect(screen.getByTestId('alerts-tab-count').textContent).toBe(`${open} open`));
     expect(screen.getByTestId('strip-title').textContent).toBe('Payments · all repositories');
     expect(screen.getByTestId('rail-all').textContent).toContain('All Payments repositories');
     expect(callsTo(f, 'repos')[0].searchParams.get('team')).toBe('Payments');
@@ -263,7 +268,8 @@ describe('SLA states reach every Alerts-view consumer from one summary', () => {
       ]),
     });
     await screen.findAllByTestId('alert-row');
-    expect(screen.getByTestId('strip-critical-tail').textContent).toContain('overdue');
+    // checkout-api 1 + billing-worker 1 + the unmeasured invoice-render's stored 2 (AL_RAIL_ROWS): an exact string, not "contains overdue".
+    expect(screen.getByTestId('strip-critical-tail').textContent).toBe('·4 overdue');
     expect(screen.getByTestId('strip-high-tail').textContent).toContain('SLA starts Feb 1, 2099');
     expect(screen.getByTestId('rail-sla-note').textContent).toBe('Overdue counts critical only · high: SLA starts Feb 1, 2099');
     expect(screen.getAllByTestId('alert-due-sub').map(e => e.textContent)).toEqual(['5d OVERDUE', 'SLA starts Feb 1, 2099']);

@@ -462,6 +462,29 @@ describe('titles, numerals and the footer height (B8, B10, B13)', () => {
   });
 });
 
+describe('the note under the filter box (B16)', () => {
+  // Revert: put the note back in the header's own flow with a negative margin: its place then leans on the header's gap.
+  it('the box and the note are one group with its own gap, and the note slot has no negative margin', () => {
+    render(<RepoRail {...props()} />);
+    const slotEl = screen.getByTestId('rail-note-slot');
+    const group = slotEl.parentElement as HTMLElement;
+    expect(group.className.split(/\s+/)).toEqual(expect.arrayContaining(['flex', 'flex-col', 'gap-1.5']));
+    expect(group.contains(screen.getByLabelText('Filter by name'))).toBe(true);
+    expect(slotEl.className).not.toMatch(/(^|\s)-m[tbxy]?-/);
+    expect(slotEl.className).toContain('h-4');
+  });
+
+  it('a stale slot whose same-key refresh also failed keeps its rows dimmed AND shows the note, in the same reserved line', () => {
+    const { rerender } = render(<RepoRail {...props()} />);
+    const reserved = screen.getByTestId('rail-note-slot');
+    rerender(<RepoRail {...props({ repos: slot(reposFixture(AL_RAIL_ROWS), { stale: true, loading: false, errorText: "Couldn't load repositories: boom", error: new Error('boom') }) })} />);
+    expect(screen.getByTestId('rail-note-slot')).toBe(reserved);
+    expect(screen.getByTestId('rail-list').style.opacity).toBe('0.6');
+    expect(screen.getByTestId('rail-refresh-note').textContent).toBe(REFRESH_FAILED_NOTE);
+    expect(railNames()).toHaveLength(6);
+  });
+});
+
 describe('the refresh note is silent here (B12)', () => {
   // Revert: make the rail's note live: the same failure of the repos slot is announced by the strip and again by the rail.
   it('has no live role: the strip announces a failed refresh of the repos slot', () => {

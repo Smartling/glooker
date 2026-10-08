@@ -351,6 +351,47 @@ describe('unreadable policy, numerals and the refresh note (B3, B10, B12)', () =
   });
 });
 
+describe('a failed refresh is marked without depending on the note\'s width (B14)', () => {
+  // Revert: drop the mark: at 1024px with the badge and an unreadable policy the note's flexible slot can be 0 wide, and nothing says the figures are old.
+  it('shows a red, aria-hidden "!" in the fixed title column, with the note text as its title, only while a same-key refresh has failed', () => {
+    const { rerender } = render(<AlertsStrip {...props()} />);
+    expect(screen.queryByTestId('strip-stale-mark')).toBeNull();
+    rerender(<AlertsStrip {...props({ data: { repos: slot(reposFixture(AL_RAIL_ROWS), { errorText: "Couldn't load repositories: boom", error: new Error('boom') }) } })} />);
+    const mark = screen.getByTestId('strip-stale-mark');
+    expect(screen.getByTestId('strip-title-col').contains(mark)).toBe(true);
+    expect(mark.getAttribute('aria-hidden')).toBe('true');
+    expect(mark.getAttribute('title')).toBe(REFRESH_FAILED_NOTE);
+    expect(mark.textContent).toBe('!');
+    expect(mark.className).toContain('bg-red-400');
+    // The column keeps its width and the title is not pushed out: the kind line shares its row with the mark.
+    expect(screen.getByTestId('strip-title-col').style.width).toBe(`${ALERTS_STRIP_TITLE_W}px`);
+    expect(text('strip-title')).toBe('All repositories');
+  });
+
+  it('a stale slot (a new key loading) or an error with no rows draws no mark: only a failed refresh of rows the strip is still showing does', () => {
+    const { unmount } = render(<AlertsStrip {...props({ data: { repos: slot(reposFixture(AL_RAIL_ROWS), { stale: true, loading: false }) } })} />);
+    expect(screen.queryByTestId('strip-stale-mark')).toBeNull();
+    unmount();
+    render(<AlertsStrip {...props({ data: { repos: slot<ReturnType<typeof reposFixture>>(undefined, { loading: false, error: new Error('boom'), errorText: "Couldn't load repositories: boom" }) } })} />);
+    expect(screen.queryByTestId('strip-stale-mark')).toBeNull();
+  });
+
+  // Revert: gate the whole tail on `rows` (the old `!rows ? '—'`): "SLA starts Feb 1, 2099" reads as a dash while the rows load.
+  it('while the rows load, a state label (no policy, starts on a date, unreadable) still reads whole; only an overdue figure waits as "—"', () => {
+    const loading = { repos: slot<ReturnType<typeof reposFixture>>(undefined) };
+    const { unmount } = render(<AlertsStrip {...props({ summary: alSummary({ critical: 'pending', high: 'active' }), data: loading })} />);
+    expect(text('strip-critical-tail')).toContain('SLA starts Feb 1, 2099');
+    expect(text('strip-high-tail')).toContain('—');
+    expect(text('strip-critical-open')).toBe('—');
+    unmount();
+    for (const [kind, label] of [['none', 'no SLA policy yet'], ['invalid', "SLA policy can't be read"]] as const) {
+      const { unmount: u } = render(<AlertsStrip {...props({ summary: alSummary({ critical: kind, high: kind }), data: loading })} />);
+      expect(text('strip-critical-tail')).toContain(label);
+      u();
+    }
+  });
+});
+
 describe('fixed height', () => {
   it.each([
     ['populated', props()],
@@ -375,7 +416,7 @@ describe('slot-view rule', () => {
   type Rows = ReturnType<typeof reposFixture>;
   const withSlot = (s: ReturnType<typeof slot<Rows>>) => props({ data: { repos: s } });
 
-  // Revert: decide "error vs figures" with `errorText && !rows` against a slot that is stale (or: drop the dim).
+  // Revert: drop the dim (opacity 0.6), or read the previous key's rows as "no rows" (dashes): the figures must stay, marked as the old scope's.
   it('a stale slot (the previous key\'s rows while a new key loads) keeps its figures, dimmed to 0.6, with no note', () => {
     render(<AlertsStrip {...withSlot(slot(reposFixture(AL_RAIL_ROWS), { stale: true, loading: false }))} />);
     expect(text('strip-critical-open')).toBe('25');

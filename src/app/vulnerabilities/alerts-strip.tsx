@@ -10,9 +10,9 @@ import type { SecurityViewProps } from './view-props';
 import { repoFiguresUnknown, scopeOpenCount } from './security-state';
 import { slaState, slaStateLabel } from './sla-state';
 import { unmeasuredBadgeText } from './labels';
-import { slotView } from './slot-view';
+import { REFRESH_FAILED_NOTE, slotView } from './slot-view';
 import RefreshNote from './refresh-note';
-import SlaInvalidMark from './sla-invalid-mark';
+import BangMark from './bang-mark';
 import { ALERTS_STRIP_H, TYPE } from './dimensions';
 
 /** Widths, in px, that keep the CRIT and HIGH blocks where they are whatever the filters. The title column is
@@ -72,7 +72,12 @@ export default function AlertsStrip({ summary, data, url, openDrawer }: Security
       style={{ height: ALERTS_STRIP_H }}
     >
       <div data-testid="strip-title-col" className="flex shrink-0 flex-col gap-0.5" style={{ width: ALERTS_STRIP_TITLE_W }}>
-        <span data-testid="strip-kind" title={kindFull} className={`${TYPE.tableHeader} text-gray-400 truncate`}>{kind}</span>
+        <span className="flex min-w-0 items-center gap-1">
+          <span data-testid="strip-kind" title={kindFull} className={`${TYPE.tableHeader} min-w-0 text-gray-400 truncate`}>{kind}</span>
+          {/* A failed refresh shows here too, in the fixed title column: the note's own slot is the leftover width, which can be 0 at 1024px
+              with the badge and an unreadable policy, and the dimmed-nothing state ("showing last load") must never go unmarked. */}
+          {view.kind === 'data' && view.refreshError && <BangMark testId="strip-stale-mark" title={REFRESH_FAILED_NOTE} />}
+        </span>
         <span data-testid="strip-title" title={title} className="text-base font-bold text-white truncate">{title}</span>
       </div>
       <div className="h-9 w-px shrink-0 bg-gray-700" aria-hidden="true" />
@@ -84,7 +89,8 @@ export default function AlertsStrip({ summary, data, url, openDrawer }: Security
         <div data-testid="strip-figures" className="flex min-w-0 items-center gap-3" style={{ opacity: dimmed ? 0.6 : 1 }}>
           {SEVERITIES.map(sev => {
             const st = slaState(sev, summary);
-            const open = rows && !unknown ? scopeOpenCount(rows, sev, repo) : null;
+            const figuresKnown = !!rows && !unknown;
+            const open = rows && figuresKnown ? scopeOpenCount(rows, sev, repo) : null;
             const overdue = rows ? scopeOverdue(rows, sev, repo) : 0;
             // No SLA header sits above these figures, so the state names the SLA itself ("SLA starts Feb 1, 2099").
             const label = slaStateLabel(st, { withSla: true });
@@ -109,8 +115,9 @@ export default function AlertsStrip({ summary, data, url, openDrawer }: Security
                   style={st.kind === 'active' ? { minWidth: ALERTS_STRIP_OVERDUE_MIN_W } : undefined}
                 >
                   ·
-                  {st.kind === 'invalid' && <SlaInvalidMark />}
-                  <span className="truncate">{!rows || unknown ? '—' : st.kind === 'active' ? `${overdue.toLocaleString('en-US')} overdue` : label}</span>
+                  {st.kind === 'invalid' && <BangMark />}
+                  {/* The overdue figure waits for the rows; a state label does not depend on them, so it shows while they load. */}
+                  <span className="truncate">{st.kind !== 'active' ? label : figuresKnown ? `${overdue.toLocaleString('en-US')} overdue` : '—'}</span>
                 </span>
               </div>
             );

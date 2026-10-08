@@ -12,7 +12,7 @@ import { unmeasuredReason } from './labels';
 import { noOpenText } from './ownership-model';
 import { slotView } from './slot-view';
 import RefreshNote from './refresh-note';
-import SlaInvalidMark from './sla-invalid-mark';
+import BangMark from './bang-mark';
 import { RAIL_FOOT_MIN_H, RAIL_W, TYPE } from './dimensions';
 
 export const RAIL_SORT_NOTE = 'Sorted by overdue, then open critical';
@@ -126,17 +126,20 @@ export default function RepoRail({ summary, data, url, openDrawer }: SecurityVie
           <span className={`${TYPE.sectionLabel} text-gray-300`}>Repositories</span>
           <span data-testid="rail-meta" className="min-h-4 truncate text-xs text-gray-500">{meta || '\u00a0'}</span>
         </div>
-        <input
-          aria-label="Filter by name"
-          placeholder="Filter by name"
-          value={filter}
-          onChange={e => setFilter(e.target.value)}
-          className={`h-[30px] w-full border border-gray-700 bg-chart-surface px-2.5 text-[13px] text-gray-200 ${TYPE.control}`}
-        />
-        {/* A reserved line (there with or without the note), so "Couldn't refresh · showing last load" moves nothing. */}
-        <div data-testid="rail-note-slot" className="-mt-1 h-4 min-w-0">
-          {/* Not live: the strip announces a failed refresh of the repos slot, and this note reads the same slot. */}
-          <RefreshNote error={view.kind === 'data' ? view.refreshError : null} testId="rail-refresh-note" />
+        {/* The box and its note are one group with their own gap, so the note's place does not lean on the header's gap. */}
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <input
+            aria-label="Filter by name"
+            placeholder="Filter by name"
+            value={filter}
+            onChange={e => setFilter(e.target.value)}
+            className={`h-[30px] w-full border border-gray-700 bg-chart-surface px-2.5 text-[13px] text-gray-200 ${TYPE.control}`}
+          />
+          {/* A reserved line (there with or without the note), so "Couldn't refresh · showing last load" moves nothing. */}
+          <div data-testid="rail-note-slot" className="h-4 min-w-0">
+            {/* Not live: the strip announces a failed refresh of the repos slot, and this note reads the same slot. */}
+            <RefreshNote error={view.kind === 'data' ? view.refreshError : null} testId="rail-refresh-note" />
+          </div>
         </div>
       </div>
 
@@ -219,7 +222,7 @@ export default function RepoRail({ summary, data, url, openDrawer }: SecurityVie
         {/* Wraps: the second line explains which overdue counts are included, so it must never be clipped. The unreadable-policy part is red. */}
         <span data-testid="rail-sla-note" className="whitespace-normal break-words">
           {railSlaSegments(summary, url.severity).map((seg, i) => seg.invalid
-            ? <span key={i} className="font-bold text-red-400"><SlaInvalidMark /> {seg.text}</span>
+            ? <span key={i} className="font-bold text-red-400"><BangMark /> {seg.text}</span>
             : <span key={i}>{seg.text}</span>)}
         </span>
       </div>

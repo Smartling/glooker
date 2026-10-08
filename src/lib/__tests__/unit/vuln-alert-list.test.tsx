@@ -161,7 +161,7 @@ describe('rows', () => {
     const repo = within(row).getByText('checkout-api');
     expect(repo.getAttribute('title')).toBe('acme/checkout-api');
     expect(within(row).getByText('Payments')).toBeTruthy();
-    expect(within(row).getByText('77d')).toBeTruthy();
+    expect(within(row).getByText('78d')).toBeTruthy();
     expect(screen.getByTestId('alert-due').textContent).toBe('Jul 21');
     expect(screen.getByTestId('alert-state').textContent).toBe('open');
     expect(within(row).getByText('runtime')).toBeTruthy();
@@ -1013,6 +1013,39 @@ describe('the refresh note (B12)', () => {
     expect(note.getAttribute('title')).toBe("Couldn't load alerts: x");
     expect(note.className).toContain('text-xs');
     expect(note.className).toContain('truncate');
+  });
+});
+
+describe('header padding lives in HEAD_COPY (B15)', () => {
+  // Revert: put a header's padding back in a key special case (or drop one entry's `pad`): Sev and Age lose their left padding rule, the rest keep px-2.5.
+  it('Sev and Age drop their left padding, and every other header keeps px-2.5', () => {
+    render(<AlertList {...props()} />);
+    for (const k of ALERT_SORT_KEYS) {
+      const cls = screen.getByTestId(`sort-${k}`).className.split(/\s+/);
+      if (k === 'severity' || k === 'age') {
+        expect(cls).toEqual(expect.arrayContaining(['pl-0', 'pr-2.5']));
+        expect(cls).not.toContain('px-2.5');
+      } else {
+        expect(cls).toContain('px-2.5');
+        expect(cls).not.toContain('pl-0');
+      }
+    }
+  });
+});
+
+describe('the toolbar row\'s flexible text (B15)', () => {
+  // Revert: drop shrink-0 from the note: the failure note shrinks with the SLA hint and is cut before it.
+  it('the refresh note keeps its width while the SLA hint, which can truncate, gives way first', () => {
+    render(<AlertList {...props({
+      summary: alSummary({ critical: 'none', high: 'none' }),
+      alerts: slot(alertsFixture(alAlertRows(3), 3), { error: new Error('x'), errorText: "Couldn't load alerts: x" }),
+    })} />);
+    const note = screen.getByTestId('alert-refresh-note').className.split(/\s+/);
+    expect(note).toContain('shrink-0');
+    const hint = screen.getByTestId('alert-sla-hint');
+    expect(hint.className.split(/\s+/)).toEqual(expect.arrayContaining(['min-w-0', 'truncate']));
+    expect(hint.className.split(/\s+/)).not.toContain('shrink-0');
+    expect(hint.parentElement!.className.split(/\s+/)).toContain('min-w-0');
   });
 });
 

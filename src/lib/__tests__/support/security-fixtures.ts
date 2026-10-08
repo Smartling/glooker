@@ -332,14 +332,23 @@ export function alSummary(states: { critical: AlSlaKind; high: AlSlaKind }, over
   });
 }
 
-/** An open/overdue/due-soon cell for a severity whose SLA is active. */
-const alActive = (open: number, overdue: number) => cell({ open, overdue, dueSoon: 0, oldestOpenDays: open ? 30 : null });
+/**
+ * An open/overdue/due-soon cell for a severity whose SLA is active. Whatever is open and not overdue is due next on 2026-10-05
+ * (5 days after the 2026-09-30 clock the Alerts tests pin); with nothing left to come due there is no next due.
+ */
+const alActive = (open: number, overdue: number) => cell({
+  open, overdue, dueSoon: 0, oldestOpenDays: open ? 30 : null,
+  nextDue: open > overdue ? { date: '2026-10-05', daysRemaining: 5 } : null,
+});
 
 /**
  * Rail rows whose SERVER order (critical open desc, high open desc, name) differs from the RAIL order
  * (overdue, then open critical, then open high, then name). Both SLAs active.
  *   server: ledger-service, checkout-api, audit-log, zeta-jobs, billing-worker, quiet-service, then unmeasured
  *   rail:   checkout-api (4 overdue), billing-worker (1), ledger-service, audit-log, zeta-jobs, quiet-service, then unmeasured
+ * The unmeasured tail is invoice-render, then legacy-batch (by name), and both carry stored counts.
+ * NOT reconciled with `summaryFixture`'s team pivot: the strip, the rail and the Alerts tab read these rows, never the pivot, so a test
+ * that compares the two (the Overview's team table against these rows) would be comparing unrelated numbers. Use REPO_ROWS there.
  */
 export const AL_RAIL_ROWS: RepoRow[] = [
   repoRow('acme/ledger-service', 'Payments', { critical: alActive(5, 0), high: alActive(0, 0) }),
@@ -366,16 +375,25 @@ export const alAlertRow = (n: number, over: Partial<AlertRow> = {}): AlertRow =>
 export const alAlertRows = (n: number, over: Partial<AlertRow> = {}): AlertRow[] =>
   Array.from({ length: n }, (_, i) => alAlertRow(i + 1, over));
 
-/** An open critical alert 71 days past its due date. */
+/**
+ * An open critical alert 71 days past its due date, read on 2026-09-30. The clock started when it was created (2026-07-14), the critical
+ * policy in `alSummary` allows 7 days, so it fell due on 2026-07-21; it is 78 days old.
+ */
 export const AL_OVERDUE_ROW: AlertRow = alAlertRow(1, {
   cveId: 'CVE-2026-43102', cvss: 9.1, packageName: 'golang.org/x/net', ecosystem: 'go', scope: 'runtime',
-  ageDays: 77, dueDate: '2026-07-21', daysRemaining: -71, state: 'open',
+  createdAt: '2026-07-14T20:00:00Z', clockStart: '2026-07-14T20:00:00Z',
+  ageDays: 78, dueDate: '2026-07-21', daysRemaining: -71, state: 'open',
 });
 
-/** A fixed alert, resolved on time, that was reopened once. */
+/**
+ * A fixed alert, resolved on time, that was reopened once. Created on 2026-08-10 and reopened on 08-14; its severity was raised on 08-28,
+ * which restarted the clock, so the 7-day critical policy made it due 2026-09-04 and the fix on 09-03 was on time. Its age is counted to the
+ * fix (24 days), and a resolved alert has no days remaining.
+ */
 export const AL_RESOLVED_ROW: AlertRow = alAlertRow(2, {
   cveId: 'CVE-2026-41871', cvss: 7.5, packageName: 'semver', ecosystem: 'npm', scope: 'development',
-  state: 'fixed', dueDate: null, daysRemaining: null, resolvedAt: '2026-09-03T08:00:00Z', resolvedOnTime: true, resolvedDaysLate: null,
+  createdAt: '2026-08-10T09:00:00Z', severityChangedAt: '2026-08-28T09:00:00Z', clockStart: '2026-08-28T09:00:00Z', ageDays: 24,
+  state: 'fixed', dueDate: '2026-09-04', daysRemaining: null, resolvedAt: '2026-09-03T08:00:00Z', resolvedOnTime: true, resolvedDaysLate: null,
   reopenedCount: 1, lastReopenedAt: '2026-08-14T10:30:00Z',
 });
 

@@ -156,7 +156,7 @@ Bracketed columns exist only while that severity's SLA policy is active. "Next d
 
 **Sorting.**
 
-- Click a header to sort. Each key starts in its natural direction: Age starts descending (oldest first), and every other key starts ascending. Click again to reverse. With no header active (`sort: null`), the alert list is in the server's default order.
+- Click a header to sort. Each key starts in its natural direction: Age starts descending (oldest first), and every other key starts ascending. Click again to reverse. With no header active (`sort: null`), the alert list is in the server's default order. With no active header the list draws Due ascending; the first click on Due then sorts descending. Under Resolved nothing is drawn and Due starts ascending.
 - Sortable headers show ↕. The active header shows ↑ or ↓ in the accent colour.
 - The Total row and unmeasured rows ignore sorting.
 - The Repositories tab has a name filter. Its footer reads "Matching" while the filter is in use.

@@ -11,7 +11,7 @@ import { anySlaActive, slaState, slaStateLabel, type SlaSource } from './sla-sta
 import { displayDate } from './labels';
 import { slotView } from './slot-view';
 import RefreshNote from './refresh-note';
-import SlaInvalidMark from './sla-invalid-mark';
+import BangMark from './bang-mark';
 import Pager, { PAGER_H } from './pager';
 import { ALERT_LIST_H, ALERT_PAGE_SIZE, ALERT_ROW_H, TYPE } from './dimensions';
 
@@ -61,13 +61,14 @@ const RESOLVED_HINT = 'Resolved alerts have no due date';
 const STATUS_OPTIONS: ReadonlyArray<[AlertStatus, string]> = [['open', 'Open'], ['resolved', 'Resolved'], ['all', 'Open + resolved']];
 
 /** Header copy per sort key. A Record, so a key added to the wire contract without a header fails the type check. */
-const HEAD_COPY: Record<AlertSortKey, { label: string; sub: string; right: boolean; title?: string }> = {
-  severity: { label: 'Sev', sub: '', right: false, title: 'Sort by severity' },
-  advisory: { label: 'Advisory', sub: 'CVSS · package', right: false },
-  repo: { label: 'Repository', sub: 'owning team', right: false },
-  age: { label: 'Age', sub: '', right: true },
-  due: { label: 'Due', sub: '', right: true },
-  state: { label: 'State', sub: 'scope', right: false },
+const HEAD_COPY: Record<AlertSortKey, { label: string; sub: string; right: boolean; pad: string; title?: string }> = {
+  severity: { label: 'Sev', sub: '', right: false, pad: 'pl-0 pr-2.5', title: 'Sort by severity' },
+  advisory: { label: 'Advisory', sub: 'CVSS · package', right: false, pad: 'px-2.5' },
+  repo: { label: 'Repository', sub: 'owning team', right: false, pad: 'px-2.5' },
+  // Sev and Age drop their left padding, so "AGE ↕" fits the 52px Age track instead of ending in an ellipsis.
+  age: { label: 'Age', sub: '', right: true, pad: 'pl-0 pr-2.5' },
+  due: { label: 'Due', sub: '', right: true, pad: 'px-2.5' },
+  state: { label: 'State', sub: 'scope', right: false, pad: 'px-2.5' },
 };
 /** The sort the default order is drawn as. */
 const DEFAULT_SORT = { key: 'due', dir: 'asc' } as const;
@@ -158,7 +159,7 @@ function AlertRowView({ r, sla }: { r: AlertRow; sla: SlaSource }) {
           <span data-testid="alert-due-sub" className="shrink-0 whitespace-nowrap text-xs font-bold text-red-400">{dueSub}</span>
         ) : dueInvalid ? (
           <span className="flex max-w-full min-w-0 items-center gap-1">
-            <SlaInvalidMark />
+            <BangMark />
             <span data-testid="alert-due-sub" className="truncate text-xs font-bold text-red-400" title={dueSub}>{dueSub}</span>
           </span>
         ) : (
@@ -295,14 +296,14 @@ export default function AlertList({ summary, data, url, list: ctl }: SecurityVie
           <Toggle label="Runtime only" on={l.runtimeOnly} disabled={false} onClick={then(ctl.toggleRuntimeOnly)} />
           {hint && (
             <span className="flex min-w-0 items-center gap-1">
-              {hintInvalid && <SlaInvalidMark />}
+              {hintInvalid && <BangMark />}
               <span data-testid="alert-sla-hint" title={hint} className={`min-w-0 truncate text-xs ${hintInvalid ? 'font-bold text-red-400' : 'text-gray-500'}`}>{hint}</span>
             </span>
           )}
           <span className="flex-1" />
           {/* The right end of this fixed-height row is the reserved line for status text, so neither message moves a control or a row. */}
           {/* Live: the list owns the announcement for the alerts request. */}
-          <RefreshNote error={refreshError} testId="alert-refresh-note" live />
+          <RefreshNote error={refreshError} testId="alert-refresh-note" live className="shrink-0" />
           {stale && <span data-testid="alert-updating" className="shrink-0 text-[11px] text-accent-light">Updating…</span>}
         </div>
       </div>
@@ -331,7 +332,7 @@ export default function AlertList({ summary, data, url, list: ctl }: SecurityVie
                     data-testid={`sort-${h.key}`}
                     title={h.title}
                     onClick={then(() => ctl.setSort(h.key))}
-                    className={`flex h-full w-full min-w-0 flex-col justify-end gap-px overflow-hidden whitespace-nowrap pb-2 pt-2 ${h.key === 'severity' || h.key === 'age' ? 'pl-0 pr-2.5' : 'px-2.5'} ${h.right ? 'items-end' : 'items-start'} ${TYPE.tableHeader} ${active ? 'text-white' : 'text-gray-400'}`}
+                    className={`flex h-full w-full min-w-0 flex-col justify-end gap-px overflow-hidden whitespace-nowrap pb-2 pt-2 ${h.pad} ${h.right ? 'items-end' : 'items-start'} ${TYPE.tableHeader} ${active ? 'text-white' : 'text-gray-400'}`}
                   >
                     <span className="flex max-w-full items-baseline gap-1">
                       <span className="truncate" title={h.label}>{h.label}</span>

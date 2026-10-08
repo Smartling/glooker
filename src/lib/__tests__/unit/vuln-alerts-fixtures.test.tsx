@@ -4,6 +4,7 @@
 // slot test that leans on one cannot pass against a fixture that quietly stopped meaning what its
 // name says.
 import { slaState, anySlaActive } from '@/app/vulnerabilities/sla-state';
+import { addDays, diffDays } from '@/lib/vulnerabilities/time';
 import {
   alSummary, AL_RAIL_ROWS, alAlertRow, alAlertRows, AL_OVERDUE_ROW, AL_RESOLVED_ROW, alAlertsRoute, type AlSlaKind,
 } from '../support/security-fixtures';
@@ -45,6 +46,22 @@ describe('AL_RAIL_ROWS', () => {
     expect(AL_RAIL_ROWS.slice(measured.length).every(r => r.unmeasured)).toBe(true);
   });
 
+  // Revert: reorder the two unmeasured rows: the rail's by-name tail and the server order would then be told apart by nothing.
+  it('pins the unmeasured tail: invoice-render, then legacy-batch (the rail sorts that tail by name)', () => {
+    const tail = AL_RAIL_ROWS.filter(r => r.unmeasured).map(r => r.fullName);
+    expect(tail).toEqual(['acme/invoice-render', 'acme/legacy-batch']);
+    expect(tail).toEqual([...tail].sort((a, b) => a.localeCompare(b)));
+  });
+
+  it('every active cell with an alert still to fall due has a next due date, and the others have none', () => {
+    for (const r of AL_RAIL_ROWS) {
+      for (const c of [r.critical, r.high]) {
+        expect(c.nextDue !== null).toBe(c.open > (c.overdue ?? 0));
+        if (c.nextDue) expect(c.nextDue.daysRemaining).toBe(diffDays(c.nextDue.date, '2026-09-30'));
+      }
+    }
+  });
+
   it('puts the repository with the most overdue alerts below one with more open critical, so a rail re-sort is observable', () => {
     const overdue = (r: (typeof AL_RAIL_ROWS)[number]) => (r.critical.overdue ?? 0) + (r.high.overdue ?? 0);
     const measured = AL_RAIL_ROWS.filter(r => !r.unmeasured);
@@ -68,6 +85,30 @@ describe('alert row fixtures', () => {
     expect(new Set(rows.map(r => r.cveId)).size).toBe(12);
     expect(new Set(rows.map(r => r.htmlUrl)).size).toBe(12);
     expect(alAlertRow(3, { severity: 'high' }).severity).toBe('high');
+  });
+
+  // The rows are read on 2026-09-30 (the clock the Alerts tests pin) under alSummary's 7-day critical policy.
+  const TODAY = '2026-09-30';
+  const day = (iso: string) => iso.slice(0, 10);
+
+  // Revert: change a date in AL_OVERDUE_ROW without the ones it derives from.
+  it('AL_OVERDUE_ROW\'s dates agree: created when the clock started, due 7 days later, 71 days gone, 78 days old', () => {
+    const r = AL_OVERDUE_ROW;
+    expect(day(r.clockStart!)).toBe(day(r.createdAt));
+    expect(r.dueDate).toBe(addDays(day(r.clockStart!), 7));
+    expect(r.daysRemaining).toBe(diffDays(r.dueDate!, TODAY));
+    expect(r.ageDays).toBe(diffDays(TODAY, day(r.createdAt)));
+  });
+
+  it('AL_RESOLVED_ROW\'s dates agree: clock after creation and after the reopen, fixed before its due date, age counted to the fix', () => {
+    const r = AL_RESOLVED_ROW;
+    expect(r.clockStart! >= r.createdAt).toBe(true);
+    expect(r.lastReopenedAt! >= r.createdAt && r.lastReopenedAt! < r.resolvedAt!).toBe(true);
+    expect(r.dueDate).toBe(addDays(day(r.clockStart!), 7));
+    expect(r.resolvedOnTime).toBe(true);
+    expect(day(r.resolvedAt!) <= r.dueDate!).toBe(true);
+    expect(r.ageDays).toBe(diffDays(day(r.resolvedAt!), day(r.createdAt)));
+    expect(r.daysRemaining).toBeNull();
   });
 
   it('AL_OVERDUE_ROW is 71 days past due and AL_RESOLVED_ROW is a fixed alert that was reopened', () => {
