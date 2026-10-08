@@ -77,7 +77,7 @@ describe('layout', () => {
     const policy = (['critical', 'high'] as const).filter(s => status[s] === 'active')
       .map(severity => ({ id: `${severity}-1`, severity, days: 7, effectiveFrom: '2020-01-08', until: null, pending: false }));
     render(<TeamTable {...table({ slaStatus: status as SummaryData['slaStatus'], policy: policy as SummaryData['policy'] })} />);
-    const expected = `minmax(0, 1.6fr) repeat(${nC}, minmax(0, 1fr)) 8px repeat(${nH}, minmax(0, 1fr))`;
+    const expected = `minmax(0, 1.1fr) repeat(${nC}, minmax(0, 1fr)) 8px repeat(${nH}, minmax(0, 1fr))`;
     for (const row of [rowOf('Payments'), screen.getByTestId('team-total-row')]) expect(row.style.gridTemplateColumns).toBe(expected);
   });
 
@@ -329,6 +329,32 @@ describe('focus and header spacing (round 2)', () => {
       expect(h.className).not.toMatch(/(^| )px-2( |$)/);
       expect(h.querySelector('button')!.className).toContain('gap-0.5');
     }
+  });
+});
+
+describe('header labels clip instead of spilling (round 3)', () => {
+  // Revert: put the label back as a bare text node of the button: a right-aligned flex item that is too wide then paints past its cell's left edge.
+  it('every header button\'s label is its own min-w-0 truncate span, the glyph is shrink-0 and the button stays nowrap', () => {
+    render(<TeamTable {...table()} />);
+    const buttons = screen.getAllByRole('columnheader').flatMap(h => Array.from(h.querySelectorAll('button')));
+    expect(buttons.length).toBeGreaterThanOrEqual(9);
+    for (const b of buttons) {
+      const [label, glyph] = Array.from(b.children) as HTMLElement[];
+      expect(label.className).toContain('min-w-0');
+      expect(label.className).toContain('truncate');
+      expect(label.textContent!.length).toBeGreaterThan(0);
+      expect(glyph.className).toContain('shrink-0');
+      expect(b.className).toContain('whitespace-nowrap');
+    }
+  });
+
+  // Revert: the old 1.6fr: at 1024px with ten numeric columns each is 79px and "% CLOSED ↕" needs about 70px in a 67px button.
+  it('the Owning team track is 1.1fr, which leaves each of ten numeric columns about 3.6px more at 1024px', () => {
+    render(<TeamTable {...table()} />);
+    const template = rowOf('Payments').style.gridTemplateColumns;
+    expect(template.startsWith('minmax(0, 1.1fr) ')).toBe(true);
+    const u = (928.9 - 8) / (1.1 + 10);
+    expect(u - (928.9 - 8) / (1.6 + 10)).toBeGreaterThan(3.5);
   });
 });
 
