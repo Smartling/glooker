@@ -15,7 +15,7 @@ it('renders severity bands, the dated Resolved caption, and — for null values'
   render(<TeamPivot rows={rows as any} total={total as any} delta={null} highSlaActive={false} resolvedSince={{ date: '2020-01-08', invalid: false }} onSelectTeam={() => {}} selectedTeam={null} />);
   expect(screen.getByText('CRITICAL')).toBeTruthy();
   expect(screen.getByText('HIGH')).toBeTruthy();
-  expect(screen.getAllByText('since 2020-01-08').length).toBe(2);
+  expect(screen.getAllByText('since Jan 8, 2020').length).toBe(2);
   const unassigned = screen.getByText('Unassigned').closest('tr')!;
   expect(within(unassigned).getAllByText('—').length).toBeGreaterThan(0); // pctClosed null, overdue null
 });
@@ -132,7 +132,7 @@ describe('carried-resolved marker and footnote', () => {
 describe('resolvedSince caption states (the Resolved column sub-header)', () => {
   it('a real date renders "since <date>"', () => {
     render(<TeamPivot rows={rows as any} total={total as any} delta={null} highSlaActive={false} resolvedSince={{ date: '2020-01-08', invalid: false }} onSelectTeam={() => {}} selectedTeam={null} />);
-    expect(screen.getAllByText('since 2020-01-08').length).toBe(2);
+    expect(screen.getAllByText('since Jan 8, 2020').length).toBe(2);
   });
   it('date: null (VULN_RESOLVED_SINCE unset) renders "all time"', () => {
     render(<TeamPivot rows={rows as any} total={total as any} delta={null} highSlaActive={false} resolvedSince={{ date: null, invalid: false }} onSelectTeam={() => {}} selectedTeam={null} />);
@@ -156,7 +156,7 @@ describe('delta baseline caption on the Δ column header', () => {
       high: { available: true, baseline: baseline('2099-01-01'), reposNotInBaseline: 0, teams: [], total: null },
     };
     render(<TeamPivot rows={rowsForTest as any} total={totalForTest as any} delta={delta as any} highSlaActive={false} resolvedSince={{ date: '2020-01-08', invalid: false }} onSelectTeam={() => {}} selectedTeam={null} />);
-    expect(screen.getAllByText('vs 2099-01-01').length).toBe(2);
+    expect(screen.getAllByText('vs Jan 1, 2099').length).toBe(2);
   });
 
   it('shows the caption only under the critical Δ header when high is unavailable (csv-import baseline)', () => {
@@ -165,7 +165,7 @@ describe('delta baseline caption on the Δ column header', () => {
       high: { available: false, baseline: baseline('2099-01-01'), reposNotInBaseline: 0, teams: [], total: null },
     };
     render(<TeamPivot rows={rowsForTest as any} total={totalForTest as any} delta={delta as any} highSlaActive={false} resolvedSince={{ date: '2020-01-08', invalid: false }} onSelectTeam={() => {}} selectedTeam={null} />);
-    expect(screen.getAllByText('vs 2099-01-01').length).toBe(1);
+    expect(screen.getAllByText('vs Jan 1, 2099').length).toBe(1);
   });
 
   it('shows no caption under either Δ header when delta is null (no baseline picked)', () => {
@@ -220,7 +220,7 @@ describe('Δ caption slot is always present', () => {
       high: { available: false, baseline: baseline('2099-01-01'), reposNotInBaseline: 0, teams: [], total: null },
     });
     const crit = screen.getByTestId('pivot-delta-caption-critical');
-    expect(crit.textContent).toBe('vs 2099-01-01');
+    expect(crit.textContent).toBe('vs Jan 1, 2099');
     expect(crit.hasAttribute('aria-hidden')).toBe(false);
     expect(screen.getByTestId('pivot-delta-caption-high').textContent).toBe('\u00a0');
   });
