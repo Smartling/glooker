@@ -535,15 +535,16 @@ describe('states', () => {
     expect(screen.getByTestId('repo-table').className).not.toContain('opacity-60');
   });
 
-  it('the refresh note alone fills the reserved line when there is no scope note, and is an empty, silent slot while the refresh has not failed', () => {
+  it('the refresh note alone fills the reserved line when there is no scope note, and is an empty live slot while the refresh has not failed', () => {
     const { unmount } = render(<RepoTable {...table({ rows: [ROWS[0]], repos: slot(reposFixture([ROWS[0]]), { errorText: "Couldn't load repositories: x" }) })} />);
     expect(screen.getByTestId('repo-footer-note').textContent).toBe("Couldn't refresh · showing last load");
     unmount();
     render(<RepoTable {...table({ rows: [ROWS[0]] })} />);
     expect(screen.getByTestId('repo-refresh-note').textContent).toBe('');
-    // Never aria-hidden (it is not toggled), and not live: the strip announces a failed refresh of the repos slot.
+    // Never aria-hidden (it is not toggled), and live: on the Overview the strip is not mounted, so this is the only note for the repos slot.
+    // (Revert: take `live` off: a failed refresh of the repositories is then never announced on the Overview.)
     expect(screen.getByTestId('repo-footer-note').getAttribute('aria-hidden')).toBeNull();
-    expect(screen.getByTestId('repo-refresh-note').getAttribute('role')).toBeNull();
+    expect(screen.getByTestId('repo-refresh-note').getAttribute('role')).toBe('status');
   });
 
   it('says so when the request answered "not available", instead of loading forever', () => {

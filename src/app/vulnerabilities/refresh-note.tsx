@@ -11,8 +11,8 @@ export interface RefreshNoteProps {
   /**
    * role="status": a screen reader announces the note when it appears. Only the note that owns its request uniquely is live
    * (the list for alerts, the team table for teamSummary, the trend card for trend, the sparkline for sparkline, the strip for the
-   * shared repos slot): the rail's and the repository table's notes read the same repos slot, so they stay silent and the
-   * failure is announced once.
+   * shared repos slot on the Alerts view, the repository table for it on the Overview): the rail's note reads the same slot as the strip,
+   * so it stays silent and the failure is announced once. The trend card hands its role to the sparkline when both read one request.
    */
   live?: boolean;
   /** Placement only (an absolute corner, a grid cell's padding, shrink-0); never the type size or colour. */

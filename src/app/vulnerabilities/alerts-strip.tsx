@@ -21,7 +21,14 @@ import { ALERTS_STRIP_H, TYPE } from './dimensions';
  * width with their digits. The open figure sits right-aligned in a box sized for four digits, so "open" and the tail
  * that follows it read as one phrase ("54 open · 53 overdue") and the phrase starts in the same place; the overdue tail
  * has a minimum width sized for three digits. The blocks themselves are NOT fixed: an SLA state label ("no SLA policy
- * yet", "SLA starts Jan 1, 2099") is longer than the figures and must not be cut, and it does not change with the filters. */
+ * yet", "SLA starts Jan 1, 2099") is longer than the figures and must not be cut, and it does not change with the filters.
+ *
+ * The unmeasured badge DOES change with the filters (selecting a repository removes it), and while it shows the leftover room
+ * is tight. So the CRIT block never shrinks (`shrink-0`): its width depends only on its own SLA state and the figure slots, and
+ * the HIGH block's left edge is therefore the same with and without the badge, in every policy. Any shortfall lands on the HIGH
+ * tail, which gets the room the gaps give back (gap-2, not gap-3, between the strip's items and the two blocks; gap-0.5 inside a
+ * tail): at 1024px, light theme, classic scrollbar, "SLA starts Jan 1, 2099" needs 148.25px, and both tails together were
+ * 2 x 9.19 = 18.38px short before, against 16 + 4 + 2 x 2 = 24px given back, a margin of 5.62px. */
 export const ALERTS_STRIP_TITLE_W = 176;
 export const ALERTS_STRIP_OPEN_MIN_W = 36;
 export const ALERTS_STRIP_OVERDUE_MIN_W = 96;
@@ -68,7 +75,7 @@ export default function AlertsStrip({ summary, data, url, openDrawer }: Security
     <section
       aria-label="Alerts summary"
       data-testid="alerts-strip"
-      className={`bg-gray-900 ${TYPE.card} px-4 flex items-center gap-3 overflow-hidden whitespace-nowrap`}
+      className={`bg-gray-900 ${TYPE.card} px-4 flex items-center gap-2 overflow-hidden whitespace-nowrap`}
       style={{ height: ALERTS_STRIP_H }}
     >
       <div data-testid="strip-title-col" className="flex shrink-0 flex-col gap-0.5" style={{ width: ALERTS_STRIP_TITLE_W }}>
@@ -86,7 +93,7 @@ export default function AlertsStrip({ summary, data, url, openDrawer }: Security
       ) : view.kind === 'unavailable' ? (
         <span data-testid="strip-unavailable" title={view.title} className="text-sm text-gray-500 truncate">{view.text}</span>
       ) : (
-        <div data-testid="strip-figures" className="flex min-w-0 items-center gap-3" style={{ opacity: dimmed ? 0.6 : 1 }}>
+        <div data-testid="strip-figures" className="flex min-w-0 items-center gap-2" style={{ opacity: dimmed ? 0.6 : 1 }}>
           {SEVERITIES.map(sev => {
             const st = slaState(sev, summary);
             const figuresKnown = !!rows && !unknown;
@@ -100,7 +107,7 @@ export default function AlertsStrip({ summary, data, url, openDrawer }: Security
                 key={sev}
                 data-testid={`strip-${sev}`}
                 title={label ?? undefined}
-                className="flex min-w-0 items-center gap-2 text-sm text-gray-300"
+                className={`flex items-center gap-2 text-sm text-gray-300 ${sev === 'critical' ? 'shrink-0' : 'min-w-0'}`}
                 style={{ opacity: hidden ? 0.35 : 1 }}
               >
                 <span className={`w-[34px] shrink-0 py-px text-center text-[10px] font-bold tracking-[0.05em] ${TYPE.badge} ${BADGE[sev].cls}`}>{BADGE[sev].label}</span>
@@ -111,7 +118,7 @@ export default function AlertsStrip({ summary, data, url, openDrawer }: Security
                 </span>
                 <span
                   data-testid={`strip-${sev}-tail`}
-                  className={`flex min-w-0 items-center gap-1 tabular-nums ${st.kind === 'invalid' ? 'font-bold text-red-400' : st.kind === 'active' && overdue > 0 ? 'font-bold text-red-400' : 'text-gray-500'}`}
+                  className={`flex min-w-0 items-center gap-0.5 tabular-nums ${st.kind === 'invalid' ? 'font-bold text-red-400' : st.kind === 'active' && overdue > 0 ? 'font-bold text-red-400' : 'text-gray-500'}`}
                   style={st.kind === 'active' ? { minWidth: ALERTS_STRIP_OVERDUE_MIN_W } : undefined}
                 >
                   ·

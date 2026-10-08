@@ -892,8 +892,9 @@ describe('table semantics (B1)', () => {
     const heads = within(head[0]).getAllByRole('columnheader');
     expect(heads).toHaveLength(6);
     for (const h of heads) expect(h.getAttribute('aria-sort')).toMatch(/^(none|ascending|descending)$/);
-    // Body: the rows container is the second rowgroup, each row has six cells.
-    expect(groups[1]).toBe(rowsArea());
+    // Body: the second rowgroup holds the rows (inside the 560px area), each row has six cells.
+    expect(groups[1]).toBe(screen.getByTestId('alert-list-rowgroup'));
+    expect(rowsArea().contains(groups[1])).toBe(true);
     const rows = within(groups[1]).getAllByRole('row');
     expect(rows).toHaveLength(3);
     for (const r of rows) expect(within(r).getAllByRole('cell')).toHaveLength(6);
@@ -919,6 +920,33 @@ describe('table semantics (B1)', () => {
     const link = screen.getByRole('link', { name: 'CVE-2026-1001 (opens in a new tab)' });
     const hidden = link.querySelector('.sr-only');
     expect(hidden?.textContent).toBe(' (opens in a new tab)');
+  });
+});
+
+describe('the rows rowgroup holds only rows (B1 follow-up)', () => {
+  const notFound = { repoStatus: 'not-found', effectiveRepo: null } as Partial<SecurityViewProps['data']>;
+  // Revert: put the overlays back inside the rowgroup: a table would own a message that is not a row.
+  it.each([
+    ['rows', props({ rows: alAlertRows(3) }), 3, null],
+    ['loading', props({ alerts: slot<AlertsData>(undefined) }), 0, 'Loading…'],
+    ['empty', props({ rows: [], total: 0 }), 0, 'No alerts match these filters.'],
+    ['error', props({ alerts: slot<AlertsData>(undefined, ERR) }), 0, "Couldn't load alerts: HTTP 500"],
+    ['unavailable', props({ alerts: slot<AlertsData>(undefined, { loading: false, unavailable: { available: false as const, reason: 'No sync yet' } }) }), 0, UNAVAILABLE_TEXT],
+    ['repository not found', props({ alerts: noData(), data: notFound }), 0, 'Repository not found'],
+  ])('%s: every child of the rowgroup is a row, and the message (if any) is a sibling inside the 560px area', (_label, p, rowCount, message) => {
+    render(<AlertList {...p} />);
+    const group = screen.getByTestId('alert-list-rowgroup');
+    expect(group.getAttribute('role')).toBe('rowgroup');
+    expect(Array.from(group.children).every(c => c.getAttribute('role') === 'row')).toBe(true);
+    expect(group.children).toHaveLength(rowCount);
+    if (message) {
+      const el = within(rowsArea()).getByText(message, { exact: false });
+      expect(group.contains(el)).toBe(false);
+      expect(rowsArea().contains(el)).toBe(true);
+    }
+    // The 560px height and the dimming stay on the area, not on the rowgroup.
+    expect(rowsArea().style.height).toBe(`${ALERT_LIST_H}px`);
+    expect(group.style.height).toBe('');
   });
 });
 
@@ -1058,6 +1086,16 @@ describe('toolbar focus (B6)', () => {
     expect(cls).toContain('overflow-x-clip');
     expect(cls).not.toContain('overflow-hidden');
     expect(row2.style.height).toBe('32px');
+  });
+
+  // Revert: drop `pl-0.5`: the Overdue toggle sits flush at the clipped row's left edge and its 1px focus ring loses its left pixel.
+  it('the row has 2px of room on the left for the first toggle\'s focus ring, and none on the right (the note still ends at the row\'s edge)', () => {
+    render(<AlertList {...props()} />);
+    const cls = screen.getByTestId('alert-toolbar-row2').className.split(/\s+/);
+    expect(cls).toContain('pl-0.5');
+    expect(cls.some(c => /^(px|pr)-/.test(c))).toBe(false);
+    expect(screen.getByTestId('alert-toolbar-row2').firstElementChild).toBe(button('Overdue'));
+    expect(screen.getByTestId('alert-toolbar-row2').lastElementChild).toBe(screen.getByTestId('alert-refresh-note'));
   });
 });
 

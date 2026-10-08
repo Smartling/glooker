@@ -289,7 +289,7 @@ export default function AlertList({ summary, data, url, list: ctl }: SecurityVie
             {STATUS_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
           </select>
         </div>
-        <div data-testid="alert-toolbar-row2" className="flex items-center gap-2 overflow-x-clip" style={{ height: ALERT_TOOLBAR_ROW_H }}>
+        <div data-testid="alert-toolbar-row2" className="flex items-center gap-2 overflow-x-clip pl-0.5" style={{ height: ALERT_TOOLBAR_ROW_H }}>
           <Toggle label="Overdue" on={l.overdue} disabled={!timeEnabled} title={timeTitle} onClick={then(ctl.toggleOverdue)} />
           <Toggle label="Due ≤ 7d" on={l.dueSoon} disabled={!timeEnabled} title={timeTitle} onClick={then(ctl.toggleDueSoon)} />
           <Toggle label="Reopened" on={l.reopened} disabled={false} onClick={then(ctl.toggleReopened)} />
@@ -348,14 +348,17 @@ export default function AlertList({ summary, data, url, list: ctl }: SecurityVie
           </div>
         </div>
 
+        {/* The 560px area. The rowgroup holds the rows and nothing else; the loading, empty, error, unavailable and not-found messages are
+            absolute siblings of it, so a table never owns a child that is not a row. */}
         <div
-          role="rowgroup"
           data-testid="alert-list-rows"
           className={`relative flex-none overflow-hidden ${stale ? 'opacity-60' : ''}`}
           style={{ height: ALERT_LIST_H }}
           aria-busy={stale || loading ? true : undefined}
         >
-          {rows?.map((r, i) => <AlertRowView key={i} r={r} sla={summary} />)}
+          <div role="rowgroup" data-testid="alert-list-rowgroup">
+            {rows?.map((r, i) => <AlertRowView key={i} r={r} sla={summary} />)}
+          </div>
           {rows && rows.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center text-sm text-gray-400">No alerts match these filters.</div>
           )}

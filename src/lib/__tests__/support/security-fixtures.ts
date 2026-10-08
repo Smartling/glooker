@@ -219,7 +219,8 @@ export function viewProps(over: Partial<SecurityViewProps> = {}): SecurityViewPr
     summary: slot(summary), teamSummary: slot(summary), coverage: slot(coverageFixture()),
     repos: slot(reposFixture(REPO_ROWS)), metaRepos: slot(reposFixture(REPO_ROWS)), trend: slot(trendFixture()), sparkline: slot(trendFixture()),
     alerts: slot(alertsFixture()), repoStatus: 'none', effectiveRepo: null, effectiveList: DEFAULT_ALERT_LIST,
-    keys: { summary: '', teamSummary: '', coverage: '', repos: '', metaRepos: '', trend: '', sparkline: '', alerts: null },
+    // The trend and sparkline keys differ (Range "All" sends no `since`, the sparkline always does), as they do for every Range but 90d.
+    keys: { summary: '', teamSummary: '', coverage: '', repos: '', metaRepos: '', trend: '/trend?severity=critical', sparkline: '/trend?severity=critical&since=2026-07-02', alerts: null },
   };
   return {
     summary,

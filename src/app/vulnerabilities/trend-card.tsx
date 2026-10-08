@@ -104,8 +104,9 @@ export default function TrendCard({ summary, data, url }: SecurityViewProps) {
           {view.kind === 'error' && <p className="flex h-full items-center justify-center text-xs text-red-400">{view.text}</p>}
           {view.kind === 'loading' && <p className="flex h-full items-center justify-center text-xs text-gray-500">Loading…</p>}
           {view.kind === 'unavailable' && <p data-testid="trend-unavailable" className="flex h-full items-center justify-center text-xs text-gray-500" title={view.title}>{view.text}</p>}
-          {/* Live: the trend card owns the announcement for the trend request. Pointer events stay on, so the error shows in its title. */}
-          <RefreshNote error={view.kind === 'data' ? view.refreshError : null} testId="trend-refresh-note" live className="absolute right-3 top-0" />
+          {/* Live: the trend card owns the announcement for the trend request, unless Range = 90d makes it the sparkline's request (one key,
+              one request): then the sparkline's note announces it and this one stays silent. Pointer events stay on, so the error shows in its title. */}
+          <RefreshNote error={view.kind === 'data' ? view.refreshError : null} testId="trend-refresh-note" live={data.keys.trend !== data.keys.sparkline} className="absolute right-3 top-0" />
           {series && status?.message && (
             <div data-testid="trend-message" className="flex h-full flex-col items-center justify-center text-center">
               <p className="text-sm font-semibold text-gray-300">{status.message.title}</p>

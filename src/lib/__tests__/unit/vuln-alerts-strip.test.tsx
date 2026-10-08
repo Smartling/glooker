@@ -299,7 +299,8 @@ describe('figure slots and unclipped SLA labels', () => {
   });
 
   // Revert: give a severity block a fixed width (or `shrink-0` with a width): "no SLA policy yet", "SLA starts {date}" and
-  // "SLA policy can't be read" are longer than the figures and would be cut. The blocks size to their content.
+  // "SLA policy can't be read" are longer than the figures and would be cut. The blocks size to their content (CRIT does not
+  // shrink; see the width-budget guard below).
   it.each([
     ['pending', { critical: 'pending', high: 'pending' }, /SLA starts /],
     ['none', { critical: 'none', high: 'none' }, /no SLA policy yet/],
@@ -309,7 +310,6 @@ describe('figure slots and unclipped SLA labels', () => {
     for (const sev of ['critical', 'high']) {
       const block = screen.getByTestId(`strip-${sev}`);
       expect(block.style.width).toBe('');
-      expect(block.className).not.toContain('shrink-0');
       expect(screen.getByTestId(`strip-${sev}-tail`).style.minWidth).toBe('');
       expect(screen.getByTestId(`strip-${sev}-tail`).textContent).toMatch(label);
     }
@@ -389,6 +389,42 @@ describe('a failed refresh is marked without depending on the note\'s width (B14
       expect(text('strip-critical-tail')).toContain(label);
       u();
     }
+  });
+});
+
+describe('width budget (class-only guard: jsdom does no layout)', () => {
+  const classes = (id: string) => screen.getByTestId(id).className.split(/\s+/);
+
+  // Revert: drop `shrink-0` from the CRIT block (or give it to HIGH as well): while the unmeasured badge shows the leftover room is tight, both blocks
+  // then shrink together and CRIT's shrinking moves HIGH's left edge when the badge comes and goes (+8px both pending, +45px unreadable).
+  // Or give HIGH `shrink-0`: a shortfall then has nowhere to land.
+  it.each([
+    ['active', { critical: 'active', high: 'active' }],
+    ['both pending', { critical: 'pending', high: 'pending' }],
+    ['unreadable', { critical: 'invalid', high: 'invalid' }],
+  ] as Array<[string, { critical: AlSlaKind; high: AlSlaKind }]>)('%s: the CRIT block never shrinks and the HIGH block can, so HIGH\'s left edge depends only on CRIT\'s own state', (_n, kinds) => {
+    render(<AlertsStrip {...props({ summary: alSummary(kinds) })} />);
+    expect(classes('strip-critical')).toContain('shrink-0');
+    expect(classes('strip-critical')).not.toContain('min-w-0');
+    expect(classes('strip-high')).toContain('min-w-0');
+    expect(classes('strip-high')).not.toContain('shrink-0');
+    expect(screen.getByTestId('strip-high-tail').className.split(/\s+/)).toContain('min-w-0');
+  });
+
+  // Revert: put the old gaps back (gap-3 on the strip and on the figures, gap-1 in a tail). Measured at 1024px, light, classic scrollbar,
+  // both pending: "SLA starts Jan 1, 2099" is 148.25px and each tail had 139.06px, so the two were 2 x 9.19 = 18.38px short. With CRIT
+  // fixed the whole shortfall lands on HIGH; the narrower gaps give back (4 gaps x 4) + 4 + (2 tails x 2) = 24px: a 5.62px margin.
+  it('the gaps give back 24px of the 18.38px the both-pending tails were short, a margin of 5.62px', () => {
+    render(<AlertsStrip {...props({ summary: alSummary({ critical: 'pending', high: 'pending' }) })} />);
+    expect(classes('alerts-strip')).toContain('gap-2');
+    expect(classes('strip-figures')).toContain('gap-2');
+    for (const sev of ['critical', 'high']) expect(classes(`strip-${sev}-tail`)).toContain('gap-0.5');
+    const SECTION_GAPS = 4, SAVED_PER_GAP = 12 - 8, FIGURES_GAP_SAVED = 12 - 8, TAILS = 2, TAIL_GAP_SAVED = 4 - 2;
+    const given = SECTION_GAPS * SAVED_PER_GAP + FIGURES_GAP_SAVED + TAILS * TAIL_GAP_SAVED;
+    const short = 2 * (148.25 - 139.06);
+    expect(given).toBe(24);
+    expect(given - short).toBeCloseTo(5.62, 2);
+    expect(given - short).toBeGreaterThanOrEqual(2);
   });
 });
 

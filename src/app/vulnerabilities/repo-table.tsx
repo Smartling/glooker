@@ -196,8 +196,8 @@ export default function RepoTable({ summary, data, url, openDrawer, nameFilter }
             <div className={`${TYPE.body} truncate text-white`} title={footLabel}>{footLabel}</div>
             {/* The one reserved line under the label: a failed refresh of these rows comes first, in red, then the scope notes. */}
             <div data-testid="repo-footer-note" className="flex h-4 min-w-0 items-baseline text-xs font-normal leading-4 text-gray-500">
-              {/* Not live: the Alerts strip announces a failed refresh of the repos slot; the Overview has no other owner of it. */}
-              <RefreshNote error={view.refreshError} testId="repo-refresh-note" className="shrink-0 leading-4" />
+              {/* Live: the repository table is only on the Overview, where the Alerts strip (the other reader of the repos slot) is not mounted. */}
+              <RefreshNote error={view.refreshError} testId="repo-refresh-note" live className="shrink-0 leading-4" />
               {view.refreshError && note ? <span className="shrink-0 whitespace-pre"> · </span> : null}
               <span className="min-w-0 truncate" title={note || undefined}>{note || (view.refreshError ? '' : '\u00a0')}</span>
             </div>

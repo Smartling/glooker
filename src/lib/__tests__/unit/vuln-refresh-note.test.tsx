@@ -72,8 +72,8 @@ describe('one live note per failed request', () => {
     for (const el of screen.getAllByRole('status')) expect(el.textContent).toBe('');
   });
 
-  // Revert: make the repository table's note live: the Overview's repos failure has no owner of its own (the strip is on the other view).
-  it('Overview: the team table, the trend card and the sparkline are announced; the repositories tab\'s note is silent', () => {
+  // Revert: take `live` off the repository table's note: the Overview's repos failure has no owner of its own (the strip is on the other view).
+  it('Overview: the team table, the trend card and the sparkline are announced, and the repositories tab\'s note is the one live note for the repos slot', () => {
     const teamSummary = slot(summaryFixture({ pivot: { rows: [ovTeam('Payments', ovCell(2), ovCell(1))], total: ovTeam('Total', ovCell(2), ovCell(1)) } }), failed);
     const ts = ovProps({
       teamSummary,
@@ -85,6 +85,25 @@ describe('one live note per failed request', () => {
     const rp = ovProps({ url: { own: 'repos' }, data: { repos: slot(reposFixture(AL_RAIL_ROWS), failed) } });
     render(<OwnershipCard {...rp} />);
     expect(screen.getByTestId('repo-refresh-note').textContent).toBe(REFRESH_FAILED_NOTE);
-    expect(screen.queryAllByRole('status').map(el => el.getAttribute('data-testid'))).not.toContain('repo-refresh-note');
+    expect(statusIds()).toEqual(['repo-refresh-note']);
+  });
+
+  // Revert: leave the trend note live when the trend key is the sparkline's: Range = 90d is ONE request, announced by two notes.
+  it('Range 90d makes the trend request the sparkline\'s: one request, one live note (the sparkline\'s)', () => {
+    const series = [ovSeries('Payments', [['2026-09-22', 2], ['2026-09-29', 3]])];
+    const same = '/trend?severity=critical&since=2026-07-02';
+    const p = ovProps({ data: { trend: slot(trendFixture(series), failed), sparkline: slot(trendFixture(series), failed), keys: { ...viewProps().data.keys, trend: same, sparkline: same } } });
+    render(<><KpiTiles {...p} /><TrendCard {...p} /></>);
+    expect(screen.getByTestId('trend-refresh-note').textContent).toBe(REFRESH_FAILED_NOTE);
+    expect(screen.getByTestId('sparkline-refresh-note').textContent).toBe(REFRESH_FAILED_NOTE);
+    expect(statusIds()).toEqual(['sparkline-refresh-note']);
+  });
+
+  it('any other Range keeps two requests, two live notes (trend and sparkline)', () => {
+    const series = [ovSeries('Payments', [['2026-09-22', 2], ['2026-09-29', 3]])];
+    const p = ovProps({ data: { trend: slot(trendFixture(series), failed), sparkline: slot(trendFixture(series), failed) } });
+    expect(p.data.keys.trend).not.toBe(p.data.keys.sparkline);
+    render(<><KpiTiles {...p} /><TrendCard {...p} /></>);
+    expect(statusIds().sort()).toEqual(['sparkline-refresh-note', 'trend-refresh-note']);
   });
 });
