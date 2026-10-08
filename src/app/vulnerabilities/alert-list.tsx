@@ -300,10 +300,11 @@ export default function AlertList({ summary, data, url, list: ctl }: SecurityVie
               <span data-testid="alert-sla-hint" title={hint} className={`min-w-0 truncate text-xs ${hintInvalid ? 'font-bold text-red-400' : 'text-gray-500'}`}>{hint}</span>
             </span>
           )}
-          <span className="flex-1" />
-          {/* The right end of this fixed-height row is the reserved line for status text, so neither message moves a control or a row. */}
+          {/* The right end of this fixed-height row is the reserved line for status text, so neither message moves a control or a row.
+              The note (always rendered, empty while nothing failed) carries the auto margin, so it and "Updating…" pack to the right edge
+              with no spacer: a zero-width flex item still costs a gap, and that gap pushed the note past the clip edge when the hint was squeezed. */}
           {/* Live: the list owns the announcement for the alerts request. */}
-          <RefreshNote error={refreshError} testId="alert-refresh-note" live className="shrink-0" />
+          <RefreshNote error={refreshError} testId="alert-refresh-note" live className="ml-auto shrink-0" />
           {stale && <span data-testid="alert-updating" className="shrink-0 text-[11px] text-accent-light">Updating…</span>}
         </div>
       </div>

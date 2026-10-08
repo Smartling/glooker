@@ -1077,6 +1077,33 @@ describe('the toolbar row\'s flexible text (B15)', () => {
   });
 });
 
+describe('the right end of toolbar row 2', () => {
+  const row2 = () => screen.getByTestId('alert-toolbar-row2');
+  const withNote = (extra: Record<string, unknown> = {}) => props({
+    alerts: slot(alertsFixture(alAlertRows(3), 3), { error: new Error('x'), errorText: "Couldn't load alerts: x", ...extra }),
+  });
+
+  // Revert: put the `<span className="flex-1" />` spacer back before the note: it is a zero-width flex item that still costs one gap-2,
+  // and with the SLA hint squeezed to 0 that 8px pushed the note 0.23px past the row's clip edge (1024px, light, classic scrollbar).
+  it.each([
+    ['no note and not stale', props()],
+    ['a failed refresh', withNote()],
+    ['stale', props({ alerts: slot(alertsFixture(alAlertRows(10), 26), { stale: true }) })],
+    ['stale with a failed refresh', withNote({ stale: true })],
+  ])('%s: no spacer item; the note takes the auto margin, so it and "Updating…" pack to the row\'s right edge', (_label, p) => {
+    render(<AlertList {...p} />);
+    const items = Array.from(row2().children);
+    expect(items.some(el => el.className.split(/\s+/).includes('flex-1'))).toBe(false);
+    const note = screen.getByTestId('alert-refresh-note');
+    expect(note.className.split(/\s+/)).toEqual(expect.arrayContaining(['ml-auto', 'shrink-0']));
+    // The note is the first right-end item; the only thing after it is "Updating…", when it shows.
+    const after = items.slice(items.indexOf(note) + 1);
+    expect(after.map(el => el.getAttribute('data-testid'))).toEqual(p.data.alerts.stale ? ['alert-updating'] : []);
+    // Nothing before the note takes an auto margin (it would split the free space).
+    expect(items.slice(0, items.indexOf(note)).some(el => el.className.split(/\s+/).includes('ml-auto'))).toBe(false);
+  });
+});
+
 describe('toolbar focus (B6)', () => {
   // Revert: overflow-hidden on the toggle row: the toggles' focus rings are cut at the row's edge.
   it('the toggle row clips only sideways, so a focus ring is not cut above or below', () => {
