@@ -95,6 +95,8 @@
   --warn: #d29922;
   --warn-bg: rgba(210,153,34,.11);
   --warn-line: rgba(210,153,34,.45);
+  /* The stripes of .vuln-hatch: much quieter than --warn-line (the border), so text over the pattern reads clean. */
+  --warn-hatch: rgba(210,153,34,.16);
   --crit-tint: rgba(239,68,68,.045);
   --high-tint: rgba(251,146,60,.04);
 }
@@ -132,10 +134,11 @@
 .border-warn-line { border-color: var(--warn-line); }
 .bg-crit-tint { background-color: var(--crit-tint); }
 .bg-high-tint { background-color: var(--high-tint); }
-/* The hatched band for unmeasured repositories (rail, Repositories tab, coverage drawer). */
+/* The hatched band for unmeasured repositories (rail, Repositories tab, coverage drawer, header badge, table chips). The stripes are
+   --warn-hatch, not the border colour: at the border's strength they ran through the words on the chips like a strike-through. */
 .vuln-hatch {
   background-color: var(--warn-bg);
-  background-image: repeating-linear-gradient(135deg, var(--warn-line) 0, var(--warn-line) 1px, transparent 1px, transparent 7px);
+  background-image: repeating-linear-gradient(135deg, var(--warn-hatch) 0, var(--warn-hatch) 1px, transparent 1px, transparent 7px);
 }
 
 /* ── Light theme overrides ── */
@@ -237,6 +240,7 @@
   --warn: #8f5f00;
   --warn-bg: #fbefc6;
   --warn-line: rgba(154,103,0,.32);
+  --warn-hatch: rgba(154,103,0,.14);
   --crit-tint: #fef7f7;
   --high-tint: #fffaf5;
 }

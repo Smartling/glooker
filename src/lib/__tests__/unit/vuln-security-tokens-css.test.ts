@@ -73,7 +73,26 @@ describe('utility classes read the tokens', () => {
     expect(css).toMatch(re);
   });
 
-  it('.vuln-hatch layers --warn-line stripes over the --warn-bg wash', () => {
-    expect(css).toMatch(/\.vuln-hatch\s*\{[^}]*background-color:\s*var\(--warn-bg\)[^}]*repeating-linear-gradient\([^}]*var\(--warn-line\)[^}]*\}/);
+  it('.vuln-hatch layers --warn-hatch stripes over the --warn-bg wash', () => {
+    expect(css).toMatch(/\.vuln-hatch\s*\{[^}]*background-color:\s*var\(--warn-bg\)[^}]*repeating-linear-gradient\([^}]*var\(--warn-hatch\)[^}]*\}/);
+  });
+
+  // Revert: point the stripes back at --warn-line (the border's alpha .45 dark / .32 light), or raise --warn-hatch: the stripes then run through the words
+  // on the chips, the header badge and the drawer's unmeasured rows like a strike-through.
+  it('.vuln-hatch never uses the border colour for its stripes', () => {
+    const rule = /\.vuln-hatch\s*\{[^}]*\}/.exec(css)![0];
+    expect(rule).not.toContain('--warn-line');
+  });
+
+  it('the stripe colour is the warn hue at a low alpha in both themes: the one value that decides whether text over the hatch reads clean', () => {
+    const alpha = (v: string) => Number(/,([0-9.]+)\)$/.exec(v)![1]);
+    expect(token(dark, 'warn-hatch')).toBe('rgba(210,153,34,.16)');
+    expect(token(light, 'warn-hatch')).toBe('rgba(154,103,0,.14)');
+    // Same hue as the border, well under its strength (the old stripes were the border colour itself).
+    expect(token(dark, 'warn-hatch').replace(/,[0-9.]+\)$/, '')).toBe(token(dark, 'warn-line').replace(/,[0-9.]+\)$/, ''));
+    expect(alpha(token(dark, 'warn-hatch'))).toBeLessThanOrEqual(0.2);
+    expect(alpha(token(light, 'warn-hatch'))).toBeLessThanOrEqual(0.2);
+    expect(alpha(token(dark, 'warn-hatch'))).toBeLessThan(alpha(token(dark, 'warn-line')) / 2);
+    expect(alpha(token(light, 'warn-hatch'))).toBeLessThan(alpha(token(light, 'warn-line')) / 2);
   });
 });
