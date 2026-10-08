@@ -9,6 +9,9 @@ import type { SyncStatusInfo } from '@/lib/vulnerabilities/queries';
 import type { CodebaseGroup } from '@/lib/vulnerabilities/types';
 import { parseVulnFilters } from '@/lib/vulnerabilities/filters';
 import type { AlertsData, CoverageData, ReposData, Slot, SummaryData, TrendData } from '@/app/vulnerabilities/api-types';
+import { DEFAULT_ALERT_LIST } from '@/app/vulnerabilities/security-state';
+import type { SecurityData } from '@/app/vulnerabilities/use-security-data';
+import type { SecurityViewProps } from '@/app/vulnerabilities/view-props';
 
 export const SYNC_AT = '2026-09-22T06:00:00Z';
 
@@ -194,3 +197,37 @@ export const callsTo = (fetchMock: jest.Mock, name: RouteName): URL[] =>
   fetchMock.mock.calls
     .map(([u]) => new URL(String(u), 'http://localhost'))
     .filter(u => u.pathname.endsWith(`/${name}`));
+
+/**
+ * A complete SecurityViewProps for slot tests: healthy data in every slot, no alert-list filters,
+ * and a jest.fn() for every handler, so a test asserts a call without wiring a router or a hook.
+ * Pass `over` to replace any top-level member (for example a `data` with a loading slot).
+ */
+export function viewProps(over: Partial<SecurityViewProps> = {}): SecurityViewProps {
+  const summary = summaryFixture();
+  const data: SecurityData = {
+    summary: slot(summary), teamSummary: slot(summary), coverage: slot(coverageFixture()),
+    repos: slot(reposFixture(REPO_ROWS)), metaRepos: slot(reposFixture(REPO_ROWS)), trend: slot(trendFixture()), sparkline: slot(trendFixture()),
+    alerts: slot(alertsFixture()), repoStatus: 'none', effectiveRepo: null, effectiveList: DEFAULT_ALERT_LIST,
+    keys: { summary: '', teamSummary: '', coverage: '', repos: '', metaRepos: '', trend: '', sparkline: '', alerts: null },
+  };
+  return {
+    summary,
+    data,
+    url: {
+      view: 'overview', own: 'teams', codebase: 'backend', team: null, repo: null, severity: 'both', baseline: 'last',
+      range: 'all', kSev: 'critical',
+      setView: jest.fn(), setOwn: jest.fn(), setSeverity: jest.fn(), setBaseline: jest.fn(), setRange: jest.fn(),
+      setCodebase: jest.fn(), setTeam: jest.fn(), setRepo: jest.fn(), clearRepo: jest.fn(),
+      selectTeamRow: jest.fn(), selectRepoRow: jest.fn(), resetFilters: jest.fn(),
+      isDefault: { codebase: true, team: true, severity: true, baseline: true, repo: true, all: true },
+    },
+    list: {
+      list: DEFAULT_ALERT_LIST,
+      setStatus: jest.fn(), toggleOverdue: jest.fn(), toggleDueSoon: jest.fn(), toggleReopened: jest.fn(),
+      toggleRuntimeOnly: jest.fn(), setQuery: jest.fn(), setSort: jest.fn(), setPage: jest.fn(),
+    },
+    openDrawer: jest.fn(),
+    ...over,
+  };
+}
