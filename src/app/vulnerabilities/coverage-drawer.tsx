@@ -1,6 +1,6 @@
 // src/app/vulnerabilities/coverage-drawer.tsx
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { CODEBASE_LABELS } from '@/lib/vulnerabilities/codebase-labels';
 import type { Severity } from '@/lib/vulnerabilities/types';
 import type { CoverageData, SummaryData } from './api-types';
@@ -16,12 +16,12 @@ export type OpenDrawer = (opener?: HTMLElement | null) => void;
 
 export function useCoverageDrawer(): { open: boolean; opener: HTMLElement | null; openDrawer: OpenDrawer; closeDrawer: () => void } {
   const [state, setState] = useState<{ open: boolean; opener: HTMLElement | null }>({ open: false, opener: null });
-  const openDrawer: OpenDrawer = opener => setState({
+  const openDrawer: OpenDrawer = useCallback(opener => setState({
     open: true,
     opener: opener ?? (typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null),
-  });
+  }), []);
   // The opener is kept after close: the drawer's effect cleanup needs it to return focus.
-  const closeDrawer = () => setState(s => ({ ...s, open: false }));
+  const closeDrawer = useCallback(() => setState(s => ({ ...s, open: false })), []);
   return { open: state.open, opener: state.opener, openDrawer, closeDrawer };
 }
 

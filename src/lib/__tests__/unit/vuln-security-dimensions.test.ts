@@ -39,6 +39,7 @@ it('the sticky bar is two fixed rows plus its padding, and the filter row is a c
 it('the filter row (four selects, the date slot, the Reset slot at its right end and the gaps) fits one line at a 1024px viewport minus page padding and a 15px scrollbar', () => {
   const sum = SELECT_W.codebase + SELECT_W.team + SELECT_W.severity + SELECT_W.baseline + SELECT_W.date + RESET_SLOT_W + 5 * FILTER_ROW_GAP;
   expect(FILTER_ROW_W).toBe(sum);
+  expect(FILTER_ROW_W).toBe(932);   // 220 + 170 + 140 + 118 + 128 + 116 and five 8px gaps; vuln-filter-bar.test.tsx checks it against the rendered row
   expect(FILTER_ROW_W).toBeLessThanOrEqual(1024 - 2 * PAGE_PAD.x - 15);
 });
 

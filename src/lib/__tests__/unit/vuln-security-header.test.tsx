@@ -99,6 +99,12 @@ describe('SecurityHeader', () => {
     expect(banner.closest('p')).toBeNull();
   });
 
+  // Revert: print `issues[0].message` unconditionally: an empty issue list leaves a trailing space and the word "undefined" is one refactor away.
+  it('a failed sync with no issue message reads as the sentence alone, with no trailing space or "undefined"', () => {
+    render(<SecurityHeader {...props({ summary: summaryFixture({ sync: syncInfo({ lastStatus: 'failed', issues: [] }) }) })} />);
+    expect(screen.getByRole('alert').textContent).toBe('!The latest sync failed; showing data from the last good sync.');
+  });
+
   it('no banner when the latest sync did not fail', () => {
     render(<SecurityHeader {...props()} />);
     expect(screen.queryByRole('alert')).toBeNull();
@@ -151,6 +157,27 @@ describe('CoverageLine', () => {
     for (const s of states) {
       const { unmount } = render(<CoverageLine coverage={s} openDrawer={jest.fn()} />);
       expect(screen.getByTestId('coverage-line').style.minHeight).toBe(`${COVERAGE_LINE_MIN_H}px`);
+      unmount();
+    }
+  });
+
+  // Revert: render the two count spans only when `coverage.data` exists: the link after them jumps ~280px on first load and after an error.
+  it('the excluded and need-tagging slots exist, empty, while the coverage is loading or has failed, so the link keeps its place', () => {
+    const states = [
+      slot<CoverageData>(undefined),
+      slot<CoverageData>(undefined, { errorText: "Couldn't load coverage: boom", loading: false }),
+    ];
+    const withData = render(<CoverageLine coverage={slot(coverageFixture())} openDrawer={jest.fn()} />);
+    const childCount = screen.getByTestId('coverage-line').children.length;
+    withData.unmount();
+    for (const s of states) {
+      const { unmount } = render(<CoverageLine coverage={s} openDrawer={jest.fn()} />);
+      for (const [id, w] of [['coverage-excluded', COVERAGE_EXCLUDED_SLOT_W], ['coverage-tagging', COVERAGE_TAGGING_SLOT_W]] as const) {
+        expect(screen.getByTestId(id).textContent).toBe('');
+        expect(screen.getByTestId(id).style.minWidth).toBe(`${w}px`);
+      }
+      // Same elements in the same order as the loaded line, bar the error text that replaces nothing.
+      expect(screen.getByTestId('coverage-line').children.length - (s.errorText ? 1 : 0)).toBe(childCount);
       unmount();
     }
   });

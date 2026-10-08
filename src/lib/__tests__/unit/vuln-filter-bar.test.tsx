@@ -2,7 +2,7 @@
 // src/lib/__tests__/unit/vuln-filter-bar.test.tsx
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import FilterBar, { type FilterBarProps } from '@/app/vulnerabilities/filter-bar';
-import { FILTER_BAR_H, SELECT_W, RESET_SLOT_W, BAR_ROW_H, FILTER_ROW_H, FILTER_SELECT_H, ALERTS_TAB_COUNT_W, Z } from '@/app/vulnerabilities/dimensions';
+import { FILTER_BAR_H, SELECT_W, RESET_SLOT_W, BAR_ROW_H, FILTER_ROW_H, FILTER_SELECT_H, FILTER_ROW_GAP, FILTER_ROW_W, ALERTS_TAB_COUNT_W, Z } from '@/app/vulnerabilities/dimensions';
 
 const DEFAULTS = { codebase: true, team: true, severity: true, baseline: true, repo: true, all: true };
 const COUNTS = {
@@ -91,6 +91,23 @@ describe('layout stability', () => {
     expect(bar.style.height).toBe(`${FILTER_BAR_H}px`);
   });
 
+  // Revert: put the `flex-1` spacer back before the Reset slot: the row then has six gaps, and FILTER_ROW_W (five) understates it by 8px.
+  it('the filter row is exactly FILTER_ROW_W wide: its children plus the gaps between them, as rendered', () => {
+    render(<FilterBar {...props()} />);
+    const row = screen.getByTestId('security-bar').children[1] as HTMLElement;
+    const widthOf = (el: HTMLElement) => {
+      const w = el.style.width || (el.querySelector('select') as HTMLElement | null)?.style.width;
+      expect(w).toBeTruthy();   // a child with no fixed width (a spacer) would make the row's fit unknowable
+      return parseInt(w as string, 10);
+    };
+    const kids = Array.from(row.children) as HTMLElement[];
+    expect(kids).toHaveLength(6);
+    const total = kids.reduce((n, el) => n + widthOf(el), 0) + (kids.length - 1) * FILTER_ROW_GAP;
+    expect(total).toBe(FILTER_ROW_W);
+    expect(row.style.gap).toBe(`${FILTER_ROW_GAP}px`);
+    expect(screen.getByTestId('reset-slot').className).toContain('ml-auto');
+  });
+
   it('is sticky at the top with the body background variable and a z-index between pinned rows and the drawer', () => {
     render(<FilterBar {...props()} />);
     const bar = screen.getByTestId('security-bar');
@@ -98,6 +115,21 @@ describe('layout stability', () => {
     expect(bar.style.top).toBe('0px');
     expect(bar.style.zIndex).toBe(String(Z.stickyBar));
     expect(bar.getAttribute('style')).toContain('background: var(--body-bg, #0F0F0F)');
+  });
+});
+
+describe('Owning team options', () => {
+  // Revert: list only `teams`: a ?team= the summary has not listed (yet) leaves the select with no matching option, so it shows the first one.
+  it('a team from the URL that is not in the list yet still has an option, so the select shows it', () => {
+    render(<FilterBar {...props({ team: 'Growth', isDefault: { ...DEFAULTS, team: false, all: false } }, { teams: [] })} />);
+    const select = screen.getByLabelText('Owning team') as HTMLSelectElement;
+    expect(select.value).toBe('Growth');
+    expect(within(select).getAllByRole('option').map(o => o.textContent)).toEqual(['All owning teams', 'Growth']);
+  });
+
+  it('a listed team is not duplicated', () => {
+    render(<FilterBar {...props({ team: 'Search', isDefault: { ...DEFAULTS, team: false, all: false } })} />);
+    expect(within(screen.getByLabelText('Owning team')).getAllByRole('option').map(o => o.textContent)).toEqual(['All owning teams', 'Payments', 'Search', 'Unassigned']);
   });
 });
 
@@ -258,6 +290,21 @@ describe('Compare to', () => {
     expect(input.className).not.toContain('invisible');
     expect(input.disabled).toBe(false);
     expect(input.max).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  // Revert: read the day from toISOString() (UTC) again: for a user west of UTC in the evening, the picker would allow tomorrow.
+  it('the date input\'s max is the browser\'s own calendar day (local date parts), not the UTC day', () => {
+    // Local clock says 2026-10-08, the UTC clock already says the 9th (a user in the evening, west of UTC).
+    jest.spyOn(Date.prototype, 'getFullYear').mockReturnValue(2026);
+    jest.spyOn(Date.prototype, 'getMonth').mockReturnValue(9);
+    jest.spyOn(Date.prototype, 'getDate').mockReturnValue(8);
+    jest.spyOn(Date.prototype, 'toISOString').mockReturnValue('2026-10-09T03:00:00.000Z');
+    try {
+      render(<FilterBar {...props({ baseline: '2026-09-15', isDefault: { ...DEFAULTS, baseline: false, all: false } })} />);
+      expect((screen.getByLabelText('Compare to date') as HTMLInputElement).max).toBe('2026-10-08');
+    } finally {
+      jest.restoreAllMocks();
+    }
   });
 
   it('changing the date writes it; clearing the input is ignored', () => {

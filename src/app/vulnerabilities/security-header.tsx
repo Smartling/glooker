@@ -79,12 +79,13 @@ export function CoverageLine({ coverage, openDrawer }: { coverage: Slot<Coverage
           </button>
         )}
       </span>
-      {c && (
-        <>
-          <span data-testid="coverage-excluded" className="shrink-0" style={{ minWidth: COVERAGE_EXCLUDED_SLOT_W, ...dim }}>· {c.excludedByPolicy.length} excluded by policy</span>
-          <span data-testid="coverage-tagging" className="shrink-0" style={{ minWidth: COVERAGE_TAGGING_SLOT_W, ...dim }}>· {c.needsTagging.length} need tagging</span>
-        </>
-      )}
+      {/* Always rendered, empty until the counts arrive (or after an error): the link after them never jumps. */}
+      <span data-testid="coverage-excluded" className="shrink-0" style={{ minWidth: COVERAGE_EXCLUDED_SLOT_W, ...dim }}>
+        {c ? `· ${c.excludedByPolicy.length} excluded by policy` : ''}
+      </span>
+      <span data-testid="coverage-tagging" className="shrink-0" style={{ minWidth: COVERAGE_TAGGING_SLOT_W, ...dim }}>
+        {c ? `· ${c.needsTagging.length} need tagging` : ''}
+      </span>
       {coverage.errorText && <span className="text-red-400">{coverage.errorText}</span>}
       <button type="button" onClick={e => openDrawer(e.currentTarget)} className={TYPE.link}>
         Coverage &amp; policy →
@@ -120,6 +121,7 @@ export default function SecurityHeader({ summary, repos, coverage, codebase, sum
   });
   const sync = summary.sync;
   const failed = sync.lastStatus === 'failed';
+  const failedMessage = sync.issues?.[0]?.message;
   const showStale = sync.stale && !!sync.lastSuccessfulAt;
 
   return (
@@ -160,7 +162,7 @@ export default function SecurityHeader({ summary, repos, coverage, codebase, sum
           {failed && (
             <div role="alert" className="flex items-start gap-2 text-xs text-red-400 border border-red-900 rounded-md p-2">
               <span aria-hidden="true" className="shrink-0 w-4 h-4 rounded-full border border-red-400 flex items-center justify-center text-[10px] leading-none font-bold">!</span>
-              <span>The latest sync failed; showing data from the last good sync. {sync.issues?.[0]?.message}</span>
+              <span>The latest sync failed; showing data from the last good sync.{failedMessage ? ` ${failedMessage}` : ''}</span>
             </div>
           )}
           <ConfigErrorBanner errors={summary.configErrors} />

@@ -32,6 +32,11 @@ const SEVERITY_OPTIONS: ReadonlyArray<[SeverityFilter, string]> = [
 ];
 const COMPARE_OPTIONS = [['last', 'Last sync'], ['7d', '7 days ago'], ['30d', '30 days ago'], ['date', 'A date…']] as const;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+/** The browser's own calendar day: the date input's `max` is what the picker lets the user choose, so it follows the user's day, not UTC's. */
+function localToday(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 // A non-default select gets the accent border AND the accent fill; a default one is a plain surface.
 const selectClass = (nonDefault: boolean) =>
@@ -54,7 +59,7 @@ export default function FilterBar({ url, teams, codebaseCounts, alertsCount, bas
   const codebaseRef = useRef<HTMLSelectElement>(null);
   const isDate = DATE_RE.test(url.baseline);
   const compareValue = isDate ? 'date' : url.baseline;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localToday();
   const unit = kSev(url.severity) === 'high' ? 'high' : 'crit';
   const codebaseLabel = (g: (typeof CODEBASE_GROUPS)[number]) => {
     // The count is the kSev count (critical, or high under "High only"), so an option reads like the KPI tile beside it.
@@ -108,6 +113,8 @@ export default function FilterBar({ url, teams, codebaseCounts, alertsCount, bas
             style={selectStyle(SELECT_W.team)}
           >
             <option value="">All owning teams</option>
+            {/* A team from the URL that the summary has not listed (yet) still has an option, so the select shows it. */}
+            {url.team && !teams.includes(url.team) && <option value={url.team}>{url.team}</option>}
             {teams.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
         </Field>
@@ -157,9 +164,8 @@ export default function FilterBar({ url, teams, codebaseCounts, alertsCount, bas
           />
         </div>
 
-        <div className="flex-1" />
-        {/* Reserved slot at the row's right end: the button is hidden, never removed, so the row does not change. */}
-        <div data-testid="reset-slot" className="flex shrink-0 items-center justify-end" style={{ width: RESET_SLOT_W, height: FILTER_SELECT_H }}>
+        {/* Reserved slot at the row's right end (ml-auto, no spacer element, so FILTER_ROW_W counts the row's real gaps): the button is hidden, never removed, so the row does not change. */}
+        <div data-testid="reset-slot" className="ml-auto flex shrink-0 items-center justify-end" style={{ width: RESET_SLOT_W, height: FILTER_SELECT_H }}>
           <button
             type="button"
             onClick={() => {

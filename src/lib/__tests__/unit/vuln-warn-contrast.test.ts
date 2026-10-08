@@ -76,7 +76,11 @@ describe('the contrast helper itself', () => {
   });
   it('composites the dark wash over the body background before measuring', () => {
     const wash = over(parseColor('rgba(210,153,34,.11)'), parseColor('#0F0F0F'));
-    expect(wash[0]).toBeGreaterThan(15); // lighter than the plain #0F0F0F background
+    // 11% of the warn colour over 89% of #0F0F0F (15), per channel: exactly, not just "lighter than the background".
+    expect(wash[0]).toBeCloseTo(210 * 0.11 + 15 * 0.89, 5);   // 36.45
+    expect(wash[1]).toBeCloseTo(153 * 0.11 + 15 * 0.89, 5);   // 30.18
+    expect(wash[2]).toBeCloseTo(34 * 0.11 + 15 * 0.89, 5);    // 17.09
+    expect(wash[3]).toBe(1);
   });
   it('has dark and light body backgrounds to check against', () => {
     expect(bodyBgs.dark.length).toBeGreaterThan(0);

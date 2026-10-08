@@ -203,6 +203,8 @@ describe('coverage groups', () => {
     const excluded = screen.getByRole('region', { name: /^Excluded by policy/ });
     expect(within(excluded).getByText('outside scope (staging)')).toBeTruthy();
     expect(within(excluded).getByText('1 crit · 0 high')).toBeTruthy();
+    // The owning team rides on the left of the Excluded row, as on the Unmeasured one.
+    expect(within(excluded).getByText(/owning team Platform/)).toBeTruthy();
     expect(within(excluded).getByText(/Not counted/)).toBeTruthy();
   });
 
@@ -269,6 +271,14 @@ describe('policy ("From deployment configuration")', () => {
     expect(value('high').className).not.toContain('text-red-400');
   });
 
+  // Revert: drop the `?? 'Active'` fallback, or the pending branch's label: a severity whose policy entry cannot be found would render nothing.
+  it('a state with no policy entry to quote still reads in words: Active, or "Starts later" for a pending one with no date', () => {
+    render(<CoverageDrawer {...base({ summary: summaryFixture({ slaStatus: { critical: 'active', high: 'pending' }, policy: [] }) })} />);
+    expect(value('critical').textContent).toBe('Active');
+    expect(value('high').textContent).toBe(slaStateLabel({ kind: 'pending', startsOn: null }, { withSla: false }));
+    expect(value('high').textContent).toBe('Starts later');
+  });
+
   it('an unreadable policy reads the red "! Can\'t be read · check the SLA settings in the deployment config" on both severities, never "No SLA policy yet"', () => {
     render(<CoverageDrawer {...base({
       summary: summaryFixture({ slaPolicyInvalid: true, policy: [], slaStatus: { critical: 'none', high: 'none' } }),
@@ -299,6 +309,18 @@ describe('policy ("From deployment configuration")', () => {
 });
 
 describe('useCoverageDrawer', () => {
+  // Revert: drop the useCallback wrappers: every render hands consumers new functions, so an effect or memo keyed on them reruns each time.
+  it('openDrawer and closeDrawer keep their identity across renders and across open and close', () => {
+    const { result, rerender } = renderHook(() => useCoverageDrawer());
+    const { openDrawer, closeDrawer } = result.current;
+    rerender();
+    expect([result.current.openDrawer, result.current.closeDrawer]).toEqual([openDrawer, closeDrawer]);
+    act(() => result.current.openDrawer());
+    act(() => result.current.closeDrawer());
+    expect(result.current.openDrawer).toBe(openDrawer);
+    expect(result.current.closeDrawer).toBe(closeDrawer);
+  });
+
   it('opens with the given opener, keeps it through close, and falls back to the active element', () => {
     const { result } = renderHook(() => useCoverageDrawer());
     expect(result.current.open).toBe(false);
@@ -319,7 +341,7 @@ describe('useCoverageDrawer', () => {
 });
 
 describe('light theme', () => {
-  // Revert: give a row, a group or the footer the card-shell class: the light remap's border would resize it.
+  // Revert: give a row or a group the card-shell class: the light remap's border would resize it.
   it('only the dialog itself uses the card-shell class (bg-gray-900); the rows and groups use the chart surface', () => {
     const full = slot(coverageFixture({ unmeasured: [row({ repoId: 1 })], needsTagging: [row({ repoId: 2 })], excludedByPolicy: [row({ repoId: 3 })] }));
     render(<CoverageDrawer {...base({ coverage: full })} />);
