@@ -1,4 +1,4 @@
-import { computePivot, computeKpi, computeCoverage, listAlerts, knownTeams, isResolvedSinceStart } from '@/lib/vulnerabilities/aggregate';
+import { computePivot, computeKpi, computeCoverage, listAlerts, knownTeams, isResolvedSinceStart, isSlaActive } from '@/lib/vulnerabilities/aggregate';
 import type { TeamRow } from '@/lib/vulnerabilities/aggregate';
 import { __clearVulnConfigCache } from '@/lib/vulnerabilities/config';
 import type { AlertFact, RepoFact } from '@/lib/vulnerabilities/types';
@@ -320,5 +320,28 @@ describe('isResolvedSinceStart / resolvedSinceInvalid', () => {
     expect(total.high.dismissed).toBeNull();
     // The open count and carriedResolved stay real numbers — only resolved/pctClosed/dismissed go null.
     expect(total.critical.open).toBe(1);
+  });
+});
+
+describe('isSlaActive (the one SLA gate)', () => {
+  it('is false while a policy is pending or absent, and true from its first effective day', () => {
+    // File default policy: critical-2099-04 (pending on NOW) and no high entry at all.
+    expect(isSlaActive('critical', NOW)).toBe(false);
+    expect(isSlaActive('high', NOW)).toBe(false);
+    expect(isSlaActive('critical', new Date('2099-04-14T23:59:59Z'))).toBe(false);
+    expect(isSlaActive('critical', new Date('2099-04-15T00:00:00Z'))).toBe(true);
+    expect(isSlaActive('high', new Date('2099-04-15T00:00:00Z'))).toBe(false);
+  });
+
+  it('the pivot nulls overdue and dueSoon exactly when the gate is closed', () => {
+    for (const [policy, active] of [[SYNTHETIC_POLICY, false], [SYNTHETIC_ACTIVE_POLICY, true]] as const) {
+      process.env.VULNERABILITIES_SLA_POLICY = policy;
+      __clearVulnConfigCache();
+      const { total } = computePivot([A(1, 1)], [R(1)], { codebase: 'backend', now: NOW });
+      expect(isSlaActive('critical', NOW)).toBe(active);
+      expect(total.critical.overdue === null).toBe(!active);
+      expect(total.critical.dueSoon === null).toBe(!active);
+      expect(total.high.overdue).toBeNull(); // neither policy has a high entry
+    }
   });
 });

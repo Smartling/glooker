@@ -64,11 +64,19 @@ interface SevAcc { open: number; resolved: number; dismissed: number; overdue: n
 export interface TeamRow { team: string; critical: SevCell; high: SevCell; unmeasuredRepos: number }
 interface TeamAcc { team: string; critical: SevAcc; high: SevAcc; unmeasuredRepos: number }
 
+/**
+ * The one SLA gate (GLOOK-64). A severity's overdue / due-soon / next-due figures exist only while
+ * its policy is `active` (not `pending`, not `none`). `finish()` below and `computeRepoRows` both
+ * call this, so the team pivot and the repository rows can never disagree about when those
+ * figures are null.
+ */
+export function isSlaActive(sev: Severity, now: Date): boolean { return slaStatus(sev, now) === 'active'; }
+
 const emptyAcc = (): SevAcc => ({ open: 0, resolved: 0, dismissed: 0, overdue: 0, dueSoon: 0, carriedResolved: 0 });
 
 function finish(cell: SevAcc, sev: Severity, now: Date, resolvedInvalid: boolean): SevCell {
   const denom = cell.open + cell.resolved;
-  const active = slaStatus(sev, now) === 'active';
+  const active = isSlaActive(sev, now);
   return {
     open: cell.open,
     resolved: resolvedInvalid ? null : cell.resolved,
