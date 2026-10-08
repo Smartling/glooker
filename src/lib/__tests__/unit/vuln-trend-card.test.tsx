@@ -4,7 +4,7 @@
 // need no fake clock (Recharts schedules animation frames).
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import TrendCard from '@/app/vulnerabilities/trend-card';
-import { TREND_LEGEND_MIN_W, TREND_PLOT_H, TREND_RANGE_W } from '@/app/vulnerabilities/dimensions';
+import { TREND_FOOT_GAP, TREND_LEGEND_MIN_W, TREND_PLOT_H, TREND_RANGE_W } from '@/app/vulnerabilities/dimensions';
 import { TEAM_COLOR_SLOTS } from '@/app/vulnerabilities/team-colors';
 import { assignTeamColors } from '@/app/vulnerabilities/team-colors';
 import { dayNumber, trendDomain } from '@/app/vulnerabilities/trend-model';
@@ -163,8 +163,9 @@ describe('header', () => {
 });
 
 describe('header layout (B1)', () => {
-  // Revert: put the figures back before the select (the mockup has the Range select on the left), or let the select size to its option (the figures' block then slides when the range changes).
-  it('the Range select comes first (fixed width), and the figures block is the last child of the header, right-aligned at the card edge', () => {
+  // Revert: put the figures back before the select, let the select size to its option (the block then slides when the range changes), or right-align the figures
+  // again (`text-right`): a short sentence then floats up to ~150px from the select inside its fixed 224px box.
+  it('the Range select comes first (fixed width), and the figures block is the last child of the header, a fixed box with LEFT-aligned figures so the select sits beside them', () => {
     render(<TrendCard {...props()} />);
     const select = screen.getByLabelText('Range') as HTMLSelectElement;
     const right = select.parentElement as HTMLElement;
@@ -174,8 +175,8 @@ describe('header layout (B1)', () => {
     expect(right.parentElement!.lastElementChild).toBe(right);
     const block = screen.getByTestId('trend-open-now').parentElement as HTMLElement;
     expect(right.lastElementChild).toBe(block);
-    expect(block.className).toContain('w-56');
-    expect(block.className).toContain('text-right');
+    expect(block.className.split(' ')).toEqual(expect.arrayContaining(['w-56', 'text-left']));
+    expect(block.className).not.toContain('text-right');
   });
 
   // Revert: drop `truncate` or the titles: a long change sentence then wraps or pushes the select.
@@ -422,6 +423,14 @@ describe('legend', () => {
     const rule = screen.getByTestId('trend-legend-rule');
     expect(rule.className.split(' ')).toEqual(expect.arrayContaining(['border-t', 'border-gray-800']));
     expect(rule.nextElementSibling).toBe(el);
+  });
+
+  // Revert: put `mt-1` (4px) back on the footnote: it then sits right under the legend instead of the mockup's 14px.
+  it('the footnote sits TREND_FOOT_GAP (14px) under the legend', () => {
+    render(<TrendCard {...props()} />);
+    expect(screen.getByTestId('trend-footnote').style.marginTop).toBe(`${TREND_FOOT_GAP}px`);
+    expect(TREND_FOOT_GAP).toBe(14);
+    expect(screen.getByTestId('trend-footnote').className).not.toMatch(/\bmt-/);
   });
 
   // Revert: drop the second sentence, or hard-code the number.

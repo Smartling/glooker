@@ -5,7 +5,7 @@ import {
   COVERAGE_LINE_MIN_H, SELECT_W, FILTER_ROW_GAP, BAR_ROW_H, FILTER_CAPTION_H, FILTER_CAPTION_GAP, FILTER_SELECT_H, FILTER_ROW_H,
   BAR_PAD_TOP, BAR_ROW_GAP, FILTER_CONTROLS_H, FILTER_PAD_BOTTOM, FILTER_RULE_H,
   COVERAGE_BADGE_SLOT_W, COVERAGE_EXCLUDED_SLOT_W, COVERAGE_TAGGING_SLOT_W, COVERAGE_RULE_PAD,
-  KPI_PAD_Y, KPI_PAD_X, KPI_SINCE_ROW_H, KPI_NOTE_H, KPI_SLA_ROW_H, TREND_RANGE_W, TREND_LEGEND_MIN_W,
+  KPI_PAD_Y, KPI_PAD_X, KPI_SINCE_ROW_H, KPI_NOTE_H, KPI_SLA_ROW_H, TREND_RANGE_W, TREND_LEGEND_MIN_W, TREND_FOOT_GAP,
   FILTER_BAR_H, RESET_SLOT_W, FILTER_ROW_W, Z, TYPE,
 } from '@/app/vulnerabilities/dimensions';
 
@@ -73,6 +73,7 @@ it('the KPI tiles use the mockup\'s padding, and the "since" tile\'s parts fit t
 it('the trend card\'s Range select is fixed, and its legend columns are the mockup\'s 170px (5 columns at 1024px keep 13 entries on the 3 reserved lines)', () => {
   expect(TREND_RANGE_W).toBe(128);
   expect(TREND_LEGEND_MIN_W).toBe(170);
+  expect(TREND_FOOT_GAP).toBe(14);
   // The card's content at 1024px: 1024 - 2 x 24 (page padding) - 15 (scrollbar) - 2 x 16 (card padding) = 929; 5 columns and 4 gaps of 16px.
   const content = 1024 - 2 * PAGE_PAD.x - 15 - 2 * 16;
   expect(Math.floor((content + 16) / (TREND_LEGEND_MIN_W + 16))).toBeGreaterThanOrEqual(5);

@@ -106,6 +106,7 @@ const sizes: Array<[string, number, string]> = [
   ['TREND_PLOT_H', D.TREND_PLOT_H, 'Trend plot'],
   ['TREND_RANGE_W', D.TREND_RANGE_W, 'Trend plot'],
   ['TREND_LEGEND_MIN_W', D.TREND_LEGEND_MIN_W, 'Trend plot'],
+  ['TREND_FOOT_GAP', D.TREND_FOOT_GAP, 'Trend plot'],
   ['ALERTS_STRIP_H', D.ALERTS_STRIP_H, 'Alerts summary strip'],
   ['ALERTS_STRIP_TITLE_W', ALERTS_STRIP_TITLE_W, 'Alerts summary strip'],
   ['ALERTS_STRIP_OPEN_MIN_W', ALERTS_STRIP_OPEN_MIN_W, 'Alerts summary strip'],

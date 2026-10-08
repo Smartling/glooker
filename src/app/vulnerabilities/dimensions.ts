@@ -35,6 +35,9 @@ export const TREND_RANGE_W = 128;
 /** The trend legend's column minimum. 170 (the mockup's) gives 5 columns at 1024px, so the 13 entries of a full legend (12 colours and "Other") take
  * the 3 reserved lines; 180 gave 4 columns there and 4 lines, 16px over the reserve. */
 export const TREND_LEGEND_MIN_W = 170;
+/** The space between the trend legend's last line and the footnote under it, as the mockup's. The card has no fixed outer height (its parts
+ * are the fixed ones), so this adds its 10px over the old 4px to the card, which is the last thing on the Overview. */
+export const TREND_FOOT_GAP = 14;
 
 // Alerts.
 export const ALERTS_STRIP_H = 72;
