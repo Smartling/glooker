@@ -5,6 +5,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import KpiTiles from '@/app/vulnerabilities/kpi-tiles';
 import type { SummaryData } from '@/app/vulnerabilities/api-types';
+import { KPI_PAD_X, KPI_PAD_Y, KPI_SLA_ROW_H } from '@/app/vulnerabilities/dimensions';
 import { ovCell, ovProps, ovTeam } from '../support/security-fixtures';
 
 type Status = 'active' | 'pending' | 'none';
@@ -120,6 +121,27 @@ describe('hidden severity', () => {
     rerender(<KpiTiles {...ovProps({ summary: sla('active', 'active') })} />);
     expect(row('critical').className).not.toContain('opacity-[0.35]');
     expect(row('high').className).not.toContain('opacity-[0.35]');
+  });
+});
+
+describe('shape', () => {
+  // Revert: put `h-7` (28px) back on the rows, or use `items-center` on the header row: the pitch is not the mockup's, and the 24px button pushes the title down off the other tiles' line.
+  it('each severity row is KPI_SLA_ROW_H tall, and the title sits on the tile\'s top line (items-start) beside the 24px button', () => {
+    render(<KpiTiles {...ovProps({ summary: sla('active', 'active') })} />);
+    for (const sev of ['critical', 'high'] as const) {
+      expect(row(sev).style.height).toBe(`${KPI_SLA_ROW_H}px`);
+      expect(row(sev).className).not.toContain('h-7');
+    }
+    const header = screen.getByText('SLA · open alerts').parentElement as HTMLElement;
+    expect(header.className).toContain('items-start');
+    expect(header.className).not.toContain('items-center');
+    expect(screen.getByTestId('kpi-sla').style.padding).toBe(`${KPI_PAD_Y}px ${KPI_PAD_X}px`);
+  });
+
+  // Revert: give one tile's padding (or the open / resolved tile) its old `p-4`: its label then sits 2px higher than the others'.
+  it('every tile has the same padding, so the four titles share one line', () => {
+    render(<KpiTiles {...ovProps()} />);
+    for (const id of ['kpi-open', 'kpi-since', 'kpi-resolved', 'kpi-sla']) expect(screen.getByTestId(id).style.padding).toBe(`${KPI_PAD_Y}px ${KPI_PAD_X}px`);
   });
 });
 

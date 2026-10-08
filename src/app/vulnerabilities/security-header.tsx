@@ -9,7 +9,7 @@ import { displayDate, unmeasuredBadgeText } from './labels';
 import type { SummaryData, ReposData, CoverageData } from './api-types';
 import type { Slot } from './use-security-data';
 import type { OpenDrawer } from './coverage-drawer';
-import { COVERAGE_BADGE_SLOT_W, COVERAGE_EXCLUDED_SLOT_W, COVERAGE_LINE_MIN_H, COVERAGE_TAGGING_SLOT_W, TYPE } from './dimensions';
+import { COVERAGE_BADGE_SLOT_W, COVERAGE_EXCLUDED_SLOT_W, COVERAGE_LINE_MIN_H, COVERAGE_RULE_PAD, COVERAGE_TAGGING_SLOT_W, TYPE } from './dimensions';
 
 const SYNCED_DAILY = ' · synced daily';
 
@@ -54,40 +54,45 @@ export function ConfigErrorBanner({ errors }: { errors?: Array<{ source: string;
 }
 
 /** "COVERAGE", the unmeasured badge, "· N excluded by policy · N need tagging", and the drawer link. The minimum
- * height keeps the line from shrinking when the badge disappears, and the badge's slot keeps its width. */
+ * height keeps the line from shrinking when the badge disappears, and every slot keeps its width: sized for a one-digit count, with a longer
+ * one cut by "…" (its full text in a `title`). */
 export function CoverageLine({ coverage, openDrawer }: { coverage: Slot<CoverageData>; openDrawer: OpenDrawer }) {
   const c = coverage.data;
   const unmeasured = c?.unmeasured.length ?? 0;
   // The counts on screen are the previous scope's while the new ones load: dim them, as the tables dim their rows.
   const dim = coverage.stale ? { opacity: 0.6 } : undefined;
+  const excludedText = c ? `· ${c.excludedByPolicy.length} excluded by policy` : '';
+  const taggingText = c ? `· ${c.needsTagging.length} need tagging` : '';
   return (
     <div
       data-testid="coverage-line"
-      className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-400"
+      className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400"
       style={{ minHeight: COVERAGE_LINE_MIN_H }}
     >
       <span className="shrink-0 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-gray-500">Coverage</span>
       <span
         data-testid="coverage-badge-slot"
         className="inline-flex shrink-0"
-        style={{ minWidth: COVERAGE_BADGE_SLOT_W, visibility: unmeasured > 0 ? 'visible' : 'hidden', ...dim }}
+        style={{ width: COVERAGE_BADGE_SLOT_W, visibility: unmeasured > 0 ? 'visible' : 'hidden', ...dim }}
       >
         {unmeasured > 0 && (
           <button
             type="button"
+            title={unmeasuredBadgeText(unmeasured)}
             onClick={e => openDrawer(e.currentTarget)}
-            className={`inline-flex items-center gap-1 border border-warn-line bg-warn-bg text-warn px-1.5 py-0.5 font-semibold ${TYPE.badge}`}
+            // The hatched wash, as the unmeasured rows in the tables and the rail: the one look for "unmeasured".
+            className={`vuln-hatch inline-flex min-w-0 max-w-full items-center gap-1 border border-warn-line text-warn px-1.5 py-0.5 font-semibold ${TYPE.badge}`}
           >
-            {unmeasuredBadgeText(unmeasured)}
+            <span className="truncate">{unmeasuredBadgeText(unmeasured)}</span>
           </button>
         )}
       </span>
       {/* Always rendered, empty until the counts arrive (or after an error): the link after them never jumps. */}
-      <span data-testid="coverage-excluded" className="shrink-0" style={{ minWidth: COVERAGE_EXCLUDED_SLOT_W, ...dim }}>
-        {c ? `· ${c.excludedByPolicy.length} excluded by policy` : ''}
+      <span data-testid="coverage-excluded" className="shrink-0 truncate" title={excludedText || undefined} style={{ width: COVERAGE_EXCLUDED_SLOT_W, ...dim }}>
+        {excludedText}
       </span>
-      <span data-testid="coverage-tagging" className="shrink-0" style={{ minWidth: COVERAGE_TAGGING_SLOT_W, ...dim }}>
-        {c ? `· ${c.needsTagging.length} need tagging` : ''}
+      <span data-testid="coverage-tagging" className="shrink-0 truncate" title={taggingText || undefined} style={{ width: COVERAGE_TAGGING_SLOT_W, ...dim }}>
+        {taggingText}
       </span>
       {coverage.errorText && <span className="text-red-400">{coverage.errorText}</span>}
       <button type="button" onClick={e => openDrawer(e.currentTarget)} className={TYPE.link}>
@@ -172,7 +177,10 @@ export default function SecurityHeader({ summary, repos, coverage, codebase, sum
             </div>
           )}
           <ConfigErrorBanner errors={summary.configErrors} />
-          <CoverageLine coverage={coverage} openDrawer={openDrawer} />
+          {/* The divider above the line, COVERAGE_RULE_PAD from it, as the mockup's header card. It is the line's wrapper, so the line keeps its own minimum height. */}
+          <div data-testid="coverage-divider" className="border-t border-gray-800" style={{ paddingTop: COVERAGE_RULE_PAD }}>
+            <CoverageLine coverage={coverage} openDrawer={openDrawer} />
+          </div>
         </div>
       </PageHeader>
     </div>

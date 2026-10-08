@@ -4,7 +4,7 @@
 // (`url.kSev`: critical, or high when Severity is "High only"), never a sum of both. The tiles read
 // the team-scoped summary (`props.summary`), so with an owning team selected they show that team.
 import type { SecurityViewProps } from './view-props';
-import { KPI_ROW_H, TYPE } from './dimensions';
+import { KPI_NOTE_H, KPI_PAD_X, KPI_PAD_Y, KPI_ROW_H, KPI_SINCE_ROW_H, KPI_SLA_ROW_H, TYPE } from './dimensions';
 import { slaState, slaStateLabel, type SlaState } from './sla-state';
 import type { Severity } from '@/lib/vulnerabilities/types';
 import { dash, resolvedCaption, signed } from './format';
@@ -13,7 +13,9 @@ import { baselineUnavailableText, carriedFootnote, carriedTitle, openChange, usa
 import { slotView } from './slot-view';
 import Sparkline, { sparkPoints } from './sparkline';
 
-const TILE = 'bg-gray-900 rounded-xl p-4 min-w-0 h-full overflow-hidden flex flex-col';
+const TILE = 'bg-gray-900 rounded-xl min-w-0 h-full overflow-hidden flex flex-col';
+/** The tiles' padding: 18px 20px, inline from the constants (a utility class would be a second copy of the number). */
+const TILE_STYLE = { padding: `${KPI_PAD_Y}px ${KPI_PAD_X}px` } as const;
 const LABEL = `${TYPE.sectionLabel} truncate text-gray-400`;
 
 function OpenTile({ summary, data, url }: SecurityViewProps) {
@@ -23,7 +25,7 @@ function OpenTile({ summary, data, url }: SecurityViewProps) {
   const change = openChange(summary.delta[sev], sev, today);
   const spark = slotView(data.sparkline);
   return (
-    <div data-testid="kpi-open" className={TILE}>
+    <div data-testid="kpi-open" className={TILE} style={TILE_STYLE}>
       <div className={LABEL} title={`Open ${sev} alerts`}>Open {sev} alerts</div>
       <div data-testid="kpi-open-value" className={`${TYPE.kpiValue} mt-1 text-white`}>{dash(summary.pivot.total[sev].open)}</div>
       {/* Always one line: the change sentence, or the reason there is none. */}
@@ -47,12 +49,12 @@ function OpenTile({ summary, data, url }: SecurityViewProps) {
 /** One "label  value" line of the since-baseline tile. */
 function CountRow({ label, note, value }: { label: string; note?: string; value: number | null }) {
   return (
-    <div className="flex h-5 items-baseline justify-between gap-2 text-sm leading-5">
-      <span className="min-w-0 truncate text-gray-300" title={note ? `${label} ${note}` : label}>
+    <div data-testid="kpi-since-row" className="flex items-baseline justify-between gap-3" style={{ height: KPI_SINCE_ROW_H, lineHeight: `${KPI_SINCE_ROW_H}px` }}>
+      <span className="min-w-0 truncate text-[13px] leading-[inherit] text-gray-400" title={note ? `${label} ${note}` : label}>
         {label}
         {note && <span className="ml-1 text-xs text-gray-500">{note}</span>}
       </span>
-      <span className={`shrink-0 font-semibold tabular-nums ${value === null ? 'text-gray-500' : 'text-white'}`}>{dash(value)}</span>
+      <span className={`shrink-0 text-lg font-bold leading-[inherit] tabular-nums ${value === null ? 'text-gray-500' : 'text-white'}`}>{dash(value)}</span>
     </div>
   );
 }
@@ -71,11 +73,11 @@ function SinceTile({ summary, url }: SecurityViewProps) {
     ? { text: `other ${signed(total.other)}`, title: `other ${signed(total.other)}: change in open alerts not explained by new, resolved or reopened` }
     : null;
   return (
-    <div data-testid="kpi-since" className={TILE}>
+    <div data-testid="kpi-since" className={TILE} style={TILE_STYLE}>
       <div className={LABEL} title={d?.baseline ? `${sinceLabel}. Compared with the measurement taken on ${d.baseline.takenOn}` : sinceLabel}>
         {sinceLabel}
       </div>
-      <div className="mt-1">
+      <div>
         <CountRow label="new" value={total ? total.new : null} />
         <CountRow label="resolved" note={total ? `(${dash(total.dismissed)} dismissed)` : undefined} value={total ? total.resolved : null} />
         <CountRow label="reopened" value={total ? total.reopened : null} />
@@ -83,19 +85,19 @@ function SinceTile({ summary, url }: SecurityViewProps) {
       {/* Three reserved one-line slots, whatever the delta holds, so the tile never changes shape. */}
       <div
         data-testid="kpi-since-other" aria-hidden={other ? undefined : true}
-        className="h-4 truncate text-[11px] leading-4 text-gray-400" title={other?.title}
+        className="h-4 truncate text-[11px] leading-4 text-gray-400" style={{ height: KPI_NOTE_H }} title={other?.title}
       >
         {other?.text ?? '\u00a0'}
       </div>
       <div
         data-testid="kpi-since-caption" aria-hidden={caption ? undefined : true}
-        className="h-4 truncate text-[11px] leading-4 text-gray-500" title={caption ?? undefined}
+        className="h-4 truncate text-[11px] leading-4 text-gray-500" style={{ height: KPI_NOTE_H }} title={caption ?? undefined}
       >
         {caption ?? '\u00a0'}
       </div>
       <div
         data-testid="kpi-since-repos" aria-hidden={notInBaseline ? undefined : true}
-        className="h-4 truncate text-[11px] leading-4 text-gray-500" title={notInBaseline ?? undefined}
+        className="h-4 truncate text-[11px] leading-4 text-gray-500" style={{ height: KPI_NOTE_H }} title={notInBaseline ?? undefined}
       >
         {notInBaseline ?? '\u00a0'}
       </div>
@@ -115,7 +117,7 @@ function ResolvedTile({ summary, url }: SecurityViewProps) {
   const footnote = carried > 0 ? carriedFootnote(carried) : null;
   const sinceText = `${dash(c.dismissed)} dismissed · ${resolvedCaption(summary.resolvedSince)}`;
   return (
-    <div data-testid="kpi-resolved" className={TILE}>
+    <div data-testid="kpi-resolved" className={TILE} style={TILE_STYLE}>
       <div className={LABEL} title={`Resolved ${sev}`}>Resolved {sev}</div>
       <div className={`${TYPE.kpiValue} mt-1 text-white`}>
         {dash(c.resolved)}
@@ -157,8 +159,8 @@ function SlaRow({ sev, summary, dimmed }: { sev: Severity; summary: SecurityView
   return (
     <div
       data-testid={`kpi-sla-${sev}`}
-      className={`grid h-7 items-center gap-x-2${dimmed ? ' opacity-[0.35]' : ''}`}
-      style={{ gridTemplateColumns: SLA_COLS }}
+      className={`grid items-center gap-x-2${dimmed ? ' opacity-[0.35]' : ''}`}
+      style={{ gridTemplateColumns: SLA_COLS, height: KPI_SLA_ROW_H }}
     >
       <span className={`w-fit rounded px-1.5 text-[10px] font-semibold leading-4 tracking-wide ${badge.cls}`}>{badge.label}</span>
       {st.kind === 'active' ? (
@@ -183,8 +185,9 @@ function SlaRow({ sev, summary, dimmed }: { sev: Severity; summary: SecurityView
 function SlaTile({ summary, url, openDrawer }: SecurityViewProps) {
   const shown = (sev: Severity) => url.severity === 'both' || url.severity === sev;
   return (
-    <div data-testid="kpi-sla" className={TILE}>
-      <div className="flex items-center justify-between gap-2">
+    <div data-testid="kpi-sla" className={TILE} style={TILE_STYLE}>
+      {/* items-start: the title sits on the tile's top line like the other three tiles' titles, whatever the 24px button's height. */}
+      <div className="flex items-start justify-between gap-2">
         <div className={LABEL} title="SLA · open alerts">SLA · open alerts</div>
         <button
           type="button" aria-label="Coverage and policy details" title="Coverage and policy details"
@@ -194,7 +197,7 @@ function SlaTile({ summary, url, openDrawer }: SecurityViewProps) {
           i
         </button>
       </div>
-      <div className="mt-1">
+      <div className="mt-2">
         <div className="grid items-center gap-x-2" style={{ gridTemplateColumns: SLA_COLS }}>
           <span />
           <span className={`${TYPE.tableHeader} text-right text-gray-500`}>Overdue</span>

@@ -4,7 +4,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import TeamTable from '@/app/vulnerabilities/team-table';
 import { TEAM_BAND_H, TEAM_COLHEAD_H, TEAM_FOOTNOTE_H, TEAM_HEAD_H, TEAM_ROW_H, Z } from '@/app/vulnerabilities/dimensions';
-import { unmeasuredBadgeText } from '@/app/vulnerabilities/labels';
+import { unmeasuredChipText } from '@/app/vulnerabilities/labels';
 import type { SummaryData } from '@/app/vulnerabilities/api-types';
 import type { SecurityViewProps } from '@/app/vulnerabilities/view-props';
 import {
@@ -372,6 +372,26 @@ describe('header labels clip instead of spilling (round 3)', () => {
   });
 });
 
+describe('the wash', () => {
+  // Revert: drop `self-stretch` (or the flex centring) from a tinted cell: the wash is then only as tall as its figure, a strip inside a taller row.
+  it('every tinted cell, in the rows and on the Total row, stretches to the row\'s full height and centres its figure, so the wash is one continuous band', () => {
+    render(<TeamTable {...table()} />);
+    const tinted = (row: HTMLElement) => cellsOf(row).filter(c => /bg-(crit|high)-tint/.test(c.className));
+    for (const row of [rowOf('Payments'), rowOf('Unassigned'), screen.getByTestId('team-total-row')]) {
+      const cells = tinted(row);
+      expect(cells.length).toBeGreaterThanOrEqual(8);
+      for (const c of cells) expect(c.className.split(' ')).toEqual(expect.arrayContaining(['self-stretch', 'flex', 'items-center', 'justify-end']));
+    }
+  });
+
+  it('a hidden severity\'s dashes are stretched cells as well, so the band does not break under "High only"', () => {
+    render(<TeamTable {...table({}, { severity: 'critical' })} />);
+    const dashes = cellsOf(rowOf('Payments')).filter(c => c.textContent === '–');
+    expect(dashes.length).toBeGreaterThan(0);
+    for (const c of dashes) expect(c.className).toContain('self-stretch');
+  });
+});
+
 describe('unmeasured badge', () => {
   // Revert: put the badge in the critical Open cell, or let the click reach the row.
   it('sits under the team name, opens the drawer with the button, and does not select the team', () => {
@@ -399,8 +419,20 @@ describe('unmeasured badge', () => {
   it('appears only for a team with unmeasured repositories, and on the Total row with the total', () => {
     render(<TeamTable {...table()} />);
     expect(within(rowOf('Unassigned')).queryByText(/unmeasured/)).toBeNull();
-    expect(within(screen.getByTestId('team-total-row')).getByText(unmeasuredBadgeText(2))).toBeTruthy();
-    expect(unmeasuredBadgeText(2)).toBe('▲ 2 unmeasured repos');
+    expect(within(screen.getByTestId('team-total-row')).getByText(unmeasuredChipText(2))).toBeTruthy();
+  });
+
+  // Revert: put the long wording ("▲ 2 unmeasured repos") or the flat `bg-warn-bg` back: the chip is then cut at 1024px, and it is the only unmeasured mark that is not hatched.
+  it('is the short hatched chip "▲ N unmeasured" in a team row and on the Total row, with the full sentence in its title', () => {
+    expect(unmeasuredChipText(2)).toBe('▲ 2 unmeasured');
+    render(<TeamTable {...table()} />);
+    for (const row of [rowOf('Payments'), screen.getByTestId('team-total-row')]) {
+      const chip = within(row).getByRole('button', { name: '▲ 2 unmeasured' });
+      expect(chip.textContent).toBe('▲ 2 unmeasured');
+      expect(chip.className).toContain('vuln-hatch');
+      expect(chip.className).not.toContain('bg-warn-bg');
+      expect(chip.getAttribute('title')).toMatch(/^Open counts for 2 repositories are unknown/);
+    }
   });
 });
 

@@ -10,6 +10,15 @@ export const PAGE_GAP = 24;
 
 // Overview.
 export const KPI_ROW_H = 178;
+/** A KPI tile's padding, as the mockup's (18px 20px); what the row leaves a tile's content is KPI_ROW_H - 2 x KPI_PAD_Y = 142px. */
+export const KPI_PAD_Y = 18;
+export const KPI_PAD_X = 20;
+/** The "since" tile has to fit in those 142px: its label line (16px, text-xs), three figure rows and three reserved note lines (other, the
+ * reason there is no figure, repos not in the baseline). 16 + 3 x 26 + 3 x 16 = 142: the rows are as spread as the row can allow; kpi-tiles.tsx applies these. */
+export const KPI_SINCE_ROW_H = 26;
+export const KPI_NOTE_H = 16;
+/** The SLA tile's rows: a ~33px pitch, as the mockup's. */
+export const KPI_SLA_ROW_H = 33;
 export const OWNERSHIP_BODY_H = 330;   // tables scroll inside it; header row and Total row stay pinned
 export const TEAM_ROW_H = 50;
 // The Owning teams table's pinned header (a band row over a column-header row) and the † footnote under its Total row.
@@ -19,6 +28,11 @@ export const TEAM_HEAD_H = TEAM_BAND_H + TEAM_COLHEAD_H;
 export const TEAM_FOOTNOTE_H = 20;
 export const TREND_PLOT_H = 220;
 export const SPARK_H = 24;
+/** The trend card's Range select, so the figures block beside it never moves when the range changes ("Last 90 days" is its longest option). */
+export const TREND_RANGE_W = 128;
+/** The trend legend's column minimum. 170 (the mockup's) gives 5 columns at 1024px, so the 13 entries of a full legend (12 colours and "Other") take
+ * the 3 reserved lines; 180 gave 4 columns there and 4 lines, 16px over the reserve. */
+export const TREND_LEGEND_MIN_W = 170;
 
 // Alerts.
 export const ALERTS_STRIP_H = 72;
@@ -41,12 +55,16 @@ export const RAIL_FOOT_MIN_H = 1 + 2 * 10 + 16 + 2 + 3 * 16;
 export const DRAWER_W = 460;
 export const DRAWER_MAX_W = '92vw';
 export const COVERAGE_LINE_MIN_H = 22;
-/** The header's coverage line: slot widths in px, sized for counts of up to two digits in the page's font. The
- * unmeasured badge's slot is always rendered, and the two counts sit in slots too, so the items after each keep
- * their place when a filter change moves a count between zero and non-zero or between one digit and two. */
-export const COVERAGE_BADGE_SLOT_W = 168;
-export const COVERAGE_EXCLUDED_SLOT_W = 160;
-export const COVERAGE_TAGGING_SLOT_W = 120;
+/** The header's coverage line: slot widths in px, sized for the longest ONE-digit text in the page's font (measured: the badge at its
+ * widest digit, "▲ 8 unmeasured repos", 147.7px with its padding and border; "· 4 excluded by policy" 123.1px; "· 4 need tagging"
+ * 92.4px; each rounded up by 2px), so the link sits close to the text. The unmeasured badge's slot is always rendered, and the two
+ * counts sit in slots too, so the items after each keep their place when a filter change moves a count between zero and non-zero.
+ * A count of two digits is cut with "…" (its full text is in the `title`) rather than pushing the items after it. */
+export const COVERAGE_BADGE_SLOT_W = 150;
+export const COVERAGE_EXCLUDED_SLOT_W = 126;
+export const COVERAGE_TAGGING_SLOT_W = 95;
+/** The coverage line's divider above it, in the header card: the space from the divider to the line, in px. */
+export const COVERAGE_RULE_PAD = 14;
 /** The drawer's Policy list: the label column. */
 export const POLICY_LABEL_W = 96;
 /** The Alerts tab's "N open" slot: wide enough for "9,999 open", so the tab does not resize when the count arrives. */

@@ -2,7 +2,7 @@
 // src/lib/__tests__/unit/vuln-repo-table.test.tsx
 // The ownership card's "Repositories" tab.
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import RepoTable, { REPO_TEAM_COL_W } from '@/app/vulnerabilities/repo-table';
+import RepoTable, { REPO_NUM_COL_MIN_W, REPO_TEAM_COL_W } from '@/app/vulnerabilities/repo-table';
 import { TEAM_ROW_H, Z } from '@/app/vulnerabilities/dimensions';
 import { unmeasuredReason } from '@/app/vulnerabilities/labels';
 import type { SummaryData, ReposData } from '@/app/vulnerabilities/api-types';
@@ -187,6 +187,34 @@ describe('hidden severity', () => {
   });
 });
 
+describe('column floors and header type', () => {
+  // Revert: drop the floor from the Open or Overdue columns (their headers are the longest and are cut below ~1440px), or give the floor to Oldest / Next due.
+  it('the Open and Overdue columns have a REPO_NUM_COL_MIN_W floor; Oldest open, Next due and the name keep a zero minimum', () => {
+    render(<RepoTable {...table()} />);
+    const tracks = (screen.getAllByRole('columnheader')[0].parentElement as HTMLElement).style.gridTemplateColumns.split(/ (?![^()]*\))/);
+    // name, team, open crit, overdue crit, open high, overdue high, oldest open, next due
+    expect(tracks).toHaveLength(8);
+    expect(tracks[2]).toBe(`minmax(${REPO_NUM_COL_MIN_W}px, 0.8fr)`);
+    expect(tracks[3]).toBe(`minmax(${REPO_NUM_COL_MIN_W}px, 0.8fr)`);
+    expect(tracks[4]).toBe(`minmax(${REPO_NUM_COL_MIN_W}px, 0.8fr)`);
+    expect(tracks[5]).toBe(`minmax(${REPO_NUM_COL_MIN_W}px, 0.8fr)`);
+    expect(tracks[6]).toBe('minmax(0, 0.8fr)');
+    expect(tracks[7]).toBe('minmax(0, 1.1fr)');
+    expect(REPO_NUM_COL_MIN_W).toBe(112);
+  });
+
+  // Revert: go back to TYPE.tableHeader (11px, 0.06em): "OVERDUE HIGH" is then cut at 1440px.
+  it('every header is 10.5px / 600 / 0.02em, uppercase, with its full label as a title', () => {
+    render(<RepoTable {...table()} />);
+    for (const h of screen.getAllByRole('columnheader')) {
+      const b = within(h).getByRole('button');
+      expect(b.className.split(' ')).toEqual(expect.arrayContaining(['text-[10.5px]', 'font-semibold', 'uppercase', 'tracking-[0.02em]']));
+      expect(b.className).not.toContain('text-[11px]');
+      expect(b.getAttribute('title')).toBeTruthy();
+    }
+  });
+});
+
 describe('unmeasured repositories', () => {
   // Revert: show the stored counts, or word the band differently.
   it('are listed last as a hatched band, with their open counts unknown and no stored figure on screen', () => {
@@ -197,6 +225,18 @@ describe('unmeasured repositories', () => {
     expect(band.className).toContain('vuln-hatch');
     expect(r.textContent).not.toMatch(/\b8\b|\b5\b/);
     expect(order()[order().length - 1]).toBe('invoice-render');
+  });
+
+  // Revert: put `font-semibold` back on the band (the tail then reads bold too), or upper-case the whole text.
+  it('the band\'s lead is bold capitals and its tail is normal weight and normal case', () => {
+    render(<RepoTable {...table()} />);
+    const lead = screen.getByTestId('repo-unmeasured-lead');
+    const tail = screen.getByTestId('repo-unmeasured-tail');
+    expect(lead.textContent).toBe('▲ UNMEASURED · DEPENDABOT OFF');
+    expect(lead.className).toContain('font-semibold');
+    expect(tail.textContent).toBe(' — alert counts unknown, not zero');
+    expect(tail.className.split(' ')).toEqual(expect.arrayContaining(['font-normal', 'normal-case']));
+    expect(screen.getByTestId('repo-unmeasured-band').className).not.toContain('font-semibold');
   });
 
   it('the band spans every numeric column in every SLA state', () => {

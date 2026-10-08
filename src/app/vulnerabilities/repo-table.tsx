@@ -29,16 +29,24 @@ const ROW_FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible
 /** The pinned header row's height, and the pinned footer's: its row plus the 1px border above it. Also the scroller's scroll padding. */
 const REPO_HEAD_H = 40;
 const REPO_FOOT_H = TEAM_ROW_H + 1;
+/**
+ * The Open and Overdue columns' floor, in px. Their headers ("OVERDUE HIGH ↕") are the longest labels in the table and are never cut at
+ * 1440px, where the 0.8fr share is wider than this; the floor only matters below that, where the share would cut them.
+ */
+export const REPO_NUM_COL_MIN_W = 112;
+/** The headers' type, as the mockup's: 10.5px, 600, 0.02em. (`TYPE.tableHeader` is 11px at 0.06em, which cut "OVERDUE HIGH" at 1440px.) */
+const HEAD_TYPE = 'text-[10.5px] font-semibold uppercase tracking-[0.02em]';
 
 interface Col { key: RepoSortKey; label: string; width: string }
 
 function columns(src: SecurityViewProps['summary']): Col[] {
   const num = (key: RepoSortKey, label: string): Col => ({ key, label, width: 'minmax(0, 0.8fr)' });
+  const floored = (key: RepoSortKey, label: string): Col => ({ key, label, width: `minmax(${REPO_NUM_COL_MIN_W}px, 0.8fr)` });
   return [
-    num('openCrit', 'Open crit'),
-    ...(slaActive('critical', src) ? [num('overCrit', 'Overdue crit')] : []),
-    num('openHigh', 'Open high'),
-    ...(slaActive('high', src) ? [num('overHigh', 'Overdue high')] : []),
+    floored('openCrit', 'Open crit'),
+    ...(slaActive('critical', src) ? [floored('overCrit', 'Overdue crit')] : []),
+    floored('openHigh', 'Open high'),
+    ...(slaActive('high', src) ? [floored('overHigh', 'Overdue high')] : []),
     num('oldest', 'Oldest open'),
     ...(anySlaActive(src) ? [{ ...num('next', 'Next due'), width: 'minmax(0, 1.1fr)' }] : []),
   ];
@@ -102,7 +110,9 @@ function UnmeasuredRow({ r, cols, template, onOpen }: { r: RepoRow; cols: Col[];
   const u = r.unmeasured!;
   // The band's style is all capitals, so the reason (drawer wording, detail included) is upper-cased here.
   const reason = unmeasuredReason(u).toUpperCase();
-  const text = `▲ UNMEASURED · ${reason} — alert counts unknown, not zero`;
+  const lead = `▲ UNMEASURED · ${reason}`;
+  const tail = ' — alert counts unknown, not zero';
+  const text = `${lead}${tail}`;
   return (
     <div
       role="row" data-testid={`repo-row-${r.fullName}`} tabIndex={0}
@@ -117,8 +127,10 @@ function UnmeasuredRow({ r, cols, template, onOpen }: { r: RepoRow; cols: Col[];
         <div className="truncate text-xs text-gray-500" title={CODEBASE_LABELS[r.codebaseGroup]}>{CODEBASE_LABELS[r.codebaseGroup]}</div>
       </div>
       <div role="cell" className={`${TYPE.body} min-w-0 truncate px-2 text-gray-300`} title={r.team}>{r.team}</div>
-      <div role="cell" data-testid="repo-unmeasured-band" title={text} className="vuln-hatch mx-2 min-w-0 truncate rounded border border-warn-line px-2 py-1 text-xs font-semibold text-warn" style={{ gridColumn: `span ${cols.length}` }}>
-        {text}
+      <div role="cell" data-testid="repo-unmeasured-band" title={text} className="vuln-hatch mx-2 min-w-0 truncate rounded border border-warn-line px-2 py-1 text-xs text-warn" style={{ gridColumn: `span ${cols.length}` }}>
+        {/* The lead is bold capitals (the reason is data, so it is upper-cased here); the tail is ordinary text in the secondary colour. */}
+        <span data-testid="repo-unmeasured-lead" className="font-semibold">{lead}</span>
+        <span data-testid="repo-unmeasured-tail" className="font-normal normal-case text-gray-300">{tail}</span>
       </div>
     </div>
   );
@@ -162,7 +174,7 @@ export default function RepoTable({ summary, data, url, openDrawer, nameFilter }
       <div key={key} role="columnheader" aria-sort={active ? (active.dir === 'asc' ? 'ascending' : 'descending') : 'none'} className={`px-2 ${shown ? '' : DIM}`}>
         <button
           type="button" disabled={!shown} title={label}
-          className={`${TYPE.tableHeader} flex w-full items-center gap-1 whitespace-nowrap leading-[13px] ${right ? 'justify-end text-right' : 'text-left'} ${active ? 'text-white' : 'text-gray-400'} disabled:cursor-default`}
+          className={`${HEAD_TYPE} flex w-full items-center gap-1 whitespace-nowrap leading-[13px] ${right ? 'justify-end text-right' : 'text-left'} ${active ? 'text-white' : 'text-gray-400'} disabled:cursor-default`}
           onClick={() => setSort(s => nextSort(shownRepoSort(s, url.severity), key, REPO_SORT_FIRST[key]))}
         >
           <span className="min-w-0 truncate">{label}</span>

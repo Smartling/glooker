@@ -4,7 +4,8 @@
 // need no fake clock (Recharts schedules animation frames).
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import TrendCard from '@/app/vulnerabilities/trend-card';
-import { TREND_PLOT_H } from '@/app/vulnerabilities/dimensions';
+import { TREND_LEGEND_MIN_W, TREND_PLOT_H, TREND_RANGE_W } from '@/app/vulnerabilities/dimensions';
+import { TEAM_COLOR_SLOTS } from '@/app/vulnerabilities/team-colors';
 import { assignTeamColors } from '@/app/vulnerabilities/team-colors';
 import { dayNumber, trendDomain } from '@/app/vulnerabilities/trend-model';
 import * as labels from '@/app/vulnerabilities/labels';
@@ -162,15 +163,17 @@ describe('header', () => {
 });
 
 describe('header layout (B1)', () => {
-  // Revert: put the select back before the figures (it then slides left or right as the figures' width changes), or let the block size to its text.
-  it('the Range select is the rightmost child of the header, after a fixed-width figures block', () => {
+  // Revert: put the figures back before the select (the mockup has the Range select on the left), or let the select size to its option (the figures' block then slides when the range changes).
+  it('the Range select comes first (fixed width), and the figures block is the last child of the header, right-aligned at the card edge', () => {
     render(<TrendCard {...props()} />);
-    const select = screen.getByLabelText('Range');
+    const select = screen.getByLabelText('Range') as HTMLSelectElement;
     const right = select.parentElement as HTMLElement;
-    expect(right.lastElementChild).toBe(select);
+    expect(right.firstElementChild).toBe(select);
+    expect(select.style.width).toBe(`${TREND_RANGE_W}px`);
+    expect(select.className).toContain('shrink-0');
     expect(right.parentElement!.lastElementChild).toBe(right);
     const block = screen.getByTestId('trend-open-now').parentElement as HTMLElement;
-    expect(right.firstElementChild).toBe(block);
+    expect(right.lastElementChild).toBe(block);
     expect(block.className).toContain('w-56');
     expect(block.className).toContain('text-right');
   });
@@ -409,6 +412,37 @@ describe('legend', () => {
     expect(legend().map(e => e.textContent).join(' ')).toContain('Swapped');
   });
 
+  // Revert: go back to `flex flex-wrap` (the columns then follow each entry's own width), or change the 170px minimum: the entries do not keep to 5 columns at 1024px.
+  it('is a grid of auto-fill columns at least TREND_LEGEND_MIN_W wide, under a hairline', () => {
+    render(<TrendCard {...props(many)} />);
+    const el = screen.getByTestId('trend-legend');
+    expect(el.className.split(' ')).toContain('grid');
+    expect(el.className).not.toContain('flex-wrap');
+    expect(el.style.gridTemplateColumns).toBe(`repeat(auto-fill, minmax(${TREND_LEGEND_MIN_W}px, 1fr))`);
+    const rule = screen.getByTestId('trend-legend-rule');
+    expect(rule.className.split(' ')).toEqual(expect.arrayContaining(['border-t', 'border-gray-800']));
+    expect(rule.nextElementSibling).toBe(el);
+  });
+
+  // Revert: drop the second sentence, or hard-code the number.
+  it('the footnote is the two sentences of the mockup, and its number is the palette size', () => {
+    render(<TrendCard {...props()} />);
+    expect(screen.getByTestId('trend-footnote').textContent).toBe(
+      `Each dot is one stored measurement (an imported CSV run or a sync). The ${TEAM_COLOR_SLOTS} owning teams with the most open alerts get a colour; the rest are grey.`,
+    );
+    expect(TEAM_COLOR_SLOTS).toBe(12);
+  });
+
+  // Revert: drop `tick={AXIS_TICK}` from either axis: its labels go back to the chart's 12px.
+  it('both axes\' labels are 11px', () => {
+    const { container } = render(<TrendCard {...props()} />);
+    for (const axis of ['.recharts-xAxis-tick-labels', '.recharts-yAxis-tick-labels']) {
+      const ticks = Array.from(container.querySelectorAll(`${axis} .recharts-cartesian-axis-tick-value`));
+      expect(ticks.length).toBeGreaterThan(0);
+      for (const t of ticks) expect(t.getAttribute('font-size')).toBe('11');
+    }
+  });
+
   // Revert: drop the min-height (the card then resizes between an empty and a populated state), or go back to two lines (32px).
   it('reserves three lines in every state at 12px, and the footnote is always there, also at 12px', () => {
     for (const p of [props(), props([]), ovProps({ data: { trend: slot<TrendData>(undefined, { loading: true }) } })]) {
@@ -419,7 +453,7 @@ describe('legend', () => {
       expect(el.className).toContain('leading-4');
       expect(el.className).not.toContain('text-[11px]');
       expect(screen.getByTestId('trend-footnote').className).toContain('text-xs');
-      expect(screen.getByTestId('trend-footnote').textContent).toBe('Each dot is one stored measurement (an imported CSV run or a sync).');
+      expect(screen.getByTestId('trend-footnote').textContent).toContain('Each dot is one stored measurement (an imported CSV run or a sync).');
       unmount();
     }
   });

@@ -3,6 +3,7 @@
 // The KPI tile "{Severity} since {date}": new / resolved (N dismissed) / reopened since the baseline.
 import { render, screen, within } from '@testing-library/react';
 import KpiTiles from '@/app/vulnerabilities/kpi-tiles';
+import { KPI_NOTE_H, KPI_PAD_X, KPI_PAD_Y, KPI_SINCE_ROW_H } from '@/app/vulnerabilities/dimensions';
 import { ovBaseline, ovDelta, ovDeltaTeam, ovNoBaseline, ovProps } from '../support/security-fixtures';
 
 const tile = () => screen.getByTestId('kpi-since');
@@ -158,10 +159,29 @@ describe('fixed shape', () => {
     for (const c of available) { expect(c).toContain('h-4'); expect(c).toContain('truncate'); }
   });
 
-  it('the three figure rows are single fixed-height lines whose label truncates', () => {
+  // Revert: size a row by its text again (no inline height), or let the label wrap: the tile then changes shape with the figures.
+  it('the three figure rows are single fixed-height lines (KPI_SINCE_ROW_H) whose label truncates', () => {
     render(<KpiTiles {...withDelta(ovDelta(total()))} />);
-    const rows = Array.from(tile().querySelectorAll('div.h-5'));
+    const rows = within(tile()).getAllByTestId('kpi-since-row');
     expect(rows).toHaveLength(3);
-    for (const r of rows) expect(r.querySelector('.truncate')).not.toBeNull();
+    for (const r of rows) {
+      expect(r.style.height).toBe(`${KPI_SINCE_ROW_H}px`);
+      expect(r.querySelector('.truncate')).not.toBeNull();
+    }
+  });
+
+  // Revert: set the tile's padding back to `p-4`, or the reserved lines' height to anything but KPI_NOTE_H.
+  it('the tile has the mockup\'s 18px 20px padding and its three reserved lines are KPI_NOTE_H tall', () => {
+    render(<KpiTiles {...withDelta(ovDelta(total()))} />);
+    expect(tile().style.padding).toBe(`${KPI_PAD_Y}px ${KPI_PAD_X}px`);
+    expect(tile().className).not.toMatch(/\bp-4\b/);
+    for (const id of ['kpi-since-other', 'kpi-since-caption', 'kpi-since-repos']) expect(screen.getByTestId(id).style.height).toBe(`${KPI_NOTE_H}px`);
+  });
+
+  it('the figures are 18px bold and the labels 13px in the secondary grey', () => {
+    render(<KpiTiles {...withDelta(ovDelta(total()))} />);
+    const row = within(tile()).getAllByTestId('kpi-since-row')[0];
+    expect(row.lastElementChild!.className.split(' ')).toEqual(expect.arrayContaining(['text-lg', 'font-bold']));
+    expect(row.firstElementChild!.className.split(' ')).toEqual(expect.arrayContaining(['text-[13px]', 'text-gray-400']));
   });
 });

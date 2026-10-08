@@ -4,6 +4,8 @@ import {
   ALERT_ROW_H, ALERT_PAGE_SIZE, ALERT_LIST_H, RAIL_W, TREND_PLOT_H, SPARK_H, DRAWER_W, DRAWER_MAX_W,
   COVERAGE_LINE_MIN_H, SELECT_W, FILTER_ROW_GAP, BAR_ROW_H, FILTER_CAPTION_H, FILTER_CAPTION_GAP, FILTER_SELECT_H, FILTER_ROW_H,
   BAR_PAD_TOP, BAR_ROW_GAP, FILTER_CONTROLS_H, FILTER_PAD_BOTTOM, FILTER_RULE_H,
+  COVERAGE_BADGE_SLOT_W, COVERAGE_EXCLUDED_SLOT_W, COVERAGE_TAGGING_SLOT_W, COVERAGE_RULE_PAD,
+  KPI_PAD_Y, KPI_PAD_X, KPI_SINCE_ROW_H, KPI_NOTE_H, KPI_SLA_ROW_H, TREND_RANGE_W, TREND_LEGEND_MIN_W,
   FILTER_BAR_H, RESET_SLOT_W, FILTER_ROW_W, Z, TYPE,
 } from '@/app/vulnerabilities/dimensions';
 
@@ -47,6 +49,31 @@ it('the filter row (four selects, the date slot, the Reset slot at its right end
   expect(FILTER_ROW_W).toBe(sum);
   expect(FILTER_ROW_W).toBe(932);   // 220 + 170 + 140 + 118 + 128 + 116 and five 8px gaps; vuln-filter-bar.test.tsx checks it against the rendered row
   expect(FILTER_ROW_W).toBeLessThanOrEqual(1024 - 2 * PAGE_PAD.x - 15);
+});
+
+// Revert: change a slot width, or the divider's padding, without redoing the measurement the constants' comment records (the widest ONE-digit text, +2px).
+it('the coverage line\'s slots are one-digit-safe widths (measured +2px), not two-digit ones, and the divider pad is the mockup\'s 14px', () => {
+  expect([COVERAGE_BADGE_SLOT_W, COVERAGE_EXCLUDED_SLOT_W, COVERAGE_TAGGING_SLOT_W]).toEqual([150, 126, 95]);
+  expect(COVERAGE_RULE_PAD).toBe(14);
+});
+
+// Revert: grow a figure row or a reserved line without shrinking another: the "since" tile (label + 3 rows + 3 reserved lines) then overflows its 142px.
+it('the KPI tiles use the mockup\'s padding, and the "since" tile\'s parts fit the room the row leaves; the SLA rows keep a ~33px pitch', () => {
+  expect([KPI_PAD_Y, KPI_PAD_X]).toEqual([18, 20]);
+  const inner = KPI_ROW_H - 2 * KPI_PAD_Y;
+  const LABEL_LINE_H = 16;   // text-xs
+  expect(inner).toBe(142);
+  expect(LABEL_LINE_H + 3 * KPI_SINCE_ROW_H + 3 * KPI_NOTE_H).toBeLessThanOrEqual(inner);
+  expect(KPI_SLA_ROW_H).toBe(33);
+});
+
+it('the trend card\'s Range select is fixed, and its legend columns are the mockup\'s 170px (5 columns at 1024px keep 13 entries on the 3 reserved lines)', () => {
+  expect(TREND_RANGE_W).toBe(128);
+  expect(TREND_LEGEND_MIN_W).toBe(170);
+  // The card's content at 1024px: 1024 - 2 x 24 (page padding) - 15 (scrollbar) - 2 x 16 (card padding) = 929; 5 columns and 4 gaps of 16px.
+  const content = 1024 - 2 * PAGE_PAD.x - 15 - 2 * 16;
+  expect(Math.floor((content + 16) / (TREND_LEGEND_MIN_W + 16))).toBeGreaterThanOrEqual(5);
+  expect(Math.ceil(13 / 5)).toBe(3);
 });
 
 it('layers stack as the spec requires: pinned table rows < sticky bar < drawer', () => {

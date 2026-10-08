@@ -1,4 +1,4 @@
-import { displayDate, utcToday, unmeasuredBadgeText, unmeasuredCountText, unmeasuredReason } from '@/app/vulnerabilities/labels';
+import { displayDate, utcToday, unmeasuredBadgeText, unmeasuredChipText, unmeasuredCountText, unmeasuredReason } from '@/app/vulnerabilities/labels';
 
 describe('displayDate', () => {
   it('drops the year within the current year and keeps it in any other year', () => {
@@ -50,5 +50,12 @@ describe('the unmeasured badge phrase', () => {
     expect(unmeasuredBadgeText(1)).toBe('▲ 1 unmeasured repo');
     expect(unmeasuredBadgeText(12)).toBe('▲ 12 unmeasured repos');
     expect(unmeasuredBadgeText(1234)).toBe('▲ 1,234 unmeasured repos');
+  });
+
+  // Revert: give the table chip the long wording again ("repos" is then the column's subject twice, and the chip is cut at 1024px).
+  it('the table chip is the short form: no "repo(s)", the same ▲ and grouping', () => {
+    expect(unmeasuredChipText(1)).toBe('▲ 1 unmeasured');
+    expect(unmeasuredChipText(2)).toBe('▲ 2 unmeasured');
+    expect(unmeasuredChipText(1234)).toBe('▲ 1,234 unmeasured');
   });
 });

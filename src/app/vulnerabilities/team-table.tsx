@@ -11,7 +11,7 @@ import type { Severity } from '@/lib/vulnerabilities/types';
 import type { SecurityViewProps } from './view-props';
 import { TEAM_BAND_H, TEAM_COLHEAD_H, TEAM_FOOTNOTE_H, TEAM_HEAD_H, TEAM_ROW_H, TYPE, Z } from './dimensions';
 import { dash, deltaBaselineCaption, resolvedCaption } from './format';
-import { unmeasuredBadgeText } from './labels';
+import { unmeasuredChipText } from './labels';
 import { baselineUnavailableText, carriedFootnote, carriedTitle } from './overview-format';
 import { slaActive } from './sla-state';
 import { slotView } from './slot-view';
@@ -69,27 +69,33 @@ interface RowCtx {
   deltas: { critical: SecurityViewProps['summary']['delta']['critical']; high: SecurityViewProps['summary']['delta']['high'] };
 }
 
+/**
+ * One tinted cell. It stretches to the row's full height (`self-stretch`, the row centres its other cells) and centres its own text, so the
+ * critical and high wash is one continuous column band through every row and the Total row, not a strip as tall as the text.
+ */
+const CELL = 'flex items-center justify-end self-stretch px-2';
+
 /** The cells of one severity group for one row (or the Total row). */
 function GroupCells({ row, g, ctx }: { row: TeamRow; g: typeof GROUPS[number]; ctx: RowCtx }) {
   const hasOverdue = ctx.columns[g.sev].overdue;
   const n = 4 + (hasOverdue ? 1 : 0);
   if (!sevShown(ctx.severity, g.sev)) {
-    return <>{Array.from({ length: n }, (_, i) => <div key={i} role="cell" className={`${g.tint} px-2 text-right text-gray-600`}>{HIDDEN}</div>)}</>;
+    return <>{Array.from({ length: n }, (_, i) => <div key={i} role="cell" className={`${g.tint} ${CELL} text-gray-600`}>{HIDDEN}</div>)}</>;
   }
   const c: SevCell = row[g.sev];
   const carried = c.resolved !== null && c.carriedResolved > 0;
   return (
     <>
-      <div role="cell" className={`${g.tint} px-2 text-right font-semibold tabular-nums text-white`}>{dash(c.open)}</div>
-      <div role="cell" className={`${g.tint} px-2 text-right tabular-nums`}>{changeCell(deltaOpenFor(ctx.deltas[g.sev], row.team))}</div>
-      <div role="cell" className={`${g.tint} px-2 text-right tabular-nums text-gray-200`} title={`of which dismissed: ${dash(c.dismissed)}`}>
+      <div role="cell" className={`${g.tint} ${CELL} font-semibold tabular-nums text-white`}>{dash(c.open)}</div>
+      <div role="cell" className={`${g.tint} ${CELL} tabular-nums`}>{changeCell(deltaOpenFor(ctx.deltas[g.sev], row.team))}</div>
+      <div role="cell" className={`${g.tint} ${CELL} tabular-nums text-gray-200`} title={`of which dismissed: ${dash(c.dismissed)}`}>
         {dash(c.resolved)}
         {carried && <span className="ml-0.5 text-warn" title={carriedTitle(c.carriedResolved)}>†</span>}
         <span className="ml-1 text-xs text-gray-500">({dash(c.dismissed)})</span>
       </div>
-      <div role="cell" className={`${g.tint} px-2 text-right tabular-nums text-gray-300`}>{dash(c.pctClosed, '%')}</div>
+      <div role="cell" className={`${g.tint} ${CELL} tabular-nums text-gray-300`}>{dash(c.pctClosed, '%')}</div>
       {hasOverdue && (
-        <div role="cell" className={`${g.tint} px-2 text-right tabular-nums ${c.overdue ? 'font-bold text-red-400' : 'text-gray-600'}`}>{dash(c.overdue)}</div>
+        <div role="cell" className={`${g.tint} ${CELL} tabular-nums ${c.overdue ? 'font-bold text-red-400' : 'text-gray-600'}`}>{dash(c.overdue)}</div>
       )}
     </>
   );
@@ -99,11 +105,11 @@ function UnmeasuredBadge({ n, onOpen }: { n: number; onOpen: SecurityViewProps['
   return (
     <button
       type="button"
-      className="mt-0.5 w-fit max-w-full truncate rounded border border-warn-line bg-warn-bg px-1 text-[10px] leading-4 text-warn"
+      className="vuln-hatch mt-0.5 w-fit max-w-full truncate rounded border border-warn-line px-1 text-[10px] leading-4 text-warn"
       title={`Open counts for ${n} ${n === 1 ? 'repository are' : 'repositories are'} unknown. Their resolved alerts and measured history still count in this row.`}
       onClick={e => { e.stopPropagation(); onOpen(e.currentTarget); }}
     >
-      {unmeasuredBadgeText(n)}
+      {unmeasuredChipText(n)}
     </button>
   );
 }

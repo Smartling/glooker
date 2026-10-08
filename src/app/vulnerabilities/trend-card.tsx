@@ -13,13 +13,15 @@ import { dash } from './format';
 import { slotView } from './slot-view';
 import RefreshNote from './refresh-note';
 import type { TrendRange } from './security-state';
-import { TREND_PLOT_H, TYPE } from './dimensions';
+import { TREND_LEGEND_MIN_W, TREND_PLOT_H, TREND_RANGE_W, TYPE } from './dimensions';
 import { displayDate, utcToday } from './labels';
 import { openChange } from './overview-format';
-import { OTHER_TEAM_COLOR, assignTeamColors } from './team-colors';
+import { OTHER_TEAM_COLOR, TEAM_COLOR_SLOTS, assignTeamColors } from './team-colors';
 import { buildLegend, dayNumber, isoOfDay, TREND_RANGES, trendDomain, trendRows, trendStatus, trendTicks, type TrendRow } from './trend-model';
 
-const FOOTNOTE = 'Each dot is one stored measurement (an imported CSV run or a sync).';
+const FOOTNOTE = `Each dot is one stored measurement (an imported CSV run or a sync). The ${TEAM_COLOR_SLOTS} owning teams with the most open alerts get a colour; the rest are grey.`;
+/** The axes' labels: 11px, as the mockup's. */
+const AXIS_TICK = { fontSize: 11 } as const;
 const SUBTITLE = 'One point per stored measurement';
 
 function Plot({ series, team, range, today }: { series: TrendSeries[]; team: string | null; range: TrendRange; today: string }) {
@@ -37,9 +39,9 @@ function Plot({ series, team, range, today }: { series: TrendSeries[]; team: str
         <CartesianGrid vertical={false} />
         <XAxis
           dataKey="t" type="number" domain={[dayNumber(start), dayNumber(end)]} ticks={trendTicks(start, end)}
-          tickFormatter={(t: number) => displayDate(isoOfDay(t), today)} tickLine={false} axisLine={false} allowDataOverflow
+          tickFormatter={(t: number) => displayDate(isoOfDay(t), today)} tickLine={false} axisLine={false} allowDataOverflow tick={AXIS_TICK}
         />
-        <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={36} domain={[0, 'auto']} />
+        <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={36} domain={[0, 'auto']} tick={AXIS_TICK} />
         <ChartTooltip
           itemSorter={item => -toNum(item.value)}
           content={<ChartTooltipContent indicator="line" labelFormatter={(_v, payload) => displayDate(String((payload?.[0]?.payload as TrendRow | undefined)?.date ?? ''), today)} />}
@@ -85,18 +87,20 @@ export default function TrendCard({ summary, data, url }: SecurityViewProps) {
             <h3 className="truncate text-sm font-semibold text-white" title={heading}>{heading}</h3>
             <p className="truncate text-xs text-gray-400" title={SUBTITLE}>{SUBTITLE}</p>
           </div>
-          {/* The Range select is the rightmost control and never moves: the figures sit in a fixed-width block to its left, one line each (cut with "…", the full text in the title). */}
-          <div className="flex shrink-0 items-start gap-4">
+          {/* As the mockup: the Range select first, then the figures, right-aligned at the card's edge. Both have a fixed width (the select's
+              own, the figures' block at 224px), so neither moves when the range or a figure changes; each figure is one line (cut with "…", the full text in the title). */}
+          <div className="flex shrink-0 items-center gap-4">
+            <select
+              aria-label="Range" value={url.range} onChange={e => url.setRange(e.target.value as TrendRange)}
+              className={`h-8 shrink-0 ${TYPE.control} border border-gray-700 bg-gray-800 px-2 text-xs text-gray-200`}
+              style={{ width: TREND_RANGE_W }}
+            >
+              {TREND_RANGES.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+            </select>
             <div className={`w-56 text-right${stale || data.summary.stale ? ' opacity-60' : ''}`}>
               <div data-testid="trend-open-now" className="truncate text-sm font-semibold text-white" title={openNow}>{openNow}</div>
               <div data-testid="trend-change" className={`h-4 truncate text-xs leading-4 ${change.toneClass}`} title={change.text}>{change.text}</div>
             </div>
-            <select
-              aria-label="Range" value={url.range} onChange={e => url.setRange(e.target.value as TrendRange)}
-              className={`h-8 ${TYPE.control} border border-gray-700 bg-gray-800 px-2 text-xs text-gray-200`}
-            >
-              {TREND_RANGES.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
-            </select>
           </div>
         </div>
 
@@ -126,10 +130,15 @@ export default function TrendCard({ summary, data, url }: SecurityViewProps) {
 
         {/* Entries are keyed by position: keyed by team, a team click looked (to the layout-shift API)
             like the surviving entry sliding to the start of the row. Three lines are reserved, and a long team name is cut at 160px. */}
-        <div data-testid="trend-legend" className={`mt-3 flex min-h-[48px] flex-wrap content-start gap-x-4 gap-y-0 text-xs leading-4${stale ? ' opacity-60' : ''}`}>
+        <div data-testid="trend-legend-rule" className="mt-3 border-t border-gray-800" aria-hidden="true" />
+        <div
+          data-testid="trend-legend"
+          className={`mt-1.5 grid min-h-[48px] content-start gap-x-4 gap-y-0 text-xs leading-4${stale ? ' opacity-60' : ''}`}
+          style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${TREND_LEGEND_MIN_W}px, 1fr))` }}
+        >
           {legend.map((e, i) => (
             <span
-              key={i} data-testid="trend-legend-entry" title={e.title} className="flex cursor-default items-center gap-1.5"
+              key={i} data-testid="trend-legend-entry" title={e.title} className="flex min-w-0 cursor-default items-center gap-1.5"
               style={{ opacity: e.dimmed ? 0.4 : 1 }}
             >
               <i aria-hidden="true" className="inline-block h-[3px] w-3 rounded-sm" style={{ background: e.color }} />

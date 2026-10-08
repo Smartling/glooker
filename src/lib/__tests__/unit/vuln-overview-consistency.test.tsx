@@ -9,7 +9,7 @@ import KpiTiles from '@/app/vulnerabilities/kpi-tiles';
 import TeamTable from '@/app/vulnerabilities/team-table';
 import RepoTable from '@/app/vulnerabilities/repo-table';
 import { kSev, type SeverityFilter } from '@/app/vulnerabilities/security-state';
-import { unmeasuredBadgeText } from '@/app/vulnerabilities/labels';
+import { unmeasuredChipText } from '@/app/vulnerabilities/labels';
 import type { SummaryData } from '@/app/vulnerabilities/api-types';
 import { computePivot, computeRepoRows } from '@/lib/vulnerabilities/aggregate';
 import { __clearVulnConfigCache } from '@/lib/vulnerabilities/config';
@@ -119,6 +119,6 @@ describe('the Open tile, the team row and the repositories footer agree', () => 
   it('the team table lists every team whatever the selection, and the unmeasured repository\'s team row is present', () => {
     renderOverview('Payments', 'both');
     for (const t of ['Payments', 'Search', 'Platform']) expect(screen.getByTestId(`team-row-${t}`)).toBeTruthy();
-    expect(within(screen.getByTestId('team-row-Search')).getByText(unmeasuredBadgeText(1))).toBeTruthy();
+    expect(within(screen.getByTestId('team-row-Search')).getByText(unmeasuredChipText(1))).toBeTruthy();
   });
 });

@@ -2,7 +2,7 @@
 // src/lib/__tests__/unit/vuln-security-header.test.tsx
 import { render, screen, fireEvent, within, cleanup } from '@testing-library/react';
 import SecurityHeader, { securityMeta, staleHours, ConfigErrorBanner, CoverageLine, type SecurityHeaderProps } from '@/app/vulnerabilities/security-header';
-import { COVERAGE_LINE_MIN_H, COVERAGE_BADGE_SLOT_W, COVERAGE_EXCLUDED_SLOT_W, COVERAGE_TAGGING_SLOT_W } from '@/app/vulnerabilities/dimensions';
+import { COVERAGE_LINE_MIN_H, COVERAGE_BADGE_SLOT_W, COVERAGE_EXCLUDED_SLOT_W, COVERAGE_TAGGING_SLOT_W, COVERAGE_RULE_PAD } from '@/app/vulnerabilities/dimensions';
 import { unmeasuredBadgeText } from '@/app/vulnerabilities/labels';
 import type { CoverageData, Slot } from '@/app/vulnerabilities/api-types';
 import { summaryFixture, reposFixture, REPO_ROWS, repoRow, coverageFixture, coverageRow, slot, syncInfo } from '../support/security-fixtures';
@@ -157,6 +157,16 @@ describe('SecurityHeader', () => {
     expect(screen.getByText('Updating…')).toBeTruthy();
   });
 
+  // Revert: drop the wrapper's border-t or its padding, or wrap the line in nothing (the line is then flush under the banner).
+  it('the coverage line sits under a 1px divider with COVERAGE_RULE_PAD above it, and keeps its own minimum height', () => {
+    render(<SecurityHeader {...props()} />);
+    const wrap = screen.getByTestId('coverage-divider');
+    expect(wrap.className.split(' ')).toEqual(expect.arrayContaining(['border-t', 'border-gray-800']));
+    expect(wrap.style.paddingTop).toBe(`${COVERAGE_RULE_PAD}px`);
+    expect(wrap.firstElementChild).toBe(screen.getByTestId('coverage-line'));
+    expect(screen.getByTestId('coverage-line').style.minHeight).toBe(`${COVERAGE_LINE_MIN_H}px`);
+  });
+
   it('renders the config-error banner under the header', () => {
     render(<SecurityHeader {...props({ summary: summaryFixture({ configErrors: [{ source: 'startup', variable: 'VULN_X', rule: 'VULN_X entry 1: bad' }] }) })} />);
     expect(screen.getByText('VULN_X entry 1: bad')).toBeTruthy();
@@ -191,7 +201,7 @@ describe('CoverageLine', () => {
       const { unmount } = render(<CoverageLine coverage={s} openDrawer={jest.fn()} />);
       for (const [id, w] of [['coverage-excluded', COVERAGE_EXCLUDED_SLOT_W], ['coverage-tagging', COVERAGE_TAGGING_SLOT_W]] as const) {
         expect(screen.getByTestId(id).textContent).toBe('');
-        expect(screen.getByTestId(id).style.minWidth).toBe(`${w}px`);
+        expect(screen.getByTestId(id).style.width).toBe(`${w}px`);
       }
       // Same elements in the same order as the loaded line, bar the error text that replaces nothing.
       expect(screen.getByTestId('coverage-line').children.length - (s.errorText ? 1 : 0)).toBe(childCount);
@@ -210,25 +220,42 @@ describe('CoverageLine', () => {
     for (const [s, visibility] of states) {
       const { unmount } = render(<CoverageLine coverage={s} openDrawer={jest.fn()} />);
       const reserved = screen.getByTestId('coverage-badge-slot');
-      expect(reserved.style.minWidth).toBe(`${COVERAGE_BADGE_SLOT_W}px`);
+      expect(reserved.style.width).toBe(`${COVERAGE_BADGE_SLOT_W}px`);
       expect(reserved.style.visibility).toBe(visibility);
       unmount();
     }
   });
 
-  // Revert: drop the min-width: "Needs tagging" and the link slide by a digit's width when a count changes.
-  it('the excluded and needs-tagging counts sit in slots with a minimum width, whatever the counts', () => {
+  // Revert: put `minWidth` back for `width` (a two-digit count then widens its slot and pushes the link), or drop `truncate` / the title.
+  it('the excluded and needs-tagging counts sit in slots of a fixed width, whatever the counts; a longer text is cut, with its full text in the title', () => {
     for (const [excluded, tagging] of [[0, 0], [3, 1], [12, 11]]) {
       const { unmount } = render(<CoverageLine coverage={slot(coverageFixture({
         excludedByPolicy: Array.from({ length: excluded }, (_, i) => ({ ...unmeasuredRow, repoId: 100 + i })),
         needsTagging: Array.from({ length: tagging }, (_, i) => ({ ...unmeasuredRow, repoId: 200 + i })),
       }))} openDrawer={jest.fn()} />);
-      expect(screen.getByTestId('coverage-excluded').style.minWidth).toBe(`${COVERAGE_EXCLUDED_SLOT_W}px`);
-      expect(screen.getByTestId('coverage-excluded').textContent).toBe(`· ${excluded} excluded by policy`);
-      expect(screen.getByTestId('coverage-tagging').style.minWidth).toBe(`${COVERAGE_TAGGING_SLOT_W}px`);
-      expect(screen.getByTestId('coverage-tagging').textContent).toBe(`· ${tagging} need tagging`);
+      for (const [id, w, text] of [
+        ['coverage-excluded', COVERAGE_EXCLUDED_SLOT_W, `· ${excluded} excluded by policy`],
+        ['coverage-tagging', COVERAGE_TAGGING_SLOT_W, `· ${tagging} need tagging`],
+      ] as const) {
+        const el = screen.getByTestId(id);
+        expect(el.style.width).toBe(`${w}px`);
+        expect(el.style.minWidth).toBe('');
+        expect(el.textContent).toBe(text);
+        expect(el.getAttribute('title')).toBe(text);
+        expect(el.className.split(' ')).toEqual(expect.arrayContaining(['shrink-0', 'truncate']));
+      }
       unmount();
     }
+  });
+
+  // Revert: put `bg-warn-bg` back for `vuln-hatch` on the badge: the header badge is then a flat wash, unlike every other unmeasured mark.
+  it('the unmeasured badge is hatched like the unmeasured rows, truncates inside its fixed slot and carries its text as a title', () => {
+    render(<CoverageLine coverage={slot(coverageFixture({ unmeasured: [unmeasuredRow] }))} openDrawer={jest.fn()} />);
+    const badge = screen.getByRole('button', { name: unmeasuredBadgeText(1) });
+    expect(badge.className.split(' ')).toEqual(expect.arrayContaining(['vuln-hatch', 'max-w-full']));
+    expect(badge.className).not.toContain('bg-warn-bg');
+    expect(badge.getAttribute('title')).toBe(unmeasuredBadgeText(1));
+    expect((badge.firstElementChild as HTMLElement).className).toContain('truncate');
   });
 
   // Revert: ignore `coverage.stale`: the previous scope's counts look like the new scope's.

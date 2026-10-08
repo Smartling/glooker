@@ -40,5 +40,8 @@ export function unmeasuredReason(u: UnmeasuredWhy): string {
 /** "2 unmeasured repos", "1 unmeasured repo". */
 export const unmeasuredCountText = (n: number): string => `${n.toLocaleString('en-US')} unmeasured ${n === 1 ? 'repo' : 'repos'}`;
 
-/** The unmeasured badge's one phrase: the header's coverage line, the Alerts strip and the team table all print it. */
+/** The unmeasured badge's one phrase: the header's coverage line and the Alerts strip print it. */
 export const unmeasuredBadgeText = (n: number): string => `▲ ${unmeasuredCountText(n)}`;
+
+/** The short form for a table cell, where "repos" is already the column's subject: "▲ 2 unmeasured". */
+export const unmeasuredChipText = (n: number): string => `▲ ${n.toLocaleString('en-US')} unmeasured`;

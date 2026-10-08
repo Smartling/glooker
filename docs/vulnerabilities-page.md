@@ -170,14 +170,14 @@ The page must not jump when a filter changes. The rule is: **a filter change may
 | Element | Fixed size |
 |---|---|
 | Page container | max width 1280px, measured on the content (`box-content`: the 24px side padding sits outside it, so the cards are 1280px wide from a 1328px viewport up, and nothing changes below that); padding 32 / 24 / 40 (top / sides / bottom); 24px gap |
-| Header coverage line | 22px minimum height; the unmeasured badge's slot is always rendered, 168px wide, and hidden when there is no badge; the excluded and need-tagging counts sit in slots 160px and 120px wide |
+| Header coverage line | 22px minimum height, under a divider with 14px of space between them; the unmeasured badge's slot is always rendered, 150px wide (the widest one-digit badge, measured, with a little room for another font), and hidden when there is no badge; the excluded and need-tagging counts sit in slots 126px and 95px wide, sized the same way. A text longer than its slot (a two-digit count) is cut with "…" and carries its full text in a `title` |
 | Sticky bar | 127px: 12px of background above the tabs (taken out of the page gap by a negative top margin), a 34px tabs row (its 1px rule included), 14px of clear space under that rule, and a 67px filters row (a 52px block of a 15px caption, a 5px gap and a 32px select, then 14px to the lower rule and the 1px rule itself). Both rules are borders, so they end at the cards' edges while the bar's background covers the gutters |
 | Bar selects | Codebase 220, Owning team 170, Severity 140, Compare to 118, date input 128; each `shrink-0`, long text truncates with a `title` |
 | Bar reserved slots | "Reset filters" 116px (at the right end of the filter row), date input 128px: hidden, never removed; the Alerts tab's "N open" slot is at least 64px wide |
-| KPI tile row | 178px |
+| KPI tile row | 178px; each tile pads 18px 20px, which leaves 142px of content. The "since" tile spends all of it: a 16px label line, three 26px figure rows and three reserved 16px lines. The SLA tile's rows have a 33px pitch |
 | Ownership card body | 330px (team rows 50px, the team table's pinned header 56px and its † footnote line 20px; tables scroll inside, header and Total row pinned); each tab's count sits in a slot at least 2ch wide |
 | Sparkline slot | 24px |
-| Trend plot | 220px; the legend reserves three lines (48px) and cuts a team name at 160px |
+| Trend plot | 220px; the Range select is 128px wide, the legend's columns are at least 170px wide (five columns at the narrowest supported width, so a full legend of twelve colours and "Other" fits its three reserved lines, 48px) and cut a team name at 160px |
 | Alerts summary strip | 72px; the title column is a fixed 176px, the open figure sits right-aligned in a box at least 36px wide and the overdue figure has a minimum width of 96px; the CRIT block is `shrink-0` |
 | Alerts card | 776px: a 260px rail and the list column |
 | Repository rail | 260px wide; its footer is at least 87px tall (a top border, 10px padding, a 16px sort line, a 2px gap and three 16px lines for the SLA note) |
