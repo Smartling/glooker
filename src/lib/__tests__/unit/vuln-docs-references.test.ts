@@ -152,6 +152,7 @@ const notASizeProse: Array<[value: number, reason: string]> = [
   [1440, 'the second viewport width the layout is checked at'],
   [60, '`opacity-60`: a Tailwind class name'],
   [900, '`bg-gray-900`: a Tailwind class name'],
+  [800, '`bg-gray-800`: a Tailwind class name'],
   [1, 'the 1px light-theme card border, and list numbering'],
   [2, 'the header card\'s 2px light-mode difference, and list numbering'],
 ];

@@ -30,11 +30,11 @@ These were settled during design review (2026-10-07):
 The page has two views that share one sticky filter bar. Both views and the main filters live in the URL, so a team lead can bookmark "Alerts · Payments". The URL keys are listed under "URL state".
 
 - **Header card** (the existing `PageHeader`, unchanged):
-  - the title, plus a meta line: codebase · N {scope value} repositories · N owning teams (for example "Backend · 11 production repositories · 4 owning teams" under the default scope). The scope label comes from `summary.scope.value`, never from a literal. The line does not say "synced daily";
-  - the stale tag ("▲ STALE · 42H") and the failed-sync banner with its "!" icon;
+  - the title, plus a meta line: codebase · N {scope value} repositories · N owning teams (for example "Backend · 11 production repositories · 4 owning teams" under the default scope). The scope label comes from `summary.scope.value`, never from a literal. The line ends "· synced daily", the design's wording (see "Amendments after the v7 comparison");
+  - the stale line (the freshness label in amber with the "▲ STALE · 42H" tag beside it) and the failed-sync banner with its filled red "!" disc;
   - a coverage line: unmeasured badge, excluded count, needs-tagging count, and a "Coverage & policy →" link. The line has a minimum height of 22px, so it doesn't shrink when the badge disappears;
   - a "Sync history" action.
-  - `PageHeader` and `DataFreshness` stay unchanged, because the org and team report pages use them. The stale tag, the banner and the coverage line are page-local elements passed as `PageHeader`'s `children`. The meta line cannot hold them, because `PageHeader` renders `meta` inside a `<p>`.
+  - `PageHeader` and `DataFreshness` stay unchanged, because the org and team report pages use them. The stale tag is passed in `PageHeader`'s `badges` slot (the freshness row); the banner and the coverage line are page-local elements passed as `PageHeader`'s `children`. The meta line cannot hold them, because `PageHeader` renders `meta` inside a `<p>`.
 - **Sticky bar:**
   - view tabs: Overview, and Alerts with its open count under Severity, written "N open";
   - filters, each under a small uppercase caption: Codebase (each option shows its `kSev` open count with its unit), Owning team, Severity (Critical + high / Critical only / High only), Compare to (Last sync / 7 days ago / 30 days ago / A date…). "A date…" opens its date input pre-filled with a date;
@@ -110,7 +110,9 @@ These three come from the design review:
 
 | Element | Value |
 |---|---|
-| Page container | max width 1280px; padding 32 / 24 / 40; gap 24 |
+| Page container | max width 1280px, measured on the content (the 24px side padding is outside it); padding 32 / 24 / 40; gap 24 |
+| Sticky bar | 127px: 12px of background above the tabs, a 34px tabs row, 14px of clear space under its rule, a 67px filters row (15px caption, 5px gap, 32px select, 14px to the lower rule, the 1px rule) |
+| KPI tile padding | 18px 20px, leaving 142px of content in the 178px row |
 | KPI tile row | 178px |
 | Ownership card body | 330px. The tables scroll inside it; the header row and the Total row stay pinned. |
 | Team table rows | 50px |
@@ -121,19 +123,20 @@ These three come from the design review:
 | Trend plot | 220px |
 | Sparkline slot | 24px |
 | Drawer | 460px wide, at most 92% of the viewport |
-| Header coverage line | minimum height 22px |
+| Header coverage line | minimum height 22px, under a divider with 14px of space; its slots are sized for one-digit counts |
 | Title | 24px, weight 700 |
 | KPI value | 22px, weight 700 |
 | Section labels | 12px, weight 600, uppercase, letter-spacing 0.08em |
-| Table headers | 11px, weight 600, uppercase, letter-spacing 0.06em |
+| Table headers | 11px, weight 600, uppercase, letter-spacing 0.06em (the Repositories tab's headers: 10.5px, 0.02em) |
 | Body text | 14px; secondary text 12–13px |
 | Radii | cards 12px, controls 6px, badges 3–4px |
 
 Rules that keep the layout still:
 
+- The sticky bar's two rules are borders (the tab rule the stronger, the lower rule the lighter), so both end at the cards' edges while the bar's background covers the gutters.
 - The selects have fixed widths: Codebase 220px, Owning team 170px, Severity 140px, Compare to 118px, date input 128px. Each is `shrink-0`, and long text truncates with a `title` attribute.
 - The bar reserves slots for "Reset filters" and the date input, so its height never changes.
-- A filter change never moves a control. The header coverage line always renders the unmeasured badge's slot (a reserved width, hidden when the count is zero) and fixed-width count slots. The ownership card's tab counts have a minimum width. The Alerts strip's title column has a fixed width and its figures have minimum widths. One accepted exception: with an unreadable SLA policy at 1024px and the unmeasured badge showing, the strip's two state messages truncate with "…" and show the full text on hover.
+- A filter change never moves a control. The header coverage line always renders the unmeasured badge's slot (a reserved width, hidden when the count is zero) and fixed-width count slots, each sized for the longest one-digit text; a two-digit count is cut with "…" and carries its full text in a `title`. The ownership card's tab counts have a minimum width. The Alerts strip's title column has a fixed width and its figures have minimum widths. One accepted exception: with an unreadable SLA policy at 1024px and the unmeasured badge showing, the strip's two state messages truncate with "…" and show the full text on hover.
 - There is no horizontal scroll at 1024px. Grid tracks use `minmax(0, …)`, and long text ends in "…".
 - Below 1024px the cards scroll inside themselves. The page is not designed for narrower screens.
 
@@ -348,7 +351,7 @@ The new components are page-local. `page.tsx` keeps exporting only its default, 
 - Closing returns focus to the element that opened it.
 - Its z-index is above the sticky bar.
 - Its open state is local, not in the URL.
-- It follows the Codebase and Owning team filters. A subtitle says what it follows ("{Codebase} · Owning team: {team or all} · follows the page filters"). It groups gaps as Unmeasured (hatched rows, open counts unknown; their resolved alerts and measured history still count), Needs tagging (counted under "Unassigned") and Excluded by policy (not counted). Each group header shows its repository count and a right-aligned summary ("open counts unknown", "N open critical"), and each row gives its reason (the unmeasured reason, the missing tags, "outside scope ({tier})"). The policy section, "From deployment configuration", has four labelled rows and shows no entry ids: Critical SLA and High SLA ("N days · since {date}", "N days · starts {date}", "No SLA policy yet", or in red "! Can't be read · check the SLA settings in the deployment config"), Resolved count ("Since {date} · fixed + dismissed" or "All time · fixed + dismissed") and Scope ("{property} = {value}").
+- It follows the Codebase and Owning team filters. A subtitle says what it follows ("{Codebase} · Owning team: {team or all} · follows the page filters"). It groups gaps as Unmeasured (hatched rows, open counts unknown; their resolved alerts and measured history still count), Needs tagging (counted under "Unassigned") and Excluded by policy (not counted). The title is 20px bold, the group headings 15px / 600 in sentence case (the Unmeasured one with a ▲), and the panel has 24px padding with a filled 30px close button. Each group header shows its repository count and a right-aligned summary ("open counts unknown", "N open critical"), the rows are 13px filled boxes with plain repository names (underlined on hover and keyboard focus), a long name or reason wraps instead of truncating, and each row gives its reason (the unmeasured reason, the missing tags, "outside scope ({tier})"). The policy section, "From deployment configuration", has four labelled rows and shows no entry ids: Critical SLA and High SLA ("N days · since {date}", "N days · starts {date}", "No SLA policy yet", or in red "! Can't be read · check the SLA settings in the deployment config"), Resolved count ("Since {date} · fixed + dismissed" or "All time · fixed + dismissed") and Scope ("{property} = {value}").
 
 **Trend.**
 
@@ -356,10 +359,11 @@ The new components are page-local. `page.tsx` keeps exporting only its default, 
 - The All range runs from the first point to today, and spans at least 7 days.
 - With fewer than 2 points, the chart shows a message. A short history shows a note.
 - The plot is 220px tall.
-- The legend always lists every owning team, so its height never changes: the top 12 each show "N open", then one "Other · N teams" entry whose tooltip lists the names.
+- The legend always lists every owning team, so its height never changes: the top 12 each show "N open", then one "Other · N teams" entry whose tooltip lists the names. It is a grid of auto-fill columns (170px minimum) under a hairline, with the three lines reserved.
+- The Range select comes before the "N open now" figures, which sit right-aligned at the card's edge; both have fixed widths.
 - A selected team draws only its own line, and the other legend entries dim to 0.4 opacity.
 - Title: "Open {kSev} alerts by owning team". Range select: All time (default) / Last year / Last 90 days / Last 30 days.
-- Footnote: "Each dot is one stored measurement (an imported CSV run or a sync)."
+- Footnote: "Each dot is one stored measurement (an imported CSV run or a sync). The 12 owning teams with the most open alerts get a colour; the rest are grey." Axis labels are 11px.
 
 ### 5. URL state (`src/lib/url-state.ts`)
 
@@ -386,6 +390,8 @@ The new components are page-local. `page.tsx` keeps exporting only its default, 
 - **Light-theme caution.** The light remap gives `.bg-gray-900` a 1px border and a shadow.
   - Use `bg-gray-900` for card shells only.
   - Pinned headers, Total rows, rail rows, alert rows and drawer rows use `bg-chart-surface` or a plain `var()`, with no border, so the fixed heights hold in light mode.
+  - Filled controls (the filter boxes, Status, the pager buttons, the drawer's rows and close button) use `bg-gray-800`, which the remap turns into a light grey.
+  - Row dividers use `border-gray-800/50`: the remap has a rule for that opacity and none for `/60`, which stayed the dark theme's near-black on white.
 - Opacity values use arbitrary classes (`opacity-[0.35]`) or inline style. No class name is built dynamically, because Tailwind would not generate it.
 - Team lines keep the existing `--vuln-series-*` palette and `assignTeamColors`. Their contrast tests stay as they are.
 
@@ -411,6 +417,23 @@ The new components are page-local. `page.tsx` keeps exporting only its default, 
 | `--high-tint` (high column wash) | `rgba(251,146,60,.04)` | `#fffaf5` |
 
 A new test checks that `--warn` text meets 4.5:1 contrast on `--warn-bg` and on the body backgrounds, in each theme mode. It follows the pattern of `vuln-series-contrast.test.ts`. The handoff's light value `#9a6700` measured 4.23:1 on `--warn-bg` (`#fbefc6`), below the 4.5:1 floor, so the light `--warn` is darkened to `#8f5f00` (4.80:1).
+
+## Amendments after the v7 comparison
+
+A comparison of the built page with the approved v7 mockups (2026-10-08) found regressions and deviations. These decisions changed this document; each is also in the sections above.
+
+- **Page width.** The 1280px max width is the content width, so the cards are 1280px wide from a 1328px viewport up. Below that nothing changes.
+- **Sticky bar.** 32px selects under 11px captions, 14px under the tab rule and 14px above the lower rule, tabs at 16px. The bar is 127px, derived from its parts in `dimensions.ts`; the 1024px width budget for the filter row is unchanged (it still fits).
+- **Header.** The stale line is the freshness label in amber with the tag beside it, in `PageHeader`'s `badges` slot (the header loses a row). The meta line ends "· synced daily", which the design shows. The wording is a literal, so it is wrong if an operator moves the sync off a daily schedule; accepted, as the design asks for it.
+- **Team table.** Tinted cells stretch to the row, so the wash is a continuous band. The unmeasured chip is the short form "▲ N unmeasured" with the hatched wash; the long form stays in the header badge and the Alerts strip.
+- **Repositories tab.** Open and Overdue columns have a 112px floor and 10.5px headers. At 1024px the table cannot fit every header: the fixed 150px team column, four 112px floors and the name leave about 71px for "Oldest open" (it needs about 106px), so that header is cut with "…" (its full label is its `title`). The unmeasured band leads in bold capitals and continues in normal weight. The footer keeps "N unmeasured: totals include stored counts", because the counting rule includes stored counts.
+- **Coverage line.** A divider above, a hatched badge, one-digit-safe slots.
+- **KPI tiles.** 18px 20px padding. The mockup's three "since" rows have a 31px pitch; with the tile's three reserved lines (kept so the tile never changes shape) 142px leaves a 26px pitch, which is what ships. The SLA rows have a 33px pitch; all four titles share a line.
+- **Trend.** The Range select leads the figures. The legend's column minimum is the mockup's 170px, not 180px: at 1024px 180px gives four columns and four lines for a full legend, 16px over the three reserved lines; 170px gives five columns and three lines.
+- **Drawer.** Restyled as the mockup's (see the Drawer section), still 460px wide. Repository names are plain and underline on hover and focus, an exception to "every in-page link is underlined"; rows wrap instead of truncating.
+- **Alerts view.** The reserved note line is the only space between the rail's filter box and its first row. The filter boxes, Status and the pager buttons are filled.
+- **Light theme.** Row dividers use a class the light remap covers.
+- **Not changed, by ruling.** The Sync history button's vertical offset (it belongs to the shared `PageHeader`), the active select's fill colour (the colour mapping stands), and the Alerts strip's title truncation at 176px.
 
 ## Testing
 
