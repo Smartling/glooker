@@ -13,7 +13,7 @@ import { dash } from './format';
 import { slotView } from './slot-view';
 import RefreshNote from './refresh-note';
 import type { TrendRange } from './security-state';
-import { TREND_FOOT_GAP, TREND_LEGEND_MIN_W, TREND_PLOT_H, TREND_RANGE_W, TYPE } from './dimensions';
+import { TREND_FIGURES_W, TREND_FOOT_GAP, TREND_LEGEND_MIN_W, TREND_PLOT_H, TREND_RANGE_W, TYPE } from './dimensions';
 import { displayDate, utcToday } from './labels';
 import { openChange } from './overview-format';
 import { OTHER_TEAM_COLOR, TEAM_COLOR_SLOTS, assignTeamColors } from './team-colors';
@@ -87,10 +87,10 @@ export default function TrendCard({ summary, data, url }: SecurityViewProps) {
             <h3 className="truncate text-sm font-semibold text-white" title={heading}>{heading}</h3>
             <p className="truncate text-xs text-gray-400" title={SUBTITLE}>{SUBTITLE}</p>
           </div>
-          {/* As the mockup: the Range select first, then the figures. Both have a fixed width (the select's own, the figures' block at 224px, sized
-              for the longest change sentence), so neither moves when the range or a figure changes. The figures are LEFT-aligned inside their block, so
-              the select sits beside them whatever the sentence; right-aligned, a short sentence left a gap of up to 150px. Each figure is one line (cut
-              with "…", the full text in the title). */}
+          {/* As the mockup: the Range select first, then the figures flush right at the card's edge. Both have a fixed width (the select's own, the
+              figures' block TREND_FIGURES_W, measured for the widest sentence that fits), so neither moves when the range or a figure changes. The block
+              is sized to that widest sentence, not wider, so the gap between the select and a short sentence is as small as a fixed box allows. Each
+              figure is one line (cut with "…", the full text in the title). */}
           <div className="flex shrink-0 items-center gap-4">
             <select
               aria-label="Range" value={url.range} onChange={e => url.setRange(e.target.value as TrendRange)}
@@ -99,7 +99,7 @@ export default function TrendCard({ summary, data, url }: SecurityViewProps) {
             >
               {TREND_RANGES.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
             </select>
-            <div className={`w-56 text-left${stale || data.summary.stale ? ' opacity-60' : ''}`}>
+            <div className={`shrink-0 text-right${stale || data.summary.stale ? ' opacity-60' : ''}`} style={{ width: TREND_FIGURES_W }}>
               <div data-testid="trend-open-now" className="truncate text-sm font-semibold text-white" title={openNow}>{openNow}</div>
               <div data-testid="trend-change" className={`h-4 truncate text-xs leading-4 ${change.toneClass}`} title={change.text}>{change.text}</div>
             </div>

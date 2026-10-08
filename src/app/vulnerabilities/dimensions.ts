@@ -32,6 +32,11 @@ export const TREND_PLOT_H = 220;
 export const SPARK_H = 24;
 /** The trend card's Range select, so the figures block beside it never moves when the range changes ("Last 90 days" is its longest option). */
 export const TREND_RANGE_W = 128;
+/** The trend card's figures block ("N open now" and the change sentence), right-aligned in a box of this fixed width. Measured in the rendered page
+ * (Chrome, the page font): the widest of the open-now line at a four-digit count (109px), "No earlier measurement yet" (156px) and every change
+ * sentence at a four-digit delta with a dated year ("▼ 8,888 fewer than on May 30, 2020", the widest, 208px), plus 2px. The sentence "No measurement on or
+ * before {date}" (247px) is longer and is cut with "…" (its full text is in the title), as it was at the old 224px. */
+export const TREND_FIGURES_W = 210;
 /** The trend legend's column minimum. 170 (the mockup's) gives 5 columns at 1024px, so the 13 entries of a full legend (12 colours and "Other") take
  * the 3 reserved lines; 180 gave 4 columns there and 4 lines, 16px over the reserve. */
 export const TREND_LEGEND_MIN_W = 170;

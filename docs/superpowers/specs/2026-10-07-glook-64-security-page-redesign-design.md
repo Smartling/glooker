@@ -360,7 +360,7 @@ The new components are page-local. `page.tsx` keeps exporting only its default, 
 - With fewer than 2 points, the chart shows a message. A short history shows a note.
 - The plot is 220px tall.
 - The legend always lists every owning team, so its height never changes: the top 12 each show "N open", then one "Other · N teams" entry whose tooltip lists the names. It is a grid of auto-fill columns (170px minimum) under a hairline, with the three lines reserved.
-- The Range select comes before the "N open now" figures; both have fixed widths, and the figures are left-aligned inside theirs so the select sits beside them.
+- The Range select comes before the "N open now" figures, which sit flush right at the card's edge; both have fixed widths, the figures' block as wide as the widest change sentence that fits (210px, measured).
 - A selected team draws only its own line, and the other legend entries dim to 0.4 opacity.
 - Title: "Open {kSev} alerts by owning team". Range select: All time (default) / Last year / Last 90 days / Last 30 days.
 - Footnote: "Each dot is one stored measurement (an imported CSV run or a sync). The 12 owning teams with the most open alerts get a colour; the rest are grey." Axis labels are 11px.
@@ -433,7 +433,7 @@ A comparison of the built page with the approved v7 mockups (2026-10-08) found r
 - **Drawer.** Restyled as the mockup's (see the Drawer section), still 460px wide. Repository names are plain and underline on hover and focus, an exception to "every in-page link is underlined"; rows wrap instead of truncating.
 - **Alerts view.** The reserved note line is the only space between the rail's filter box and its first row. The filter boxes, Status and the pager buttons are filled.
 - **Light theme.** Row dividers use a class the light remap covers.
-- **Round 2 (after re-comparing the built page).** The stale tag is 12px. The trend figures are left-aligned in their fixed box (right-aligned, a short sentence left a gap of up to 150px beside the Range select). The trend footnote sits 14px under the legend, which adds 10px to the trend card (it has no fixed outer height; its parts are the fixed ones). The shared `vuln-hatch` stripes use their own quieter token, `--warn-hatch` (alpha .16 dark, .14 light), instead of the border colour, so text over the hatch reads clean. The tab (16px) and caption (11px) sizes were already in the source: the comparison had read a stale dev-server build.
+- **Round 2 (after re-comparing the built page).** The stale tag is 12px. The trend figures stay right-aligned, as the mockup, in a fixed box shrunk from 224px to 210px, the measured width of the widest change sentence that fits (a left-aligned version left about 120px of dead space at the card's edge); the gap between the select and the shortest realistic sentence ("Same as on Oct 5") is at most about 126px. The trend footnote sits 14px under the legend, which adds 10px to the trend card (it has no fixed outer height; its parts are the fixed ones). The shared `vuln-hatch` stripes use their own quieter token, `--warn-hatch` (alpha .16 dark, .14 light), instead of the border colour, so text over the hatch reads clean. The tab (16px) and caption (11px) sizes were already in the source: the comparison had read a stale dev-server build.
 - **Not changed, by ruling.** The Sync history button's vertical offset (it belongs to the shared `PageHeader`), the active select's fill colour (the colour mapping stands), and the Alerts strip's title truncation at 176px.
 
 ## Testing

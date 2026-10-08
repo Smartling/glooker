@@ -105,6 +105,7 @@ const sizes: Array<[string, number, string]> = [
   ['SPARK_H', D.SPARK_H, 'Sparkline slot'],
   ['TREND_PLOT_H', D.TREND_PLOT_H, 'Trend plot'],
   ['TREND_RANGE_W', D.TREND_RANGE_W, 'Trend plot'],
+  ['TREND_FIGURES_W', D.TREND_FIGURES_W, 'Trend plot'],
   ['TREND_LEGEND_MIN_W', D.TREND_LEGEND_MIN_W, 'Trend plot'],
   ['TREND_FOOT_GAP', D.TREND_FOOT_GAP, 'Trend plot'],
   ['ALERTS_STRIP_H', D.ALERTS_STRIP_H, 'Alerts summary strip'],
