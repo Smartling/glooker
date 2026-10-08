@@ -4,7 +4,7 @@ import { getVulnerabilitiesOrg, getSyncSchedule, getVulnConfig } from './config'
 import { getSyncProgress, type SyncProgress } from './progress';
 import { rowToAlertFact, rowToRepoFact } from './db-helpers';
 import {
-  computePivot, computeKpi, computeCoverage, computeCodebaseCounts, listAlerts, computeDelta, computeTrend, snapshotSets, pickBaseline, knownTeams, teamOf, setKey,
+  computePivot, computeKpi, computeCoverage, computeRepoRows, computeCodebaseCounts, listAlerts, computeDelta, computeTrend, snapshotSets, pickBaseline, knownTeams, teamOf, setKey,
   pickTrendSets,
 } from './aggregate';
 import { isInScope } from './codebase';
@@ -346,6 +346,19 @@ export async function getCoverage(f: ParsedFilters, now: Date = new Date()) {
   if (failed(p)) return p;
   return { available: true as const, sync: p.sync, appliedFilters: pickApplied(f, ['codebase', 'team']), configErrors: p.configErrors,
     ...computeCoverage(p.alerts, p.repos, { team: f.team, codebase: f.codebase }) };
+}
+
+/**
+ * GLOOK-64: one row per in-scope, non-archived repository in the view, with per-severity open /
+ * overdue / due-soon counts (see computeRepoRows for the sum invariant against the team pivot).
+ * Every row is returned: `limit` is parsed by the shared filter parser but deliberately not applied
+ * here (the page needs all rows); the MCP tool applies its own limit around this function.
+ */
+export async function getRepos(f: ParsedFilters, now: Date = new Date()) {
+  const p = await prepare(f, now);
+  if (failed(p)) return p;
+  return { available: true as const, sync: p.sync, appliedFilters: pickApplied(f, ['codebase', 'team']), configErrors: p.configErrors,
+    rows: computeRepoRows(p.alerts, p.repos, { codebase: f.codebase, team: f.team, now }) };
 }
 
 /** One row of `listSyncs`'s `syncs` array — also the shape the syncs tab (`vulnerability-syncs-tab.tsx`)

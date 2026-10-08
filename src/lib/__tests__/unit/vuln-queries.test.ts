@@ -487,3 +487,69 @@ describe('getAlerts offset and sort through the database', () => {
     expect(past.truncated).toBe(false);
   });
 });
+
+describe('getRepos', () => {
+  async function seedRepos() {
+    await seedOk(); // o/r1: T1, backend, one open critical
+    await repoRowSql(2, 'o/r2');                                                                   // no alerts
+    await repoRowSql(3, 'o/r3', { team: 'T2', status: 'dependabot-off', detail: 'Dependabot alerts are disabled for this repository.' });
+    await alertSql(3, 1); await alertSql(3, 2, 'high');                                            // unmeasured, stored open alerts
+    await repoRowSql(4, 'o/r4', { archived: 1, status: 'archived' }); await alertSql(4, 1);         // archived: never a row
+    await repoRowSql(5, 'o/r5', { codebase: 'frontend' }); await alertSql(5, 1);                    // another codebase group
+  }
+
+  it('returns the envelope with every in-scope repo of the view: zero-alert repos listed, unmeasured last with stored counts, archived left out', async () => {
+    await seedRepos();
+    const r = await q.getRepos(f(), NOW);
+    expect(Object.keys(r).sort()).toEqual(['appliedFilters', 'available', 'configErrors', 'rows', 'sync']);
+    expect(r.available).toBe(true);
+    expect(r.sync).toMatchObject({ lastSuccessfulAt: '2026-09-22T10:00:00Z', stale: false });
+    expect(r.appliedFilters).toEqual({ codebase: 'backend' });
+    expect(r.configErrors).toEqual([]);
+    expect(r.rows.map((x: any) => x.fullName)).toEqual(['o/r1', 'o/r2', 'o/r3']);
+    expect(r.rows[1].critical.open).toBe(0);
+    expect(r.rows[2]).toMatchObject({
+      team: 'T2', critical: { open: 1 }, high: { open: 1 },
+      unmeasured: { status: 'dependabot-off', detail: 'Dependabot alerts are disabled for this repository.' },
+    });
+  });
+
+  it('honours codebase and team, echoes only those two filters, and ignores every other filter including limit', async () => {
+    await seedRepos();
+    expect((await q.getRepos(f({ codebase: 'frontend' }), NOW)).rows.map((x: any) => x.fullName)).toEqual(['o/r5']);
+    expect((await q.getRepos(f({ codebase: 'all', team: 'T2' }), NOW)).rows.map((x: any) => x.fullName)).toEqual(['o/r3']);
+    const noisy = await q.getRepos(f({ state: 'resolved', severity: 'high', repo: 'o/r1', limit: 1, offset: 5, overdue: true }), NOW);
+    expect(noisy.appliedFilters).toEqual({ codebase: 'backend' });
+    expect(noisy.rows).toHaveLength(3); // limit is not applied here; the MCP tool cuts rows itself
+  });
+
+  it('an unknown team returns the known teams; no successful sync and feature-off are unavailable', async () => {
+    await seedRepos();
+    expect(await q.getRepos(f({ team: 'Nope' }), NOW)).toEqual({ error: 'unknown team', known_teams: ['T1', 'T2'] });
+    await db.execute('DELETE FROM vulnerability_syncs');
+    q.__clearVulnFactsCache();
+    expect(await q.getRepos(f(), NOW)).toMatchObject({ available: false, reason: 'No successful vulnerability sync yet.' });
+    delete process.env.VULNERABILITIES_ORG;
+    try {
+      expect(await q.getRepos(f(), NOW)).toEqual({ available: false, reason: 'Vulnerability tracking is not enabled on this Glooker instance.', configErrors: [] });
+    } finally {
+      process.env.VULNERABILITIES_ORG = 'o';
+    }
+  });
+
+  it('its rows agree with the summary pivot and with getAlerts, through the real database', async () => {
+    await seedRepos();
+    const rows = (await q.getRepos(f({ codebase: 'all' }), NOW)).rows;
+    const pivot = (await q.getSummary(f({ codebase: 'all' }), NOW)).pivot;
+    for (const t of pivot.rows) {
+      const mine = rows.filter((x: any) => x.team === t.team);
+      expect(mine.reduce((n: number, x: any) => n + x.critical.open, 0)).toBe(t.critical.open);
+      expect(mine.reduce((n: number, x: any) => n + x.high.open, 0)).toBe(t.high.open);
+      expect(mine.filter((x: any) => x.unmeasured).length).toBe(t.unmeasuredRepos);
+    }
+    for (const row of rows) {
+      const listed = await q.getAlerts(f({ codebase: 'all', repo: row.fullName }), NOW);
+      expect(listed.totalCount).toBe(row.critical.open + row.high.open);
+    }
+  });
+});
