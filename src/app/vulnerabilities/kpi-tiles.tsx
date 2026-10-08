@@ -5,6 +5,8 @@
 // the team-scoped summary (`props.summary`), so with an owning team selected they show that team.
 import type { SecurityViewProps } from './view-props';
 import { KPI_ROW_H, TYPE } from './dimensions';
+import { slaState, slaStateLabel, type SlaState } from './sla-state';
+import type { Severity } from '@/lib/vulnerabilities/types';
 import { dash, resolvedCaption, signed } from './format';
 import { displayDate, utcToday } from './labels';
 import { baselineUnavailableText, carriedFootnote, carriedTitle, openChange, usableTotal } from './overview-format';
@@ -125,6 +127,78 @@ function ResolvedTile({ summary, url }: SecurityViewProps) {
   );
 }
 
+const SLA_TIP: Record<Exclude<SlaState['kind'], 'active'>, string> = {
+  pending: 'An SLA policy exists for this severity, but it has not started yet.',
+  none: 'No SLA policy is configured for this severity.',
+  invalid: "SLA policy can't be read: its configuration doesn't parse. Check the deployment configuration.",
+};
+
+/** The badge column has a fixed width so both rows and the header line up whatever the row shows. */
+const SLA_COLS = '40px minmax(0, 1fr) minmax(0, 1fr)';
+
+const SLA_BADGE: Record<Severity, { label: string; cls: string }> = {
+  critical: { label: 'CRIT', cls: 'bg-red-500/15 text-red-400' },
+  high: { label: 'HIGH', cls: 'bg-orange-500/15 text-orange-400' },
+};
+
+/** One severity's row: Overdue and Due ≤ 7d while its policy is active, otherwise its state, spanning both columns. */
+function SlaRow({ sev, summary, dimmed }: { sev: Severity; summary: SecurityViewProps['summary']; dimmed: boolean }) {
+  const st = slaState(sev, summary);
+  const cell = summary.pivot.total[sev];
+  const badge = SLA_BADGE[sev];
+  return (
+    <div
+      data-testid={`kpi-sla-${sev}`}
+      className={`grid h-7 items-center gap-x-2${dimmed ? ' opacity-[0.35]' : ''}`}
+      style={{ gridTemplateColumns: SLA_COLS }}
+    >
+      <span className={`w-fit rounded px-1.5 text-[10px] font-semibold leading-4 tracking-wide ${badge.cls}`}>{badge.label}</span>
+      {st.kind === 'active' ? (
+        <>
+          <span className={`text-right text-lg font-semibold tabular-nums ${cell.overdue ? 'text-red-400' : 'text-white'}`}>{dash(cell.overdue)}</span>
+          <span className="text-right text-lg font-semibold tabular-nums text-white">{dash(cell.dueSoon)}</span>
+        </>
+      ) : (
+        <span
+          data-testid={`kpi-sla-${sev}-state`}
+          className={`col-span-2 truncate text-right text-sm ${st.kind === 'invalid' ? 'font-semibold text-red-400' : st.kind === 'pending' ? 'text-gray-300' : 'text-gray-400'}`}
+          title={SLA_TIP[st.kind]}
+        >
+          {st.kind === 'invalid' && <span aria-hidden="true" className="mr-1 inline-block rounded-full bg-red-400 px-1.5 text-[10px] leading-4 text-gray-900">!</span>}
+          {slaStateLabel(st, { withSla: false })}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function SlaTile({ summary, url, openDrawer }: SecurityViewProps) {
+  const shown = (sev: Severity) => url.severity === 'both' || url.severity === sev;
+  return (
+    <div data-testid="kpi-sla" className={TILE}>
+      <div className="flex items-center justify-between gap-2">
+        <div className={LABEL}>SLA · open alerts</div>
+        <button
+          type="button" aria-label="Coverage and policy details" title="Coverage and policy details"
+          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-gray-600 text-[11px] leading-none text-gray-400 hover:text-white"
+          onClick={e => openDrawer(e.currentTarget)}
+        >
+          i
+        </button>
+      </div>
+      <div className="mt-1">
+        <div className="grid items-center gap-x-2" style={{ gridTemplateColumns: SLA_COLS }}>
+          <span />
+          <span className={`${TYPE.tableHeader} text-right text-gray-500`}>Overdue</span>
+          <span className={`${TYPE.tableHeader} text-right text-gray-500`}>Due ≤ 7d</span>
+        </div>
+        <SlaRow sev="critical" summary={summary} dimmed={!shown('critical')} />
+        <SlaRow sev="high" summary={summary} dimmed={!shown('high')} />
+      </div>
+    </div>
+  );
+}
+
 export default function KpiTiles(props: SecurityViewProps) {
   const stale = props.data.summary.stale;
   return (
@@ -137,6 +211,7 @@ export default function KpiTiles(props: SecurityViewProps) {
       <OpenTile {...props} />
       <SinceTile {...props} />
       <ResolvedTile {...props} />
+      <SlaTile {...props} />
     </section>
   );
 }
