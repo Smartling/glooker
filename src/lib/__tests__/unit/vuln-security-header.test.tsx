@@ -148,6 +148,16 @@ describe('SecurityHeader', () => {
     expect(screen.getByTestId('stale-tag').parentElement).toBe(screen.getByText('Updating…').parentElement);
   });
 
+  // Revert: put `text-[11px]` back on the tag: it is then a size smaller than the freshness label beside it (text-xs, 12px).
+  it('the "▲ STALE · NH" tag is 12px (text-xs), one line (nowrap, shrink-0), with a four-digit hour count too', () => {
+    const stale = syncInfo({ stale: true, lastSuccessfulAt: '2026-09-21T18:00:00Z' });
+    render(<SecurityHeader {...props({ summary: summaryFixture({ sync: stale }), now: new Date('2027-03-01T12:00:00Z') })} />);
+    const tag = screen.getByTestId('stale-tag');
+    expect(tag.textContent).toMatch(/^▲ STALE · \d{4}H$/);
+    expect(tag.className.split(' ')).toEqual(expect.arrayContaining(['text-xs', 'whitespace-nowrap', 'shrink-0']));
+    expect(tag.className).not.toContain('text-[11px]');
+  });
+
   // Revert: put the arrow or the bordered variant back: it no longer matches the app's other secondary button ("Download PDF" on the org report).
   it('"Sync history" is the app\'s secondary button (filled gray-800, no border, no underline, no arrow, 28px: py-1.5 text-xs) linking to the sync list', () => {
     render(<SecurityHeader {...props()} />);

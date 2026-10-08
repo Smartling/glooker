@@ -152,7 +152,7 @@ export default function SecurityHeader({ summary, repos, coverage, codebase, sum
         badges={(showStale || summaryStale) ? (
           <>
             {showStale && (
-              <span data-testid="stale-tag" className={`inline-block shrink-0 whitespace-nowrap border border-warn-line bg-warn-bg text-warn px-1.5 text-[11px] font-semibold leading-4 ${TYPE.badge}`}>
+              <span data-testid="stale-tag" className={`inline-block shrink-0 whitespace-nowrap border border-warn-line bg-warn-bg text-warn px-1.5 text-xs font-semibold leading-4 ${TYPE.badge}`}>
                 {`▲ STALE · ${staleHours(sync.lastSuccessfulAt as string, now ?? new Date())}H`}
               </span>
             )}
