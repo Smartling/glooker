@@ -157,9 +157,9 @@ it('with a team selected, the pivot Δ caption and cells follow the unfiltered r
   await waitFor(() => expect(rowA.querySelectorAll('td')[2].textContent).toBe('+5'));
   expect(rowB.querySelectorAll('td')[2].textContent).toBe('+2');
   expect(rowTotal.querySelectorAll('td')[2].textContent).toBe('+7');
-  expect(screen.getByTestId('pivot-delta-caption-critical').textContent).toBe('vs 2099-01-01');
+  expect(screen.getByTestId('pivot-delta-caption-critical').textContent).toBe('vs Jan 1, 2099');
   // KPI tile 1 is fed by the team-scoped summary: its own baseline date and Total delta
-  expect(screen.getByTestId('kpi1-caption').textContent).toBe('vs 2099-02-02');
+  expect(screen.getByTestId('kpi1-caption').textContent).toBe('vs Feb 2, 2099');
   const kpiTile = screen.getByText('Open critical alerts').parentElement!;
   expect(within(kpiTile).getByText('+1')).toBeTruthy();
 });

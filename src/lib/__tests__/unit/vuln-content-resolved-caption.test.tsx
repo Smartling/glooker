@@ -68,7 +68,7 @@ function setSummary(overrides: Record<string, unknown>) {
 it('a real date renders "Resolved critical since <date>"', () => {
   setSummary({ resolvedSince: { date: '2020-01-08', invalid: false } });
   render(<VulnerabilitiesContent />);
-  expect(screen.getByText('Resolved critical since 2020-01-08')).toBeTruthy();
+  expect(screen.getByText('Resolved critical since Jan 8, 2020')).toBeTruthy();
 });
 
 it('date: null (VULN_RESOLVED_SINCE unset) renders "Resolved critical all time"', () => {
@@ -111,7 +111,7 @@ describe('delta baseline caption on the two critical KPI tiles', () => {
       },
     });
     render(<VulnerabilitiesContent />);
-    expect(screen.getAllByText('vs 2099-01-01').length).toBe(2);
+    expect(screen.getAllByText('vs Jan 1, 2099').length).toBe(2);
   });
 
   it('shows no caption on either tile when the delta is unavailable', () => {
@@ -153,7 +153,7 @@ describe('KPI tiles keep a fixed shape (caption slots always present)', () => {
     unmount();
     setSummary({ delta: { critical: avail(0), high: { available: false } } });
     render(<VulnerabilitiesContent />);
-    expect(screen.getByTestId('kpi1-caption').textContent).toBe('vs 2099-01-01');
+    expect(screen.getByTestId('kpi1-caption').textContent).toBe('vs Jan 1, 2099');
     expect(screen.getByTestId('kpi1-caption').hasAttribute('aria-hidden')).toBe(false);
   });
 
@@ -162,8 +162,8 @@ describe('KPI tiles keep a fixed shape (caption slots always present)', () => {
   it('tile 2, available with 0 repos not in baseline: the caption is exactly "vs 2099-01-01" and the baseline-repos line holds only a non-breaking space', () => {
     setSummary({ delta: { critical: avail(0), high: { available: false } } });
     render(<VulnerabilitiesContent />);
-    expect(screen.getByTestId('kpi2-caption').textContent).toBe('vs 2099-01-01');
-    expect(screen.getAllByText('vs 2099-01-01').length).toBe(2); // tile 1 and tile 2
+    expect(screen.getByTestId('kpi2-caption').textContent).toBe('vs Jan 1, 2099');
+    expect(screen.getAllByText('vs Jan 1, 2099').length).toBe(2); // tile 1 and tile 2
     const repos = screen.getByTestId('kpi2-baseline-repos');
     expect(repos.textContent).toBe('\u00a0');
     expect(repos.getAttribute('aria-hidden')).toBe('true');
@@ -175,7 +175,7 @@ describe('KPI tiles keep a fixed shape (caption slots always present)', () => {
   it('tile 2, available with 3 repos not in baseline: the caption is unchanged and the count sits on its own line', () => {
     setSummary({ delta: { critical: avail(3), high: { available: false } } });
     render(<VulnerabilitiesContent />);
-    expect(screen.getByTestId('kpi2-caption').textContent).toBe('vs 2099-01-01');
+    expect(screen.getByTestId('kpi2-caption').textContent).toBe('vs Jan 1, 2099');
     expect(screen.getByTestId('kpi2-baseline-repos').textContent).toBe('3 repos not in baseline');
     expect(screen.getByTestId('kpi2-baseline-repos').hasAttribute('aria-hidden')).toBe(false);
   });

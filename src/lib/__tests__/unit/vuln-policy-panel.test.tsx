@@ -15,7 +15,7 @@ const scope = { property: 'service_tier', value: 'production' };
 
 it('a real date renders "Resolved counted since <date>"', () => {
   render(<PolicyPanel policy={policy} resolvedSince={{ date: '2020-01-08', invalid: false }} highActive={false} scope={scope} policyInvalid={false} />);
-  expect(screen.getByText(/Resolved counted since 2020-01-08/)).toBeTruthy();
+  expect(screen.getByText(/Resolved counted since Jan 8, 2020/)).toBeTruthy();
 });
 
 it('date: null (VULN_RESOLVED_SINCE unset) renders "Resolved counted all time"', () => {
