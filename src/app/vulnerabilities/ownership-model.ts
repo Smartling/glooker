@@ -85,13 +85,28 @@ function teamValue(r: TeamRow, key: TeamSortKey, deltas: TeamDeltas): string | n
   }
 }
 
+/** A sort on a column of a hidden severity is ignored, because that column reads "–". */
+const teamSortApplies = (sort: SortState<TeamSortKey>, severity: SeverityFilter): boolean => {
+  const sev = teamKeySeverity(sort.key);
+  return sev === null || sevShown(severity, sev);
+};
+
+/** The order the server gives with no active header (open count of the severity the tiles follow, largest first), as a sort. */
+export const defaultTeamSort = (severity: SeverityFilter): SortState<TeamSortKey> => ({ key: severity === 'high' ? 'hOpen' : 'cOpen', dir: 'desc' });
+
+/**
+ * The sort the rows are really in, for the headers to draw: the user's, when it applies; otherwise the server's order, which
+ * is a sort on Open (drawn "Open ↓" like the alert list draws "Due ↑"), so a header is always active.
+ */
+export const shownTeamSort = (sort: SortState<TeamSortKey> | null, severity: SeverityFilter): SortState<TeamSortKey> =>
+  sort && teamSortApplies(sort, severity) ? sort : defaultTeamSort(severity);
+
 /**
  * The team rows in display order. With no active header the order is the server's (critical open
- * descending), except under "High only", where it is high open descending. A sort on a column of a
- * hidden severity is ignored, because that column reads "–".
+ * descending), except under "High only", where it is high open descending.
  */
 export function orderTeamRows(rows: readonly TeamRow[], sort: SortState<TeamSortKey> | null, deltas: TeamDeltas, severity: SeverityFilter): TeamRow[] {
-  const active = sort && (teamKeySeverity(sort.key) === null || sevShown(severity, teamKeySeverity(sort.key)!)) ? sort : null;
+  const active = sort && teamSortApplies(sort, severity) ? sort : null;
   const out = [...rows];
   if (active) {
     return out.sort((a, b) => compareValues(teamValue(a, active.key, deltas), teamValue(b, active.key, deltas), active.dir) || a.team.localeCompare(b.team));
@@ -111,6 +126,18 @@ export const REPO_SORT_FIRST: Record<RepoSortKey, SortDir> = {
 
 export const repoKeySeverity = (key: RepoSortKey): Severity | null =>
   key === 'openCrit' || key === 'overCrit' ? 'critical' : key === 'openHigh' || key === 'overHigh' ? 'high' : null;
+
+const repoSortApplies = (sort: SortState<RepoSortKey>, severity: SeverityFilter): boolean => {
+  const sev = repoKeySeverity(sort.key);
+  return sev === null || sevShown(severity, sev);
+};
+
+/** The order the server gives with no active header, as a sort: open critical first, or open high under "High only". */
+export const defaultRepoSort = (severity: SeverityFilter): SortState<RepoSortKey> => ({ key: severity === 'high' ? 'openHigh' : 'openCrit', dir: 'desc' });
+
+/** The sort the rows are really in, for the headers to draw (see shownTeamSort). */
+export const shownRepoSort = (sort: SortState<RepoSortKey> | null, severity: SeverityFilter): SortState<RepoSortKey> =>
+  sort && repoSortApplies(sort, severity) ? sort : defaultRepoSort(severity);
 
 export interface NextDue { date: string; daysRemaining: number }
 
@@ -178,8 +205,7 @@ export function buildRepoView(rows: readonly RepoRow[], severity: SeverityFilter
   const matched = rows.filter(r => !q || r.fullName.toLowerCase().includes(q));
   const unmeasured = matched.filter(r => r.unmeasured).sort((a, b) => a.fullName.localeCompare(b.fullName));
   const measured = matched.filter(r => !r.unmeasured).map(r => repoDisplay(r, severity));
-  const keySev = sort ? repoKeySeverity(sort.key) : null;
-  const active = sort && (keySev === null || sevShown(severity, keySev)) ? sort : null;
+  const active = sort && repoSortApplies(sort, severity) ? sort : null;
   if (active) {
     measured.sort((a, b) => compareValues(repoValue(a, active.key), repoValue(b, active.key), active.dir) || a.row.fullName.localeCompare(b.row.fullName));
   } else if (severity === 'high') {

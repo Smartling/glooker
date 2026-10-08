@@ -59,8 +59,8 @@ export function sparkModel(points: readonly SparkPoint[], sev: Severity, today: 
     return { kind: 'one', message: 'Not enough history yet', caption: `1 measurement so far (${displayDate(points[0].date, today)})` };
   }
   const first = points[0].date;
-  // The short caption drops the "Open {sev} ·" prefix: the tile's own title already names the severity, and the longer
-  // wording was cut off at 1024px. The full text is also the caption's title.
+  // The caption is the short form by spec, so it fits the narrowest tile at 1024px: the "Open {sev} ·" prefix is dropped
+  // for a young history, because the tile's own label already names the severity. The caption's title holds this same text.
   const caption = diffDays(today, first) >= SPARK_FULL_DAYS
     ? `Open ${sev} · last ${SPARKLINE_DAYS} days`
     : `${points.length} measurements since ${displayDate(first, today)}`;

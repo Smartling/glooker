@@ -15,7 +15,7 @@ import { displayDate, unmeasuredReason } from './labels';
 import { slaActive, anySlaActive } from './sla-state';
 import { REFRESH_FAILED_NOTE, slotView } from './slot-view';
 import {
-  buildRepoView, nextSort, noOpenText, repoDisplay, repoKeySeverity, repoTotals, REPO_SORT_FIRST, sevShown, sortGlyph,
+  buildRepoView, nextSort, noOpenText, repoDisplay, repoKeySeverity, repoTotals, REPO_SORT_FIRST, sevShown, shownRepoSort, sortGlyph,
   type NextDue, type RepoDisplay, type RepoSortKey, type SortState,
 } from './ownership-model';
 
@@ -23,6 +23,11 @@ const HIDDEN = '–'; // en dash: a hidden severity's cell. A missing figure is 
 /** The Owning team track is a fixed width, so a long team name ends in "…" and the numeric columns keep the same room. */
 export const REPO_TEAM_COL_W = 150;
 const DIM = 'opacity-[0.35]';
+/** A keyboard-focused row: an inset ring, so the scrolling body does not clip it. */
+const ROW_FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50';
+/** The pinned header row's height, and the pinned footer's: its row plus the 1px border above it. Also the scroller's scroll padding. */
+const REPO_HEAD_H = 40;
+const REPO_FOOT_H = TEAM_ROW_H + 1;
 
 interface Col { key: RepoSortKey; label: string; width: string; align: 'right' }
 
@@ -58,17 +63,18 @@ function MeasuredRow({ d, cols, template, severity, onSelect }: {
 }) {
   const r = d.row;
   const zero = d.open === 0;
+  const sub = `${CODEBASE_LABELS[r.codebaseGroup]}${zero ? ` · ${noOpenText(severity)}` : ''}`;
   return (
     <div
       role="row" data-testid={`repo-row-${r.fullName}`} tabIndex={0} title={`Open ${r.fullName} alerts`}
-      className="cursor-pointer items-center border-b border-gray-800/60 hover:bg-gray-800/30"
+      className={`cursor-pointer items-center border-b border-gray-800/60 hover:bg-gray-800/30 ${ROW_FOCUS}`}
       style={{ display: 'grid', gridTemplateColumns: template, height: TEAM_ROW_H }}
       onClick={() => onSelect({ fullName: r.fullName, team: r.team })}
       onKeyDown={e => { if (e.target !== e.currentTarget) return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect({ fullName: r.fullName, team: r.team }); } }}
     >
       <div role="cell" className="min-w-0 px-2">
         <div className={`${TYPE.body} truncate ${zero ? 'text-gray-500' : 'text-gray-100'}`} title={r.fullName}>{r.fullName}</div>
-        <div className="truncate text-xs text-gray-500">{CODEBASE_LABELS[r.codebaseGroup]}{zero ? ` · ${noOpenText(severity)}` : ''}</div>
+        <div className="truncate text-xs text-gray-500" title={sub}>{sub}</div>
       </div>
       <div role="cell" className={`${TYPE.body} min-w-0 truncate px-2 ${zero ? 'text-gray-500' : 'text-gray-300'}`} title={r.team}>{r.team}</div>
       {cols.map(c => {
@@ -95,14 +101,14 @@ function UnmeasuredRow({ r, cols, template, onOpen }: { r: RepoRow; cols: Col[];
     <div
       role="row" data-testid={`repo-row-${r.fullName}`} tabIndex={0}
       title={`Open counts unknown${u.detail ? ` (${u.detail})` : ''}. Click for details.`}
-      className="cursor-pointer items-center border-b border-gray-800/60"
+      className={`cursor-pointer items-center border-b border-gray-800/60 ${ROW_FOCUS}`}
       style={{ display: 'grid', gridTemplateColumns: template, height: TEAM_ROW_H }}
       onClick={e => onOpen(e.currentTarget)}
       onKeyDown={e => { if (e.target !== e.currentTarget) return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(e.currentTarget); } }}
     >
       <div role="cell" className="min-w-0 px-2">
         <div className={`${TYPE.body} truncate text-gray-100`} title={r.fullName}>{r.fullName}</div>
-        <div className="truncate text-xs text-gray-500">{CODEBASE_LABELS[r.codebaseGroup]}</div>
+        <div className="truncate text-xs text-gray-500" title={CODEBASE_LABELS[r.codebaseGroup]}>{CODEBASE_LABELS[r.codebaseGroup]}</div>
       </div>
       <div role="cell" className={`${TYPE.body} min-w-0 truncate px-2 text-gray-300`} title={r.team}>{r.team}</div>
       <div role="cell" data-testid="repo-unmeasured-band" className="vuln-hatch mx-2 min-w-0 truncate rounded border border-warn-line px-2 py-1 text-xs font-semibold text-warn" style={{ gridColumn: `span ${cols.length}` }}>
@@ -138,17 +144,20 @@ export default function RepoTable({ summary, data, url, openDrawer, nameFilter }
     filtering ? `name contains “${nameFilter.trim()}”` : null,
   ].filter((s): s is string => s !== null);
   const note = subs.join(' · ');
+  const footLabel = `${filtering ? 'Matching' : rowsTeam ? `${rowsTeam} total` : 'Total'} · ${dash(totals.count)} ${totals.count === 1 ? 'repo' : 'repos'}`;
 
+  // The sort the rows are in: with no header chosen it is the server's order, drawn as "Open ↓" on the Open column of the severity the tiles follow.
+  const shownSort = shownRepoSort(sort, url.severity);
   const head = (key: RepoSortKey, label: string, right: boolean) => {
     const sev = repoKeySeverity(key);
     const shown = !sev || sevShown(url.severity, sev);
-    const active = shown && sort?.key === key ? sort : null;
+    const active = shown && shownSort.key === key ? shownSort : null;
     return (
       <div key={key} role="columnheader" aria-sort={active ? (active.dir === 'asc' ? 'ascending' : 'descending') : 'none'} className={`px-2 ${shown ? '' : DIM}`}>
         <button
-          type="button" disabled={!shown}
+          type="button" disabled={!shown} title={label}
           className={`${TYPE.tableHeader} flex w-full items-center gap-1 whitespace-nowrap leading-[13px] ${right ? 'justify-end text-right' : 'text-left'} ${active ? 'text-white' : 'text-gray-400'} disabled:cursor-default`}
-          onClick={() => setSort(s => nextSort(s, key, REPO_SORT_FIRST[key]))}
+          onClick={() => setSort(s => nextSort(shownRepoSort(s, url.severity), key, REPO_SORT_FIRST[key]))}
         >
           <span className="min-w-0 truncate">{label}</span>
           {shown && <span aria-hidden="true" className={`shrink-0 ${active ? 'text-accent-light' : 'text-gray-600'}`}>{sortGlyph(active)}</span>}
@@ -158,8 +167,10 @@ export default function RepoTable({ summary, data, url, openDrawer, nameFilter }
   };
 
   return (
-    <div role="table" aria-label="Repositories" data-testid="repo-table" className={`h-full overflow-auto${view.dimmed ? ' opacity-60' : ''}`}>
-      <div role="row" className="sticky top-0 items-center border-b border-gray-800 bg-chart-surface" style={{ display: 'grid', gridTemplateColumns: template, height: 40, zIndex: Z.pinnedRows }}>
+    <div role="table" aria-label="Repositories" data-testid="repo-table" className={`h-full overflow-auto [scrollbar-gutter:stable]${view.dimmed ? ' opacity-60' : ''}`}
+      // A row focused with the keyboard scrolls into view clear of the pinned header above it and the pinned footer below it.
+      style={{ scrollPaddingTop: REPO_HEAD_H, scrollPaddingBottom: REPO_FOOT_H }}>
+      <div role="row" className="sticky top-0 items-center border-b border-gray-800 bg-chart-surface" style={{ display: 'grid', gridTemplateColumns: template, height: REPO_HEAD_H, zIndex: Z.pinnedRows }}>
         {head('name', 'Repository', false)}
         {head('team', 'Owning team', false)}
         {cols.map(c => head(c.key, c.label, true))}
@@ -175,11 +186,9 @@ export default function RepoTable({ summary, data, url, openDrawer, nameFilter }
       <div className="sticky bottom-0 border-t border-gray-700 bg-chart-surface" style={{ zIndex: Z.pinnedRows }}>
         <div role="row" data-testid="repo-footer" className="items-center font-bold" style={{ display: 'grid', gridTemplateColumns: template, minHeight: TEAM_ROW_H }}>
           <div role="cell" className="col-span-2 min-w-0 px-2">
-            <div className={`${TYPE.body} truncate text-white`}>
-              {filtering ? 'Matching' : rowsTeam ? `${rowsTeam} total` : 'Total'} · {dash(totals.count)} {totals.count === 1 ? 'repo' : 'repos'}
-            </div>
+            <div className={`${TYPE.body} truncate text-white`} title={footLabel}>{footLabel}</div>
             {/* The one reserved line under the label: a failed refresh of these rows comes first, in red, then the scope notes. */}
-            <div data-testid="repo-footer-note" className="h-4 truncate text-xs font-normal leading-4 text-gray-500" aria-hidden={note || view.refreshError ? undefined : true} title={view.refreshError ?? undefined}>
+            <div data-testid="repo-footer-note" className="h-4 truncate text-xs font-normal leading-4 text-gray-500" aria-hidden={note || view.refreshError ? undefined : true} title={[view.refreshError, note].filter(Boolean).join(' · ') || undefined}>
               {view.refreshError && <span data-testid="repo-refresh-note" className="text-red-400">{REFRESH_FAILED_NOTE}</span>}
               {view.refreshError && note ? ' · ' : ''}
               {note || (view.refreshError ? '' : '\u00a0')}

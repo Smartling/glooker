@@ -44,6 +44,16 @@ describe('the row', () => {
   });
 });
 
+describe('titles on truncating labels (B4)', () => {
+  // Revert: drop a title.
+  it('every tile label carries its full text', () => {
+    render(<KpiTiles {...ovProps()} />);
+    for (const [id, text] of [['kpi-open', 'Open critical alerts'], ['kpi-resolved', 'Resolved critical'], ['kpi-sla', 'SLA · open alerts'], ['kpi-since', 'critical since baseline']] as const) {
+      expect(within(screen.getByTestId(id)).getByText(text).getAttribute('title')).toBe(text);
+    }
+  });
+});
+
 describe('Open tile: count and severity', () => {
   it('reads "Open critical alerts" and the critical total', () => {
     render(<KpiTiles {...ovProps()} />);

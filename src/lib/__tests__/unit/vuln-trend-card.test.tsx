@@ -152,6 +152,49 @@ describe('header', () => {
   });
 });
 
+describe('header layout (B1)', () => {
+  // Revert: put the select back before the figures (it then slides left or right as the figures' width changes), or let the block size to its text.
+  it('the Range select is the rightmost child of the header, after a fixed-width figures block', () => {
+    render(<TrendCard {...props()} />);
+    const select = screen.getByLabelText('Range');
+    const right = select.parentElement as HTMLElement;
+    expect(right.lastElementChild).toBe(select);
+    expect(right.parentElement!.lastElementChild).toBe(right);
+    const block = screen.getByTestId('trend-open-now').parentElement as HTMLElement;
+    expect(right.firstElementChild).toBe(block);
+    expect(block.className).toContain('w-56');
+    expect(block.className).toContain('text-right');
+  });
+
+  // Revert: drop `truncate` or the titles: a long change sentence then wraps or pushes the select.
+  it('each figure is one line with its full text in its title, in every sentence the change line can read', () => {
+    const cases: Array<[Parameters<typeof ovProps>[0], string]> = [
+      [{}, 'No earlier measurement yet'],
+      [{ summary: { delta: { critical: ovDelta(ovDeltaTeam('Total', 2), { baseline: ovBaseline('2026-09-29') }), high: ovDelta(null) } } }, '▲ 2 more than on Sep 29'],
+    ];
+    for (const [o, sentence] of cases) {
+      const { unmount } = render(<TrendCard {...props(SERIES, o)} />);
+      for (const [id, text] of [['trend-open-now', '10 open now'], ['trend-change', sentence]] as const) {
+        const el = screen.getByTestId(id);
+        expect(el.className).toContain('truncate');
+        expect(el.getAttribute('title')).toBe(text);
+        expect(el.textContent).toBe(text);
+      }
+      unmount();
+    }
+  });
+
+  // Revert: leave the title and subtitle without their titles.
+  it('the card title and subtitle carry their full text as a title and truncate', () => {
+    render(<TrendCard {...props()} />);
+    for (const text of ['Open critical alerts by owning team', 'One point per stored measurement']) {
+      const el = screen.getByText(text);
+      expect(el.getAttribute('title')).toBe(text);
+      expect(el.className).toContain('truncate');
+    }
+  });
+});
+
 describe('lines and colours', () => {
   // Revert: build colours from the drawn (filtered) series.
   it('draws one line per team in its own colour; the colours are distinct and come from the unfiltered series', () => {
@@ -300,6 +343,18 @@ describe('legend', () => {
     expect(legend().filter(e => e.style.opacity === '1').map(e => e.textContent)).toEqual(['Other · 3 teams6 open']);
   });
 
+  // Revert: drop `truncate` or the cap: one very long team name then fills the row and pushes the others onto more lines.
+  it('each entry\'s label is width-capped and truncates, and the entry keeps the full name in its title', () => {
+    const long = 'A very long owning team name that would otherwise take the whole legend row';
+    render(<TrendCard {...props([ovSeries(long, [[ago(40), 4], [ago(1), 6]])])} />);
+    const entry = legend()[0];
+    const label = entry.children[1] as HTMLElement;
+    expect(label.textContent).toBe(long);
+    expect(label.className).toContain('truncate');
+    expect(label.className).toContain('max-w-[160px]');
+    expect(entry.getAttribute('title')).toBe(long);
+  });
+
   // Revert: key the entries by team name.
   it('entries are the same DOM nodes across a series swap, with their text updated', () => {
     const swapped = SERIES.map((s, i) => ({ ...s, team: `Swapped${i}` }));
@@ -310,11 +365,16 @@ describe('legend', () => {
     expect(legend().map(e => e.textContent).join(' ')).toContain('Swapped');
   });
 
-  // Revert: drop the min-height (the card then resizes between an empty and a populated state).
-  it('reserves two lines in every state, and the footnote is always there', () => {
+  // Revert: drop the min-height (the card then resizes between an empty and a populated state), or go back to two lines (32px).
+  it('reserves three lines in every state at 12px, and the footnote is always there, also at 12px', () => {
     for (const p of [props(), props([]), ovProps({ data: { trend: slot<TrendData>(undefined, { loading: true }) } })]) {
       const { unmount } = render(<TrendCard {...p} />);
-      expect(screen.getByTestId('trend-legend').className).toContain('min-h-[32px]');
+      const el = screen.getByTestId('trend-legend');
+      expect(el.className).toContain('min-h-[48px]');
+      expect(el.className).toContain('text-xs');
+      expect(el.className).toContain('leading-4');
+      expect(el.className).not.toContain('text-[11px]');
+      expect(screen.getByTestId('trend-footnote').className).toContain('text-xs');
       expect(screen.getByTestId('trend-footnote').textContent).toBe('Each dot is one stored measurement (an imported CSV run or a sync).');
       unmount();
     }

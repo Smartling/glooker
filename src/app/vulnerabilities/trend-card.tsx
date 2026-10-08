@@ -19,6 +19,7 @@ import { OTHER_TEAM_COLOR, assignTeamColors } from './team-colors';
 import { buildLegend, dayNumber, isoOfDay, TREND_RANGES, trendDomain, trendRows, trendStatus, trendTicks, type TrendRow } from './trend-model';
 
 const FOOTNOTE = 'Each dot is one stored measurement (an imported CSV run or a sync).';
+const SUBTITLE = 'One point per stored measurement';
 
 function Plot({ series, team, range, today }: { series: TrendSeries[]; team: string | null; range: TrendRange; today: string }) {
   const colors = assignTeamColors(series);
@@ -69,6 +70,8 @@ export default function TrendCard({ summary, data, url }: SecurityViewProps) {
   const status = series ? trendStatus(series, url.range, today) : null;
   const legend = series ? buildLegend(series, url.team) : [];
   const change = openChange(summary.delta[sev], sev);
+  const heading = `Open ${sev} alerts by owning team`;
+  const openNow = `${dash(summary.pivot.total[sev].open)} open now`;
 
   return (
     <section aria-label="Trend" data-testid="trend-card" className="flex flex-col gap-3">
@@ -76,21 +79,21 @@ export default function TrendCard({ summary, data, url }: SecurityViewProps) {
       <div className={`${TYPE.card} bg-gray-900 p-4`}>
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <h3 className="truncate text-sm font-semibold text-white">Open {sev} alerts by owning team</h3>
-            <p className="text-xs text-gray-400">One point per stored measurement</p>
+            <h3 className="truncate text-sm font-semibold text-white" title={heading}>{heading}</h3>
+            <p className="truncate text-xs text-gray-400" title={SUBTITLE}>{SUBTITLE}</p>
           </div>
+          {/* The Range select is the rightmost control and never moves: the figures sit in a fixed-width block to its left, one line each (cut with "…", the full text in the title). */}
           <div className="flex shrink-0 items-start gap-4">
+            <div className={`w-56 text-right${stale || data.summary.stale ? ' opacity-60' : ''}`}>
+              <div data-testid="trend-open-now" className="truncate text-sm font-semibold text-white" title={openNow}>{openNow}</div>
+              <div data-testid="trend-change" className={`h-4 truncate text-xs leading-4 ${change.toneClass}`} title={change.text}>{change.text}</div>
+            </div>
             <select
               aria-label="Range" value={url.range} onChange={e => url.setRange(e.target.value as TrendRange)}
               className={`h-8 ${TYPE.control} border border-gray-700 bg-gray-800 px-2 text-xs text-gray-200`}
             >
               {TREND_RANGES.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
             </select>
-            {/* The figures dim with the plot while the previous key is on screen, and with the summary they come from. */}
-            <div className={`text-right${stale || data.summary.stale ? ' opacity-60' : ''}`}>
-              <div data-testid="trend-open-now" className="text-sm font-semibold text-white">{dash(summary.pivot.total[sev].open)} open now</div>
-              <div data-testid="trend-change" className={`h-4 text-xs leading-4 ${change.toneClass}`}>{change.text}</div>
-            </div>
           </div>
         </div>
 
@@ -116,20 +119,20 @@ export default function TrendCard({ summary, data, url }: SecurityViewProps) {
         </div>
 
         {/* Entries are keyed by position: keyed by team, a team click looked (to the layout-shift API)
-            like the surviving entry sliding to the start of the row. Two lines are reserved. */}
-        <div data-testid="trend-legend" className={`mt-3 flex min-h-[32px] flex-wrap content-start gap-x-4 gap-y-0 text-[11px] leading-4${stale ? ' opacity-60' : ''}`}>
+            like the surviving entry sliding to the start of the row. Three lines are reserved, and a long team name is cut at 160px. */}
+        <div data-testid="trend-legend" className={`mt-3 flex min-h-[48px] flex-wrap content-start gap-x-4 gap-y-0 text-xs leading-4${stale ? ' opacity-60' : ''}`}>
           {legend.map((e, i) => (
             <span
               key={i} data-testid="trend-legend-entry" title={e.title} className="flex cursor-default items-center gap-1.5"
               style={{ opacity: e.dimmed ? 0.4 : 1 }}
             >
               <i aria-hidden="true" className="inline-block h-[3px] w-3 rounded-sm" style={{ background: e.color }} />
-              <span className={`text-chart-axis ${e.selected ? 'font-semibold' : ''}`}>{e.label}</span>
+              <span className={`max-w-[160px] truncate text-chart-axis ${e.selected ? 'font-semibold' : ''}`}>{e.label}</span>
               <span className="text-gray-500">{dash(e.open)} open</span>
             </span>
           ))}
         </div>
-        <p data-testid="trend-footnote" className="mt-1 text-[10px] leading-[14px] text-gray-500">{FOOTNOTE}</p>
+        <p data-testid="trend-footnote" className="mt-1 text-xs leading-4 text-gray-500">{FOOTNOTE}</p>
       </div>
     </section>
   );

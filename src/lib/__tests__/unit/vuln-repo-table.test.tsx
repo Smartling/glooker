@@ -288,6 +288,49 @@ describe('keys on a control inside a row', () => {
   });
 });
 
+describe('scroller and focus (B2, B3, B8)', () => {
+  // Revert: drop the scroll padding: a keyboard-focused row scrolls under the pinned header or the pinned footer.
+  it('pads its scroll area by the 40px pinned header and the pinned footer (its row plus the 1px border)', () => {
+    render(<RepoTable {...table()} />);
+    const style = screen.getByTestId('repo-table').style;
+    expect(style.scrollPaddingTop).toBe('40px');
+    expect(style.scrollPaddingBottom).toBe(`${TEAM_ROW_H + 1}px`);
+    expect(screen.getAllByRole('row')[0].style.height).toBe('40px');
+  });
+
+  // Revert: drop the gutter class: the columns narrow the moment the table starts to scroll.
+  it('reserves its scrollbar gutter, like the team table', () => {
+    render(<RepoTable {...table()} />);
+    expect(screen.getByTestId('repo-table').className).toContain('[scrollbar-gutter:stable]');
+  });
+
+  // Revert: drop the focus-visible classes from either row kind.
+  it('a focused row, measured or unmeasured, draws an inset ring', () => {
+    render(<RepoTable {...table()} />);
+    for (const name of ['acme/checkout-api', 'acme/invoice-render']) {
+      const cls = rowOf(name).className;
+      for (const c of ['focus-visible:outline-none', 'focus-visible:ring-2', 'focus-visible:ring-inset', 'focus-visible:ring-accent/50']) expect(cls).toContain(c);
+    }
+  });
+});
+
+describe('titles on truncating text (B4)', () => {
+  // Revert: drop a title.
+  it('every header button, the codebase line under a name, the footer label and the footer note carry their full text', () => {
+    render(<RepoTable {...table()} />);
+    for (const b of screen.getAllByRole('columnheader').map(h => within(h).getByRole('button'))) {
+      expect(b.getAttribute('title')).toBe(b.textContent!.replace(/[↕↑↓]\uFE0E?/g, '').trim());
+    }
+    const sub = within(rowOf('acme/ledger-service')).getByText(/no open alerts/);
+    expect(sub.getAttribute('title')).toBe(sub.textContent);
+    const label = cellsOf(screen.getByTestId('repo-footer'))[0].firstElementChild as HTMLElement;
+    expect(label.getAttribute('title')).toBe(label.textContent);
+    const note = screen.getByTestId('repo-footer-note');
+    expect(note.getAttribute('title')).toBe(note.textContent);
+    expect(note.getAttribute('title')).toBe('1 unmeasured: totals include stored counts');
+  });
+});
+
 describe('footer', () => {
   const footer = () => screen.getByTestId('repo-footer');
 
@@ -369,17 +412,39 @@ describe('sorting', () => {
   const header = (label: string) => screen.getAllByRole('columnheader').find(h => h.textContent?.startsWith(label))!;
   const click = (label: string) => fireEvent.click(within(header(label)).getByRole('button'));
 
-  it('starts in server order with every header showing ↕, then sorts with ↓ and ↑ in the accent colour', () => {
+  it('starts in server order, drawn as "Open crit ↓" in the accent colour; a first click on it goes ascending, then descending again', () => {
     render(<RepoTable {...table()} />);
     expect(order()).toEqual(['checkout-api', 'billing-worker', 'search-index', 'ledger-service', 'invoice-render']);
-    expect(header('Open crit').textContent).toContain('↕');
-    click('Open crit');
     expect(header('Open crit').textContent).toContain('↓');
     expect(header('Open crit').getAttribute('aria-sort')).toBe('descending');
     expect(header('Open crit').querySelector('.text-accent-light')).not.toBeNull();
+    expect(header('Open high').textContent).toContain('↕');
     click('Open crit');
     expect(header('Open crit').textContent).toContain('↑');
+    expect(header('Open crit').getAttribute('aria-sort')).toBe('ascending');
     expect(order().slice(0, 2)).toEqual(['ledger-service', 'search-index']);
+    click('Open crit');
+    expect(header('Open crit').textContent).toContain('↓');
+    expect(order()[0]).toBe('checkout-api');
+  });
+
+  // Revert: draw the default on Open crit whatever Severity says, or leave every header ↕.
+  it('under "High only" the default indicator is on Open high', () => {
+    render(<RepoTable {...table({ url: { severity: 'high', kSev: 'high' } })} />);
+    expect(header('Open high').textContent).toContain('↓');
+    expect(header('Open high').getAttribute('aria-sort')).toBe('descending');
+    expect(header('Open crit').getAttribute('aria-sort')).toBe('none');
+    expect(order()[0]).toBe('checkout-api'); // 14 open high
+    click('Open high');
+    expect(header('Open high').textContent).toContain('↑');
+  });
+
+  // Revert: nextSort(s, ...) with the raw (null) state.
+  it('a first click on another header starts in that header\'s own direction, and the default header goes back to ↕', () => {
+    render(<RepoTable {...table()} />);
+    click('Repository');
+    expect(header('Open crit').textContent).toContain('↕');
+    expect(header('Repository').getAttribute('aria-sort')).toBe('ascending');
   });
 
   // Revert: sort a missing "oldest" as zero.
@@ -441,7 +506,7 @@ describe('states', () => {
     expect(note.textContent).toBe("Couldn't refresh · showing last load");
     expect(note.className).toContain('text-red-400');
     const line = screen.getByTestId('repo-footer-note');
-    expect(line.getAttribute('title')).toBe("Couldn't load repositories: x");
+    expect(line.getAttribute('title')).toBe("Couldn't load repositories: x · 1 unmeasured: totals include stored counts");
     // the scope note follows it on the same line (one unmeasured row in ROWS), and the line keeps its fixed height
     expect(line.textContent).toBe("Couldn't refresh · showing last load · 1 unmeasured: totals include stored counts");
     expect(line.className).toContain('h-4');

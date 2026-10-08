@@ -18,7 +18,7 @@ describe('available delta', () => {
   it('titles the tile with the severity and the baseline date (a display date, the ISO date in the title), and lists new, resolved (dismissed) and reopened', () => {
     render(<KpiTiles {...withDelta(ovDelta(total(), { baseline: ovBaseline('2026-09-29') }))} />);
     const label = within(tile()).getByText('critical since Sep 29');
-    expect(label.getAttribute('title')).toBe('Compared with the measurement taken on 2026-09-29');
+    expect(label.getAttribute('title')).toBe('critical since Sep 29. Compared with the measurement taken on 2026-09-29');
     const text = tile().textContent ?? '';
     expect(text).toContain('new4');
     expect(text).toContain('resolved(1 dismissed)3');
@@ -26,6 +26,13 @@ describe('available delta', () => {
   });
 
   // Revert: read the critical delta whatever kSev says.
+  // Revert: drop the title on the label span.
+  it('each figure row\'s label carries its full text as a title', () => {
+    render(<KpiTiles {...withDelta(ovDelta(total(), { baseline: ovBaseline('2026-09-29') }))} />);
+    expect(within(tile()).getByText('new').getAttribute('title')).toBe('new');
+    expect(within(tile()).getByText(/^resolved/).getAttribute('title')).toBe('resolved (1 dismissed)');
+  });
+
   it('follows kSev: "High only" reads the high delta', () => {
     const p = ovProps({
       url: { severity: 'high', kSev: 'high' },

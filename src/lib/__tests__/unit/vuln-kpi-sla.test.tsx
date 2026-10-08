@@ -123,6 +123,15 @@ describe('hidden severity', () => {
 });
 
 describe('the info button', () => {
+  // Revert: back to h-5 w-5 (20px, under the 24px minimum target size).
+  it('is a 24 x 24 target', () => {
+    render(<KpiTiles {...ovProps()} />);
+    const button = screen.getByRole('button', { name: 'Coverage and policy details' });
+    expect(button.className).toContain('h-6');
+    expect(button.className).toContain('w-6');
+    expect(button.className).not.toMatch(/\b(h-5|w-5)\b/);
+  });
+
   // Revert: call openDrawer() with no argument (focus would not return to the button on close).
   it('opens the coverage and policy drawer, passing the button so focus can return to it', () => {
     const p = ovProps();

@@ -113,6 +113,25 @@ describe('layout', () => {
     expect(label.className).toContain('truncate');
   });
 
+  // Revert: drop the scroll padding: a keyboard-focused row scrolls under the pinned header or the pinned Total row.
+  it('the scroller pads its scroll area by the pinned header above and the pinned Total row (and its footnote) below', () => {
+    const { unmount } = render(<TeamTable {...table()} />);
+    const style = () => screen.getByTestId('team-table').style;
+    expect(style().scrollPaddingTop).toBe(`${TEAM_HEAD_H}px`);
+    expect(style().scrollPaddingBottom).toBe(`${TEAM_ROW_H}px`);
+    unmount();
+    const carry = { pivot: { rows: [ovTeam('Payments', ovCell(5, { resolved: 8, carriedResolved: 3 }), ovCell(0))], total: ovTeam('Total', ovCell(5, { resolved: 8, carriedResolved: 3 }), ovCell(0)) } };
+    render(<TeamTable {...table(carry)} />);
+    expect(style().scrollPaddingBottom).toBe(`${TEAM_ROW_H + TEAM_FOOTNOTE_H}px`);
+  });
+
+  // Revert: drop the focus-visible classes (a focused row would show the browser outline clipped by the scroller, or nothing).
+  it('a focused row draws an inset ring (the scroller would clip an outside one)', () => {
+    render(<TeamTable {...table()} />);
+    const cls = rowOf('Payments').className;
+    for (const c of ['focus-visible:outline-none', 'focus-visible:ring-2', 'focus-visible:ring-inset', 'focus-visible:ring-accent/50']) expect(cls).toContain(c);
+  });
+
   it('numeric cells use tabular digits', () => {
     render(<TeamTable {...table()} />);
     for (const c of cellsOf(rowOf('Payments')).slice(1, 5)) expect(c.className).toContain('tabular-nums');
@@ -507,17 +526,52 @@ describe('sorting', () => {
   const order = () => screen.getAllByTestId(/^team-row-/).map(r => r.getAttribute('data-testid')!.replace('team-row-', ''));
   const openHeader = (n: number) => screen.getAllByRole('columnheader').filter(h => h.textContent?.startsWith('Open'))[n];
 
-  it('starts in server order with no active header, then sorts a column descending, then ascending, with the arrow and aria-sort', () => {
-    render(<TeamTable {...table(pivot(rows, TOTAL))} />);
-    expect(order()).toEqual(['Alpha', 'Beta', 'Gamma']);
-    expect(openHeader(0).getAttribute('aria-sort')).toBe('none');
-    fireEvent.click(within(openHeader(0)).getByRole('button'));
+  // The server sends teams largest critical Open first, so the Open ↓ drawn with no header chosen is true to the order shown.
+  const serverOrder = [rows[1], rows[2], rows[0]];
+
+  it('starts in server order, drawn as "Open ↓" on the critical Open column; a first click on it goes ascending, and the next descending again', () => {
+    render(<TeamTable {...table(pivot(serverOrder, TOTAL))} />);
     expect(order()).toEqual(['Beta', 'Gamma', 'Alpha']);
     expect(openHeader(0).getAttribute('aria-sort')).toBe('descending');
     expect(openHeader(0).textContent).toContain('↓');
+    expect(openHeader(0).querySelector('.text-accent-light')).not.toBeNull();
     fireEvent.click(within(openHeader(0)).getByRole('button'));
     expect(order()).toEqual(['Alpha', 'Gamma', 'Beta']);
+    expect(openHeader(0).getAttribute('aria-sort')).toBe('ascending');
     expect(openHeader(0).textContent).toContain('↑');
+    fireEvent.click(within(openHeader(0)).getByRole('button'));
+    expect(order()).toEqual(['Beta', 'Gamma', 'Alpha']);
+    expect(openHeader(0).textContent).toContain('↓');
+  });
+
+  // Revert: draw the default on the critical column whatever Severity says, or leave every header ↕.
+  it('the default indicator follows the severity the tiles follow, and no other header is active', () => {
+    const { rerender } = render(<TeamTable {...table(pivot(rows, TOTAL))} />);
+    const others = () => screen.getAllByRole('columnheader').filter(h => h.hasAttribute('aria-sort') && h.getAttribute('aria-sort') !== 'none');
+    expect(others()).toHaveLength(1);
+    rerender(<TeamTable {...table(pivot(rows, TOTAL), { severity: 'high', kSev: 'high' })} />);
+    expect(openHeader(0).getAttribute('aria-sort')).toBe('none');
+    expect(openHeader(1).getAttribute('aria-sort')).toBe('descending');
+    expect(openHeader(1).textContent).toContain('↓');
+    expect(order()).toEqual(['Alpha', 'Gamma', 'Beta']); // high open: 7, 4, 1
+    expect(others()).toHaveLength(1);
+  });
+
+  // Revert: nextSort(s, ...) with the raw (null) state: the first click then sorts descending, which looks like nothing happened.
+  it('a first click on another header starts in that header\'s own direction, and the default header goes back to ↕', () => {
+    render(<TeamTable {...table(pivot(rows, TOTAL))} />);
+    fireEvent.click(screen.getByRole('button', { name: /Owning team/ }));
+    expect(order()).toEqual(['Alpha', 'Beta', 'Gamma']);
+    expect(openHeader(0).getAttribute('aria-sort')).toBe('none');
+    expect(openHeader(0).textContent).toContain('↕');
+  });
+
+  it('a sort left on a column whose severity is now hidden draws the default again', () => {
+    const { rerender } = render(<TeamTable {...table(pivot(rows, TOTAL))} />);
+    fireEvent.click(within(openHeader(0)).getByRole('button')); // critical Open, ascending
+    rerender(<TeamTable {...table(pivot(rows, TOTAL), { severity: 'high', kSev: 'high' })} />);
+    expect(openHeader(1).getAttribute('aria-sort')).toBe('descending');
+    expect(order()).toEqual(['Alpha', 'Gamma', 'Beta']);
   });
 
   // Revert: sort the Total row with the others.

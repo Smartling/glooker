@@ -9,19 +9,21 @@ import { useState } from 'react';
 import type { TeamRow, SevCell } from '@/lib/vulnerabilities/aggregate';
 import type { Severity } from '@/lib/vulnerabilities/types';
 import type { SecurityViewProps } from './view-props';
-import { TEAM_BAND_H, TEAM_COLHEAD_H, TEAM_FOOTNOTE_H, TEAM_ROW_H, TYPE, Z } from './dimensions';
+import { TEAM_BAND_H, TEAM_COLHEAD_H, TEAM_FOOTNOTE_H, TEAM_HEAD_H, TEAM_ROW_H, TYPE, Z } from './dimensions';
 import { dash, deltaBaselineCaption, resolvedCaption } from './format';
 import { unmeasuredBadgeText } from './labels';
 import { baselineUnavailableText, carriedFootnote, carriedTitle } from './overview-format';
 import { slaActive } from './sla-state';
 import { REFRESH_FAILED_NOTE, slotView } from './slot-view';
 import {
-  deltaOpenFor, nextSort, orderTeamRows, sevShown, sortGlyph, TEAM_SORT_FIRST,
+  deltaOpenFor, nextSort, orderTeamRows, sevShown, shownTeamSort, sortGlyph, TEAM_SORT_FIRST,
   type SortState, type TeamSortKey,
 } from './ownership-model';
 
 const HIDDEN = '–'; // an en dash: a hidden severity's cell. A missing figure is "—" (em dash) from dash().
 const DIM = 'opacity-[0.35]';
+/** A keyboard-focused row: an inset ring, so the scrolling body does not clip it. */
+const ROW_FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50';
 
 const GROUPS: Array<{ sev: Severity; prefix: 'c' | 'h'; label: string; band: string; tint: string }> = [
   { sev: 'critical', prefix: 'c', label: 'CRITICAL', band: 'bg-red-500/20 text-red-400', tint: 'bg-crit-tint' },
@@ -113,18 +115,20 @@ export default function TeamTable({ data, url, openDrawer }: SecurityViewProps) 
   const critBaseline = baselineOf(deltas.critical);
   const highBaseline = baselineOf(deltas.high);
   const carriedTotal = total.critical.resolved !== null ? total.critical.carriedResolved : 0;
+  // The sort the rows are in: with no header chosen it is the server's order, drawn as "Open ↓" on the Open column of the severity the tiles follow.
+  const shownSort = shownTeamSort(sort, url.severity);
   const totalLabel = url.team ? 'Total · all owning teams' : 'Total';
 
   const header = (g: typeof GROUPS[number], col: Col, label: string, sub?: string, subTitle?: string, title?: string) => {
     const key = sortKey(g.prefix, col);
     const shown = sevShown(url.severity, g.sev);
-    const active = shown && sort?.key === key ? sort : null;
+    const active = shown && shownSort.key === key ? shownSort : null;
     return (
       <div role="columnheader" aria-sort={active ? (active.dir === 'asc' ? 'ascending' : 'descending') : 'none'} className={`${g.tint} px-2 ${shown ? '' : DIM}`} title={title}>
         <button
           type="button" disabled={!shown}
           className={`${TYPE.tableHeader} flex w-full items-center justify-end gap-1 whitespace-nowrap ${active ? 'text-white' : 'text-gray-400'} disabled:cursor-default`}
-          onClick={() => setSort(s => nextSort(s, key, TEAM_SORT_FIRST[key]))}
+          onClick={() => setSort(s => nextSort(shownTeamSort(s, url.severity), key, TEAM_SORT_FIRST[key]))}
         >
           {label}
           {shown && <span aria-hidden="true" className={active ? 'text-accent-light' : 'text-gray-600'}>{sortGlyph(active)}</span>}
@@ -140,7 +144,7 @@ export default function TeamTable({ data, url, openDrawer }: SecurityViewProps) 
     </div>
   );
   const nameKey: TeamSortKey = 'name';
-  const nameActive = sort?.key === nameKey ? sort : null;
+  const nameActive = shownSort.key === nameKey ? shownSort : null;
   const groupHeader = (g: typeof GROUPS[number], baseline: { text: string; title?: string }, hasOverdue: boolean) => (
     <>
       {header(g, 'Open', 'Open')}
@@ -153,7 +157,9 @@ export default function TeamTable({ data, url, openDrawer }: SecurityViewProps) 
 
   return (
     // The scrollbar gutter is reserved, so a table that starts to scroll does not narrow its columns.
-    <div role="table" aria-label="Owning teams" data-testid="team-table" className={`h-full overflow-auto [scrollbar-gutter:stable]${view.dimmed ? ' opacity-60' : ''}`}>
+    <div role="table" aria-label="Owning teams" data-testid="team-table" className={`h-full overflow-auto [scrollbar-gutter:stable]${view.dimmed ? ' opacity-60' : ''}`}
+      // A row focused with the keyboard scrolls into view clear of the pinned header above it and the pinned Total row (and its footnote) below it.
+      style={{ scrollPaddingTop: TEAM_HEAD_H, scrollPaddingBottom: TEAM_ROW_H + (carriedTotal > 0 ? TEAM_FOOTNOTE_H : 0) }}>
       <div className="sticky top-0 bg-chart-surface" style={{ zIndex: Z.pinnedRows }}>
         {/* A refresh of this same request failed: the rows stay, and this note sits over the band row's empty first cell (no layout change). */}
         {view.refreshError && (
@@ -167,7 +173,7 @@ export default function TeamTable({ data, url, openDrawer }: SecurityViewProps) 
         </div>
         <div role="row" style={{ ...rowStyle, height: TEAM_COLHEAD_H }} className="box-border items-end border-b border-gray-800">
           <div role="columnheader" aria-sort={nameActive ? (nameActive.dir === 'asc' ? 'ascending' : 'descending') : 'none'} className="px-2 pb-[18px]" title="The repository's team custom property — not a Glooker team">
-            <button type="button" className={`${TYPE.tableHeader} flex items-center gap-1 whitespace-nowrap ${nameActive ? 'text-white' : 'text-gray-400'}`} onClick={() => setSort(s => nextSort(s, nameKey, TEAM_SORT_FIRST[nameKey]))}>
+            <button type="button" className={`${TYPE.tableHeader} flex items-center gap-1 whitespace-nowrap ${nameActive ? 'text-white' : 'text-gray-400'}`} onClick={() => setSort(s => nextSort(shownTeamSort(s, url.severity), nameKey, TEAM_SORT_FIRST[nameKey]))}>
               Owning team
               <span aria-hidden="true" className={nameActive ? 'text-accent-light' : 'text-gray-600'}>{sortGlyph(nameActive)}</span>
             </button>
@@ -184,7 +190,7 @@ export default function TeamTable({ data, url, openDrawer }: SecurityViewProps) 
           <div
             key={r.team} role="row" data-testid={`team-row-${r.team}`} tabIndex={0} aria-selected={selected}
             title={selected ? 'Clear the Owning team filter' : `Filter the page to ${r.team} and list its repositories`}
-            className={`cursor-pointer items-center border-b border-gray-800/60 hover:bg-gray-800/30${selected ? ' bg-accent/10' : ''}`}
+            className={`cursor-pointer items-center border-b border-gray-800/60 hover:bg-gray-800/30 ${ROW_FOCUS}${selected ? ' bg-accent/10' : ''}`}
             style={{ ...rowStyle, height: TEAM_ROW_H }}
             onClick={() => url.selectTeamRow(r.team)}
             // A key pressed on the nested badge button belongs to the badge: the row must not preventDefault its click.

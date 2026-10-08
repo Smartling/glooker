@@ -1,7 +1,7 @@
 // src/lib/__tests__/unit/vuln-ownership-model.test.ts
 // The ownership card's pure rules: hidden severity, header sorting, repository rows under Severity.
 import {
-  buildRepoView, deltaOpenFor, nextSort, noOpenText, orderTeamRows, repoDisplay, repoTotals, sevShown, sortGlyph, teamRowsOverflow, teamRowsRoom,
+  buildRepoView, deltaOpenFor, nextSort, noOpenText, orderTeamRows, repoDisplay, repoTotals, sevShown, shownRepoSort, shownTeamSort, sortGlyph, teamRowsOverflow, teamRowsRoom,
   type RepoSortKey, type SortState, type TeamSortKey,
 } from '@/app/vulnerabilities/ownership-model';
 import { OWNERSHIP_BODY_H, TEAM_FOOTNOTE_H, TEAM_HEAD_H, TEAM_ROW_H } from '@/app/vulnerabilities/dimensions';
@@ -23,6 +23,26 @@ describe('nextSort and sevShown', () => {
     expect(sevShown('both', 'critical') && sevShown('both', 'high')).toBe(true);
     expect([sevShown('critical', 'critical'), sevShown('critical', 'high')]).toEqual([true, false]);
     expect([sevShown('high', 'critical'), sevShown('high', 'high')]).toEqual([false, true]);
+  });
+});
+
+describe('shownTeamSort and shownRepoSort (the server\'s order, drawn as a sort on Open)', () => {
+  // Revert: return the raw sort (null), or ignore the severity.
+  it('with no sort chosen, the Open column of the severity the tiles follow, descending', () => {
+    expect(shownTeamSort(null, 'both')).toEqual({ key: 'cOpen', dir: 'desc' });
+    expect(shownTeamSort(null, 'critical')).toEqual({ key: 'cOpen', dir: 'desc' });
+    expect(shownTeamSort(null, 'high')).toEqual({ key: 'hOpen', dir: 'desc' });
+    expect(shownRepoSort(null, 'both')).toEqual({ key: 'openCrit', dir: 'desc' });
+    expect(shownRepoSort(null, 'high')).toEqual({ key: 'openHigh', dir: 'desc' });
+  });
+
+  it('a chosen sort is shown as it is; one on a hidden severity\'s column is not applied, so the default is shown', () => {
+    const name: SortState<TeamSortKey> = { key: 'name', dir: 'asc' };
+    expect(shownTeamSort(name, 'high')).toBe(name);
+    expect(shownTeamSort({ key: 'cResolved', dir: 'asc' }, 'both')).toEqual({ key: 'cResolved', dir: 'asc' });
+    expect(shownTeamSort({ key: 'cResolved', dir: 'asc' }, 'high')).toEqual({ key: 'hOpen', dir: 'desc' });
+    expect(shownRepoSort({ key: 'overHigh', dir: 'asc' }, 'critical')).toEqual({ key: 'openCrit', dir: 'desc' });
+    expect(shownRepoSort({ key: 'team', dir: 'asc' }, 'critical')).toEqual({ key: 'team', dir: 'asc' });
   });
 });
 

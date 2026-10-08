@@ -80,6 +80,17 @@ describe('† marker and footnote', () => {
   });
 });
 
+describe('titles (B4)', () => {
+  // Revert: drop either title.
+  it('the dismissed line and the % closed line carry their full text', () => {
+    render(<KpiTiles {...ovProps({ summary: pivot(ovCell(19, { resolved: 25, dismissed: 4, pctClosed: 57 })) })} />);
+    for (const id of ['kpi-resolved-since', 'kpi-resolved-closed']) {
+      expect(screen.getByTestId(id).getAttribute('title')).toBe(screen.getByTestId(id).textContent);
+    }
+    expect(screen.getByTestId('kpi-resolved-closed').getAttribute('title')).toBe('57% of 44 raised are closed');
+  });
+});
+
 describe('fixed shape', () => {
   // Revert: drop h-4 or truncate from one of the reserved lines.
   it('the dismissed line, the footnote slot and the % line are single fixed-height lines', () => {

@@ -22,7 +22,7 @@ function OpenTile({ summary, data, url }: SecurityViewProps) {
   const spark = slotView(data.sparkline);
   return (
     <div data-testid="kpi-open" className={TILE}>
-      <div className={LABEL}>Open {sev} alerts</div>
+      <div className={LABEL} title={`Open ${sev} alerts`}>Open {sev} alerts</div>
       <div data-testid="kpi-open-value" className={`${TYPE.kpiValue} mt-1 text-white`}>{dash(summary.pivot.total[sev].open)}</div>
       {/* Always one line: the change sentence, or the reason there is none. */}
       <div data-testid="kpi-open-change" className={`h-5 truncate text-[13px] leading-5 ${change.toneClass}`} title={change.text}>
@@ -46,7 +46,7 @@ function OpenTile({ summary, data, url }: SecurityViewProps) {
 function CountRow({ label, note, value }: { label: string; note?: string; value: number | null }) {
   return (
     <div className="flex h-5 items-baseline justify-between gap-2 text-sm leading-5">
-      <span className="min-w-0 truncate text-gray-300">
+      <span className="min-w-0 truncate text-gray-300" title={note ? `${label} ${note}` : label}>
         {label}
         {note && <span className="ml-1 text-xs text-gray-500">{note}</span>}
       </span>
@@ -62,14 +62,15 @@ function SinceTile({ summary, url }: SecurityViewProps) {
   // The tile's own title names the baseline date, so there is no "vs <date>" caption; with no usable total the
   // caption says why there is no figure instead.
   const caption = total ? null : baselineUnavailableText(d);
+  const sinceLabel = `${sev} since ${d?.baseline ? displayDate(d.baseline.takenOn) : 'baseline'}`;
   const notInBaseline = d?.available && d.reposNotInBaseline > 0 ? `${d.reposNotInBaseline} repos not in baseline` : null;
   const other = total && total.other !== 0
     ? { text: `other ${signed(total.other)}`, title: `other ${signed(total.other)}: change in open alerts not explained by new, resolved or reopened` }
     : null;
   return (
     <div data-testid="kpi-since" className={TILE}>
-      <div className={LABEL} title={d?.baseline ? `Compared with the measurement taken on ${d.baseline.takenOn}` : undefined}>
-        {sev} since {d?.baseline ? displayDate(d.baseline.takenOn) : 'baseline'}
+      <div className={LABEL} title={d?.baseline ? `${sinceLabel}. Compared with the measurement taken on ${d.baseline.takenOn}` : sinceLabel}>
+        {sinceLabel}
       </div>
       <div className="mt-1">
         <CountRow label="new" value={total ? total.new : null} />
@@ -109,15 +110,16 @@ function ResolvedTile({ summary, url }: SecurityViewProps) {
     ? `${dash(c.pctClosed, '%')} closed`
     : raised === 0 ? 'None raised yet' : `${dash(c.pctClosed, '%')} of ${raised} raised are closed`;
   const footnote = carried > 0 ? carriedFootnote(carried) : null;
+  const sinceText = `${dash(c.dismissed)} dismissed · ${resolvedCaption(summary.resolvedSince)}`;
   return (
     <div data-testid="kpi-resolved" className={TILE}>
-      <div className={LABEL}>Resolved {sev}</div>
+      <div className={LABEL} title={`Resolved ${sev}`}>Resolved {sev}</div>
       <div className={`${TYPE.kpiValue} mt-1 text-white`}>
         {dash(c.resolved)}
         {carried > 0 && <span className="ml-0.5 text-sm text-warn" title={carriedTitle(carried)}>†</span>}
       </div>
-      <div data-testid="kpi-resolved-since" className="h-4 truncate text-xs leading-4 text-gray-400">
-        {dash(c.dismissed)} dismissed · {resolvedCaption(summary.resolvedSince)}
+      <div data-testid="kpi-resolved-since" className="h-4 truncate text-xs leading-4 text-gray-400" title={sinceText}>
+        {sinceText}
       </div>
       <div
         data-testid="kpi-resolved-footnote" aria-hidden={footnote ? undefined : true}
@@ -125,7 +127,7 @@ function ResolvedTile({ summary, url }: SecurityViewProps) {
       >
         {footnote ?? '\u00a0'}
       </div>
-      <div data-testid="kpi-resolved-closed" className="mt-auto h-4 truncate text-xs leading-4 text-gray-400">{closedLine}</div>
+      <div data-testid="kpi-resolved-closed" className="mt-auto h-4 truncate text-xs leading-4 text-gray-400" title={closedLine}>{closedLine}</div>
     </div>
   );
 }
@@ -180,10 +182,10 @@ function SlaTile({ summary, url, openDrawer }: SecurityViewProps) {
   return (
     <div data-testid="kpi-sla" className={TILE}>
       <div className="flex items-center justify-between gap-2">
-        <div className={LABEL}>SLA · open alerts</div>
+        <div className={LABEL} title="SLA · open alerts">SLA · open alerts</div>
         <button
           type="button" aria-label="Coverage and policy details" title="Coverage and policy details"
-          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-gray-600 text-[11px] leading-none text-gray-400 hover:text-white"
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-gray-600 text-[11px] leading-none text-gray-400 hover:text-white"
           onClick={e => openDrawer(e.currentTarget)}
         >
           i
