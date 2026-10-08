@@ -283,6 +283,13 @@ describe('list_vulnerability_repos', () => {
     expect(t.inputSchema.properties.offset.description).toMatch(/offset \+= limit while truncated is true/);
   });
 
+  it('its description says a null next_due is not "no SLA", and that every figure of an unmeasured row is stored', () => {
+    const t = MCP_TOOLS.find(x => x.name === 'list_vulnerability_repos')!;
+    expect(t.description).toMatch(/`next_due` is also null when nothing is due ahead \(nothing is open, or every open alert is already overdue\)/);
+    expect(t.description).toMatch(/null `next_due` next to a numeric `overdue` does not mean there is no SLA/);
+    expect(t.description).toMatch(/`open`, `overdue`, `due_soon`, `oldest_open_days` and `next_due` are all a stored count/);
+  });
+
   it('its description says the rows are capped per call, when they sum to the summary, and that unmeasured rows are cut first', () => {
     const t = MCP_TOOLS.find(x => x.name === 'list_vulnerability_repos')!;
     expect(t.description).not.toMatch(/every tracked/);
