@@ -10,6 +10,7 @@ import type { Severity } from '@/lib/vulnerabilities/types';
 import { dash, resolvedCaption, signed } from './format';
 import { displayDate, utcToday } from './labels';
 import { baselineUnavailableText, carriedFootnote, carriedTitle, openChange, usableTotal } from './overview-format';
+import { slotView } from './slot-view';
 import Sparkline, { sparkPoints } from './sparkline';
 
 const TILE = 'bg-gray-900 rounded-xl p-4 min-w-0 h-full overflow-hidden flex flex-col';
@@ -18,21 +19,23 @@ const LABEL = `${TYPE.sectionLabel} truncate text-gray-400`;
 function OpenTile({ summary, data, url }: SecurityViewProps) {
   const sev = url.kSev;
   const change = openChange(summary.delta[sev], sev);
-  const spark = data.sparkline;
+  const spark = slotView(data.sparkline);
   return (
     <div data-testid="kpi-open" className={TILE}>
       <div className={LABEL}>Open {sev} alerts</div>
-      <div className={`${TYPE.kpiValue} mt-1 text-white`}>{dash(summary.pivot.total[sev].open)}</div>
+      <div data-testid="kpi-open-value" className={`${TYPE.kpiValue} mt-1 text-white`}>{dash(summary.pivot.total[sev].open)}</div>
       {/* Always one line: the change sentence, or the reason there is none. */}
       <div data-testid="kpi-open-change" className={`h-5 truncate text-[13px] leading-5 ${change.toneClass}`} title={change.text}>
         {change.text}
       </div>
       <div className="mt-auto">
         <Sparkline
-          points={spark.data ? sparkPoints(spark.data.series, url.team) : undefined}
+          points={spark.kind === 'data' ? sparkPoints(spark.data.series, url.team) : undefined}
           sev={sev}
           today={utcToday()}
-          errorText={spark.errorText}
+          errorText={spark.kind === 'error' ? spark.text : spark.kind === 'data' ? spark.refreshError : null}
+          stale={spark.kind === 'data' && spark.dimmed}
+          unavailableText={spark.kind === 'unavailable' ? spark.text : null}
         />
       </div>
     </div>

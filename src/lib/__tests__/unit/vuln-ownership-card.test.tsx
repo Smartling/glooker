@@ -5,8 +5,9 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import OwnershipCard, { OWN_TAB_COUNT_MIN_W } from '@/app/vulnerabilities/ownership-card';
 import { OWNERSHIP_BODY_H } from '@/app/vulnerabilities/dimensions';
+import type { SecurityViewProps } from '@/app/vulnerabilities/view-props';
 import type { ReposData, SummaryData } from '@/app/vulnerabilities/api-types';
-import { cell, ovCell, ovProps, ovTeam, repoRow, reposFixture, slot, summaryFixture } from '../support/security-fixtures';
+import { cell, ovCell, ovProps, ovTeam, repoRow, reposFixture, REPO_ROWS, slot, summaryFixture } from '../support/security-fixtures';
 
 const body = () => screen.getByTestId('ownership-card-body');
 
@@ -15,11 +16,15 @@ describe('the body keeps its height in every state', () => {
   const branches: Array<[string, ReturnType<typeof ovProps>]> = [
     ['teams: populated', ovProps()],
     ['teams: unfiltered summary failed', ovProps({ teamSummary: slot<SummaryData>(undefined, err('team table')) })],
-    ['teams: unfiltered summary still loading (falls back to the scoped one)', ovProps({ teamSummary: slot<SummaryData>(undefined, { loading: true }) })],
+    ['teams: unfiltered summary still loading (Loading…, never the scoped one)', ovProps({ url: { team: 'Payments' }, teamSummary: slot<SummaryData>(undefined, { loading: true }) })],
+    ['teams: unfiltered summary unavailable', ovProps({ teamSummary: slot<SummaryData>(undefined, { unavailable: { available: false, reason: 'x' }, loading: false }) })],
     ['teams: stale', ovProps({ teamSummary: slot(summaryFixture(), { stale: true }) })],
+    ['teams: a failed refresh keeps the rows', ovProps({ teamSummary: slot(summaryFixture(), { errorText: "Couldn't load team table: x" }) })],
     ['repos: populated', ovProps({ url: { own: 'repos' } })],
     ['repos: loading', ovProps({ url: { own: 'repos' }, data: { repos: slot<ReposData>(undefined, { loading: true }) } })],
     ['repos: error', ovProps({ url: { own: 'repos' }, data: { repos: slot<ReposData>(undefined, err('repositories')) } })],
+    ['repos: unavailable', ovProps({ url: { own: 'repos' }, data: { repos: slot<ReposData>(undefined, { unavailable: { available: false, reason: 'x' }, loading: false }) } })],
+    ['repos: a failed refresh keeps the rows', ovProps({ url: { own: 'repos' }, data: { repos: slot(reposFixture(REPO_ROWS), { errorText: "Couldn't load repositories: x" }) } })],
     ['repos: empty', ovProps({ url: { own: 'repos' }, repos: [] })],
   ];
 
@@ -67,6 +72,60 @@ describe('tabs', () => {
     unmount();
     render(<OwnershipCard {...ovProps({ data: { repos: slot<ReposData>(undefined, { loading: true }) } })} />);
     expect(screen.getByRole('button', { name: /Repositories/ }).textContent).toBe('Repositories');
+  });
+
+  const countOf = (id: 'teams' | 'repos') => screen.getByTestId(`ownership-tab-count-${id}`);
+  const hint = () => screen.queryByText(/^Click a (team|repository)/);
+
+  // Revert: `data.teamSummary.data ?? summary` for the count: the team-scoped summary then answers "1" (or the selected team's rows).
+  it('with no data of its own the Owning teams count is blank and its hint is gone: never the team-scoped summary\'s count', () => {
+    const scoped = { pivot: { rows: [ovTeam('Payments', ovCell(3), ovCell(1))], total: ovTeam('Total', ovCell(3), ovCell(1)) } };
+    const states: Array<[string, SecurityViewProps['data']['teamSummary']]> = [
+      ['loading', slot<SummaryData>(undefined, { loading: true })],
+      ['error', slot<SummaryData>(undefined, { error: new Error('x'), errorText: "Couldn't load team table: x", loading: false })],
+      ['unavailable', slot<SummaryData>(undefined, { unavailable: { available: false, reason: 'x' }, loading: false })],
+    ];
+    for (const [, teamSummary] of states) {
+      const { unmount } = render(<OwnershipCard {...ovProps({ summary: scoped, url: { team: 'Payments' }, teamSummary })} />);
+      expect(countOf('teams').textContent).toBe('');
+      expect(hint()).toBeNull();
+      unmount();
+    }
+    // and with data the count and the hint are back
+    render(<OwnershipCard {...ovProps({ summary: scoped, url: { team: 'Payments' }, teamSummary: slot(summaryFixture()) })} />);
+    expect(countOf('teams').textContent).toBe('2');
+    expect(hint()).not.toBeNull();
+  });
+
+  // Revert: leave the count undimmed while its slot is the previous key's.
+  it('a count dims while its own slot shows the previous key\'s data, and only that tab\'s count', () => {
+    const { rerender } = render(<OwnershipCard {...ovProps({ teamSummary: slot(summaryFixture(), { stale: true }) })} />);
+    expect(countOf('teams').className).toContain('opacity-60');
+    expect(countOf('repos').className).not.toContain('opacity-60');
+    rerender(<OwnershipCard {...ovProps({ data: { repos: slot(reposFixture(REPO_ROWS), { stale: true }) } })} />);
+    expect(countOf('repos').className).toContain('opacity-60');
+    expect(countOf('teams').className).not.toContain('opacity-60');
+    rerender(<OwnershipCard {...ovProps()} />);
+    expect(countOf('teams').className).not.toContain('opacity-60');
+    expect(countOf('repos').className).not.toContain('opacity-60');
+  });
+
+  it('a failed refresh keeps both counts (the rows are still there)', () => {
+    render(<OwnershipCard {...ovProps({ teamSummary: slot(summaryFixture(), { errorText: 'x' }), data: { repos: slot(reposFixture(REPO_ROWS), { errorText: 'x' }) } })} />);
+    expect([countOf('teams').textContent, countOf('repos').textContent]).toEqual(['2', '3 + 1 unmeasured']);
+  });
+
+  // Revert: String(n) / the raw count instead of dash().
+  it('every count is grouped: 1,234 teams, "1,200 + 1,010 unmeasured" repositories', () => {
+    const teams = Array.from({ length: 1234 }, (_, i) => ovTeam(`Team ${i}`, ovCell(1), ovCell(0)));
+    const repos = [
+      ...Array.from({ length: 1200 }, (_, i) => repoRow(`acme/r${i}`, 'Payments')),
+      ...Array.from({ length: 1010 }, (_, i) => repoRow(`acme/u${i}`, 'Payments', { unmeasured: { status: 'error', detail: null } })),
+    ];
+    // own=repos, so the 1,234-row team table is not rendered
+    render(<OwnershipCard {...ovProps({ url: { own: 'repos' }, summary: { pivot: { rows: teams, total: ovTeam('Total', ovCell(1234), ovCell(0)) } }, repos })} />);
+    expect(countOf('teams').textContent).toBe('1,234');
+    expect(countOf('repos').textContent).toBe('1,200 + 1,010 unmeasured');
   });
 
   // Revert: render a count only when it has a value, or without the min-width: the Repositories tab slides

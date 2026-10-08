@@ -8,6 +8,7 @@ import type { Severity } from '@/lib/vulnerabilities/types';
 import { diffDays } from '@/lib/vulnerabilities/time';
 import { toNum } from '@/components/charts/chart-format';
 import { SPARK_H } from './dimensions';
+import { REFRESH_FAILED_NOTE } from './slot-view';
 import { displayDate } from './labels';
 import { SPARKLINE_DAYS } from './security-state';
 
@@ -67,21 +68,28 @@ export function sparkModel(points: readonly SparkPoint[], sev: Severity, today: 
 }
 
 export interface SparklineProps {
-  /** Undefined while loading or after an error. */
+  /** Undefined while loading, after an error with no data of its own, or while the request is unavailable. */
   points: readonly SparkPoint[] | undefined;
   sev: Severity;
   /** YYYY-MM-DD, UTC. */
   today: string;
-  /** panelError text when the request failed. */
+  /** panelError text when the request failed. With `points` it is a failed refresh: the line stays and the caption says so. */
   errorText?: string | null;
+  /** The previous key's points are on screen while the new key loads: the slot dims. */
+  stale?: boolean;
+  /** The request answered `available: false` and there are no points: this text takes the slot's place. */
+  unavailableText?: string | null;
 }
 
 /** The 24px slot and its caption line. Both keep their height in every state. */
-export default function Sparkline({ points, sev, today, errorText = null }: SparklineProps) {
+export default function Sparkline({ points, sev, today, errorText = null, stale = false, unavailableText = null }: SparklineProps) {
   const model = points ? sparkModel(points, sev, today) : null;
-  const caption = errorText ?? model?.caption ?? null;
+  // Own points are never thrown away for an error: "Trend unavailable" covers the slot only when there is no line to draw.
+  const failed = !points && !!errorText;
+  const refreshFailed = !!points && !!errorText;
+  const caption = failed ? errorText : refreshFailed ? REFRESH_FAILED_NOTE : model?.caption ?? null;
   return (
-    <div data-testid="sparkline">
+    <div data-testid="sparkline" className={stale ? 'opacity-60' : undefined}>
       <div data-testid="sparkline-slot" className="relative text-gray-400" style={{ height: SPARK_H }}>
         {model?.kind === 'line' && (
           <svg
@@ -97,11 +105,12 @@ export default function Sparkline({ points, sev, today, errorText = null }: Spar
         {(model?.kind === 'none' || model?.kind === 'one') && (
           <span className="absolute inset-0 flex items-center text-[11px] text-gray-500">{model.message}</span>
         )}
-        {errorText && <span className="absolute inset-0 flex items-center text-[11px] text-gray-500">Trend unavailable</span>}
+        {failed && <span className="absolute inset-0 flex items-center text-[11px] text-gray-500">Trend unavailable</span>}
+        {!points && !errorText && unavailableText && <span className="absolute inset-0 flex items-center text-[11px] text-gray-500">{unavailableText}</span>}
       </div>
       <div
         data-testid="sparkline-caption" aria-hidden={caption ? undefined : true}
-        className={`h-4 truncate text-[11px] leading-4 ${errorText ? 'text-red-400' : 'text-gray-500'}`} title={caption ?? undefined}
+        className={`h-4 truncate text-[11px] leading-4 ${failed || refreshFailed ? 'text-red-400' : 'text-gray-500'}`} title={(refreshFailed ? errorText : caption) ?? undefined}
       >
         {caption ?? ' '}
       </div>

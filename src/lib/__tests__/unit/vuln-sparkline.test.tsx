@@ -147,6 +147,37 @@ describe('Sparkline component', () => {
     expect(cap.textContent!.length).toBeLessThanOrEqual(30);
   });
 
+  const LINE = [{ date: '2026-09-22', open: 2 }, { date: '2026-09-29', open: 3 }];
+
+  // Revert: key the error overlay and the caption on errorText alone (the old order): the line is thrown away for the error.
+  it('a failed refresh with its own points keeps the line and shows a red caption; "Trend unavailable" is only for no points', () => {
+    const { container, rerender } = render(<Sparkline points={LINE} sev="critical" today={TODAY} errorText="Couldn't load trend: HTTP 500" />);
+    expect(container.querySelectorAll('polyline')).toHaveLength(1);
+    expect(screen.queryByText('Trend unavailable')).toBeNull();
+    const cap = screen.getByTestId('sparkline-caption');
+    expect(cap.textContent).toBe("Couldn't refresh · showing last load");
+    expect(cap.className).toContain('text-red-400');
+    expect(cap.getAttribute('title')).toBe("Couldn't load trend: HTTP 500");
+    rerender(<Sparkline points={undefined} sev="critical" today={TODAY} errorText="Couldn't load trend: HTTP 500" />);
+    expect(container.querySelectorAll('polyline')).toHaveLength(0);
+    expect(screen.getByText('Trend unavailable')).toBeTruthy();
+  });
+
+  // Revert: drop the dim.
+  it('dims while the previous key\'s points are on screen, and not otherwise', () => {
+    const { rerender } = render(<Sparkline points={LINE} sev="critical" today={TODAY} stale />);
+    expect(screen.getByTestId('sparkline').className).toContain('opacity-60');
+    rerender(<Sparkline points={LINE} sev="critical" today={TODAY} />);
+    expect(screen.getByTestId('sparkline').className).not.toContain('opacity-60');
+  });
+
+  it('an unavailable answer with no points shows its text in the slot, keeping the 24px slot and the caption line', () => {
+    render(<Sparkline points={undefined} sev="critical" today={TODAY} unavailableText="Not available yet" />);
+    expect(screen.getByText('Not available yet')).toBeTruthy();
+    expect(screen.getByTestId('sparkline-slot').style.height).toBe(`${SPARK_H}px`);
+    expect(screen.getByTestId('sparkline-caption').className).toContain('h-4');
+  });
+
   it('while loading the caption is an aria-hidden non-breaking space; after an error it shows the message in red', () => {
     const { rerender } = render(<Sparkline points={undefined} sev="critical" today={TODAY} />);
     const cap = screen.getByTestId('sparkline-caption');

@@ -153,11 +153,50 @@ describe('data source', () => {
     expect(within(screen.getByTestId('team-total-row')).getByText('▲ 7')).toBeTruthy();
   });
 
-  // Revert: render nothing until teamSummary resolves.
-  it('falls back to the scoped summary while the unfiltered one is still loading', () => {
+  // Revert: fall back to props.summary (the team-scoped one) while the unfiltered request has no data: the table then lists one
+  // team under a "Total · all owning teams" that is really that team's total.
+  it('never falls back to the team-scoped summary: with a team selected and the unfiltered one still loading it says "Loading…"', () => {
     const p = ovProps({ summary: scoped, url: { team: 'Payments' }, teamSummary: slot<SummaryData>(undefined, { loading: true }) });
     render(<TeamTable {...p} />);
+    expect(screen.getByTestId('team-table-loading').textContent).toBe('Loading…');
+    expect(screen.queryByTestId('team-total-row')).toBeNull();
+    expect(screen.queryByTestId('team-row-Payments')).toBeNull();
+    expect(screen.queryByText('Total · all owning teams')).toBeNull();
+  });
+
+  it('says so when the unfiltered request answered "not available", instead of loading forever', () => {
+    const unavailable = { available: false as const, reason: 'No sync has run yet.' };
+    render(<TeamTable {...ovProps({ summary: scoped, url: { team: 'Payments' }, teamSummary: slot<SummaryData>(undefined, { unavailable, loading: false }) })} />);
+    const el = screen.getByTestId('team-table-unavailable');
+    expect(el.textContent).toBe('Not available yet');
+    expect(el.getAttribute('title')).toBe('No sync has run yet.');
+    expect(screen.queryByText('Loading…')).toBeNull();
+    expect(screen.queryByTestId('team-total-row')).toBeNull();
+  });
+
+  // Revert: check errorText before data (the old order): a failed refresh then replaces good rows with the error.
+  it('a failed refresh of the same request keeps the rows and adds a small red note; the full error rides in its title', () => {
+    const p = ovProps({ teamSummary: slot(summaryFixture(pivot()), { error: new Error('x'), errorText: "Couldn't load team table: x" }) });
+    render(<TeamTable {...p} />);
     expect(rowOf('Payments')).toBeTruthy();
+    expect(screen.queryByTestId('team-table-error')).toBeNull();
+    const note = screen.getByTestId('team-table-refresh-note');
+    expect(note.textContent).toBe("Couldn't refresh · showing last load");
+    expect(note.getAttribute('title')).toBe("Couldn't load team table: x");
+    expect(note.className).toContain('text-red-400');
+    expect(screen.getByTestId('team-table').className).not.toContain('opacity-60');
+  });
+
+  it('no note while the refresh has not failed', () => {
+    render(<TeamTable {...ovProps()} />);
+    expect(screen.queryByTestId('team-table-refresh-note')).toBeNull();
+  });
+
+  it('a failed refresh while the next key is loading dims the rows AND shows the note', () => {
+    const p = ovProps({ teamSummary: slot(summaryFixture(pivot()), { stale: true, errorText: "Couldn't load team table: x" }) });
+    render(<TeamTable {...p} />);
+    expect(screen.getByTestId('team-table').className).toContain('opacity-60');
+    expect(screen.getByTestId('team-table-refresh-note')).toBeTruthy();
   });
 
   // Revert: let the error propagate to the page or hide it.
@@ -252,6 +291,14 @@ describe('change column', () => {
     expect(zero.textContent).toBe('0');
     expect(zero.className).toContain('text-gray-600');
     expect(zero.className).not.toMatch(/text-(red|green)-400/);
+  });
+
+  // Revert: print the raw number (`▲ ${delta}`) instead of going through dash().
+  it('thousands are grouped like every other count on the page, rises and falls alike', () => {
+    const d = ovDelta(ovDeltaTeam('Total', 0), { teams: [ovDeltaTeam('Payments', 1234), ovDeltaTeam('Unassigned', -2345)] });
+    render(<TeamTable {...table({ delta: { critical: d, high: ovNoBaseline() } })} />);
+    expect(within(rowOf('Payments')).getByText('▲ 1,234')).toBeTruthy();
+    expect(within(rowOf('Unassigned')).getByText('▼ 2,345')).toBeTruthy();
   });
 
   it('the Total row shows the delta total', () => {

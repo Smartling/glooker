@@ -7,6 +7,8 @@ import { useState } from 'react';
 import type { SecurityViewProps } from './view-props';
 import type { OwnTab } from './security-state';
 import { OWNERSHIP_BODY_H, TYPE } from './dimensions';
+import { dash } from './format';
+import { slotView } from './slot-view';
 import TeamTable from './team-table';
 import RepoTable from './repo-table';
 import { teamRowsOverflow } from './ownership-model';
@@ -21,19 +23,30 @@ const TABS: Array<{ id: OwnTab; label: string }> = [
 ];
 
 export default function OwnershipCard(props: SecurityViewProps) {
-  const { url, data, summary } = props;
+  const { url, data } = props;
   const [nameFilter, setNameFilter] = useState('');
 
-  const teamsSrc = data.teamSummary.data ?? summary;
-  const teamCount = teamsSrc.pivot.rows.length;
-  const carriedTotal = teamsSrc.pivot.total.critical.resolved !== null ? teamsSrc.pivot.total.critical.carriedResolved : 0;
-  const teamsScroll = teamRowsOverflow(teamCount, carriedTotal > 0);
-  const repoRows = data.repos.data?.rows;
+  // Each tab's count (and the Owning teams hint) reads its own slot, never the team-scoped summary: with no data of its own
+  // a count is blank and the hint is dropped. While the slot is the previous key's, the count is dimmed with the table.
+  const teamsView = slotView(data.teamSummary);
+  const teamsSrc = teamsView.kind === 'data' ? teamsView.data : null;
+  const teamCount = teamsSrc ? teamsSrc.pivot.rows.length : null;
+  const carriedTotal = teamsSrc && teamsSrc.pivot.total.critical.resolved !== null ? teamsSrc.pivot.total.critical.carriedResolved : 0;
+  const teamsScroll = teamCount !== null && teamRowsOverflow(teamCount, carriedTotal > 0);
+  const reposView = slotView(data.repos);
+  const repoRows = reposView.kind === 'data' ? reposView.data.rows : null;
   const unmeasured = repoRows ? repoRows.filter(r => r.unmeasured).length : 0;
   const counts: Record<OwnTab, string | null> = {
-    teams: String(teamCount),
-    repos: repoRows ? `${repoRows.length - unmeasured}${unmeasured ? ` + ${unmeasured} unmeasured` : ''}` : null,
+    teams: teamCount === null ? null : dash(teamCount),
+    repos: repoRows ? `${dash(repoRows.length - unmeasured)}${unmeasured ? ` + ${dash(unmeasured)} unmeasured` : ''}` : null,
   };
+  const dimmed: Record<OwnTab, boolean> = {
+    teams: teamsView.kind === 'data' && teamsView.dimmed,
+    repos: reposView.kind === 'data' && reposView.dimmed,
+  };
+  const hint = url.own === 'teams'
+    ? teamsSrc ? `Click a team to filter the page to it${teamsScroll ? ' · scroll for more' : ''}` : null
+    : 'Click a repository to open its alerts';
 
   return (
     <section aria-label="Ownership" data-testid="ownership-card" className="flex flex-col gap-3">
@@ -57,17 +70,13 @@ export default function OwnershipCard(props: SecurityViewProps) {
                     data-testid={`ownership-tab-label-${t.id}`} data-label={t.label}
                     className="truncate after:invisible after:block after:h-0 after:overflow-hidden after:font-semibold after:content-[attr(data-label)]"
                   >{t.label}</span>
-                  <span data-testid={`ownership-tab-count-${t.id}`} className="shrink-0 text-xs font-normal text-gray-500" style={{ minWidth: OWN_TAB_COUNT_MIN_W }}>{counts[t.id]}</span>
+                  <span data-testid={`ownership-tab-count-${t.id}`} className={`shrink-0 text-xs font-normal text-gray-500${dimmed[t.id] ? ' opacity-60' : ''}`} style={{ minWidth: OWN_TAB_COUNT_MIN_W }}>{counts[t.id]}</span>
                 </button>
               );
             })}
           </div>
           <div className="flex min-w-0 shrink-0 items-center gap-3">
-            <span className="hidden truncate text-xs text-gray-500 md:block">
-              {url.own === 'teams'
-                ? `Click a team to filter the page to it${teamsScroll ? ' · scroll for more' : ''}`
-                : 'Click a repository to open its alerts'}
-            </span>
+            {hint && <span className="hidden truncate text-xs text-gray-500 md:block">{hint}</span>}
             {url.own === 'repos' && (
               <input
                 type="search" aria-label="Filter repositories by name" placeholder="Filter repositories by name" value={nameFilter}

@@ -25,6 +25,8 @@ describe('the row', () => {
       ovProps({ data: { summary: slot<SummaryData>(undefined, { stale: true, loading: false }) } }),
       ovProps({ data: { sparkline: slot<TrendData>(undefined, { loading: true }) } }),
       ovProps({ data: { sparkline: slot<TrendData>(undefined, { error: new Error('x'), errorText: "Couldn't load trend: x", loading: false }) } }),
+      ovProps({ data: { sparkline: slot(trendFixture([ovSeries('Payments', [['2026-09-22', 2], ['2026-09-29', 3]])]), { errorText: "Couldn't load trend: x" }) } }),
+      ovProps({ data: { sparkline: slot<TrendData>(undefined, { unavailable: { available: false, reason: 'x' }, loading: false }) } }),
     ];
     for (const p of branches) {
       const { unmount } = render(<KpiTiles {...p} />);
@@ -147,6 +149,30 @@ describe('Open tile: the sparkline', () => {
       expect(screen.getByTestId('sparkline-slot').style.height).toBe(`${SPARK_H}px`);
       unmount();
     }
+  });
+
+  const TWO = [ovSeries('Payments', [['2026-09-22', 2], ['2026-09-29', 3]])];
+
+  // Revert: read spark.errorText before spark.data (the old order).
+  it('a failed refresh keeps the line (and dims nothing) and says so in a red caption', () => {
+    render(<KpiTiles {...ovProps({ data: { sparkline: slot(trendFixture(TWO), { errorText: "Couldn't load trend: x" }) } })} />);
+    expect(openTile().querySelectorAll('polyline')).toHaveLength(1);
+    expect(screen.getByTestId('sparkline-caption').textContent).toBe("Couldn't refresh · showing last load");
+    expect(screen.queryByText('Trend unavailable')).toBeNull();
+    expect(screen.getByTestId('sparkline').className).not.toContain('opacity-60');
+  });
+
+  // Revert: drop `stale` from the sparkline's props.
+  it('the sparkline dims while the previous key\'s trend is on screen, even when the summary is current', () => {
+    render(<KpiTiles {...ovProps({ data: { sparkline: slot(trendFixture(TWO), { stale: true }) } })} />);
+    expect(screen.getByTestId('sparkline').className).toContain('opacity-60');
+    expect(screen.getByTestId('kpi-tiles').className).not.toContain('opacity-60');
+  });
+
+  // Revert: drop `unavailableText`: the slot is blank forever.
+  it('an unavailable trend answer shows a short text in the sparkline slot', () => {
+    render(<KpiTiles {...ovProps({ data: { sparkline: slot<TrendData>(undefined, { unavailable: { available: false, reason: 'x' }, loading: false }) } })} />);
+    expect(within(screen.getByTestId('sparkline-slot')).getByText('Not available yet')).toBeTruthy();
   });
 
   it('a failed trend request shows its message in the caption and leaves the rest of the tile alone', () => {

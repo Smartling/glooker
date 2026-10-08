@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 // src/lib/__tests__/unit/vuln-repo-table.test.tsx
 // The ownership card's "Repositories" tab.
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import RepoTable, { REPO_TEAM_COL_W } from '@/app/vulnerabilities/repo-table';
 import { TEAM_ROW_H, Z } from '@/app/vulnerabilities/dimensions';
 import { unmeasuredReason } from '@/app/vulnerabilities/labels';
@@ -300,9 +300,25 @@ describe('footer', () => {
     expect(cells.slice(1).map(c => c.textContent)).toEqual(['19', '13', '23', '9', '101d', 'Oct 2in 2d']);
   });
 
-  it('reads "{Team} total · N repos" when an owning team is selected', () => {
-    render(<RepoTable {...table({ url: { team: 'Payments' } })} />);
+  it('reads "{Team} total · N repos" when the rows were fetched for an owning team', () => {
+    render(<RepoTable {...table({ url: { team: 'Payments' }, repos: slot(reposFixture(ROWS, { codebase: 'backend', team: 'Payments' })) })} />);
     expect(cellsOf(footer())[0].textContent).toContain('Payments total · 4 repos');
+  });
+
+  // Revert: read the label from url.team: Search's name then sits under Payments' rows while the new rows load.
+  it('names the scope of the ROWS on screen, not url.team: previous team\'s rows (stale) under a newly selected team read "Payments total"', () => {
+    const rows = table({ url: { team: 'Search' }, repos: slot(reposFixture(ROWS, { codebase: 'backend', team: 'Payments' }), { stale: true }) });
+    const { unmount } = render(<RepoTable {...rows} />);
+    expect(cellsOf(footer())[0].textContent).toContain('Payments total · 4 repos');
+    expect(cellsOf(footer())[0].textContent).not.toContain('Search');
+    unmount();
+    // The reverse: a team was cleared, the all-teams rows are not here yet.
+    render(<RepoTable {...table({ url: { team: null }, repos: slot(reposFixture(ROWS, { codebase: 'backend', team: 'Payments' }), { stale: true }) })} />);
+    expect(cellsOf(footer())[0].textContent).toContain('Payments total');
+    cleanup();
+    render(<RepoTable {...table({ url: { team: 'Payments' }, repos: slot(reposFixture(ROWS, { codebase: 'backend' }), { stale: true }) })} />);
+    expect(cellsOf(footer())[0].textContent).toContain('Total · 4 repos');
+    expect(cellsOf(footer())[0].textContent).not.toContain('Payments');
   });
 
   it('a singular repository reads "1 repo"', () => {
@@ -414,5 +430,78 @@ describe('states', () => {
   it('dims while it shows the previous key\'s rows', () => {
     render(<RepoTable {...table({ repos: slot(reposFixture(ROWS), { stale: true }) })} />);
     expect(screen.getByTestId('repo-table').className).toContain('opacity-60');
+  });
+
+  // Revert: check errorText before data (the old order): a failed refresh then replaces good rows with the error.
+  it('a failed refresh of the same request keeps the rows and puts a small red note on the footer\'s reserved line', () => {
+    render(<RepoTable {...table({ repos: slot(reposFixture(ROWS), { error: new Error('x'), errorText: "Couldn't load repositories: x" }) })} />);
+    expect(order()).toHaveLength(4 + 1);
+    expect(screen.queryByTestId('repo-table-error')).toBeNull();
+    const note = screen.getByTestId('repo-refresh-note');
+    expect(note.textContent).toBe("Couldn't refresh · showing last load");
+    expect(note.className).toContain('text-red-400');
+    const line = screen.getByTestId('repo-footer-note');
+    expect(line.getAttribute('title')).toBe("Couldn't load repositories: x");
+    // the scope note follows it on the same line (one unmeasured row in ROWS), and the line keeps its fixed height
+    expect(line.textContent).toBe("Couldn't refresh · showing last load · 1 unmeasured: totals include stored counts");
+    expect(line.className).toContain('h-4');
+    expect(line.getAttribute('aria-hidden')).toBeNull();
+    expect(screen.getByTestId('repo-table').className).not.toContain('opacity-60');
+  });
+
+  it('the refresh note alone fills the reserved line when there is no scope note, and is absent while the refresh has not failed', () => {
+    const { unmount } = render(<RepoTable {...table({ rows: [ROWS[0]], repos: slot(reposFixture([ROWS[0]]), { errorText: "Couldn't load repositories: x" }) })} />);
+    expect(screen.getByTestId('repo-footer-note').textContent).toBe("Couldn't refresh · showing last load");
+    unmount();
+    render(<RepoTable {...table({ rows: [ROWS[0]] })} />);
+    expect(screen.queryByTestId('repo-refresh-note')).toBeNull();
+  });
+
+  it('says so when the request answered "not available", instead of loading forever', () => {
+    const unavailable = { available: false as const, reason: 'No sync has run yet.' };
+    render(<RepoTable {...table({ repos: slot<ReposData>(undefined, { unavailable, loading: false }) })} />);
+    const el = screen.getByTestId('repo-table-unavailable');
+    expect(el.textContent).toBe('Not available yet');
+    expect(el.getAttribute('title')).toBe('No sync has run yet.');
+    expect(screen.queryByText('Loading…')).toBeNull();
+  });
+});
+
+describe('counts (A3) and a missing overdue figure (A4)', () => {
+  // Revert: print String(n) / the raw count instead of going through dash().
+  it('every count goes through the page\'s one formatter: 1,234 in a cell, the footer sums, and the repo count', () => {
+    const big = [
+      repoRow('acme/big-a', 'Payments', { critical: cell({ open: 1234, overdue: 1100 }), high: cell({ open: 2345, overdue: 2000 }) }),
+      repoRow('acme/big-b', 'Payments', { critical: cell({ open: 1, overdue: 1 }), high: cell({ open: 1, overdue: 1 }) }),
+    ];
+    const many = Array.from({ length: 1000 }, (_, i) => repoRow(`acme/r${i}`, 'Payments'));
+    const { unmount } = render(<RepoTable {...table({ rows: big })} />);
+    expect(cellsOf(rowOf('acme/big-a')).slice(2).map(c => c.textContent).slice(0, 4)).toEqual(['1,234', '1,100', '2,345', '2,000']);
+    expect(cellsOf(screen.getByTestId('repo-footer')).slice(1, 5).map(c => c.textContent)).toEqual(['1,235', '1,101', '2,346', '2,001']);
+    unmount();
+    render(<RepoTable {...table({ rows: many })} />);
+    expect(cellsOf(screen.getByTestId('repo-footer'))[0].textContent).toContain('Total · 1,000 repos');
+  });
+
+  it('the unmeasured count in the footer note is grouped too', () => {
+    const rows = [repoRow('acme/ok', 'Payments'), ...Array.from({ length: 1000 }, (_, i) => repoRow(`acme/u${i}`, 'Payments', { unmeasured: { status: 'error', detail: null } }))];
+    render(<RepoTable {...table({ rows })} />);
+    expect(screen.getByTestId('repo-footer-note').textContent).toBe('1,000 unmeasured: totals include stored counts');
+  });
+
+  // Revert: `String(v.overCrit ?? 0)` (a null overdue read as a zero the row does not know).
+  it('a null overdue renders "—", never "0", in a row and in the footer; a real zero still reads 0', () => {
+    const rows = [
+      repoRow('acme/unknown', 'Payments', { critical: cell({ open: 2, overdue: null }), high: cell({ open: 1, overdue: null }) }),
+      repoRow('acme/zero', 'Payments', { critical: cell({ open: 2, overdue: 0 }), high: cell({ open: 1, overdue: 0 }) }),
+    ];
+    // cells: [name, team, open crit, overdue crit, open high, overdue high, oldest, next due]
+    const { unmount } = render(<RepoTable {...table({ rows })} />);
+    expect(cellsOf(rowOf('acme/unknown')).slice(2, 6).map(c => c.textContent)).toEqual(['2', '—', '1', '—']);
+    expect(cellsOf(rowOf('acme/zero')).slice(2, 6).map(c => c.textContent)).toEqual(['2', '0', '1', '0']);
+    expect(cellsOf(screen.getByTestId('repo-footer')).slice(1, 5).map(c => c.textContent)).toEqual(['4', '0', '2', '0']);
+    unmount();
+    render(<RepoTable {...table({ rows: [rows[0]] })} />);
+    expect(cellsOf(screen.getByTestId('repo-footer')).slice(1, 5).map(c => c.textContent)).toEqual(['2', '—', '1', '—']);
   });
 });

@@ -10,8 +10,10 @@ import type { RepoRow } from '@/lib/vulnerabilities/aggregate';
 import { CODEBASE_LABELS } from '@/lib/vulnerabilities/codebase-labels';
 import type { SecurityViewProps } from './view-props';
 import { TEAM_ROW_H, TYPE, Z } from './dimensions';
+import { dash } from './format';
 import { displayDate, unmeasuredReason } from './labels';
 import { slaActive, anySlaActive } from './sla-state';
+import { REFRESH_FAILED_NOTE, slotView } from './slot-view';
 import {
   buildRepoView, nextSort, noOpenText, repoDisplay, repoKeySeverity, repoTotals, REPO_SORT_FIRST, sevShown, sortGlyph,
   type NextDue, type RepoDisplay, type RepoSortKey, type SortState,
@@ -41,10 +43,11 @@ const nextText = (n: NextDue) => ({ date: displayDate(n.date), sub: n.daysRemain
 /** The text of one numeric cell (or footer cell) for a column; null for a hidden severity. */
 function figure(col: Col, v: { openCrit: number; openHigh: number; overCrit: number | null; overHigh: number | null; oldest: number | null; next: NextDue | null }, bold: boolean) {
   switch (col.key) {
-    case 'openCrit': return { text: String(v.openCrit), cls: v.openCrit ? 'text-white' : 'text-gray-600', weight: true };
-    case 'openHigh': return { text: String(v.openHigh), cls: v.openHigh ? 'text-white' : 'text-gray-600', weight: true };
-    case 'overCrit': return { text: String(v.overCrit ?? 0), cls: v.overCrit ? 'font-bold text-red-400' : 'text-gray-600', weight: false };
-    case 'overHigh': return { text: String(v.overHigh ?? 0), cls: v.overHigh ? 'font-bold text-red-400' : 'text-gray-600', weight: false };
+    case 'openCrit': return { text: dash(v.openCrit), cls: v.openCrit ? 'text-white' : 'text-gray-600', weight: true };
+    case 'openHigh': return { text: dash(v.openHigh), cls: v.openHigh ? 'text-white' : 'text-gray-600', weight: true };
+    // A null overdue (no figure) reads "—", never a zero it does not know.
+    case 'overCrit': return { text: dash(v.overCrit), cls: v.overCrit ? 'font-bold text-red-400' : 'text-gray-600', weight: false };
+    case 'overHigh': return { text: dash(v.overHigh), cls: v.overHigh ? 'font-bold text-red-400' : 'text-gray-600', weight: false };
     case 'oldest': return { text: v.oldest === null ? '—' : `${v.oldest}d`, cls: bold ? 'text-white' : 'text-gray-300', weight: false };
     default: return { text: v.next ? nextText(v.next).date : '—', cls: 'text-gray-300', weight: false, sub: v.next ? nextText(v.next).sub : undefined };
   }
@@ -116,20 +119,25 @@ export interface RepoTableProps extends SecurityViewProps {
 
 export default function RepoTable({ summary, data, url, openDrawer, nameFilter }: RepoTableProps) {
   const [sort, setSort] = useState<SortState<RepoSortKey> | null>(null);
-  const slot = data.repos;
-  if (slot.errorText) return <p data-testid="repo-table-error" className="p-4 text-xs text-red-400">{slot.errorText}</p>;
-  if (!slot.data) return <p data-testid="repo-table-loading" className="p-4 text-xs text-gray-500">Loading…</p>;
+  const view = slotView(data.repos);
+  if (view.kind === 'error') return <p data-testid="repo-table-error" className="p-4 text-xs text-red-400">{view.text}</p>;
+  if (view.kind === 'loading') return <p data-testid="repo-table-loading" className="p-4 text-xs text-gray-500">Loading…</p>;
+  if (view.kind === 'unavailable') return <p data-testid="repo-table-unavailable" className="p-4 text-xs text-gray-500" title={view.title}>{view.text}</p>;
 
-  const rows = slot.data.rows;
+  const rows = view.data.rows;
+  // The footer names the scope the ROWS were fetched for. While a new scope loads the rows are the previous one's, and
+  // url.team already names the new team: "Search total" over Payments' rows would be a lie.
+  const rowsTeam = view.data.appliedFilters.team ?? null;
   const cols = columns(summary);
   const template = `minmax(0, 2fr) ${REPO_TEAM_COL_W}px ${cols.map(c => c.width).join(' ')}`;
-  const view = buildRepoView(rows, url.severity, sort, nameFilter);
-  const totals = repoTotals(view.measured, view.unmeasured.map(r => repoDisplay(r, url.severity)));
+  const repoView = buildRepoView(rows, url.severity, sort, nameFilter);
+  const totals = repoTotals(repoView.measured, repoView.unmeasured.map(r => repoDisplay(r, url.severity)));
   const filtering = nameFilter.trim() !== '';
   const subs = [
-    view.unmeasured.length ? `${view.unmeasured.length} unmeasured: totals include stored counts` : null,
+    repoView.unmeasured.length ? `${dash(repoView.unmeasured.length)} unmeasured: totals include stored counts` : null,
     filtering ? `name contains “${nameFilter.trim()}”` : null,
   ].filter((s): s is string => s !== null);
+  const note = subs.join(' · ');
 
   const head = (key: RepoSortKey, label: string, right: boolean) => {
     const sev = repoKeySeverity(key);
@@ -150,7 +158,7 @@ export default function RepoTable({ summary, data, url, openDrawer, nameFilter }
   };
 
   return (
-    <div role="table" aria-label="Repositories" data-testid="repo-table" className={`h-full overflow-auto${slot.stale ? ' opacity-60' : ''}`}>
+    <div role="table" aria-label="Repositories" data-testid="repo-table" className={`h-full overflow-auto${view.dimmed ? ' opacity-60' : ''}`}>
       <div role="row" className="sticky top-0 items-center border-b border-gray-800 bg-chart-surface" style={{ display: 'grid', gridTemplateColumns: template, height: 40, zIndex: Z.pinnedRows }}>
         {head('name', 'Repository', false)}
         {head('team', 'Owning team', false)}
@@ -158,19 +166,24 @@ export default function RepoTable({ summary, data, url, openDrawer, nameFilter }
       </div>
 
       {rows.length === 0 && <p className="p-4 text-xs text-gray-500">No repositories in this scope.</p>}
-      {rows.length > 0 && view.measured.length + view.unmeasured.length === 0 && (
+      {rows.length > 0 && repoView.measured.length + repoView.unmeasured.length === 0 && (
         <p className="p-4 text-xs text-gray-500">No repositories match “{nameFilter.trim()}”.</p>
       )}
-      {view.measured.map(d => <MeasuredRow key={d.row.fullName} d={d} cols={cols} template={template} severity={url.severity} onSelect={url.selectRepoRow} />)}
-      {view.unmeasured.map(r => <UnmeasuredRow key={r.fullName} r={r} cols={cols} template={template} onOpen={openDrawer} />)}
+      {repoView.measured.map(d => <MeasuredRow key={d.row.fullName} d={d} cols={cols} template={template} severity={url.severity} onSelect={url.selectRepoRow} />)}
+      {repoView.unmeasured.map(r => <UnmeasuredRow key={r.fullName} r={r} cols={cols} template={template} onOpen={openDrawer} />)}
 
       <div className="sticky bottom-0 border-t border-gray-700 bg-chart-surface" style={{ zIndex: Z.pinnedRows }}>
         <div role="row" data-testid="repo-footer" className="items-center font-bold" style={{ display: 'grid', gridTemplateColumns: template, minHeight: TEAM_ROW_H }}>
           <div role="cell" className="col-span-2 min-w-0 px-2">
             <div className={`${TYPE.body} truncate text-white`}>
-              {filtering ? 'Matching' : url.team ? `${url.team} total` : 'Total'} · {totals.count} {totals.count === 1 ? 'repo' : 'repos'}
+              {filtering ? 'Matching' : rowsTeam ? `${rowsTeam} total` : 'Total'} · {dash(totals.count)} {totals.count === 1 ? 'repo' : 'repos'}
             </div>
-            <div data-testid="repo-footer-note" className="h-4 truncate text-xs font-normal leading-4 text-gray-500" aria-hidden={subs.length ? undefined : true}>{subs.length ? subs.join(' · ') : '\u00a0'}</div>
+            {/* The one reserved line under the label: a failed refresh of these rows comes first, in red, then the scope notes. */}
+            <div data-testid="repo-footer-note" className="h-4 truncate text-xs font-normal leading-4 text-gray-500" aria-hidden={note || view.refreshError ? undefined : true} title={view.refreshError ?? undefined}>
+              {view.refreshError && <span data-testid="repo-refresh-note" className="text-red-400">{REFRESH_FAILED_NOTE}</span>}
+              {view.refreshError && note ? ' · ' : ''}
+              {note || (view.refreshError ? '' : '\u00a0')}
+            </div>
           </div>
           {cols.map(c => {
             const sev = repoKeySeverity(c.key);

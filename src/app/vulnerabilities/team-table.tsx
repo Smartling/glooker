@@ -2,8 +2,9 @@
 'use client';
 // GLOOK-64: the "Owning teams" tab. One row per owning team with a CRITICAL group and a HIGH group,
 // a pinned header and a pinned Total row inside the card's scrolling body. It reads `data.teamSummary`
-// (never scoped to the selected team, so every team stays listed to compare against) and falls back
-// to the scoped `summary` only while that request has not resolved yet.
+// (never scoped to the selected team, so every team stays listed to compare against). It never falls
+// back to the team-scoped `summary`: that would list one team under a "Total" while the page says
+// every team is compared. Until the unfiltered request has data, the body says why (slotView).
 import { useState } from 'react';
 import type { TeamRow, SevCell } from '@/lib/vulnerabilities/aggregate';
 import type { Severity } from '@/lib/vulnerabilities/types';
@@ -13,6 +14,7 @@ import { dash, deltaBaselineCaption, resolvedCaption } from './format';
 import { unmeasuredBadgeText } from './labels';
 import { baselineUnavailableText, carriedFootnote, carriedTitle } from './overview-format';
 import { slaActive } from './sla-state';
+import { REFRESH_FAILED_NOTE, slotView } from './slot-view';
 import {
   deltaOpenFor, nextSort, orderTeamRows, sevShown, sortGlyph, TEAM_SORT_FIRST,
   type SortState, type TeamSortKey,
@@ -30,7 +32,7 @@ type Col = 'Open' | 'Change' | 'Resolved' | 'Pct' | 'Overdue';
 const sortKey = (prefix: 'c' | 'h', col: Col) => `${prefix}${col}` as TeamSortKey;
 
 function changeCell(delta: number | null) {
-  const text = delta === null ? '—' : delta > 0 ? `▲ ${delta}` : delta < 0 ? `▼ ${-delta}` : '0';
+  const text = delta === null ? '—' : delta > 0 ? `▲ ${dash(delta)}` : delta < 0 ? `▼ ${dash(-delta)}` : '0';
   const tone = delta === null || delta === 0 ? 'text-gray-600' : delta > 0 ? 'text-red-400' : 'text-green-400';
   // Keyed by its text: a baseline switch swaps one figure for another in every row, and in a
   // right-aligned cell an in-place text edit moves the text's start, which the layout-shift API
@@ -83,15 +85,14 @@ function UnmeasuredBadge({ n, onOpen }: { n: number; onOpen: SecurityViewProps['
   );
 }
 
-export default function TeamTable({ summary, data, url, openDrawer }: SecurityViewProps) {
+export default function TeamTable({ data, url, openDrawer }: SecurityViewProps) {
   const [sort, setSort] = useState<SortState<TeamSortKey> | null>(null);
-  const slot = data.teamSummary;
+  const view = slotView(data.teamSummary);
 
-  if (slot.errorText) {
-    return <p data-testid="team-table-error" className="p-4 text-xs text-red-400">{slot.errorText}</p>;
-  }
-  // The scoped summary stands in only until the unfiltered one first resolves (a deep link with a team).
-  const src = slot.data ?? summary;
+  if (view.kind === 'error') return <p data-testid="team-table-error" className="p-4 text-xs text-red-400">{view.text}</p>;
+  if (view.kind === 'loading') return <p data-testid="team-table-loading" className="p-4 text-xs text-gray-500">Loading…</p>;
+  if (view.kind === 'unavailable') return <p data-testid="team-table-unavailable" className="p-4 text-xs text-gray-500" title={view.title}>{view.text}</p>;
+  const src = view.data;
   const columns: RowCtx['columns'] = {
     critical: { overdue: slaActive('critical', src) },
     high: { overdue: slaActive('high', src) },
@@ -152,8 +153,12 @@ export default function TeamTable({ summary, data, url, openDrawer }: SecurityVi
 
   return (
     // The scrollbar gutter is reserved, so a table that starts to scroll does not narrow its columns.
-    <div role="table" aria-label="Owning teams" data-testid="team-table" className={`h-full overflow-auto [scrollbar-gutter:stable]${slot.stale ? ' opacity-60' : ''}`}>
+    <div role="table" aria-label="Owning teams" data-testid="team-table" className={`h-full overflow-auto [scrollbar-gutter:stable]${view.dimmed ? ' opacity-60' : ''}`}>
       <div className="sticky top-0 bg-chart-surface" style={{ zIndex: Z.pinnedRows }}>
+        {/* A refresh of this same request failed: the rows stay, and this note sits over the band row's empty first cell (no layout change). */}
+        {view.refreshError && (
+          <p data-testid="team-table-refresh-note" className="absolute left-2 top-0 max-w-[40%] truncate text-[11px] leading-6 text-red-400" title={view.refreshError}>{REFRESH_FAILED_NOTE}</p>
+        )}
         <div role="row" style={{ ...rowStyle, height: TEAM_BAND_H }}>
           <div />
           {band(GROUPS[0], nC)}

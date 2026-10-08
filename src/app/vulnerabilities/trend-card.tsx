@@ -9,6 +9,8 @@ import type { TrendSeries } from '@/lib/vulnerabilities/aggregate';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/charts/chart';
 import { toNum } from '@/components/charts/chart-format';
 import type { SecurityViewProps } from './view-props';
+import { dash } from './format';
+import { REFRESH_FAILED_NOTE, slotView } from './slot-view';
 import type { TrendRange } from './security-state';
 import { TREND_PLOT_H, TYPE } from './dimensions';
 import { displayDate, utcToday } from './labels';
@@ -59,8 +61,10 @@ function Plot({ series, team, range, today }: { series: TrendSeries[]; team: str
 
 export default function TrendCard({ summary, data, url }: SecurityViewProps) {
   const sev = url.kSev;
-  const slot = data.trend;
-  const series = slot.data?.series;
+  // Own data first (see slot-view.ts): a failed refresh keeps the plot and adds a small note, instead of replacing it.
+  const view = slotView(data.trend);
+  const series = view.kind === 'data' ? view.data.series : undefined;
+  const stale = view.kind === 'data' && view.dimmed;
   const today = utcToday();
   const status = series ? trendStatus(series, url.range, today) : null;
   const legend = series ? buildLegend(series, url.team) : [];
@@ -82,23 +86,28 @@ export default function TrendCard({ summary, data, url }: SecurityViewProps) {
             >
               {TREND_RANGES.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
             </select>
-            <div className="text-right">
-              <div data-testid="trend-open-now" className="text-sm font-semibold text-white">{summary.pivot.total[sev].open} open now</div>
+            {/* The figures dim with the plot while the previous key is on screen, and with the summary they come from. */}
+            <div className={`text-right${stale || data.summary.stale ? ' opacity-60' : ''}`}>
+              <div data-testid="trend-open-now" className="text-sm font-semibold text-white">{dash(summary.pivot.total[sev].open)} open now</div>
               <div data-testid="trend-change" className={`h-4 text-xs leading-4 ${change.toneClass}`}>{change.text}</div>
             </div>
           </div>
         </div>
 
-        <div data-testid="trend-plot" className={`relative mt-3${slot.stale ? ' opacity-60' : ''}`} style={{ height: TREND_PLOT_H }}>
-          {slot.errorText && <p className="flex h-full items-center justify-center text-xs text-red-400">{slot.errorText}</p>}
-          {!slot.errorText && !series && <p className="flex h-full items-center justify-center text-xs text-gray-500">Loading…</p>}
-          {!slot.errorText && series && status?.message && (
+        <div data-testid="trend-plot" className={`relative mt-3${stale ? ' opacity-60' : ''}`} style={{ height: TREND_PLOT_H }}>
+          {view.kind === 'error' && <p className="flex h-full items-center justify-center text-xs text-red-400">{view.text}</p>}
+          {view.kind === 'loading' && <p className="flex h-full items-center justify-center text-xs text-gray-500">Loading…</p>}
+          {view.kind === 'unavailable' && <p data-testid="trend-unavailable" className="flex h-full items-center justify-center text-xs text-gray-500" title={view.title}>{view.text}</p>}
+          {view.kind === 'data' && view.refreshError && (
+            <p data-testid="trend-refresh-note" className="pointer-events-none absolute right-3 top-0 text-xs text-red-400" title={view.refreshError}>{REFRESH_FAILED_NOTE}</p>
+          )}
+          {series && status?.message && (
             <div data-testid="trend-message" className="flex h-full flex-col items-center justify-center text-center">
               <p className="text-sm font-semibold text-gray-300">{status.message.title}</p>
               <p className="text-xs text-gray-500">{status.message.sub}</p>
             </div>
           )}
-          {!slot.errorText && series && status && !status.message && (
+          {series && status && !status.message && (
             <>
               <Plot series={series} team={url.team} range={url.range} today={today} />
               {status.note && <p data-testid="trend-note" className="pointer-events-none absolute left-9 top-0 text-[11px] text-gray-500">{status.note}</p>}
@@ -108,7 +117,7 @@ export default function TrendCard({ summary, data, url }: SecurityViewProps) {
 
         {/* Entries are keyed by position: keyed by team, a team click looked (to the layout-shift API)
             like the surviving entry sliding to the start of the row. Two lines are reserved. */}
-        <div data-testid="trend-legend" className="mt-3 flex min-h-[32px] flex-wrap content-start gap-x-4 gap-y-0 text-[11px] leading-4">
+        <div data-testid="trend-legend" className={`mt-3 flex min-h-[32px] flex-wrap content-start gap-x-4 gap-y-0 text-[11px] leading-4${stale ? ' opacity-60' : ''}`}>
           {legend.map((e, i) => (
             <span
               key={i} data-testid="trend-legend-entry" title={e.title} className="flex cursor-default items-center gap-1.5"
@@ -116,7 +125,7 @@ export default function TrendCard({ summary, data, url }: SecurityViewProps) {
             >
               <i aria-hidden="true" className="inline-block h-[3px] w-3 rounded-sm" style={{ background: e.color }} />
               <span className={`text-chart-axis ${e.selected ? 'font-semibold' : ''}`}>{e.label}</span>
-              <span className="text-gray-500">{e.open} open</span>
+              <span className="text-gray-500">{dash(e.open)} open</span>
             </span>
           ))}
         </div>

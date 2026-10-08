@@ -9,8 +9,8 @@ import { assignTeamColors } from '@/app/vulnerabilities/team-colors';
 import { dayNumber, trendDomain } from '@/app/vulnerabilities/trend-model';
 import { displayDate } from '@/app/vulnerabilities/labels';
 import { addDays } from '@/lib/vulnerabilities/time';
-import type { TrendData } from '@/app/vulnerabilities/api-types';
-import { ovBaseline, ovDelta, ovDeltaTeam, ovProps, ovSeries, slot, trendFixture } from '../support/security-fixtures';
+import type { SummaryData, TrendData } from '@/app/vulnerabilities/api-types';
+import { ovBaseline, ovCell, ovDelta, ovDeltaTeam, ovProps, ovSeries, ovTeam, slot, trendFixture } from '../support/security-fixtures';
 import { fixChartSize } from '../setup/chart-size';
 
 fixChartSize();
@@ -35,6 +35,8 @@ describe('the plot box', () => {
     ['error', ovProps({ data: { trend: slot<TrendData>(undefined, err) } })],
     ['no measurements', props([])],
     ['one measurement', props([ovSeries('TeamA', [[ago(1), 4]])])],
+    ['a failed refresh keeps the plot', ovProps({ data: { trend: slot(trendFixture(SERIES), { errorText: "Couldn't load trend: x" }) } })],
+    ['unavailable', ovProps({ data: { trend: slot<TrendData>(undefined, { unavailable: { available: false, reason: 'No sync has run yet.' }, loading: false }) } })],
   ];
 
   // Revert: apply the height only to the populated chart, or on the outer section.
@@ -55,6 +57,49 @@ describe('the plot box', () => {
   it('dims while it shows the previous key\'s data', () => {
     render(<TrendCard {...branches[1][1]} />);
     expect(screen.getByTestId('trend-plot').className).toContain('opacity-60');
+  });
+
+  // Revert: check errorText before data (the old order), or drop the note: the plot is then replaced by the error text.
+  it('a failed refresh of the same request keeps the plot and legend and adds a small red note (the error in its title)', () => {
+    const { container } = render(<TrendCard {...branches[6][1]} />);
+    expect(container.querySelector('svg.recharts-surface')).not.toBeNull();
+    expect(legend()).toHaveLength(3);
+    expect(screen.queryByText("Couldn't load trend: x")).toBeNull();
+    const note = screen.getByTestId('trend-refresh-note');
+    expect(note.textContent).toBe("Couldn't refresh · showing last load");
+    expect(note.getAttribute('title')).toBe("Couldn't load trend: x");
+    expect(note.className).toContain('text-red-400');
+    expect(screen.getByTestId('trend-plot').className).not.toContain('opacity-60');
+  });
+
+  it('no refresh note while nothing has failed', () => {
+    render(<TrendCard {...props()} />);
+    expect(screen.queryByTestId('trend-refresh-note')).toBeNull();
+  });
+
+  // Revert: key the message on `!series` alone: "Loading…" forever for a request that already answered.
+  it('an unavailable answer says so (with the reason in its title) and never "Loading…"', () => {
+    render(<TrendCard {...branches[7][1]} />);
+    const el = within(screen.getByTestId('trend-plot')).getByTestId('trend-unavailable');
+    expect(el.textContent).toBe('Not available yet');
+    expect(el.getAttribute('title')).toBe('No sync has run yet.');
+    expect(screen.queryByText('Loading…')).toBeNull();
+  });
+
+  // Revert: dim only the plot box: the legend and the figures then stay at full strength beside a dimmed plot.
+  it('the legend and the header figures dim with the plot while the previous key is on screen, and not otherwise', () => {
+    const { rerender } = render(<TrendCard {...branches[1][1]} />);
+    expect(screen.getByTestId('trend-legend').className).toContain('opacity-60');
+    expect(screen.getByTestId('trend-open-now').parentElement!.className).toContain('opacity-60');
+    rerender(<TrendCard {...props()} />);
+    expect(screen.getByTestId('trend-legend').className).not.toContain('opacity-60');
+    expect(screen.getByTestId('trend-open-now').parentElement!.className).not.toContain('opacity-60');
+  });
+
+  // The figures read the summary slot, so they dim with it too.
+  it('the header figures also dim while the summary they come from is the previous key\'s', () => {
+    render(<TrendCard {...props(SERIES, { data: { summary: slot<SummaryData>(undefined, { stale: true, loading: false }) } })} />);
+    expect(screen.getByTestId('trend-open-now').parentElement!.className).toContain('opacity-60');
   });
 });
 
@@ -91,6 +136,14 @@ describe('header', () => {
     expect(screen.getByTestId('trend-open-now').textContent).toBe('10 open now');
     expect(screen.getByTestId('trend-change').textContent).toBe('▲ 2 more than on Sep 29');
     expect(screen.getByTestId('trend-change').className).toContain('text-red-400');
+  });
+
+  // Revert: print the raw number.
+  it('"N open now" and every legend count go through the page\'s one formatter: 1,234', () => {
+    const s = [ovSeries('TeamA', [[ago(40), 4], [ago(1), 1234]])];
+    render(<TrendCard {...props(s, { summary: { pivot: { rows: [], total: ovTeam('Total', ovCell(1234), ovCell(0)) } } })} />);
+    expect(screen.getByTestId('trend-open-now').textContent).toBe('1,234 open now');
+    expect(legend()[0].textContent).toBe('TeamA1,234 open');
   });
 
   it('with no baseline the sentence says so', () => {
