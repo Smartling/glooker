@@ -1,15 +1,20 @@
 // GLOOK-64: docs/vulnerabilities-page.md names files and tests; a name that no longer exists, or a
 // retired module that creeps back in, makes the document lie to the next reader. This reads the
 // document, so it fails the day a file is renamed or deleted without the document being updated.
+//
+// Known limit of the number checks below: a size only has to appear somewhere in the table row that owns it, so two sizes
+// that share a value inside one row (a 16 and another 16) mask each other: one of them can drift unnoticed. The row split
+// narrows that (a number cannot be satisfied by another row), it does not remove it.
 import fs from 'fs';
 import path from 'path';
 import { KNOWN_VULN_ENV_VARS } from '@/lib/vulnerabilities/config';
 import * as D from '@/app/vulnerabilities/dimensions';
 // Widths that belong to one component are exported from it (the document's Layout stability intro says so).
-import { ALERT_COLUMN_GAP, ALERT_COLUMN_PAD, ALERT_HEAD_H, ALERT_TOOLBAR_GAP, ALERT_TOOLBAR_ROW_H } from '@/app/vulnerabilities/alert-list';
+import { ALERT_COLUMN_GAP, ALERT_COLUMN_PAD, ALERT_DUE_MIN_W, ALERT_HEAD_H, ALERT_TOOLBAR_GAP, ALERT_TOOLBAR_ROW_H, SEARCH_DEBOUNCE_MS } from '@/app/vulnerabilities/alert-list';
 import { ALERTS_STRIP_OPEN_MIN_W, ALERTS_STRIP_OVERDUE_MIN_W, ALERTS_STRIP_TITLE_W } from '@/app/vulnerabilities/alerts-strip';
 import { OWN_TAB_COUNT_MIN_W } from '@/app/vulnerabilities/ownership-card';
 import { PAGER_H } from '@/app/vulnerabilities/pager';
+import { REPO_NUM_COL_MIN_W, REPO_TEAM_COL_W } from '@/app/vulnerabilities/repo-table';
 
 const root = path.join(__dirname, '../../../..');
 const doc = fs.readFileSync(path.join(root, 'docs/vulnerabilities-page.md'), 'utf8');
@@ -33,6 +38,42 @@ it('every bare file name in the Key files and Page modules tables exists somewhe
   const bare = ticked.filter(t => /^[\w./[\]-]+\.(ts|tsx|css|sql|md)$/.test(t) && !/^(src|scripts|docs)\//.test(t) && !/\.test\.tsx?$/.test(t));
   expect(bare.filter(b => !sourceFiles.some(f => f === b || f.endsWith('/' + b)))).toEqual([]);
   expect(bare.length).toBeGreaterThan(20);
+});
+
+// ── The two file tables resolve their names strictly. The test above lets a bare name match any file with that name anywhere,
+// so a table entry for a module that was renamed or moved could still pass because a same-named file exists elsewhere.
+const section = (heading: string): string => {
+  const start = doc.indexOf(heading);
+  expect(start).toBeGreaterThan(-1);
+  return doc.slice(start, doc.indexOf('\n#', start + heading.length));
+};
+// The first cell of every table row in a section, as its backticked tokens.
+const firstCells = (sec: string): string[][] => sec.split('\n').filter(l => l.startsWith('|'))
+  .map(l => [...(l.split('|')[1] ?? '').matchAll(/`([^`\n]+)`/g)].map(m => m[1]));
+const FILE = /^[\w./[\]-]+\.(ts|tsx|css|sql|md)$/;
+
+it('every Page modules entry is a file of src/app/vulnerabilities/, and every file there has an entry', () => {
+  const dir = 'src/app/vulnerabilities';
+  const named = firstCells(section('### Page modules')).flat().filter(t => FILE.test(t));
+  expect(named.filter(n => !fs.existsSync(path.join(root, dir, n)))).toEqual([]);
+  const onDisk = fs.readdirSync(path.join(root, dir)).filter(f => fs.statSync(path.join(root, dir, f)).isFile());
+  expect(onDisk.filter(f => !named.includes(f))).toEqual([]);
+  expect(named.length).toBeGreaterThan(25);
+});
+
+it('every Key files entry resolves in the directory its own row states: the directory of a full path in the row, or a stated `dir/`', () => {
+  const unresolved: string[] = [];
+  let checked = 0;
+  for (const tokens of firstCells(section('## Key files'))) {
+    const files = tokens.filter(t => FILE.test(t));
+    const dirs = [...tokens.filter(t => t.endsWith('/')), ...files.filter(t => /^(src|scripts|docs)\//.test(t)).map(t => path.posix.dirname(t))];
+    for (const f of files.filter(t => !/^(src|scripts|docs)\//.test(t))) {
+      checked++;
+      if (!dirs.some(d => fs.existsSync(path.join(root, d, f)))) unresolved.push(`${f} (row: ${tokens.join(' ')})`);
+    }
+  }
+  expect(unresolved).toEqual([]);
+  expect(checked).toBeGreaterThan(20);
 });
 
 it('every VULN_* / VULNERABILITIES_* variable the document names is read by config.ts, and every one config.ts reads is documented', () => {
@@ -116,10 +157,13 @@ const sizes: Array<[string, number, string]> = [
   ['RAIL_W', D.RAIL_W, 'Alerts card'],
   ['RAIL_W', D.RAIL_W, 'Repository rail'],
   ['RAIL_FOOT_MIN_H', D.RAIL_FOOT_MIN_H, 'Repository rail'],
+  ['REPO_TEAM_COL_W', REPO_TEAM_COL_W, 'Repositories tab'],
+  ['REPO_NUM_COL_MIN_W', REPO_NUM_COL_MIN_W, 'Repositories tab'],
   ['ALERT_LIST_H', D.ALERT_LIST_H, 'Alert list'],
   ['ALERT_PAGE_SIZE', D.ALERT_PAGE_SIZE, 'Alert list'],
   ['ALERT_ROW_H', D.ALERT_ROW_H, 'Alert list'],
   ['ALERT_HEAD_H', ALERT_HEAD_H, 'Alert list'],
+  ['ALERT_DUE_MIN_W', ALERT_DUE_MIN_W, 'Alert list'],
   ['ALERT_TOOLBAR_ROW_H', ALERT_TOOLBAR_ROW_H, 'Alert list'],
   ['ALERT_TOOLBAR_GAP', ALERT_TOOLBAR_GAP, 'Alert list'],
   ['PAGER_H', PAGER_H, 'Alert list'],
@@ -146,6 +190,7 @@ const notASize: Array<[row: string, value: number, reason: string]> = [
   ['Repository rail', 10, 'the footer padding, a py-2.5 class: one term of RAIL_FOOT_MIN_H = 1 + 2 x 10 + 16 + 2 + 3 x 16 (dimensions.ts)'],
   ['Repository rail', 16, 'the sort line and the note lines, terms of RAIL_FOOT_MIN_H (dimensions.ts)'],
   ['Repository rail', 2, 'the gap between the footer lines, a term of RAIL_FOOT_MIN_H (dimensions.ts)'],
+  ['Repositories tab', 1024, 'the viewport width at which the "Oldest open" header is cut'],
 ];
 // Numbers in the section's prose (outside the table): either a size above (the prose repeats the table) or one of these.
 const notASizeProse: Array<[value: number, reason: string]> = [
@@ -179,4 +224,25 @@ it('every number in the Layout stability section is a guarded size or an explain
   expect(unexplained).toEqual([]);
   // The rows the list names exist, so a renamed row cannot silently turn its entries into no-ops.
   expect([...new Set([...sizes.map(([, , r]) => r), ...notASize.map(([r]) => r)])].filter(r => !tableRows.has(r))).toEqual([]);
+});
+
+// ── Every pixel figure anywhere in the document: a size constant's value, or a figure that is not a size and says why. The
+// Layout stability checks above are stricter (they pin a number to its row); this one covers the prose of the other sections,
+// which restates sizes too (the strip's 176px title column, the rail's 87px footer, the drawer's 460px).
+const pxNotASize: Array<[value: number, reason: string]> = [
+  [11, 'a font size: the trend axes\' labels'],
+  [1024, 'the viewport width the layout is checked at'],
+  [1440, 'the second viewport width the layout is checked at'],
+];
+
+it('every pixel figure in the whole document is a size constant\'s value or an explained non-size', () => {
+  const known = new Set<number>([...sizes.map(([, px]) => px), ...notASize.map(([, v]) => v), ...pxNotASize.map(([v]) => v)]);
+  const unknown = [...doc.matchAll(/(?<![\w.])(\d+(?:\.\d+)?)px/g)].filter(m => !known.has(Number(m[1])))
+    .map(m => `${m[0]} near "${doc.slice(Math.max(0, m.index! - 40), m.index! + 20).replace(/\n/g, ' ')}"`);
+  expect(unknown).toEqual([]);
+  expect(doc.match(/\d+px/g)!.length).toBeGreaterThan(100); // the extractor really read the whole document
+});
+
+it('the search debounce the document states is SEARCH_DEBOUNCE_MS', () => {
+  expect(doc).toContain(`${SEARCH_DEBOUNCE_MS}ms after the last keystroke`);
 });

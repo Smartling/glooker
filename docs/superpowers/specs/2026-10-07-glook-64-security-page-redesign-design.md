@@ -389,7 +389,7 @@ The new components are page-local. `page.tsx` keeps exporting only its default, 
 - Surfaces and text use the Tailwind grey classes the rest of the app uses, so the existing `[data-theme-mode="light"]` remap in `globals.css` applies unchanged.
 - **Light-theme caution.** The light remap gives `.bg-gray-900` a 1px border and a shadow.
   - Use `bg-gray-900` for card shells only.
-  - Pinned headers, Total rows, rail rows, alert rows and drawer rows use `bg-chart-surface` or a plain `var()`, with no border, so the fixed heights hold in light mode.
+  - Pinned headers, Total rows, rail rows and alert rows use `bg-chart-surface` or a plain `var()`, with no border, so the fixed heights hold in light mode.
   - Filled controls (the filter boxes, Status, the pager buttons, the drawer's rows and close button) use `bg-gray-800`, which the remap turns into a light grey.
   - Row dividers use `border-gray-800/50`: the remap has a rule for that opacity and none for `/60`, which stayed the dark theme's near-black on white.
 - Opacity values use arbitrary classes (`opacity-[0.35]`) or inline style. No class name is built dynamically, because Tailwind would not generate it.
@@ -420,7 +420,7 @@ A new test checks that `--warn` text meets 4.5:1 contrast on `--warn-bg` and on 
 
 ## Amendments after the v7 comparison
 
-A comparison of the built page with the approved v7 mockups (2026-10-08) found regressions and deviations. These decisions changed this document; each is also in the sections above.
+A comparison of the built page with the approved v7 mockups (2026-10-08) found regressions and deviations. These decisions changed this document; each is also in the sections above. The v7 mockups are not kept in the repository, so the numbers in this document are authoritative.
 
 - **Page width.** The 1280px max width is the content width, so the cards are 1280px wide from a 1328px viewport up. Below that nothing changes.
 - **Sticky bar.** 32px selects under 11px captions, 14px under the tab rule and 14px above the lower rule, tabs at 16px. The bar is 127px, derived from its parts in `dimensions.ts`; the 1024px width budget for the filter row is unchanged (it still fits).
