@@ -26,8 +26,8 @@ export interface McpTool {
 const REPORT_ID = { report_id: { type: 'string', description: 'Report id. Omit for the latest completed report.' } };
 
 // get_project_details: filter the insights payload down to one project by name.
-async function getProjectDetails(args: { project_name: string; report_id?: string }) {
-  const insights: any = await getProjectInsights(args.report_id);
+async function getProjectDetails(args: { project_name: string; report_id?: string }, requester?: Requester) {
+  const insights: any = await getProjectInsights(args.report_id, requester);
   if (!insights?.available) return insights;
   const projects: any[] = insights.projects ?? [];
   const match = projects.find(p => String(p.name).toLowerCase() === String(args.project_name).toLowerCase());
@@ -176,7 +176,7 @@ export const MCP_TOOLS: McpTool[] = [
     name: 'get_project_insights',
     description: 'LLM-clustered projects for a report with Jira/PR/commit attribution, plus unattributed "Other" work. Cached; first call may take 30-60s.',
     inputSchema: { type: 'object', properties: { ...REPORT_ID } },
-    handler: (a) => getProjectInsights(a.report_id),
+    handler: (a, requester) => getProjectInsights(a.report_id, requester),
   },
   {
     name: 'get_project_details',
@@ -185,13 +185,13 @@ export const MCP_TOOLS: McpTool[] = [
       project_name: { type: 'string', description: 'Exact project name from get_project_insights' },
       ...REPORT_ID,
     }, required: ['project_name'] },
-    handler: (a) => getProjectDetails(a),
+    handler: (a, requester) => getProjectDetails(a, requester),
   },
   {
     name: 'get_highlights',
     description: 'Narrative highlights comparing the latest report to the previous one.',
     inputSchema: { type: 'object', properties: {} },
-    handler: () => getReportHighlights(),
+    handler: (_a, requester) => getReportHighlights(requester),
   },
   {
     name: 'get_team_pulse',
