@@ -7,6 +7,12 @@ import db from '@/lib/db/index';
 const mockExecute = db.execute as jest.Mock;
 beforeEach(() => mockExecute.mockReset());
 
+// Org-filtered queries now assert org membership (assertOrgMembership in
+// @/lib/orgs/guard) before running. These tests are exercising query-building
+// logic, not the auth check itself, so pass an auth-disabled requester —
+// which bypasses the membership lookup — wherever a call supplies `org`.
+const OPEN_REQUESTER = { githubLogin: null, isAdmin: false, authDisabled: true };
+
 describe('listReports', () => {
   it('returns reports without needing a report id', async () => {
     mockExecute.mockResolvedValueOnce([[{ id: 'r1', org: 'acme', period_days: 30, status: 'completed', created_at: 'x', completed_at: 'y' }], null]);
@@ -136,7 +142,7 @@ describe('queryJiraIssues', () => {
 describe('getEpicSummaries', () => {
   it('lists epics for an org when no epic_key given', async () => {
     mockExecute.mockResolvedValueOnce([[{ epic_key: 'E-1', org: 'acme', resolved_jiras: 3, remaining_jiras: 1, commit_count: 12 }], null]);
-    const out = await getEpicSummaries({ org: 'acme' });
+    const out = await getEpicSummaries({ org: 'acme' }, OPEN_REQUESTER);
     expect(out.epics).toHaveLength(1);
     expect(out.epics[0].epic_key).toBe('E-1');
   });

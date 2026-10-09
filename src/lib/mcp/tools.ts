@@ -15,6 +15,7 @@ import type { Requester } from '@/lib/cost-visibility';
 import { getSummary as getVulnSummary, getTrend as getVulnTrend, getAlerts as getVulnAlerts, getCoverage as getVulnCoverage, REASON_DISABLED as VULN_REASON_DISABLED } from '@/lib/vulnerabilities/queries';
 import { parseVulnFilters } from '@/lib/vulnerabilities/filters';
 import { isVulnerabilitiesEnabled } from '@/lib/vulnerabilities/config';
+import { assertOrgMembership } from '@/lib/orgs/guard';
 
 export interface McpTool {
   name: string;
@@ -36,7 +37,8 @@ async function getProjectDetails(args: { project_name: string; report_id?: strin
 }
 
 // get_team_pulse: look up members, then delegate to the existing service.
-async function getTeamPulseTool(args: { report_id?: string; team: string; org: string; with_projects?: boolean }) {
+async function getTeamPulseTool(args: { report_id?: string; team: string; org: string; with_projects?: boolean }, requester?: Requester) {
+  await assertOrgMembership(args.org, requester);
   const r = await resolveReportId(args.report_id);
   if ('error' in r) return r;
   const [members] = await db.execute(
@@ -92,7 +94,7 @@ export const MCP_TOOLS: McpTool[] = [
       status: { type: 'string', enum: ['pending', 'running', 'completed', 'failed', 'stopped'], description: 'Filter by status (optional)' },
       limit: { type: 'number', description: 'Max rows (default 50, max 500)' },
     } },
-    handler: (a) => listReports(a),
+    handler: (a, r) => listReports(a, r),
   },
   {
     name: 'get_org_summary',
@@ -202,7 +204,7 @@ export const MCP_TOOLS: McpTool[] = [
       ...REPORT_ID,
       with_projects: { type: 'boolean', description: 'Include per-project breakdown' },
     }, required: ['team', 'org'] },
-    handler: (a) => getTeamPulseTool(a),
+    handler: (a, r) => getTeamPulseTool(a, r),
   },
   {
     name: 'get_developer_summary',
@@ -227,7 +229,7 @@ export const MCP_TOOLS: McpTool[] = [
       epic_key: { type: 'string', description: 'Specific epic key (optional)' },
       limit: { type: 'number', description: 'Max rows (default 100, max 500)' },
     } },
-    handler: (a) => getEpicSummaries(a),
+    handler: (a, r) => getEpicSummaries(a, r),
   },
   {
     name: 'get_metric_timeseries',
@@ -239,7 +241,7 @@ export const MCP_TOOLS: McpTool[] = [
       since: { type: 'string', description: 'ISO date lower bound (default: 180 days ago if until is also unset)' },
       until: { type: 'string', description: 'ISO date upper bound' },
     }, required: ['metric'] },
-    handler: (a) => getMetricTimeseries(a),
+    handler: (a, r) => getMetricTimeseries(a, r),
   },
   {
     name: 'list_vulnerabilities',

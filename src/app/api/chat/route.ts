@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runChatAgent, type ChatMessage } from '@/lib/chat/agent';
 import { withRequestLog } from '@/lib/logger';
-import { requireAllowedOrg } from '@/lib/orgs/guard';
+import { requireAllowedOrg, requireOrgMembership } from '@/lib/orgs/guard';
 import { internalError } from '@/lib/api-error';
 
 async function postHandler(req: NextRequest) {
@@ -16,6 +16,10 @@ async function postHandler(req: NextRequest) {
 
   const orgCheck = requireAllowedOrg(org);
   if (!orgCheck.ok) return orgCheck.res;
+
+  const membershipDenied = await requireOrgMembership(req.headers, orgCheck.org);
+  if (membershipDenied) return membershipDenied;
+
   if (!messages?.length) return NextResponse.json({ error: 'messages are required' }, { status: 400 });
 
   try {

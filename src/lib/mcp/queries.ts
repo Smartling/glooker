@@ -2,6 +2,7 @@ import db from '@/lib/db';
 import { resolveReportId } from './resolve';
 import { bucketByPeriod } from './dedup';
 import { buildCostVisibility, stripDevCost, gateModelRowsByLogin, type Requester, type CostVisibility } from '@/lib/cost-visibility';
+import { assertOrgMembership } from '@/lib/orgs/guard';
 
 export const MAX_ROWS = 500;
 const DEFAULT_TIMESERIES_WINDOW_DAYS = 180;
@@ -57,7 +58,10 @@ async function resolveCostVisibility(reportId: string, requester?: Requester): P
     : { canSeeCost: () => false, canSeeAnyCost: false };
 }
 
-export async function listReports(args: { org?: string; status?: string; limit?: number }) {
+export async function listReports(args: { org?: string; status?: string; limit?: number }, requester?: Requester) {
+  if (args.org) {
+    await assertOrgMembership(args.org, requester);
+  }
   const conditions: string[] = [];
   const params: any[] = [];
   if (args.org) { conditions.push('org = ?'); params.push(args.org); }
@@ -407,7 +411,10 @@ export async function queryUnmergedWork(args: { report_id?: string; login?: stri
   };
 }
 
-export async function getEpicSummaries(args: { org?: string; epic_key?: string; limit?: number }) {
+export async function getEpicSummaries(args: { org?: string; epic_key?: string; limit?: number }, requester?: Requester) {
+  if (args.org) {
+    await assertOrgMembership(args.org, requester);
+  }
   const conditions: string[] = [];
   const params: any[] = [];
   if (args.org) { conditions.push('es.org = ?'); params.push(args.org); }
@@ -441,10 +448,13 @@ export async function getEpicSummaries(args: { org?: string; epic_key?: string; 
 const ROW_METRICS = new Set(['commits', 'prs', 'lines_added', 'jira_resolved']);
 const REPORT_METRICS = new Set(['impact_score', 'ai_percentage']);
 
-export async function getMetricTimeseries(args: { metric: string; group_by?: string; org?: string; since?: string; until?: string }) {
+export async function getMetricTimeseries(args: { metric: string; group_by?: string; org?: string; since?: string; until?: string }, requester?: Requester) {
   const { metric } = args;
   if (!ROW_METRICS.has(metric) && !REPORT_METRICS.has(metric)) {
     return { error: `unknown metric: ${metric}` };
+  }
+  if (args.org) {
+    await assertOrgMembership(args.org, requester);
   }
   // Treat empty/whitespace date bounds as absent so the default window and the
   // explicit-filter checks below don't get bypassed by e.g. since: ''.
