@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getEpicSummary } from '@/lib/projects/epic-summary';
 import { withRequestLog } from '@/lib/logger';
 import { requireAllowedOrg } from '@/lib/orgs/guard';
-import { isValidIssueKey } from '@/lib/jira-key-utils';
+import { isValidIssueKey, extractProjectKey } from '@/lib/jira-key-utils';
+import { isProjectConfigured } from '@/lib/jira-projects/service';
 import { internalError } from '@/lib/api-error';
 
 async function getHandler(
@@ -25,6 +26,13 @@ async function getHandler(
 
   if (process.env.JIRA_ENABLED !== 'true') {
     return NextResponse.json({ error: 'Jira integration is not enabled' }, { status: 404 });
+  }
+
+  // Enforce project-scope authorization: reject issues from projects not
+  // configured for this org, preventing bypass of the /api/projects boundary.
+  const projectKey = extractProjectKey(key);
+  if (!(await isProjectConfigured(org, projectKey))) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
   try {
