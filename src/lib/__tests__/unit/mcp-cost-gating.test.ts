@@ -25,6 +25,7 @@ it('strips cc for non-teammates when requester is a non-admin team member', asyn
   mockResolveAndDevs();
   mockExecute
     .mockResolvedValueOnce([[{ org: 'acme' }], null])                     // reportOrg
+    .mockResolvedValueOnce([[{ github_login: 'alice' }], null])           // mapping check
     .mockResolvedValueOnce([[                                             // flat team_members ⋈ teams
       { github_login: 'alice', team_id: 't1' },
       { github_login: 'carol', team_id: 't2' },
@@ -73,6 +74,7 @@ const mockRows = (rows: any[]) => mockExecute.mockResolvedValueOnce([rows, null]
 function mockTeamSplit() {
   mockExecute
     .mockResolvedValueOnce([[{ org: 'acme' }], null])
+    .mockResolvedValueOnce([[{ github_login: 'alice' }], null])  // mapping check
     .mockResolvedValueOnce([[
       { github_login: 'alice', team_id: 't1' },
       { github_login: 'carol', team_id: 't2' },
@@ -135,6 +137,7 @@ it('model usage: the caller limit applies AFTER gating, so entitled rows stay re
   mockResolve();
   mockExecute
     .mockResolvedValueOnce([[{ org: 'acme' }], null])
+    .mockResolvedValueOnce([[{ github_login: 'dave' }], null])  // mapping check
     .mockResolvedValueOnce([[{ github_login: 'carol', team_id: 't2' }, { github_login: 'dave', team_id: 't3' }], null]);
   mockRows(rows);
 
@@ -246,4 +249,155 @@ it('binds MAX_ROWS in SQL rather than the caller limit, on both queries', async 
     expect(params[params.length - 1]).toBe(String(MAX_ROWS));
     expect(params).not.toContain('3');
   }
+});
+
+// --- Cross-organization authorization tests (pentest finding) -----------------
+// The vulnerability: MCP route calls resolveRequester without an org, which
+// performs a global email→login lookup. The login is then passed to
+// buildCostVisibility for the report's org, where it would pass self-login or
+// shared-team checks without validating the mapping exists in that org. A user
+// mapped only in org A could thus access cost data from org B.
+//
+// The fix: buildCostVisibility now validates the requester's login is mapped in
+// the target org before granting any visibility. These tests verify the exploit
+// is blocked at the query layer where cost data is actually gated.
+
+it('SECURITY: queryDeveloperStats blocks cross-org access via unmapped requester', async () => {
+  // Scenario: user 'eve' is mapped in org 'widgets', requests developer stats
+  // for a report in org 'acme'. The report has a developer named 'eve', but the
+  // requester has no mapping in 'acme'. Without the fix, the self-login check
+  // would grant visibility to eve's costs in acme.
+  mockResolveAndDevs();
+  mockExecute
+    .mockResolvedValueOnce([[{ org: 'acme' }], null])  // reportOrg
+    .mockResolvedValueOnce([[], null]);                 // mapping check: no mapping for 'eve' in 'acme'
+  
+  const out = await queryDeveloperStats(
+    { report_id: 'r1' },
+    { githubLogin: 'eve', isAdmin: false, authDisabled: false }
+  ) as any;
+  
+  // All cost fields must be stripped from all developers
+  expect(out.developers.every((d: any) => !('cc_total_cost' in d))).toBe(true);
+  expect(out.developers.every((d: any) => !('cc_requests' in d))).toBe(true);
+  
+  // Team membership query should NOT run after mapping check fails
+  const calls = mockExecute.mock.calls.map(c => String(c[0]));
+  expect(calls.some(s => /team_members/.test(s))).toBe(false);
+});
+
+it('SECURITY: queryModelUsage blocks cross-org access via unmapped requester', async () => {
+  // Same scenario for model usage: user from org A tries to access org B's data
+  mockResolve();
+  mockExecute
+    .mockResolvedValueOnce([[{ org: 'acme' }], null])  // reportOrg
+    .mockResolvedValueOnce([[], null]);                 // mapping check fails
+  
+  const out = await queryModelUsage(
+    { report_id: 'r1' },
+    { githubLogin: 'eve', isAdmin: false, authDisabled: false }
+  ) as any;
+  
+  // No cost visibility at all
+  expect(out.models).toEqual([]);
+  expect(out.count).toBe(0);
+  expect(out.cost_visible).toBe(false);
+  
+  // Data query should NOT run after visibility check fails
+  const calls = mockExecute.mock.calls.map(c => String(c[0]));
+  expect(calls.some(s => /cc_model_usage/.test(s))).toBe(false);
+});
+
+it('SECURITY: queryDeveloperStats allows same-org access with valid mapping', async () => {
+  // Positive case: user IS mapped in the target org, so access is granted
+  mockResolveAndDevs();
+  mockExecute
+    .mockResolvedValueOnce([[{ org: 'acme' }], null])                     // reportOrg
+    .mockResolvedValueOnce([[{ github_login: 'alice' }], null])           // mapping check passes
+    .mockResolvedValueOnce([[                                             // team membership
+      { github_login: 'alice', team_id: 't1' },
+      { github_login: 'carol', team_id: 't2' },
+    ], null]);
+  
+  const out = await queryDeveloperStats(
+    { report_id: 'r1' },
+    { githubLogin: 'alice', isAdmin: false, authDisabled: false }
+  ) as any;
+  
+  const alice = out.developers.find((d: any) => d.github_login === 'alice');
+  expect(alice.cc_total_cost).toBe(10); // can see own cost
+  
+  // Mapping check should have been performed with correct org
+  const mappingCall = mockExecute.mock.calls.find(c => 
+    String(c[0]).includes('user_mappings') && String(c[0]).includes('org = ?')
+  );
+  expect(mappingCall).toBeDefined();
+  expect(mappingCall![1]).toEqual(['alice', 'acme']);
+});
+
+it('SECURITY: queryModelUsage allows same-org access with valid mapping', async () => {
+  mockResolve();
+  mockExecute
+    .mockResolvedValueOnce([[{ org: 'acme' }], null])           // reportOrg
+    .mockResolvedValueOnce([[{ github_login: 'alice' }], null]) // mapping check passes
+    .mockResolvedValueOnce([[                                   // team membership
+      { github_login: 'alice', team_id: 't1' },
+      { github_login: 'carol', team_id: 't2' },
+    ], null]);
+  mockRows(MODEL_ROWS);
+  
+  const out = await queryModelUsage(
+    { report_id: 'r1' },
+    { githubLogin: 'alice', isAdmin: false, authDisabled: false }
+  ) as any;
+  
+  expect(out.cost_visible).toBe(true);
+  expect(out.models.length).toBeGreaterThan(0);
+  expect(out.models.every((m: any) => m.github_login === 'alice')).toBe(true);
+});
+
+it('SECURITY: cross-org exploit blocked even when login matches case-insensitively', async () => {
+  // User 'Alice' from org A tries to access 'alice' costs in org B
+  mockResolveAndDevs();
+  mockExecute
+    .mockResolvedValueOnce([[{ org: 'acme' }], null])  // reportOrg
+    .mockResolvedValueOnce([[], null]);                 // no mapping for 'Alice' in 'acme'
+  
+  const out = await queryDeveloperStats(
+    { report_id: 'r1' },
+    { githubLogin: 'Alice', isAdmin: false, authDisabled: false }
+  ) as any;
+  
+  expect(out.developers.every((d: any) => !('cc_total_cost' in d))).toBe(true);
+  
+  // Verify case-insensitive mapping check was performed
+  const mappingCall = mockExecute.mock.calls.find(c => 
+    String(c[0]).includes('LOWER(github_login)')
+  );
+  expect(mappingCall).toBeDefined();
+  expect(mappingCall![1]).toEqual(['Alice', 'acme']);
+});
+
+it('SECURITY: exploit blocked even when requester shares team name in target org', async () => {
+  // Scenario: user 'frank' mapped in org 'widgets', tries to access org 'acme'
+  // where there's a team containing 'frank' and 'alice'. Without the mapping
+  // check, the shared-team logic would grant visibility to alice's costs.
+  mockResolveAndDevs();
+  mockExecute
+    .mockResolvedValueOnce([[{ org: 'acme' }], null])  // reportOrg
+    .mockResolvedValueOnce([[], null]);                 // no mapping for 'frank' in 'acme'
+  
+  const out = await queryDeveloperStats(
+    { report_id: 'r1' },
+    { githubLogin: 'frank', isAdmin: false, authDisabled: false }
+  ) as any;
+  
+  // No visibility despite potential team overlap
+  expect(out.developers.every((d: any) => !('cc_total_cost' in d))).toBe(true);
+  
+  // Team query should NOT run after mapping check fails
+  const teamCall = mockExecute.mock.calls.find(c => 
+    String(c[0]).includes('team_members')
+  );
+  expect(teamCall).toBeUndefined();
 });
