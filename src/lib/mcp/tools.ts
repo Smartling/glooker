@@ -15,6 +15,7 @@ import type { Requester } from '@/lib/cost-visibility';
 import { getSummary as getVulnSummary, getTrend as getVulnTrend, getAlerts as getVulnAlerts, getCoverage as getVulnCoverage, REASON_DISABLED as VULN_REASON_DISABLED } from '@/lib/vulnerabilities/queries';
 import { parseVulnFilters } from '@/lib/vulnerabilities/filters';
 import { isVulnerabilitiesEnabled } from '@/lib/vulnerabilities/config';
+import { assertAllowedOrg } from '@/lib/orgs/guard';
 
 export interface McpTool {
   name: string;
@@ -37,15 +38,16 @@ async function getProjectDetails(args: { project_name: string; report_id?: strin
 
 // get_team_pulse: look up members, then delegate to the existing service.
 async function getTeamPulseTool(args: { report_id?: string; team: string; org: string; with_projects?: boolean }) {
+  const org = assertAllowedOrg(args.org);
   const r = await resolveReportId(args.report_id);
   if ('error' in r) return r;
   const [members] = await db.execute(
     `SELECT tm.github_login FROM team_members tm JOIN teams t ON tm.team_id = t.id
      WHERE t.name = ? AND t.org = ?`,
-    [args.team, args.org],
+    [args.team, org],
   ) as [any[], any];
   if (!members.length) return { error: 'team not found or has no members' };
-  return getTeamPulse(r.id, args.team, args.org, members.map((m: any) => m.github_login), { withProjects: !!args.with_projects });
+  return getTeamPulse(r.id, args.team, org, members.map((m: any) => m.github_login), { withProjects: !!args.with_projects });
 }
 
 // get_developer_summary: resolve report, then delegate.

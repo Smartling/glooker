@@ -2,6 +2,7 @@ import db from '@/lib/db';
 import { resolveReportId } from './resolve';
 import { bucketByPeriod } from './dedup';
 import { buildCostVisibility, stripDevCost, gateModelRowsByLogin, type Requester, type CostVisibility } from '@/lib/cost-visibility';
+import { assertAllowedOrg } from '@/lib/orgs/guard';
 
 export const MAX_ROWS = 500;
 const DEFAULT_TIMESERIES_WINDOW_DAYS = 180;
@@ -60,7 +61,11 @@ async function resolveCostVisibility(reportId: string, requester?: Requester): P
 export async function listReports(args: { org?: string; status?: string; limit?: number }) {
   const conditions: string[] = [];
   const params: any[] = [];
-  if (args.org) { conditions.push('org = ?'); params.push(args.org); }
+  if (args.org) {
+    const org = assertAllowedOrg(args.org);
+    conditions.push('org = ?');
+    params.push(org);
+  }
   if (args.status) { conditions.push('status = ?'); params.push(args.status); }
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
   params.push(clampLimit(args.limit, 50));
@@ -410,7 +415,11 @@ export async function queryUnmergedWork(args: { report_id?: string; login?: stri
 export async function getEpicSummaries(args: { org?: string; epic_key?: string; limit?: number }) {
   const conditions: string[] = [];
   const params: any[] = [];
-  if (args.org) { conditions.push('es.org = ?'); params.push(args.org); }
+  if (args.org) {
+    const org = assertAllowedOrg(args.org);
+    conditions.push('es.org = ?');
+    params.push(org);
+  }
   if (args.epic_key) { conditions.push('es.epic_key = ?'); params.push(args.epic_key); }
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
   params.push(clampLimit(args.limit, 100));
@@ -456,7 +465,11 @@ export async function getMetricTimeseries(args: { metric: string; group_by?: str
     const col = metric === 'impact_score' ? 'impact_score' : 'ai_percentage';
     const conditions = [`r.status = 'completed'`];
     const params: any[] = [];
-    if (args.org) { conditions.push('r.org = ?'); params.push(args.org); }
+    if (args.org) {
+      const org = assertAllowedOrg(args.org);
+      conditions.push('r.org = ?');
+      params.push(org);
+    }
     if (since) { conditions.push('r.created_at >= ?'); params.push(since); }
     if (until) { conditions.push('r.created_at <= ?'); params.push(until); }
     const [rows] = await db.execute(
@@ -487,7 +500,9 @@ export async function getMetricTimeseries(args: { metric: string; group_by?: str
   }
 
   let org = args.org ?? null;
-  if (!org) {
+  if (org) {
+    org = assertAllowedOrg(org);
+  } else {
     // latest completed anchors the org when org not given
     const r = await resolveReportId(undefined);
     if ('error' in r) return r;
