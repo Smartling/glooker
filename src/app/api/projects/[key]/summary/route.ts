@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getEpicSummary } from '@/lib/projects/epic-summary';
 import { withRequestLog } from '@/lib/logger';
-import { requireAllowedOrg } from '@/lib/orgs/guard';
+import { requireAllowedOrg, requireOrgMembership } from '@/lib/orgs/guard';
 import { isValidIssueKey } from '@/lib/jira-key-utils';
 import { internalError } from '@/lib/api-error';
 
@@ -22,6 +22,9 @@ async function getHandler(
   const orgCheck = requireAllowedOrg(orgParam);
   if (!orgCheck.ok) return orgCheck.res;
   const org = orgCheck.org;
+
+  const membershipDenied = await requireOrgMembership(req.headers, org);
+  if (membershipDenied) return membershipDenied;
 
   if (process.env.JIRA_ENABLED !== 'true') {
     return NextResponse.json({ error: 'Jira integration is not enabled' }, { status: 404 });
