@@ -72,6 +72,35 @@ export async function resolveRequester(headers: Headers, org?: string): Promise<
 }
 
 /**
+ * Return the set of organizations the requester is authorized to access.
+ * When auth is disabled or the requester is an admin, returns all orgs in the database.
+ * Otherwise returns orgs where the requester has a user_mappings entry.
+ * Empty set means the requester has no authorized organizations.
+ */
+export async function getAuthorizedOrgs(requester: Requester): Promise<Set<string>> {
+  if (requester.authDisabled || requester.isAdmin) {
+    // Admin or auth-disabled: all orgs in the database
+    const [rows] = await db.execute(
+      `SELECT DISTINCT org FROM reports`,
+      [],
+    ) as [any[], any];
+    return new Set(rows.map((r: any) => r.org));
+  }
+
+  if (!requester.githubLogin) {
+    // Authenticated but unmapped: no authorized orgs
+    return new Set();
+  }
+
+  // Mapped user: orgs where they have a user_mappings entry
+  const [rows] = await db.execute(
+    `SELECT DISTINCT org FROM user_mappings WHERE github_login = ?`,
+    [requester.githubLogin],
+  ) as [any[], any];
+  return new Set(rows.map((r: any) => r.org));
+}
+
+/**
  * Per-developer cost predicate for a requester within an org. Cost is visible
  * when auth is disabled, the requester is an admin, the developer IS the
  * requester (own cost is always visible), or the requester shares at least one
