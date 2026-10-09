@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { extractUser, isAuthEnabled } from '@/lib/auth';
 
 /**
  * Validation for the caller-supplied `org` parameter.
@@ -20,13 +21,10 @@ import { NextResponse } from 'next/server';
  * orgs this instance manages. Validation is case-insensitive because GitHub org
  * names are.
  *
- * Deliberately NOT attempted here: deciding which orgs a *particular user* may
- * see. That needs a membership model (an OIDC group claim, or an explicit
- * table) and is a product decision, not something to invent in a security fix.
- * What this does give you is that the set of reachable orgs is the configured
- * set rather than "any string on the internet", which is what closes the
- * credentialed-proxy problem outright and bounds the cross-tenant one to orgs
- * the operator already chose to host together.
+ * User-to-org authorization is enforced via `requireUserOrg`, which checks the
+ * authenticated user's JWT groups claim against the requested organization using
+ * the AUTH_USER_ORG_CLAIM pattern. This prevents cross-tenant reads in
+ * multi-organization deployments.
  */
 
 export class OrgNotAllowedError extends Error {
@@ -104,4 +102,78 @@ export function requireAllowedOrg(org: string | null | undefined): OrgCheck {
 export function assertAllowedOrg(org: string): string {
   if (!isOrgAllowed(org)) throw new OrgNotAllowedError(org);
   return org.trim();
+}
+
+/**
+ * Check whether the authenticated user is authorized to access the requested org.
+ *
+ * Uses AUTH_USER_ORG_CLAIM to determine the pattern for org membership in JWT
+ * groups. Supports two patterns:
+ *
+ *   1. Prefix pattern: AUTH_USER_ORG_CLAIM=org- means groups like "org-acme"
+ *      grant access to org "acme"
+ *   2. Exact match: AUTH_USER_ORG_CLAIM=<orgname> means the group must exactly
+ *      match the org name
+ *
+ * When AUTH_USER_ORG_CLAIM is unset, user-to-org authorization is skipped
+ * (preserves single-org deployments). When auth is disabled, this check is
+ * skipped. Admins (AUTH_ADMIN_GROUP members) bypass this check.
+ *
+ * Returns a discriminated result for route handlers:
+ *   - { ok: true } when authorized
+ *   - { ok: false, res: NextResponse } when denied (404 to avoid org enumeration)
+ */
+export type UserOrgCheck =
+  | { ok: true }
+  | { ok: false; res: NextResponse };
+
+export async function requireUserOrg(
+  headers: Headers,
+  org: string,
+): Promise<UserOrgCheck> {
+  // Skip check when auth is disabled
+  if (!isAuthEnabled()) return { ok: true };
+
+  // Skip check when AUTH_USER_ORG_CLAIM is not configured
+  const orgClaimPattern = process.env.AUTH_USER_ORG_CLAIM?.trim();
+  if (!orgClaimPattern) return { ok: true };
+
+  const user = await extractUser(headers);
+  if (!user) {
+    // User should have been authenticated by the proxy, but if not, deny
+    return {
+      ok: false,
+      res: NextResponse.json({ error: 'Not found' }, { status: 404 }),
+    };
+  }
+
+  // Admins bypass org authorization
+  const adminGroup = process.env.AUTH_ADMIN_GROUP?.trim();
+  if (adminGroup && user.groups.includes(adminGroup)) {
+    return { ok: true };
+  }
+
+  // Check if user has access to the requested org
+  const normalizedOrg = org.trim().toLowerCase();
+  const hasAccess = user.groups.some((group) => {
+    const normalizedGroup = group.toLowerCase();
+    
+    // Pattern 1: Prefix pattern (e.g., "org-acme" for org "acme")
+    if (orgClaimPattern.endsWith('-')) {
+      return normalizedGroup === `${orgClaimPattern}${normalizedOrg}`.toLowerCase();
+    }
+    
+    // Pattern 2: Exact match (e.g., group "acme" for org "acme")
+    return normalizedGroup === normalizedOrg;
+  });
+
+  if (!hasAccess) {
+    // 404 rather than 403 to avoid confirming which orgs exist
+    return {
+      ok: false,
+      res: NextResponse.json({ error: 'Not found' }, { status: 404 }),
+    };
+  }
+
+  return { ok: true };
 }
