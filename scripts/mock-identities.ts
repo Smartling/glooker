@@ -117,10 +117,17 @@ export const MOCK_DEVELOPERS: MockDeveloper[] = [
   { githubLogin: 'hank-mock', githubName: 'Hank Russo', avatarUrl: 'https://avatars.githubusercontent.com/u/8?v=4', jiraEmail: 'hank@mockorg.dev', jiraAccountId: 'jira-hank-008', team: 'Data' },
 ];
 
-// GLOOK-43: repos for vulnerability mock data. `team` is the repo custom property — a string, not a teams row.
+// GLOOK-43: repos for vulnerability mock data. `team` is the repo custom property — a string, not a teams row,
+// so the owning teams below are deliberately NOT in MOCK_TEAMS (people-based teams) and never joined to it.
 export interface MockVulnRepo {
   repoId: number; name: string; team: string | null; serviceTier: string | null; codebaseType: string | null;
   archived: boolean; statusCheck?: 'error' | 'dependabot-off';
+  /** GLOOK-64: the mock sweep returns no alerts for this repo, but its status check is healthy (a repo with nothing open). */
+  noAlerts?: boolean;
+  /** GLOOK-64: after the seed's syncs ran, flag this repo unmeasured WHILE KEEPING its stored alerts.
+   * A sync never produces that state on its own (a repo with alerts in the sweep is written 'ok'), so
+   * seed-vulnerabilities.ts sets it with one UPDATE; the next mock-mode sync resets it to 'ok'. */
+  unmeasuredAfterSeed?: 'error' | 'dependabot-off';
 }
 export const MOCK_VULN_REPOS: MockVulnRepo[] = [
   { repoId: 9001, name: 'api-service',     team: 'Platform', serviceTier: 'production',      codebaseType: 'backend',        archived: false },
@@ -135,6 +142,22 @@ export const MOCK_VULN_REPOS: MockVulnRepo[] = [
   // GLOOK-43: a repo with Dependabot alerts turned off — unmeasured like
   // flaky-service, but must never show up as a sync issue or make a run partial.
   { repoId: 9010, name: 'silent-service',  team: 'Platform', serviceTier: 'production',      codebaseType: 'backend',        archived: false, statusCheck: 'dependabot-off' },
+  // GLOOK-64: ten more owning teams, so the Backend view lists more than 12 (the page gives the top 12 their own
+  // colour and groups the rest as "Other"). Names are invented.
+  { repoId: 9011, name: 'checkout-api',      team: 'Payments',      serviceTier: 'production', codebaseType: 'backend', archived: false },
+  { repoId: 9012, name: 'search-indexer',    team: 'Search',        serviceTier: 'production', codebaseType: 'backend', archived: false },
+  { repoId: 9013, name: 'identity-gateway',  team: 'Identity',      serviceTier: 'production', codebaseType: 'backend', archived: false },
+  { repoId: 9014, name: 'notification-hub',  team: 'Messaging',     serviceTier: 'production', codebaseType: 'backend', archived: false },
+  { repoId: 9015, name: 'metrics-collector', team: 'Observability', serviceTier: 'production', codebaseType: 'backend', archived: false },
+  { repoId: 9016, name: 'etl-runner',        team: 'Analytics',     serviceTier: 'production', codebaseType: 'backend', archived: false },
+  { repoId: 9017, name: 'media-transcoder',  team: 'Media',         serviceTier: 'production', codebaseType: 'api',     archived: false },
+  { repoId: 9018, name: 'storage-broker',    team: 'Storage',       serviceTier: 'production', codebaseType: 'backend', archived: false },
+  { repoId: 9019, name: 'mobile-bff',        team: 'Mobile',        serviceTier: 'production', codebaseType: 'backend', archived: false },
+  { repoId: 9020, name: 'policy-engine',     team: 'Compliance',    serviceTier: 'production', codebaseType: 'backend', archived: false },
+  // GLOOK-64: a repo with nothing open, to exercise the greyed zero-alert rows.
+  { repoId: 9021, name: 'quiet-service',     team: 'Platform',      serviceTier: 'production', codebaseType: 'backend', archived: false, noAlerts: true },
+  // GLOOK-64: unmeasured WITH stored alerts: the open count is unknown, not zero.
+  { repoId: 9022, name: 'stale-scanner',     team: 'Search',        serviceTier: 'production', codebaseType: 'backend', archived: false, unmeasuredAfterSeed: 'dependabot-off' },
 ];
 
 export interface MockTeam {

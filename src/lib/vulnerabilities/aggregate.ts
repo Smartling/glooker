@@ -1,11 +1,16 @@
 // Pure aggregation. Every number the UI and MCP show is computed here, from stored rows.
 import { getVulnConfig } from './config';
 import { computeDue, daysRemaining, slaStatus, resolvedTiming } from './sla';
-import { inCodebaseView, isInScope } from './codebase';
+import { inCodebaseView, isInScope, codebaseGroupOf, CODEBASE_GROUPS } from './codebase';
 import { diffDays, utcDate, toIsoSecond } from './time';
+import { parseAlertSort } from './alert-sort';
+import type { AlertSortKey, AlertSortSpec, ParsedAlertSort } from './alert-sort';
 import type { AlertFact, RepoFact, CodebaseGroup, Severity, AlertState, SnapshotRow, DependabotStatus } from './types';
 
 export const UNASSIGNED = 'Unassigned';
+/** An open alert whose due date is 0..DUE_SOON_DAYS days away counts as due soon (overdue alerts do not). The pivot,
+ * the repository rows and the alert list's `dueSoon` filter all read this, so they can't drift apart. */
+export const DUE_SOON_DAYS = 7;
 
 export function teamOf(r: RepoFact): string { return r.team ?? UNASSIGNED; }
 export function isOpen(a: AlertFact, r: RepoFact): boolean { return a.state === 'open' && !a.missing && !r.archived; }
@@ -14,7 +19,7 @@ export function isOpen(a: AlertFact, r: RepoFact): boolean { return a.state === 
  * whatever alerts are stored counted (they just can't be trusted to be complete), and both must
  * agree everywhere unmeasured is counted (the pivot's unmeasuredRepos and coverage's unmeasured
  * list), so this is the one place that decides it. */
-export function isUnmeasured(r: RepoFact): boolean { return r.dependabotStatus === 'error' || r.dependabotStatus === 'dependabot-off'; }
+export function isUnmeasured(r: RepoFact): r is RepoFact & { dependabotStatus: 'error' | 'dependabot-off' } { return r.dependabotStatus === 'error' || r.dependabotStatus === 'dependabot-off'; }
 /**
  * `since = null` (VULN_RESOLVED_SINCE unset, or invalid — config.ts folds both to `null`) means
  * "count every resolution, all time": there is no start date to compare against. This is also why
@@ -64,11 +69,19 @@ interface SevAcc { open: number; resolved: number; dismissed: number; overdue: n
 export interface TeamRow { team: string; critical: SevCell; high: SevCell; unmeasuredRepos: number }
 interface TeamAcc { team: string; critical: SevAcc; high: SevAcc; unmeasuredRepos: number }
 
+/**
+ * The one SLA gate (GLOOK-64). A severity's overdue / due-soon / next-due figures exist only while
+ * its policy is `active` (not `pending`, not `none`). `finish()` below and `computeRepoRows` both
+ * call this, so the team pivot and the repository rows can never disagree about when those
+ * figures are null.
+ */
+export function isSlaActive(sev: Severity, now: Date): boolean { return slaStatus(sev, now) === 'active'; }
+
 const emptyAcc = (): SevAcc => ({ open: 0, resolved: 0, dismissed: 0, overdue: 0, dueSoon: 0, carriedResolved: 0 });
 
 function finish(cell: SevAcc, sev: Severity, now: Date, resolvedInvalid: boolean): SevCell {
   const denom = cell.open + cell.resolved;
-  const active = slaStatus(sev, now) === 'active';
+  const active = isSlaActive(sev, now);
   return {
     open: cell.open,
     resolved: resolvedInvalid ? null : cell.resolved,
@@ -96,7 +109,7 @@ export function computePivot(alerts: AlertFact[], repos: RepoFact[], opts: { cod
   const reposWithAlerts = new Set(alerts.map(a => a.repoId));
   for (const r of inView.values()) {
     const tr = row(teamOf(r));
-    if (isUnmeasured(r)) tr.unmeasuredRepos++;
+    if (!r.archived && isUnmeasured(r)) tr.unmeasuredRepos++; // an archived repo is never a row, so it is never an unmeasured one
     if (r.archived && r.carriedResolvedCritical > 0 && !reposWithAlerts.has(r.repoId)) {
       tr.critical.resolved += r.carriedResolvedCritical;
       tr.critical.carriedResolved += r.carriedResolvedCritical;
@@ -112,7 +125,7 @@ export function computePivot(alerts: AlertFact[], repos: RepoFact[], opts: { cod
       if (due) {
         const d = daysRemaining(due.dueDate, opts.now);
         if (d < 0) cell.overdue++;
-        else if (d <= 7) cell.dueSoon++;
+        else if (d <= DUE_SOON_DAYS) cell.dueSoon++;
       }
     } else if (isResolvedSinceStart(a)) {
       cell.resolved++;
@@ -136,6 +149,73 @@ export function computePivot(alerts: AlertFact[], repos: RepoFact[], opts: { cod
   return { rows: list, total };
 }
 
+export interface RepoSevCell {
+  open: number;
+  overdue: number | null;          // null unless this severity's SLA is active
+  dueSoon: number | null;          // null unless this severity's SLA is active
+  oldestOpenDays: number | null;   // max age of open alerts; same age rule as toAlertRow (ageDays, UTC days, floor 0)
+  nextDue: { date: string; daysRemaining: number } | null; // earliest due >= 0 days out; null unless SLA active
+}
+export interface RepoRow {
+  fullName: string; team: string; codebaseGroup: Exclude<CodebaseGroup, 'all'>;
+  critical: RepoSevCell;
+  high: RepoSevCell;
+  unmeasured: { status: 'error' | 'dependabot-off'; detail: string | null } | null;
+}
+interface RepoSevAcc { open: number; overdue: number; dueSoon: number; oldest: number | null; next: { date: string; daysRemaining: number } | null }
+const emptyRepoAcc = (): RepoSevAcc => ({ open: 0, overdue: 0, dueSoon: 0, oldest: null, next: null });
+
+/**
+ * GLOOK-64: one row per in-scope, non-archived repository in the view (including repositories with
+ * no open alerts), built on the same viewRepos / isOpen / computeDue as computePivot so that, per
+ * team and severity, the rows sum to the pivot cell (open, overdue, dueSoon) and the rows with
+ * `unmeasured` set count to the team's `unmeasuredRepos`. An unmeasured repository carries its
+ * STORED counts (that is what keeps the sums exact); the UI renders them as unknown.
+ * Row order is fixed here: measured rows by critical open desc, high open desc, then name; then
+ * unmeasured rows by name.
+ */
+export function computeRepoRows(alerts: AlertFact[], repos: RepoFact[], opts: { codebase: CodebaseGroup; team?: string; now: Date }): RepoRow[] {
+  const inView = viewRepos(repos, opts.codebase, opts.team);
+  const today = opts.now.toISOString().slice(0, 10);
+  const acc = new Map<number, { critical: RepoSevAcc; high: RepoSevAcc }>();
+  for (const r of inView.values()) if (!r.archived) acc.set(r.repoId, { critical: emptyRepoAcc(), high: emptyRepoAcc() });
+  for (const a of alerts) {
+    const r = inView.get(a.repoId);
+    const both = acc.get(a.repoId);
+    if (!r || !both || !isOpen(a, r)) continue;
+    const c = both[a.severity];
+    c.open++;
+    const age = ageDaysBetween(a.createdAt, today);
+    if (c.oldest === null || age > c.oldest) c.oldest = age;
+    const due = computeDue(a);
+    if (!due) continue;
+    const d = daysRemaining(due.dueDate, opts.now);
+    if (d < 0) { c.overdue++; continue; }
+    if (d <= DUE_SOON_DAYS) c.dueSoon++;
+    if (c.next === null || d < c.next.daysRemaining) c.next = { date: due.dueDate, daysRemaining: d };
+  }
+  const cell = (x: RepoSevAcc, sev: Severity): RepoSevCell => {
+    const active = isSlaActive(sev, opts.now);
+    return {
+      open: x.open, overdue: active ? x.overdue : null, dueSoon: active ? x.dueSoon : null,
+      oldestOpenDays: x.oldest, nextDue: active ? x.next : null,
+    };
+  };
+  const rows: RepoRow[] = [...inView.values()].filter(r => !r.archived).map(r => {
+    const x = acc.get(r.repoId)!;
+    return {
+      fullName: r.fullName, team: teamOf(r), codebaseGroup: codebaseGroupOf(r.codebaseType),
+      critical: cell(x.critical, 'critical'), high: cell(x.high, 'high'),
+      unmeasured: isUnmeasured(r) ? { status: r.dependabotStatus, detail: r.dependabotStatusDetail } : null,
+    };
+  });
+  const byName = (a: RepoRow, b: RepoRow) => a.fullName.localeCompare(b.fullName);
+  const measured = rows.filter(r => !r.unmeasured)
+    .sort((a, b) => b.critical.open - a.critical.open || b.high.open - a.high.open || byName(a, b));
+  const unmeasured = rows.filter(r => r.unmeasured).sort(byName);
+  return [...measured, ...unmeasured];
+}
+
 export interface Kpi { openCriticalOtherCodebases: number | null }
 
 export function computeKpi(alerts: AlertFact[], repos: RepoFact[], opts: { codebase: CodebaseGroup; team?: string; now: Date }): Kpi {
@@ -151,6 +231,27 @@ export function computeKpi(alerts: AlertFact[], repos: RepoFact[], opts: { codeb
   return { openCriticalOtherCodebases: n };
 }
 
+export type CodebaseCounts = Record<CodebaseGroup, { critical: number; high: number }>;
+
+/**
+ * GLOOK-64: open critical and high alerts per codebase group, for the page's Codebase options.
+ * It ignores the `codebase` filter (every option must show its own count) and honours `team`.
+ * A repository with no codebase type counts under `other` and `all`, exactly as `inCodebaseView`
+ * places it, so `counts[c]` equals the pivot's total open for `codebase = c`.
+ */
+export function computeCodebaseCounts(alerts: AlertFact[], repos: RepoFact[], opts: { team?: string; now: Date }): CodebaseCounts {
+  const counts = Object.fromEntries(CODEBASE_GROUPS.map(g => [g, { critical: 0, high: 0 }])) as CodebaseCounts;
+  const byId = new Map(repos.map(r => [r.repoId, r]));
+  for (const a of alerts) {
+    const r = byId.get(a.repoId);
+    if (!r || !isInScope(r.serviceTier) || !isOpen(a, r)) continue;
+    if (opts.team && teamOf(r) !== opts.team) continue;
+    counts[codebaseGroupOf(r.codebaseType)][a.severity]++;
+    counts.all[a.severity]++;
+  }
+  return counts;
+}
+
 export interface CoverageRow {
   repoId: number; fullName: string; serviceTier: string | null; codebaseType: string | null; team: string | null;
   openCritical: number; openHigh: number; detail?: string | null;
@@ -160,7 +261,7 @@ export interface CoverageRow {
 }
 export interface Coverage { needsTagging: CoverageRow[]; excludedByPolicy: CoverageRow[]; unmeasured: CoverageRow[] }
 
-export function computeCoverage(alerts: AlertFact[], repos: RepoFact[], opts: { team?: string }): Coverage {
+export function computeCoverage(alerts: AlertFact[], repos: RepoFact[], opts: { team?: string; codebase?: CodebaseGroup }): Coverage {
   const open = new Map<number, { c: number; h: number }>();
   const byId = new Map(repos.map(r => [r.repoId, r]));
   for (const a of alerts) {
@@ -175,13 +276,16 @@ export function computeCoverage(alerts: AlertFact[], repos: RepoFact[], opts: { 
     openCritical: open.get(r.repoId)?.c ?? 0, openHigh: open.get(r.repoId)?.h ?? 0, detail: r.dependabotStatusDetail,
     dependabotStatus: r.dependabotStatus,
   });
-  const teamOk = (r: RepoFact) => !opts.team || teamOf(r) === opts.team;
+  // GLOOK-64: `codebase` is optional here (undefined = every codebase), so direct callers that never
+  // scoped by codebase keep their behaviour; getCoverage always passes the parsed filter.
+  const inScopeView = (r: RepoFact) => (!opts.team || teamOf(r) === opts.team)
+    && (opts.codebase === undefined || inCodebaseView(r.codebaseType, opts.codebase));
   const byOpen = (a: CoverageRow, b: CoverageRow) => b.openCritical - a.openCritical || b.openHigh - a.openHigh || a.fullName.localeCompare(b.fullName);
   const hasOpen = (r: RepoFact) => open.has(r.repoId);
   return {
-    needsTagging: repos.filter(r => teamOk(r) && hasOpen(r) && (!r.serviceTier || !r.codebaseType || !r.team)).map(toRow).sort(byOpen),
-    excludedByPolicy: repos.filter(r => teamOk(r) && hasOpen(r) && r.serviceTier !== null && !isInScope(r.serviceTier)).map(toRow).sort(byOpen),
-    unmeasured: repos.filter(r => teamOk(r) && isInScope(r.serviceTier) && isUnmeasured(r)).map(toRow).sort(byOpen),
+    needsTagging: repos.filter(r => inScopeView(r) && hasOpen(r) && (!r.serviceTier || !r.codebaseType || !r.team)).map(toRow).sort(byOpen),
+    excludedByPolicy: repos.filter(r => inScopeView(r) && hasOpen(r) && r.serviceTier !== null && !isInScope(r.serviceTier)).map(toRow).sort(byOpen),
+    unmeasured: repos.filter(r => inScopeView(r) && isInScope(r.serviceTier) && !r.archived && isUnmeasured(r)).map(toRow).sort(byOpen),
   };
 }
 
@@ -192,6 +296,10 @@ export interface AlertFilters {
   overdue?: boolean; dueSoon?: boolean; dueBefore?: string; createdSince?: string; resolvedSince?: string;
   dependencyScope?: string; cve?: string; ghsa?: string; packageName?: string; q?: string; reopened?: boolean;
   limit?: number;
+  /** Rows to skip before `limit` applies (default 0). Paging is in memory, never SQL OFFSET. */
+  offset?: number;
+  /** `<key>:<asc|desc>`, validated by parseVulnFilters. Absent = soonest due, then severity, then newest. */
+  sort?: AlertSortSpec;
 }
 export interface AlertRow {
   repo: string; team: string; severity: Severity; severityChangedAt: string | null;
@@ -199,7 +307,9 @@ export interface AlertRow {
   packageName: string | null; ecosystem: string | null; manifestPath: string | null; relationship: string | null; scope: string | null;
   createdAt: string; ageDays: number; clockStart: string | null; dueDate: string | null; daysRemaining: number | null;
   slaPolicyId: string | null; state: AlertState; dismissedReason: string | null; resolvedAt: string | null;
-  resolvedOnTime: boolean | null; resolvedDaysLate: number | null; reopenedCount: number; htmlUrl: string;
+  resolvedOnTime: boolean | null; resolvedDaysLate: number | null; reopenedCount: number;
+  /** ISO instant of the latest reopen, or null; the list shows it as a UTC date in "reopened {date}". */
+  lastReopenedAt: string | null; htmlUrl: string;
 }
 /** GLOOK-43: distinct repos (with counts) matching every filter except `repo`
  * itself, ignoring `limit` — so a repo dropdown's options don't come from the (possibly
@@ -223,9 +333,9 @@ function matches(a: AlertFact, r: RepoFact, f: AlertFilters, now: Date, ignoreCo
     if (od !== f.overdue) return false;
   }
   if (f.dueSoon !== undefined) {
-    // Same definition as the pivot's dueSoon: open, with a due date 0-7 days out. An overdue
+    // Same definition as the pivot's dueSoon: open, with a due date 0-DUE_SOON_DAYS days out. An overdue
     // alert (negative daysRemaining) does NOT count as due soon.
-    const ds = open && !!due && daysRemaining(due.dueDate, now) >= 0 && daysRemaining(due.dueDate, now) <= 7;
+    const ds = open && !!due && daysRemaining(due.dueDate, now) >= 0 && daysRemaining(due.dueDate, now) <= DUE_SOON_DAYS;
     if (ds !== f.dueSoon) return false;
   }
   if (f.dueBefore && !(open && due && due.dueDate < f.dueBefore)) return false;
@@ -243,6 +353,10 @@ function matches(a: AlertFact, r: RepoFact, f: AlertFilters, now: Date, ignoreCo
   return true;
 }
 
+/** Whole UTC days from an alert's creation to `endDate` (YYYY-MM-DD), floored at 0. One rule for the
+ * alert list's `ageDays` and the repository rows' `oldestOpenDays`. */
+function ageDaysBetween(createdAt: string, endDate: string): number { return Math.max(0, diffDays(endDate, utcDate(createdAt))); }
+
 function toAlertRow(a: AlertFact, r: RepoFact, now: Date): AlertRow {
   const due = computeDue(a);
   const open = isOpen(a, r);
@@ -252,12 +366,12 @@ function toAlertRow(a: AlertFact, r: RepoFact, now: Date): AlertRow {
     repo: r.fullName, team: teamOf(r), severity: a.severity, severityChangedAt: a.severityChangedAt,
     cveId: a.cveId, ghsaId: a.ghsaId, summary: a.summary, cvss: a.cvssScore, epss: a.epssPercentage,
     packageName: a.packageName, ecosystem: a.ecosystem, manifestPath: a.manifestPath, relationship: a.relationship, scope: a.scope,
-    createdAt: a.createdAt, ageDays: Math.max(0, diffDays(ageEnd, utcDate(a.createdAt))),
+    createdAt: a.createdAt, ageDays: ageDaysBetween(a.createdAt, ageEnd),
     clockStart: due?.clockStart ?? null, dueDate: due?.dueDate ?? null,
     daysRemaining: open && due ? daysRemaining(due.dueDate, now) : null, slaPolicyId: due?.policyId ?? null,
     state: a.state, dismissedReason: a.dismissedReason, resolvedAt: a.resolvedAt,
     resolvedOnTime: timing ? timing.onTime : null, resolvedDaysLate: timing ? timing.daysLate : null,
-    reopenedCount: a.reopenedCount, htmlUrl: a.htmlUrl,
+    reopenedCount: a.reopenedCount, lastReopenedAt: a.lastReopenedAt, htmlUrl: a.htmlUrl,
   };
 }
 
@@ -279,23 +393,67 @@ function repoFacet(alerts: AlertFact[], byId: Map<number, RepoFact>, f: AlertFil
     .sort((a, b) => b.count - a.count || a.repo.localeCompare(b.repo));
 }
 
+const SEVERITY_RANK: Record<Severity, number> = { critical: 0, high: 1 };
+const STATE_RANK: Record<AlertState, number> = { open: 0, fixed: 1, dismissed: 2, auto_dismissed: 3 };
+/** An alert row paired with its alert number, which the row itself doesn't carry but the tie-break needs. */
+interface Hit { row: AlertRow; number: number }
+
+/** What each sort key compares. null sorts last in both directions. */
+function sortValue(h: Hit, key: AlertSortKey): string | number | null {
+  const r = h.row;
+  switch (key) {
+    case 'severity': return SEVERITY_RANK[r.severity];   // asc = critical first
+    case 'advisory': return r.cveId ?? r.ghsaId;
+    case 'repo': return r.repo;
+    case 'age': return r.ageDays;                         // asc = youngest first
+    case 'due': return r.dueDate;                         // YYYY-MM-DD; null = no SLA applies
+    case 'state': return STATE_RANK[r.state];             // asc = open, fixed, dismissed, auto_dismissed
+  }
+}
+
+function compareValues(a: string | number, b: string | number): number {
+  return typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b));
+}
+
+/** The total order for the alert list: the chosen sort (or today's urgency order), then, always last
+ * and never reversed, repository full name and alert number, so equal rows never swap between pages. */
+function compareHits(x: Hit, y: Hit, sort: ParsedAlertSort | null): number {
+  if (sort) {
+    const a = sortValue(x, sort.key);
+    const b = sortValue(y, sort.key);
+    if (a === null && b !== null) return 1;   // nulls last, handled before direction is applied
+    if (b === null && a !== null) return -1;
+    if (a !== null && b !== null) {
+      const c = compareValues(a, b);
+      if (c !== 0) return sort.dir === 'asc' ? c : -c;
+    }
+  } else {
+    // Most urgent first: soonest due, then severity, then newest.
+    const urgency = (x.row.daysRemaining ?? 1e9) - (y.row.daysRemaining ?? 1e9)
+      || (x.row.severity === y.row.severity ? 0 : x.row.severity === 'critical' ? -1 : 1)
+      || y.row.createdAt.localeCompare(x.row.createdAt);
+    if (urgency !== 0) return urgency;
+  }
+  return x.row.repo.localeCompare(y.row.repo) || x.number - y.number;
+}
+
 export function listAlerts(alerts: AlertFact[], repos: RepoFact[], f: AlertFilters, now: Date): AlertListResult {
   const byId = new Map(repos.map(r => [r.repoId, r]));
   const limit = Math.min(Math.max(f.limit ?? 100, 1), 500);
-  const hits: AlertRow[] = [];
+  const offset = Math.max(Math.floor(f.offset ?? 0), 0);
+  const sort = f.sort ? parseAlertSort(f.sort) : null;
+  const hits: Hit[] = [];
   let excludedByCodebase = 0;
   for (const a of alerts) {
     const r = byId.get(a.repoId);
     if (!r) continue;
-    if (matches(a, r, f, now, false)) hits.push(toAlertRow(a, r, now));
+    if (matches(a, r, f, now, false)) hits.push({ row: toAlertRow(a, r, now), number: a.number });
     else if (f.codebase !== 'all' && matches(a, r, f, now, true)) excludedByCodebase++;
   }
-  // Most urgent first: soonest due, then severity, then newest.
-  hits.sort((x, y) => (x.daysRemaining ?? 1e9) - (y.daysRemaining ?? 1e9)
-    || (x.severity === y.severity ? 0 : x.severity === 'critical' ? -1 : 1)
-    || y.createdAt.localeCompare(x.createdAt));
+  hits.sort((x, y) => compareHits(x, y, sort));
+  const rows = hits.slice(offset, offset + limit).map(h => h.row);
   return {
-    rows: hits.slice(0, limit), totalCount: hits.length, truncated: hits.length > limit, excludedByCodebase,
+    rows, totalCount: hits.length, truncated: offset + rows.length < hits.length, excludedByCodebase,
     repos: repoFacet(alerts, byId, f, now),
   };
 }

@@ -120,7 +120,7 @@ it('appliedFilters echoes only the fields each endpoint consumes', async () => {
   await seedOk();
   expect((await q.getSummary(f(), NOW)).appliedFilters).toEqual({ codebase: 'backend', baseline: 'last' });
   expect((await q.getTrend(f(), NOW)).appliedFilters).toEqual({ codebase: 'backend', severity: 'critical' });
-  expect((await q.getCoverage(f({ codebase: 'frontend', team: 'T1' }), NOW)).appliedFilters).toEqual({ team: 'T1' });
+  expect((await q.getCoverage(f({ codebase: 'frontend', team: 'T1' }), NOW)).appliedFilters).toEqual({ codebase: 'frontend', team: 'T1' });
 });
 
 it('listSyncs binds LIMIT as a string (mysql2 execute() rejects a numeric LIMIT), newest first', async () => {
@@ -236,9 +236,12 @@ it('getCoverage success path flags an untagged repo needing tagging', async () =
   await seedOk();
   await db.execute(`INSERT INTO vulnerability_repos (repo_id, org, full_name, team, service_tier, codebase_type, archived, dependabot_status, first_seen_at, last_seen_at) VALUES (3,'o','o/r3',NULL,'production',NULL,0,'ok','2026-09-22T10:00:00Z','2026-09-22T10:00:00Z')`);
   await db.execute(`INSERT INTO vulnerability_alerts (repo_id, number, org, html_url, state, severity, created_at, first_seen_sync_id, last_seen_sync_id) VALUES (3,1,'o','u3','open','critical','2026-09-01T00:00:00Z',1,1)`);
-  const r = await q.getCoverage(f(), NOW);
+  // o/r3 has no codebase type, so it belongs to Other and All; the default Backend view does not list it.
+  const r = await q.getCoverage(f({ codebase: 'all' }), NOW);
   expect(r.available).toBe(true);
   expect(r.needsTagging.map((x: any) => x.fullName)).toEqual(['o/r3']);
+  expect((await q.getCoverage(f({ codebase: 'other' }), NOW)).needsTagging.map((x: any) => x.fullName)).toEqual(['o/r3']);
+  expect((await q.getCoverage(f({ codebase: 'backend' }), NOW)).needsTagging).toEqual([]);
 });
 
 it('carried resolved — latest CSV snapshot wins, a repo with no snapshot gets 0, an archived repo with a stored alert or a non-archived repo does not qualify', async () => {
@@ -418,5 +421,139 @@ describe('configErrors channel', () => {
     expect(repoNotTracked).not.toHaveProperty('configErrors');
     const unknownRepo: any = await q.getAlerts(f({ repo: 'o/does-not-exist' }), NOW);
     expect(unknownRepo).not.toHaveProperty('configErrors');
+  });
+});
+
+// ---------- GLOOK-64 helpers and tests ----------
+const repoRowSql = (id: number, name: string, over: { team?: string | null; tier?: string; codebase?: string | null; archived?: number; status?: string; detail?: string | null } = {}) => db.execute(
+  `INSERT INTO vulnerability_repos (repo_id, org, full_name, team, service_tier, codebase_type, archived, dependabot_status, dependabot_status_detail, first_seen_at, last_seen_at)
+   VALUES (?,'o',?,?,?,?,?,?,?,'2026-09-22T10:00:00Z','2026-09-22T10:00:00Z')`,
+  [id, name, over.team === undefined ? 'T1' : over.team, over.tier ?? 'production', over.codebase === undefined ? 'backend' : over.codebase,
+    over.archived ?? 0, over.status ?? 'ok', over.detail ?? null]);
+const alertSql = (repoId: number, n: number, severity: 'critical' | 'high' = 'critical', createdAt = '2026-09-01T00:00:00Z') => db.execute(
+  `INSERT INTO vulnerability_alerts (repo_id, number, org, html_url, state, severity, created_at, first_seen_sync_id, last_seen_sync_id)
+   VALUES (?,?,'o',?,'open',?,?,1,1)`, [repoId, n, `u${repoId}-${n}`, severity, createdAt]);
+
+describe('getSummary codebaseCounts', () => {
+  it('counts open critical and high per codebase group, ignores the codebase filter and honours team; a null codebase type counts under other and all', async () => {
+    await seedOk(); // o/r1: T1 backend, 1 critical
+    await repoRowSql(2, 'o/r2', { team: 'T2', codebase: 'frontend' }); await alertSql(2, 1, 'high');
+    await repoRowSql(3, 'o/r3', { team: 'T1', codebase: null }); await alertSql(3, 1);
+    const zero = { critical: 0, high: 0 };
+    const all = await q.getSummary(f({ codebase: 'frontend' }), NOW); // the filter must not change the counts
+    expect(all.codebaseCounts).toEqual({
+      backend: { critical: 1, high: 0 }, frontend: { critical: 0, high: 1 }, shared: zero, other: { critical: 1, high: 0 }, all: { critical: 2, high: 1 },
+    });
+    expect((await q.getSummary(f({ team: 'T1' }), NOW)).codebaseCounts).toEqual({
+      backend: { critical: 1, high: 0 }, frontend: zero, shared: zero, other: { critical: 1, high: 0 }, all: { critical: 2, high: 0 },
+    });
+  });
+});
+
+describe('getCoverage codebase', () => {
+  it('scopes the three lists by codebase and echoes it', async () => {
+    await seedOk();
+    await repoRowSql(2, 'o/fe-unmeasured', { codebase: 'frontend', status: 'error', detail: 'HTTP 500: x' });
+    await repoRowSql(3, 'o/untyped', { codebase: null, team: null }); await alertSql(3, 1);
+    const be = await q.getCoverage(f({ codebase: 'backend' }), NOW);
+    expect(be.unmeasured).toEqual([]);
+    expect(be.needsTagging).toEqual([]);
+    const fe = await q.getCoverage(f({ codebase: 'frontend' }), NOW);
+    expect(fe.unmeasured.map((x: any) => x.fullName)).toEqual(['o/fe-unmeasured']);
+    const all = await q.getCoverage(f({ codebase: 'all' }), NOW);
+    expect(all.unmeasured.map((x: any) => x.fullName)).toEqual(['o/fe-unmeasured']);
+    expect(all.needsTagging.map((x: any) => x.fullName)).toEqual(['o/untyped']);
+    expect(all.appliedFilters).toEqual({ codebase: 'all' });
+  });
+});
+
+describe('getAlerts offset and sort through the database', () => {
+  it('pages without repeats, reports the exact total past the end, and echoes offset and sort in appliedFilters', async () => {
+    await seedOk(); // o/r1 #1: critical, created 09-01
+    await alertSql(1, 2, 'critical', '2026-09-02T00:00:00Z');
+    await alertSql(1, 3, 'high', '2026-09-03T00:00:00Z');
+    // Insertion order is #1, #2, #3. With no SLA policy the default (urgency) order is severity, then
+    // newest: #2, #1, #3. severity:desc puts the high alert first and breaks the tie by alert number:
+    // #3, #1, #2. All three orders differ, so a test that passes only if `sort` is honoured.
+    const urls = (r: any) => r.rows.map((x: any) => x.htmlUrl);
+    expect(urls(await q.getAlerts(f(), NOW))).toEqual(['u1-2', 'u', 'u1-3']);
+    const page1 = await q.getAlerts(f({ limit: 2, offset: 0, sort: 'severity:desc' }), NOW);
+    const page2 = await q.getAlerts(f({ limit: 2, offset: 2, sort: 'severity:desc' }), NOW);
+    expect(urls(page1)).toEqual(['u1-3', 'u']);
+    expect(page1.truncated).toBe(true);
+    expect(urls(page2)).toEqual(['u1-2']);
+    expect(page2.truncated).toBe(false);
+    expect(page1.totalCount).toBe(3);
+    expect(page1.appliedFilters).toMatchObject({ limit: 2, offset: 0, sort: 'severity:desc' });
+    const past = await q.getAlerts(f({ limit: 2, offset: 10 }), NOW);
+    expect(past.rows).toEqual([]);
+    expect(past.totalCount).toBe(3);
+    expect(past.truncated).toBe(false);
+  });
+});
+
+describe('getRepos', () => {
+  async function seedRepos() {
+    await seedOk(); // o/r1: T1, backend, one open critical
+    await repoRowSql(2, 'o/r2');                                                                   // no alerts
+    await repoRowSql(3, 'o/r3', { team: 'T2', status: 'dependabot-off', detail: 'Dependabot alerts are disabled for this repository.' });
+    await alertSql(3, 1); await alertSql(3, 2, 'high');                                            // unmeasured, stored open alerts
+    await repoRowSql(4, 'o/r4', { archived: 1, status: 'archived' }); await alertSql(4, 1);         // archived: never a row
+    await repoRowSql(5, 'o/r5', { codebase: 'frontend' }); await alertSql(5, 1);                    // another codebase group
+  }
+
+  it('returns the envelope with every in-scope repo of the view: zero-alert repos listed, unmeasured last with stored counts, archived left out', async () => {
+    await seedRepos();
+    const r = await q.getRepos(f(), NOW);
+    expect(Object.keys(r).sort()).toEqual(['appliedFilters', 'available', 'configErrors', 'rows', 'sync']);
+    expect(r.available).toBe(true);
+    expect(r.sync).toMatchObject({ lastSuccessfulAt: '2026-09-22T10:00:00Z', stale: false });
+    expect(r.appliedFilters).toEqual({ codebase: 'backend' });
+    expect(r.configErrors).toEqual([]);
+    expect(r.rows.map((x: any) => x.fullName)).toEqual(['o/r1', 'o/r2', 'o/r3']);
+    expect(r.rows[1].critical.open).toBe(0);
+    expect(r.rows[2]).toMatchObject({
+      team: 'T2', critical: { open: 1 }, high: { open: 1 },
+      unmeasured: { status: 'dependabot-off', detail: 'Dependabot alerts are disabled for this repository.' },
+    });
+  });
+
+  it('honours codebase and team, echoes only those two filters, and ignores every other filter including limit', async () => {
+    await seedRepos();
+    expect((await q.getRepos(f({ codebase: 'frontend' }), NOW)).rows.map((x: any) => x.fullName)).toEqual(['o/r5']);
+    expect((await q.getRepos(f({ codebase: 'all', team: 'T2' }), NOW)).rows.map((x: any) => x.fullName)).toEqual(['o/r3']);
+    const noisy = await q.getRepos(f({ state: 'resolved', severity: 'high', repo: 'o/r1', limit: 1, offset: 5, overdue: true }), NOW);
+    expect(noisy.appliedFilters).toEqual({ codebase: 'backend' });
+    expect(noisy.rows).toHaveLength(3); // limit is not applied here; the MCP tool cuts rows itself
+  });
+
+  it('an unknown team returns the known teams; no successful sync and feature-off are unavailable', async () => {
+    await seedRepos();
+    expect(await q.getRepos(f({ team: 'Nope' }), NOW)).toEqual({ error: 'unknown team', known_teams: ['T1', 'T2'] });
+    await db.execute('DELETE FROM vulnerability_syncs');
+    q.__clearVulnFactsCache();
+    expect(await q.getRepos(f(), NOW)).toMatchObject({ available: false, reason: 'No successful vulnerability sync yet.' });
+    delete process.env.VULNERABILITIES_ORG;
+    try {
+      expect(await q.getRepos(f(), NOW)).toEqual({ available: false, reason: 'Vulnerability tracking is not enabled on this Glooker instance.', configErrors: [] });
+    } finally {
+      process.env.VULNERABILITIES_ORG = 'o';
+    }
+  });
+
+  it('its rows agree with the summary pivot and with getAlerts, through the real database', async () => {
+    await seedRepos();
+    const rows = (await q.getRepos(f({ codebase: 'all' }), NOW)).rows;
+    const pivot = (await q.getSummary(f({ codebase: 'all' }), NOW)).pivot;
+    for (const t of pivot.rows) {
+      const mine = rows.filter((x: any) => x.team === t.team);
+      expect(mine.reduce((n: number, x: any) => n + x.critical.open, 0)).toBe(t.critical.open);
+      expect(mine.reduce((n: number, x: any) => n + x.high.open, 0)).toBe(t.high.open);
+      expect(mine.filter((x: any) => x.unmeasured).length).toBe(t.unmeasuredRepos);
+    }
+    for (const row of rows) {
+      const listed = await q.getAlerts(f({ codebase: 'all', repo: row.fullName }), NOW);
+      expect(listed.totalCount).toBe(row.critical.open + row.high.open);
+    }
   });
 });

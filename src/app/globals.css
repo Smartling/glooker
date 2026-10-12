@@ -11,7 +11,7 @@
   --accent-darker: #92400E;
   --accent-bg: #78350F;
 
-  /* GLOOK-43 J2-1: trend-chart series colours, ranked by current open count (dark palette,
+  /* GLOOK-43 J2-1: trend series colours, ranked by current open count (dark palette,
      the app's default). Up to 12 teams get a distinct colour by rank; rank 12+ shares "other". */
   --vuln-series-1: #f87171;
   --vuln-series-2: #60a5fa;
@@ -87,6 +87,18 @@
   --chart-accent: var(--accent);
   --chart-accent-soft: color-mix(in srgb, var(--accent) 70%, var(--chart-surface));
   --chart-accent-deep: var(--accent-dark);
+
+  /* GLOOK-64: Security page tokens. --warn is the muted amber for "unmeasured" and "stale"; it is
+     used as text, so vuln-warn-contrast.test.ts holds it to 4.5:1 on --warn-bg and on every body
+     background. --crit-tint / --high-tint are the faint washes behind the critical and high column
+     groups. */
+  --warn: #d29922;
+  --warn-bg: rgba(210,153,34,.11);
+  --warn-line: rgba(210,153,34,.45);
+  /* The stripes of .vuln-hatch: much quieter than --warn-line (the border), so text over the pattern reads clean. */
+  --warn-hatch: rgba(210,153,34,.16);
+  --crit-tint: rgba(239,68,68,.045);
+  --high-tint: rgba(251,146,60,.04);
 }
 
 /* Accent utility classes */
@@ -115,12 +127,26 @@
 .focus\:border-accent:focus { border-color: var(--accent); }
 .focus\:border-accent-dark:focus { border-color: var(--accent-dark); }
 
+/* GLOOK-64: Security page utilities. Same convention as the accent utilities above: a plain class
+   reading a theme variable, so the dark and light values switch without a per-mode rule. */
+.text-warn { color: var(--warn); }
+.bg-warn-bg { background-color: var(--warn-bg); }
+.border-warn-line { border-color: var(--warn-line); }
+.bg-crit-tint { background-color: var(--crit-tint); }
+.bg-high-tint { background-color: var(--high-tint); }
+/* The hatched band for unmeasured repositories (rail, Repositories tab, coverage drawer, header badge, table chips). The stripes are
+   --warn-hatch, not the border colour: at the border's strength they ran through the words on the chips like a strike-through. */
+.vuln-hatch {
+  background-color: var(--warn-bg);
+  background-image: repeating-linear-gradient(135deg, var(--warn-hatch) 0, var(--warn-hatch) 1px, transparent 1px, transparent 7px);
+}
+
 /* ── Light theme overrides ── */
 /* Remap dark-mode Tailwind classes to light equivalents */
 [data-theme-mode="light"] {
   color-scheme: light;
 
-  /* GLOOK-43 J2-1: the light-mode trend-chart series palette, same order as the dark :root
+  /* GLOOK-43 J2-1: the light-mode trend series palette, same order as the dark :root
      block above. --vuln-series-other stays #6b7280 here (min 4.62 against this palette's light
      bodyBgs) — the dark palette's grey needed to change instead (see :root above), because the
      two modes' bodyBgs differ.
@@ -207,6 +233,16 @@
   --chart-accent-soft: color-mix(in srgb, var(--accent) 70%, var(--chart-surface));
   /* Decision 16: accent-dark is darker on light themes, i.e. louder, so Deep equals Vivid here. */
   --chart-accent-deep: var(--accent);
+
+  /* GLOOK-64: Security page tokens (light). The design's #9a6700 measured 4.23:1 on --warn-bg
+     (#fbefc6), under the 4.5:1 text floor, so --warn is darkened to #8f5f00 (4.80:1 on the wash,
+     at least 5.27:1 on every light body background). */
+  --warn: #8f5f00;
+  --warn-bg: #fbefc6;
+  --warn-line: rgba(154,103,0,.32);
+  --warn-hatch: rgba(154,103,0,.14);
+  --crit-tint: #fef7f7;
+  --high-tint: #fffaf5;
 }
 
 /* GLOOK-58 Decision 16: user-selected chart color. (0,2,0) beats both mode blocks. */

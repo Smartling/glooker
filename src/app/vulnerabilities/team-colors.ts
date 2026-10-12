@@ -7,11 +7,16 @@ import type { TrendSeries } from '@/lib/vulnerabilities/aggregate';
 import { toNum } from '@/components/charts/chart-format';
 
 export const OTHER_TEAM_COLOR = 'var(--vuln-series-other)';
-const SLOTS = 12;
+/** How many teams get a palette colour (the rest share "other"); the trend card's footnote prints it. */
+export const TEAM_COLOR_SLOTS = 12;
+const SLOTS = TEAM_COLOR_SLOTS;
+
+/** The open count at a team's latest stored point (0 with no points): the one number colours and the legend both rank by. */
+export const latestOpen = (s: TrendSeries): number => toNum(s.points[s.points.length - 1]?.open);
 
 export function assignTeamColors(series: TrendSeries[]): Record<string, string> {
   const latest = new Map<string, number>();
-  for (const s of series) latest.set(s.team, toNum(s.points[s.points.length - 1]?.open));
+  for (const s of series) latest.set(s.team, latestOpen(s));
   const byName = (a: string, b: string) => a.localeCompare(b);
   const chosen = [...latest.keys()]
     .sort((a, b) => (latest.get(b)! - latest.get(a)!) || byName(a, b))

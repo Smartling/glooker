@@ -6,7 +6,7 @@ jest.mock('@/lib/auth', () => ({
 jest.mock('@/lib/vulnerabilities/queries', () => {
   class SyncNotFoundError extends Error {}
   return {
-    getSummary: jest.fn(), getTrend: jest.fn(), getAlerts: jest.fn(), getCoverage: jest.fn(), listSyncs: jest.fn(),
+    getSummary: jest.fn(), getTrend: jest.fn(), getAlerts: jest.fn(), getCoverage: jest.fn(), getRepos: jest.fn(), listSyncs: jest.fn(),
     getSyncProgressView: jest.fn(), SyncNotFoundError,
   };
 });
@@ -17,10 +17,11 @@ import { GET as summary } from '@/app/api/vulnerabilities/summary/route';
 import { GET as trend } from '@/app/api/vulnerabilities/trend/route';
 import { GET as alerts } from '@/app/api/vulnerabilities/alerts/route';
 import { GET as coverage } from '@/app/api/vulnerabilities/coverage/route';
+import { GET as repos } from '@/app/api/vulnerabilities/repos/route';
 import { GET as syncs } from '@/app/api/vulnerabilities/syncs/route';
 import { GET as syncProgress } from '@/app/api/vulnerabilities/syncs/[id]/progress/route';
 import { POST as sync } from '@/app/api/vulnerabilities/sync/route';
-import { getSummary, getTrend, getAlerts, getCoverage, listSyncs, getSyncProgressView, SyncNotFoundError } from '@/lib/vulnerabilities/queries';
+import { getSummary, getTrend, getAlerts, getCoverage, getRepos, listSyncs, getSyncProgressView, SyncNotFoundError } from '@/lib/vulnerabilities/queries';
 import { startSync } from '@/lib/vulnerabilities/scheduler';
 import { requireAdmin } from '@/lib/auth';
 
@@ -31,7 +32,7 @@ beforeEach(() => { process.env.VULNERABILITIES_ORG = 'o'; jest.clearAllMocks(); 
 afterAll(() => { if (prior === undefined) delete process.env.VULNERABILITIES_ORG; else process.env.VULNERABILITIES_ORG = prior; });
 
 const GETS: Array<[string, (r: any) => Promise<Response>]> = [
-  ['summary', summary], ['trend', trend], ['alerts', alerts], ['coverage', coverage], ['syncs', syncs],
+  ['summary', summary], ['trend', trend], ['alerts', alerts], ['coverage', coverage], ['repos', repos], ['syncs', syncs],
 ];
 
 it('404s every route when the feature is off', async () => {
@@ -43,7 +44,7 @@ it('404s every route when the feature is off', async () => {
 
 it('every GET is readable by a non-admin (requireAdmin would deny, and is never consulted)', async () => {
   (requireAdmin as jest.Mock).mockResolvedValue(NextResponse.json({ error: 'Forbidden' }, { status: 403 }));
-  for (const fn of [getSummary, getTrend, getAlerts, getCoverage, listSyncs]) (fn as jest.Mock).mockResolvedValue({ available: true });
+  for (const fn of [getSummary, getTrend, getAlerts, getCoverage, getRepos, listSyncs]) (fn as jest.Mock).mockResolvedValue({ available: true });
   for (const [name, h] of GETS) expect((await h(req(`/api/vulnerabilities/${name}`))).status).toBe(200);
 });
 
@@ -94,4 +95,30 @@ it('GET syncs/:id/progress: readable by a non-admin, returns the view as-is', as
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual(view);
   expect(getSyncProgressView).toHaveBeenCalledWith(5);
+});
+
+describe('GET repos (GLOOK-64)', () => {
+  it('returns the query layer envelope unchanged', async () => {
+    const envelope = { available: true, sync: { stale: false }, appliedFilters: { codebase: 'backend' }, configErrors: [], rows: [{ fullName: 'acme/checkout-api' }] };
+    (getRepos as jest.Mock).mockResolvedValue(envelope);
+    const res = await repos(req('/api/vulnerabilities/repos'));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(envelope);
+  });
+
+  it('passes codebase and team through the shared parser', async () => {
+    (getRepos as jest.Mock).mockResolvedValue({ available: true });
+    await repos(req('/api/vulnerabilities/repos?codebase=all&team=Payments'));
+    expect((getRepos as jest.Mock).mock.calls[0][0]).toMatchObject({ codebase: 'all', team: 'Payments' });
+  });
+
+  it('400s with the known teams for an unknown team, and on a parameter the shared parser rejects', async () => {
+    (getRepos as jest.Mock).mockResolvedValue({ error: 'unknown team', known_teams: ['Payments'] });
+    const res = await repos(req('/api/vulnerabilities/repos?team=Nope'));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'unknown team', known_teams: ['Payments'] });
+    // Same convention as coverage: parameters the route does not apply are still validated.
+    expect((await repos(req('/api/vulnerabilities/repos?severity=medium'))).status).toBe(400);
+    expect((await repos(req('/api/vulnerabilities/repos?codebase=mobile'))).status).toBe(400);
+  });
 });

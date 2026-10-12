@@ -35,8 +35,9 @@ function mockAlerts(sweep: number): FetchedAlert[] {
   };
   for (const r of MOCK_VULN_REPOS) {
     // flaky-service and silent-service return no alerts, so the sync status-checks them and marks
-    // them unmeasured (error and dependabot-off respectively).
-    if (r.statusCheck === 'error' || r.statusCheck === 'dependabot-off') continue;
+    // them unmeasured (error and dependabot-off respectively). A `noAlerts` repo returns none too,
+    // but its status check is healthy, so it is measured and simply has nothing open.
+    if (r.statusCheck === 'error' || r.statusCheck === 'dependabot-off' || r.noAlerts) continue;
     const base = r.repoId % 7 + 2;
     for (let n = 1; n <= base; n++) out.push(mk(r.repoId, r.name, n, n % 3 === 0 ? 'high' : 'critical', 'open', 10 + n * 9));
     out.push(mk(r.repoId, r.name, 50, 'critical', 'fixed', 120, 30));

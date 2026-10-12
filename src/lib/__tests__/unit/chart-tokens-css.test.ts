@@ -57,7 +57,8 @@ const NON_HEX_TOKENS = ['chart-accent', 'chart-accent-soft', 'chart-accent-deep'
 // land before the chart modules exist and tightens as they arrive.
 const REFERENCING_FILES = [
   'tailwind.config.ts',
-  'src/app/vulnerabilities/trend-chart.tsx',
+  'src/app/vulnerabilities/trend-card.tsx',
+  'src/app/vulnerabilities/sparkline.tsx',
   'src/app/projects/progress-ring.tsx',
   'src/components/ProjectsCard.tsx',
 ];

@@ -21,7 +21,7 @@ The SLA policy, the resolved-count start date, the tracking scope and the custom
 - `codebaseGroupOf`/`isInScope` (`codebase.ts`).
 - The resolved-date comparisons in `aggregate.ts` and the sync snapshot SQL in `sync.ts`.
 - The SLA defaults in `sla.ts`.
-- The summary's `scope: { property, value }` (`queries.ts`) and the policy panel's scope caption.
+- The summary's `scope: { property, value }` (`queries.ts`) and the coverage drawer's scope caption.
 - MCP tool descriptions (`src/lib/mcp/tools.ts`) — generic wording ("the repo's team custom property"), never a hard-coded key or value.
 
 If you add a new call site that needs a policy date, a property key, an in-scope value or a codebase group, it reads `getVulnConfig()` — it does not take a new hard-coded constant, and it does not accept a value as a literal default beyond the ones already in `config.ts`.

@@ -8,7 +8,8 @@ import path from 'path';
 const root = path.join(__dirname, '../../../..');
 const CHART_DIR = path.join(root, 'src/components/charts');
 const EXTRA = [
-  'src/app/vulnerabilities/trend-chart.tsx',
+  'src/app/vulnerabilities/trend-card.tsx',
+  'src/app/vulnerabilities/sparkline.tsx',
   'src/app/vulnerabilities/team-colors.ts',
   'src/app/projects/progress-ring.tsx',
 ];
@@ -52,8 +53,9 @@ it('scans every chart module', () => {
   const names = chartFiles().map(f => path.relative(root, f)).sort();
   expect(names).toEqual([
     'src/app/projects/progress-ring.tsx',
+    'src/app/vulnerabilities/sparkline.tsx',
     'src/app/vulnerabilities/team-colors.ts',
-    'src/app/vulnerabilities/trend-chart.tsx',
+    'src/app/vulnerabilities/trend-card.tsx',
     'src/components/charts/chart-format.ts',
     'src/components/charts/chart.tsx',
     'src/components/charts/commit-type-donut.tsx',

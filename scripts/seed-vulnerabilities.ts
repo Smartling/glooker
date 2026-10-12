@@ -38,6 +38,15 @@ export async function seedVulnerabilities(db: any) {
       throw new Error(`seedVulnerabilities: sync ${id} failed against the mock provider: ${JSON.stringify(outcome.issues)}`);
     }
   }
+  // GLOOK-64: flag the repos the fixture wants unmeasured-with-stored-alerts. This runs AFTER the syncs on
+  // purpose: a sync writes 'ok' for any repo that has alerts in its sweep, so it can never produce this
+  // state itself. The next mock-mode sync resets these repos to 'ok'.
+  for (const r of MOCK_VULN_REPOS.filter(x => x.unmeasuredAfterSeed)) {
+    const detail = r.unmeasuredAfterSeed === 'error' ? 'HTTP 500: mock status check failure' : 'Dependabot alerts are disabled for this repository.';
+    await db.execute(
+      `UPDATE vulnerability_repos SET dependabot_status = ?, dependabot_status_detail = ? WHERE org = ? AND repo_id = ?`,
+      [r.unmeasuredAfterSeed, detail, MOCK_ORG, r.repoId]);
+  }
   // The LATEST run failed → the page shows the failed banner while serving the last good run.
   const failedAt = toIsoSecond(day(1));
   await db.execute(
