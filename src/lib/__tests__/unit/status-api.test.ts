@@ -3,13 +3,23 @@ jest.mock('@/lib/jira/client');
 jest.mock('@/lib/auth', () => ({
   requireAdmin: jest.fn().mockResolvedValue(null),
 }));
+jest.mock('@/lib/orgs/guard', () => ({
+  requireAllowedOrg: jest.fn((org) => ({ ok: true, org: org || 'test-org' })),
+}));
+jest.mock('@/lib/jira-projects/service', () => ({
+  isProjectConfigured: jest.fn().mockResolvedValue(true),
+}));
 
 import { GET, PATCH } from '@/app/api/projects/[key]/status/route';
 import { getJiraClient } from '@/lib/jira/client';
 import { requireAdmin } from '@/lib/auth';
+import { requireAllowedOrg } from '@/lib/orgs/guard';
+import { isProjectConfigured } from '@/lib/jira-projects/service';
 
 const mockGetJiraClient = getJiraClient as jest.Mock;
 const mockRequireAdmin = requireAdmin as jest.Mock;
+const mockRequireAllowedOrg = requireAllowedOrg as jest.Mock;
+const mockIsProjectConfigured = isProjectConfigured as jest.Mock;
 
 /** Build a minimal mock NextRequest with a JSON body. */
 function makeRequest(body: unknown) {
@@ -18,9 +28,15 @@ function makeRequest(body: unknown) {
   } as any;
 }
 
-/** Build a minimal mock NextRequest with no body (for GET). */
-function makeGetRequest() {
-  return {} as any;
+/** Build a minimal mock NextRequest with query params (for GET). */
+function makeGetRequest(org = 'test-org') {
+  return {
+    nextUrl: {
+      searchParams: {
+        get: (key: string) => (key === 'org' ? org : null),
+      },
+    },
+  } as any;
 }
 
 /** Build the params object the route handler expects. */
@@ -31,6 +47,8 @@ function makeParams(key: string) {
 describe('GET /api/projects/[key]/status', () => {
   beforeEach(() => {
     mockGetJiraClient.mockReset();
+    mockRequireAllowedOrg.mockImplementation((org) => ({ ok: true, org: org || 'test-org' }));
+    mockIsProjectConfigured.mockResolvedValue(true);
   });
 
   it('returns transitions array from Jira client', async () => {
@@ -75,6 +93,18 @@ describe('GET /api/projects/[key]/status', () => {
     expect(body.error).toMatch(/not configured/i);
   });
 
+  it('returns 404 when project is not configured for org', async () => {
+    mockIsProjectConfigured.mockResolvedValue(false);
+    mockGetJiraClient.mockReturnValue({
+      getTransitions: jest.fn(),
+    });
+
+    const res = await GET(makeGetRequest(), makeParams('NOTCONFIG-1'));
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.error).toBe('Not found');
+  });
+
   it('returns 500 on Jira error', async () => {
     mockGetJiraClient.mockReturnValue({
       getTransitions: jest.fn().mockRejectedValue(new Error('Jira API error (404): Issue Not Found')),
@@ -92,13 +122,15 @@ describe('PATCH /api/projects/[key]/status', () => {
   beforeEach(() => {
     mockGetJiraClient.mockReset();
     mockRequireAdmin.mockResolvedValue(null);
+    mockRequireAllowedOrg.mockImplementation((org) => ({ ok: true, org: org || 'test-org' }));
+    mockIsProjectConfigured.mockResolvedValue(true);
   });
 
   it('calls transitionIssue with correct key and transitionId, returns success JSON', async () => {
     const mockTransitionIssue = jest.fn().mockResolvedValue(undefined);
     mockGetJiraClient.mockReturnValue({ transitionIssue: mockTransitionIssue });
 
-    const res = await PATCH(makeRequest({ transitionId: '21' }), makeParams('EPIC-42'));
+    const res = await PATCH(makeRequest({ transitionId: '21', org: 'test-org' }), makeParams('EPIC-42'));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.success).toBe(true);
@@ -111,7 +143,7 @@ describe('PATCH /api/projects/[key]/status', () => {
       transitionIssue: jest.fn(),
     });
 
-    const res = await PATCH(makeRequest({}), makeParams('EPIC-42'));
+    const res = await PATCH(makeRequest({ org: 'test-org' }), makeParams('EPIC-42'));
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toMatch(/transitionId/i);
@@ -120,10 +152,22 @@ describe('PATCH /api/projects/[key]/status', () => {
   it('returns 404 when Jira is not configured', async () => {
     mockGetJiraClient.mockReturnValue(null);
 
-    const res = await PATCH(makeRequest({ transitionId: '21' }), makeParams('EPIC-42'));
+    const res = await PATCH(makeRequest({ transitionId: '21', org: 'test-org' }), makeParams('EPIC-42'));
     expect(res.status).toBe(404);
     const body = await res.json();
     expect(body.error).toMatch(/not configured/i);
+  });
+
+  it('returns 404 when project is not configured for org', async () => {
+    mockIsProjectConfigured.mockResolvedValue(false);
+    mockGetJiraClient.mockReturnValue({
+      transitionIssue: jest.fn(),
+    });
+
+    const res = await PATCH(makeRequest({ transitionId: '21', org: 'test-org' }), makeParams('NOTCONFIG-42'));
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.error).toBe('Not found');
   });
 
   it('returns 500 on Jira error', async () => {
@@ -131,7 +175,7 @@ describe('PATCH /api/projects/[key]/status', () => {
       transitionIssue: jest.fn().mockRejectedValue(new Error('Jira API error (400): Transition not available')),
     });
 
-    const res = await PATCH(makeRequest({ transitionId: '99' }), makeParams('EPIC-42'));
+    const res = await PATCH(makeRequest({ transitionId: '99', org: 'test-org' }), makeParams('EPIC-42'));
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.error).toBe('internal_error');
@@ -142,7 +186,7 @@ describe('PATCH /api/projects/[key]/status', () => {
     const deniedResponse = new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 });
     mockRequireAdmin.mockResolvedValue(deniedResponse);
 
-    const res = await PATCH(makeRequest({ transitionId: '21' }), makeParams('EPIC-42'));
+    const res = await PATCH(makeRequest({ transitionId: '21', org: 'test-org' }), makeParams('EPIC-42'));
     expect(res.status).toBe(403);
   });
 });

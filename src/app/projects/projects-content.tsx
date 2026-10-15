@@ -155,7 +155,7 @@ export default function ProjectsContent() {
     if (transitionsCache[epicKey]) return; // already cached
     setTransitionsLoading(true);
     try {
-      const res = await fetch(`/api/projects/${encodeURIComponent(epicKey)}/status`);
+      const res = await fetch(`/api/projects/${encodeURIComponent(epicKey)}/status?org=${encodeURIComponent(org)}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setTransitionsCache(prev => ({ ...prev, [epicKey]: data.transitions || [] }));
@@ -175,7 +175,7 @@ export default function ProjectsContent() {
       const res = await fetch(`/api/projects/${encodeURIComponent(epicKey)}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transitionId }),
+        body: JSON.stringify({ transitionId, org }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
@@ -278,7 +278,7 @@ export default function ProjectsContent() {
       const res = await fetch(`/api/projects/${encodeURIComponent(epicKey)}/due`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dueDate: newDate }),
+        body: JSON.stringify({ dueDate: newDate, org }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       // Optimistic update in tab cache

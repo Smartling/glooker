@@ -89,9 +89,9 @@ beforeEach(() => {
 
   global.fetch = jest.fn(async (url: string, init?: { method?: string; body?: string }) => {
     if (url.startsWith('/api/jira-projects')) return { ok: true, json: async () => [SPS] };
-    if (url.endsWith('/status')) {
+    if (url.includes('/status')) {
       if (init?.method === 'PATCH') {
-        patched.push({ url, body: JSON.parse(init.body ?? '{}') });
+        patched.push({ url: url.split('?')[0], body: JSON.parse(init.body ?? '{}') });
         return { ok: true, json: async () => ({ success: true, key: 'SPS-1' }) };
       }
       return { ok: true, json: async () => ({ transitions: TRANSITIONS }) };
@@ -137,7 +137,7 @@ describe('transitioning an epic to a status with no tab on this board', () => {
     await transitionTo('Blocked');
 
     await waitFor(() => expect(patched).toHaveLength(1));
-    expect(patched[0]).toEqual({ url: '/api/projects/SPS-1/status', body: { transitionId: '61' } });
+    expect(patched[0]).toEqual({ url: '/api/projects/SPS-1/status', body: { transitionId: '61', org: ORG } });
 
     // Gone from the active tab: its status is no longer "In Progress".
     await waitFor(() => expect(screen.queryByText(/SPS-1 summary/)).toBeNull());
@@ -157,7 +157,7 @@ describe('transitioning an epic to a status with no tab on this board', () => {
     await transitionTo("Won't Do");
 
     await waitFor(() => expect(patched).toHaveLength(1));
-    expect(patched[0].body).toEqual({ transitionId: '81' });
+    expect(patched[0].body).toEqual({ transitionId: '81', org: ORG });
 
     // Done-category, so it belongs on Done even though nothing is named "Done"
     // — and Jira's index has not caught up, hence the optimistic injection.

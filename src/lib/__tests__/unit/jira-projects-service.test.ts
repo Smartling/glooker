@@ -5,6 +5,7 @@ jest.mock('@/lib/db/index', () => ({
 
 import {
   listJiraProjects, createJiraProject, updateJiraProject, deleteJiraProject,
+  isProjectConfigured,
   JiraProjectDuplicateError, JiraProjectNotFoundError,
 } from '@/lib/jira-projects/service';
 import db from '@/lib/db/index';
@@ -99,5 +100,71 @@ describe('deleteJiraProject', () => {
   it('throws JiraProjectNotFoundError when no row matched', async () => {
     mockExecute.mockResolvedValueOnce([{ affectedRows: 0 }, null]);
     await expect(deleteJiraProject('gone')).rejects.toThrow(JiraProjectNotFoundError);
+  });
+});
+
+describe('isProjectConfigured - authorization boundary enforcement', () => {
+  it('returns true when project is configured for the org', async () => {
+    mockExecute.mockResolvedValueOnce([[{ '1': 1 }], null]);
+    const result = await isProjectConfigured('test-org', 'GLOOK');
+    expect(result).toBe(true);
+    expect(mockExecute.mock.calls[0][0]).toMatch(/SELECT 1 FROM jira_projects/i);
+    expect(mockExecute.mock.calls[0][1]).toEqual(['test-org', 'GLOOK']);
+  });
+
+  it('returns false when project is not configured for the org', async () => {
+    mockExecute.mockResolvedValueOnce([[], null]);
+    const result = await isProjectConfigured('test-org', 'NOTFOUND');
+    expect(result).toBe(false);
+    expect(mockExecute.mock.calls[0][1]).toEqual(['test-org', 'NOTFOUND']);
+  });
+
+  it('normalizes project key to uppercase', async () => {
+    mockExecute.mockResolvedValueOnce([[], null]);
+    await isProjectConfigured('test-org', 'lowercase');
+    // The query should use uppercase version
+    expect(mockExecute.mock.calls[0][1]).toEqual(['test-org', 'LOWERCASE']);
+  });
+
+  it('trims whitespace from project key', async () => {
+    mockExecute.mockResolvedValueOnce([[], null]);
+    await isProjectConfigured('test-org', '  PROJ  ');
+    expect(mockExecute.mock.calls[0][1]).toEqual(['test-org', 'PROJ']);
+  });
+
+  it('enforces org-scoped authorization - same project different orgs', async () => {
+    // Project SHARED exists for org-a but not org-b
+    mockExecute
+      .mockResolvedValueOnce([[{ '1': 1 }], null])  // org-a has SHARED
+      .mockResolvedValueOnce([[], null]);            // org-b does not
+
+    const orgAResult = await isProjectConfigured('org-a', 'SHARED');
+    const orgBResult = await isProjectConfigured('org-b', 'SHARED');
+
+    expect(orgAResult).toBe(true);
+    expect(orgBResult).toBe(false);
+
+    // Verify both queries checked the correct org
+    expect(mockExecute.mock.calls[0][1]).toEqual(['org-a', 'SHARED']);
+    expect(mockExecute.mock.calls[1][1]).toEqual(['org-b', 'SHARED']);
+  });
+
+  it('uses LIMIT 1 for performance', async () => {
+    mockExecute.mockResolvedValueOnce([[], null]);
+    await isProjectConfigured('test-org', 'PROJ');
+    expect(mockExecute.mock.calls[0][0]).toMatch(/LIMIT 1/i);
+  });
+
+  it('queries by both org and project_key to prevent cross-org access', async () => {
+    mockExecute.mockResolvedValueOnce([[], null]);
+    await isProjectConfigured('victim-org', 'ATTACKER');
+    
+    const query = mockExecute.mock.calls[0][0];
+    const params = mockExecute.mock.calls[0][1];
+    
+    // Query must include both WHERE conditions
+    expect(query).toMatch(/WHERE org = \?/i);
+    expect(query).toMatch(/AND project_key = \?/i);
+    expect(params).toEqual(['victim-org', 'ATTACKER']);
   });
 });

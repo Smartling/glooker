@@ -3,11 +3,19 @@ jest.mock('@/lib/jira/client');
 jest.mock('@/lib/auth', () => ({
   requireAdmin: jest.fn().mockResolvedValue(null),
 }));
+jest.mock('@/lib/orgs/guard', () => ({
+  requireAllowedOrg: jest.fn((org) => ({ ok: true, org: org || 'test-org' })),
+}));
+jest.mock('@/lib/jira-projects/service', () => ({
+  isProjectConfigured: jest.fn().mockResolvedValue(true),
+}));
 
 import { PATCH } from '@/app/api/projects/[key]/due/route';
 import { getJiraClient } from '@/lib/jira/client';
+import { isProjectConfigured } from '@/lib/jira-projects/service';
 
 const mockGetJiraClient = getJiraClient as jest.Mock;
+const mockIsProjectConfigured = isProjectConfigured as jest.Mock;
 
 /** Build a minimal mock NextRequest with a JSON body. */
 function makeRequest(body: unknown) {
@@ -22,13 +30,17 @@ function makeParams(key: string) {
 }
 
 describe('PATCH /api/projects/[key]/due', () => {
+  beforeEach(() => {
+    mockIsProjectConfigured.mockResolvedValue(true);
+  });
+
   describe('date validation', () => {
     it('rejects an invalid date format with 400', async () => {
       mockGetJiraClient.mockReturnValue({
         updateDueDate: jest.fn().mockResolvedValue(undefined),
       });
 
-      const res = await PATCH(makeRequest({ dueDate: 'not-a-date' }), makeParams('PROJ-1'));
+      const res = await PATCH(makeRequest({ dueDate: 'not-a-date', org: 'test-org' }), makeParams('PROJ-1'));
       expect(res.status).toBe(400);
       const body = await res.json();
       expect(body.error).toMatch(/YYYY-MM-DD/);
@@ -39,7 +51,7 @@ describe('PATCH /api/projects/[key]/due', () => {
         updateDueDate: jest.fn().mockResolvedValue(undefined),
       });
 
-      const res = await PATCH(makeRequest({ dueDate: '2026/04/15' }), makeParams('PROJ-1'));
+      const res = await PATCH(makeRequest({ dueDate: '2026/04/15', org: 'test-org' }), makeParams('PROJ-1'));
       expect(res.status).toBe(400);
     });
   });
@@ -48,10 +60,24 @@ describe('PATCH /api/projects/[key]/due', () => {
     it('returns 404 when getJiraClient returns null', async () => {
       mockGetJiraClient.mockReturnValue(null);
 
-      const res = await PATCH(makeRequest({ dueDate: '2026-04-15' }), makeParams('PROJ-1'));
+      const res = await PATCH(makeRequest({ dueDate: '2026-04-15', org: 'test-org' }), makeParams('PROJ-1'));
       expect(res.status).toBe(404);
       const body = await res.json();
       expect(body.error).toMatch(/not configured/i);
+    });
+  });
+
+  describe('project authorization', () => {
+    it('returns 404 when project is not configured for org', async () => {
+      mockIsProjectConfigured.mockResolvedValue(false);
+      mockGetJiraClient.mockReturnValue({
+        updateDueDate: jest.fn(),
+      });
+
+      const res = await PATCH(makeRequest({ dueDate: '2026-04-15', org: 'test-org' }), makeParams('NOTCONFIG-1'));
+      expect(res.status).toBe(404);
+      const body = await res.json();
+      expect(body.error).toBe('Not found');
     });
   });
 
@@ -60,7 +86,7 @@ describe('PATCH /api/projects/[key]/due', () => {
       const mockUpdateDueDate = jest.fn().mockResolvedValue(undefined);
       mockGetJiraClient.mockReturnValue({ updateDueDate: mockUpdateDueDate });
 
-      const res = await PATCH(makeRequest({ dueDate: '2026-04-15' }), makeParams('PROJ-42'));
+      const res = await PATCH(makeRequest({ dueDate: '2026-04-15', org: 'test-org' }), makeParams('PROJ-42'));
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body.success).toBe(true);
@@ -73,7 +99,7 @@ describe('PATCH /api/projects/[key]/due', () => {
       const mockUpdateDueDate = jest.fn().mockResolvedValue(undefined);
       mockGetJiraClient.mockReturnValue({ updateDueDate: mockUpdateDueDate });
 
-      const res = await PATCH(makeRequest({ dueDate: null }), makeParams('PROJ-42'));
+      const res = await PATCH(makeRequest({ dueDate: null, org: 'test-org' }), makeParams('PROJ-42'));
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body.success).toBe(true);
@@ -87,7 +113,7 @@ describe('PATCH /api/projects/[key]/due', () => {
       const mockUpdateDueDate = jest.fn().mockRejectedValue(new Error('Jira API error (403): Forbidden'));
       mockGetJiraClient.mockReturnValue({ updateDueDate: mockUpdateDueDate });
 
-      const res = await PATCH(makeRequest({ dueDate: '2026-04-15' }), makeParams('PROJ-42'));
+      const res = await PATCH(makeRequest({ dueDate: '2026-04-15', org: 'test-org' }), makeParams('PROJ-42'));
       expect(res.status).toBe(500);
       const body = await res.json();
       expect(body.error).toBe('internal_error');
@@ -98,7 +124,7 @@ describe('PATCH /api/projects/[key]/due', () => {
       const mockUpdateDueDate = jest.fn().mockRejectedValue('unexpected string error');
       mockGetJiraClient.mockReturnValue({ updateDueDate: mockUpdateDueDate });
 
-      const res = await PATCH(makeRequest({ dueDate: '2026-04-15' }), makeParams('PROJ-42'));
+      const res = await PATCH(makeRequest({ dueDate: '2026-04-15', org: 'test-org' }), makeParams('PROJ-42'));
       expect(res.status).toBe(500);
       const body = await res.json();
       expect(body.error).toBe('internal_error');

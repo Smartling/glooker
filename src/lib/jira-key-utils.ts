@@ -99,3 +99,12 @@ export function assertIssueKey(key: unknown): string {
 export function isValidIssueKey(key: unknown): boolean {
   try { assertIssueKey(key); return true; } catch { return false; }
 }
+
+/**
+ * Extract the project key from a validated issue key.
+ * E.g., "GLOOK-123" → "GLOOK", "SPS_2-456" → "SPS_2"
+ * Assumes the key has already been validated with assertIssueKey or isValidIssueKey.
+ */
+export function extractProjectKey(issueKey: string): string {
+  return issueKey.split('-')[0];
+}
