@@ -5,7 +5,7 @@ import { ensureSeedProject, parseLegacyJql } from '@/lib/jira-projects/seed';
 import { buildProjectJql } from '@/lib/jira-projects/jql';
 import type { BoardTabKind, JiraProjectWithLegacyFlag } from '@/lib/jira-projects/types';
 import { withRequestLog } from '@/lib/logger';
-import { requireAllowedOrg } from '@/lib/orgs/guard';
+import { requireAllowedOrg, requireOrgMembership } from '@/lib/orgs/guard';
 import { internalError } from '@/lib/api-error';
 
 const TABS: BoardTabKind[] = ['active', 'middle', 'done'];
@@ -15,6 +15,9 @@ async function getHandler(req: NextRequest) {
   const orgCheck = requireAllowedOrg(orgParam);
   if (!orgCheck.ok) return orgCheck.res;
   const org = orgCheck.org;
+
+  const membershipDenied = await requireOrgMembership(req.headers, org);
+  if (membershipDenied) return membershipDenied;
 
   if (process.env.JIRA_ENABLED !== 'true') {
     return NextResponse.json({ error: 'Jira integration is not enabled' }, { status: 404 });
