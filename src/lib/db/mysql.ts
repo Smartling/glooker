@@ -354,6 +354,16 @@ export function createMySQLDB(): DB {
   });
 
   // Migrations
+  // commit_analyses had only (report_id, commit_sha): the per-developer timeline/summary reads
+  // (filtered by github_login) and the org spend-window reads (committed_at range) full-scanned it.
+  for (const [name, cols] of [
+    ['idx_ca_login_report', 'github_login, report_id'],
+    ['idx_ca_report_committed', 'report_id, committed_at'],
+  ]) {
+    await pool.execute(`ALTER TABLE commit_analyses ADD INDEX ${name} (${cols})`).catch((err) => {
+      if (err.code !== 'ER_DUP_KEYNAME') console.error(`[db/mysql] Failed to add ${name}:`, err);
+    });
+  }
   await pool.execute('ALTER TABLE developer_stats ADD COLUMN total_jira_issues INT NOT NULL DEFAULT 0').catch((err) => {
     if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add total_jira_issues:', err);
   });

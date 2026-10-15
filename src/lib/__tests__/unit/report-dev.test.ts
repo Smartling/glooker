@@ -176,22 +176,21 @@ describe('getDevReport', () => {
     expect(result.timeline[0]).not.toHaveProperty('activeDevs');
   });
 
-  it('deduplicates timeline commits by SHA', async () => {
-    const dupCommit = { ...timelineCommitRow };
-    const uniqueCommit = { ...timelineCommitRow, commit_sha: 'def456', committed_at: '2026-01-22T10:00:00Z' };
-
+  it('asks the database for one copy per commit, scoped to the developer', async () => {
+    // Dedup happens in SQL now (canonicalCommitIdsSql); see commit-dedupe-db.test.ts.
     mockDbExecute
       .mockResolvedValueOnce([[reportRow], null])
       .mockResolvedValueOnce([[devRow], null])
       .mockResolvedValueOnce([[allDevRow], null])
       .mockResolvedValueOnce([[commitRow], null])
       .mockResolvedValueOnce([[{ id: 'report-1' }, { id: 'report-2' }], null])
-      .mockResolvedValueOnce([[timelineCommitRow, dupCommit, uniqueCommit], null]);
+      .mockResolvedValueOnce([[timelineCommitRow], null]);
 
-    const result = await getDevReport('report-1', 'alice');
+    await getDevReport('report-1', 'alice');
 
-    const totalCommits = result.timeline.reduce((sum: number, w: any) => sum + w.commits, 0);
-    expect(totalCommits).toBe(2);
+    const [sql, params] = mockDbExecute.mock.calls[5];
+    expect(sql).toMatch(/github_login = \? AND report_id IN \(\?,\?\)\s+GROUP BY commit_sha/);
+    expect(params).toEqual(['alice', 'report-1', 'report-2']);
   });
 
   it('returns empty timeline when no commits exist', async () => {

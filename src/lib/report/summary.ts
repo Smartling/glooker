@@ -4,7 +4,7 @@ import { loadPrompt } from '@/lib/prompt-loader';
 import { getAppConfig } from '@/lib/app-config/service';
 import { ReportNotFoundError } from './service';
 import { DeveloperNotFoundError } from './dev';
-import { dedupCommitsBySha } from './timeline';
+import { canonicalCommitIdsSql } from './timeline';
 import { UNMERGED_LOOKBACK_DAYS } from './unmerged-window';
 
 interface UnmergedPrSummary { title: string; updatedAt: string; createdAt: string; draft: boolean; }
@@ -122,16 +122,15 @@ export async function getDevSummary(reportId: string, login: string) {
 
   let allCommits: any[] = [];
   if (reportIds.length > 0) {
-    const placeholders = reportIds.map(() => '?').join(',');
     const [rows] = await db.execute(
-      `SELECT commit_sha, committed_at, lines_added, lines_removed,
-              complexity, type, ai_co_authored, maybe_ai
-       FROM commit_analyses
-       WHERE github_login = ? AND report_id IN (${placeholders})
-       ORDER BY committed_at DESC`,
+      `SELECT ca.commit_sha, ca.committed_at, ca.lines_added, ca.lines_removed,
+              ca.complexity, ca.type, ca.ai_co_authored, ca.maybe_ai
+       FROM commit_analyses ca
+       JOIN (${canonicalCommitIdsSql(reportIds.length, true)}) one ON one.id = ca.id
+       ORDER BY ca.committed_at DESC`,
       [login, ...reportIds],
     ) as [any[], any];
-    allCommits = dedupCommitsBySha(rows);
+    allCommits = rows;
   }
 
   const now = new Date();

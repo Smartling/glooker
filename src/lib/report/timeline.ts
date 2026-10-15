@@ -146,6 +146,27 @@ export function anchorWeekFor(status: unknown, completedAt: unknown, createdAt: 
   return weekKeyForDate(now);
 }
 
+/**
+ * Every report stores its own copy of each commit in its window, so overlapping daily reports hold
+ * ~5 copies per commit (dev, 2026-10-14: 171,260 rows for 32,450 commits). Fetching every copy and
+ * deduping in JS made the org timeline query move 41 MB and dominate the page. This subquery picks
+ * ONE `commit_analyses.id` per commit_sha inside the database instead: the latest ANALYSED copy
+ * (non-null complexity), else the latest copy. Copies do differ — backfill reports were never
+ * analysed, and re-analysis can classify a commit differently — and the old JS dedup kept whichever
+ * copy the committed_at sort happened to put first, which was arbitrary. Preferring an analysed
+ * copy is deterministic and never worse. Counts and line totals are the same on every copy.
+ *
+ * Takes `reportCount` `?` placeholders (report ids), preceded by one more for the login when
+ * `byLogin` is set. Rows read here are never deleted: every report keeps all its own copies.
+ */
+export function canonicalCommitIdsSql(reportCount: number, byLogin = false): string {
+  const placeholders = Array.from({ length: reportCount }, () => '?').join(',');
+  return `SELECT COALESCE(MAX(CASE WHEN complexity IS NOT NULL THEN id END), MAX(id)) AS id
+          FROM commit_analyses
+          WHERE ${byLogin ? 'github_login = ? AND ' : ''}report_id IN (${placeholders})
+          GROUP BY commit_sha`;
+}
+
 export function dedupCommitsBySha(rows: any[]): any[] {
   const seen = new Set<string>();
   const result: any[] = [];
