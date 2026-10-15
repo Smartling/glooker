@@ -355,10 +355,13 @@ export function createMySQLDB(): DB {
 
   // Migrations
   // commit_analyses had only (report_id, commit_sha): the per-developer timeline/summary reads
-  // (filtered by github_login) and the org spend-window reads (committed_at range) full-scanned it.
+  // (filtered by github_login), the org spend-window reads (committed_at range) and the one-copy-
+  // per-commit pick all full-scanned it.
   for (const [name, cols] of [
     ['idx_ca_login_report', 'github_login, report_id'],
     ['idx_ca_report_committed', 'report_id, committed_at'],
+    // Lets canonicalCommitIdsSql's GROUP BY commit_sha read only this index, with no temp table.
+    ['idx_ca_sha_report', 'commit_sha, report_id, complexity'],
   ]) {
     await pool.execute(`ALTER TABLE commit_analyses ADD INDEX ${name} (${cols})`).catch((err) => {
       if (err.code !== 'ER_DUP_KEYNAME') console.error(`[db/mysql] Failed to add ${name}:`, err);
