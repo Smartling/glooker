@@ -220,20 +220,19 @@ describe('getOrgReport', () => {
     expect(result.timeline).toEqual([]);
   });
 
-  it('deduplicates commits by SHA across multiple reports', async () => {
-    const dupCommit = { ...commitRow };
-    const uniqueCommit = { ...commitRow, commit_sha: 'sha2', committed_at: '2026-01-22T10:00:00Z' };
-
+  it('asks the database for one copy per commit across all the org\'s reports', async () => {
+    // Dedup happens in SQL now (canonicalCommitIdsSql); its row choice is pinned against real
+    // SQLite in commit-dedupe-db.test.ts. Here: the timeline query uses it, over every report id.
     mockDbExecute
       .mockResolvedValueOnce([[reportRow], null])
       .mockResolvedValueOnce([[devRow], null])
       .mockResolvedValueOnce([[{ id: 'report-1' }, { id: 'report-2' }], null])
-      .mockResolvedValueOnce([[commitRow, dupCommit, uniqueCommit], null]);
+      .mockResolvedValueOnce([[commitRow], null]);
 
-    const result = await getOrgReport('report-1');
+    await getOrgReport('report-1');
 
-    // sha1 appears twice, sha2 once → 2 unique commits → potentially 2 weeks
-    const totalCommits = result.timeline.reduce((sum: number, w: any) => sum + w.commits, 0);
-    expect(totalCommits).toBe(2);
+    const [sql, params] = mockDbExecute.mock.calls[3];
+    expect(sql).toMatch(/GROUP BY commit_sha/);
+    expect(params).toEqual(['report-1', 'report-2']);
   });
 });

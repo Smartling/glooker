@@ -354,6 +354,31 @@ export function createMySQLDB(): DB {
   });
 
   // Migrations
+  // commit_analyses had only (report_id, commit_sha): the per-developer timeline/summary reads
+  // (filtered by github_login), the org spend-window reads (committed_at range) and the one-copy-
+  // per-commit pick (canonicalCommitIdsSql) all full-scanned it.
+  //  - login index carries commit_sha + complexity so the per-developer pick is index-only.
+  //  - (commit_sha, report_id, complexity): commit_sha first lets the GROUP BY read the index in
+  //    order with no temp table. Measured on a dev-shaped single-org dataset (171k rows): 90 ms vs
+  //    132 ms for (report_id, commit_sha, complexity), which needs a temp table. The cost is reading
+  //    every org's entries; revisit if one deployment ever holds many large orgs.
+  // All three are built in ONE ALTER (one pass over the table, startup waits once). If any already
+  // exists that statement fails as a whole, so fall back to adding them one by one.
+  const caIndexes: Array<[string, string]> = [
+    ['idx_ca_login_report', 'github_login, report_id, commit_sha, complexity'],
+    ['idx_ca_report_committed', 'report_id, committed_at'],
+    ['idx_ca_sha_report', 'commit_sha, report_id, complexity'],
+  ];
+  await pool.execute(
+    `ALTER TABLE commit_analyses ${caIndexes.map(([n, c]) => `ADD INDEX ${n} (${c})`).join(', ')}`,
+  ).catch(async (err) => {
+    if (err.code !== 'ER_DUP_KEYNAME') { console.error('[db/mysql] Failed to add commit_analyses indexes:', err); return; }
+    for (const [name, cols] of caIndexes) {
+      await pool.execute(`ALTER TABLE commit_analyses ADD INDEX ${name} (${cols})`).catch((e) => {
+        if (e.code !== 'ER_DUP_KEYNAME') console.error(`[db/mysql] Failed to add ${name}:`, e);
+      });
+    }
+  });
   await pool.execute('ALTER TABLE developer_stats ADD COLUMN total_jira_issues INT NOT NULL DEFAULT 0').catch((err) => {
     if (err.code !== 'ER_DUP_FIELDNAME') console.error('[db/mysql] Failed to add total_jira_issues:', err);
   });

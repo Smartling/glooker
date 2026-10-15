@@ -1,4 +1,4 @@
-import { dedupCommitsBySha, aggregateWeekly } from '@/lib/report/timeline';
+import { aggregateWeekly } from '@/lib/report/timeline';
 
 const commits = [
   { commit_sha: 'a1', github_login: 'alice', committed_at: '2025-01-06T10:00:00Z', lines_added: 10, lines_removed: 5, complexity: 3, type: 'feature', ai_co_authored: false, maybe_ai: false },
@@ -6,20 +6,6 @@ const commits = [
   { commit_sha: 'a3', github_login: 'alice', committed_at: '2025-01-13T10:00:00Z', lines_added: 5, lines_removed: 2, complexity: null, type: 'feature', ai_co_authored: false, maybe_ai: true },
 ];
 // Jan 6 is a Monday. a1 and a2 are in week 2025-01-06, a3 is in week 2025-01-13.
-
-describe('dedupCommitsBySha', () => {
-  it('keeps first occurrence of each commit_sha, removes duplicates', () => {
-    const rows = [
-      { commit_sha: 'a1', value: 'first' },
-      { commit_sha: 'a2', value: 'only' },
-      { commit_sha: 'a1', value: 'duplicate' },
-    ];
-    const result = dedupCommitsBySha(rows);
-    expect(result).toHaveLength(2);
-    expect(result[0]).toEqual({ commit_sha: 'a1', value: 'first' });
-    expect(result[1]).toEqual({ commit_sha: 'a2', value: 'only' });
-  });
-});
 
 describe('aggregateWeekly', () => {
   it('groups commits into Monday-aligned ISO weeks', () => {

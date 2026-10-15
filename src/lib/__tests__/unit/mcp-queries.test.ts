@@ -78,9 +78,11 @@ describe('queryCommits', () => {
       ], null]);
     const out = await queryCommits({}) as { commits: any[]; count: number };
     expect(out.count).toBe(2);
-    const sql = mockExecute.mock.calls[2][0] as string;
-    expect(sql).toContain('GROUP BY ca.commit_sha'); // dedup before LIMIT, not after
-    expect(sql).toContain('LIMIT ?');
+    const [sql, params] = mockExecute.mock.calls[2] as [string, any[]];
+    // One canonical copy per sha (canonicalCommitIdsSql), joined before LIMIT; no per-column MIN().
+    expect(sql).toMatch(/GROUP BY commit_sha[\s\S]*\) one\s+ON one\.id = ca\.id[\s\S]*LIMIT \?/);
+    expect(sql).not.toMatch(/MIN\(ca\./);
+    expect(params[0]).toBe('acme'); // org scope placeholder comes first
   });
 });
 

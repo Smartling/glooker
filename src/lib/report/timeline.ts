@@ -146,16 +146,34 @@ export function anchorWeekFor(status: unknown, completedAt: unknown, createdAt: 
   return weekKeyForDate(now);
 }
 
-export function dedupCommitsBySha(rows: any[]): any[] {
-  const seen = new Set<string>();
-  const result: any[] = [];
-  for (const row of rows) {
-    if (!seen.has(row.commit_sha)) {
-      seen.add(row.commit_sha);
-      result.push(row);
-    }
-  }
-  return result;
+/**
+ * Every report stores its own copy of each commit in its window, so overlapping daily reports hold
+ * ~5 copies per commit (dev, 2026-10-14: 171,260 rows for 32,450 commits). Fetching every copy and
+ * deduping in JS made the org timeline query move 41 MB and dominate the page. This subquery picks
+ * ONE `commit_analyses.id` per commit_sha inside the database instead: the latest ANALYSED copy
+ * (non-null complexity), else the latest copy. Copies do differ — backfill reports were never
+ * analysed, and re-analysis can classify a commit differently — and the old JS dedup kept whichever
+ * copy the committed_at sort happened to put first, which was arbitrary. Preferring an analysed
+ * copy is deterministic and never worse. Counts and line totals are the same on every copy.
+ *
+ * "Latest" is MAX(id), i.e. insertion order. That holds because commit_analyses is write-once:
+ * the runner only ever `INSERT IGNORE`s (report-runner.ts) and nothing UPDATEs complexity/type in
+ * place. One edge: a resumed older report inserts its remaining rows late, so they count as latest
+ * — they are still a real analysis of that commit. If in-place re-analysis is ever added, order by
+ * the owning report's created_at here instead.
+ *
+ * `reports` is either a count of `?` report-id placeholders or a subquery yielding report ids
+ * (whose own placeholders the caller supplies). With `byLogin`, one `?` for the login comes first.
+ * Rows read here are never deleted: every report keeps all its own copies.
+ */
+export function canonicalCommitIdsSql(reports: number | { subquery: string }, byLogin = false): string {
+  const scope = typeof reports === 'number'
+    ? Array.from({ length: reports }, () => '?').join(',')
+    : reports.subquery;
+  return `SELECT COALESCE(MAX(CASE WHEN complexity IS NOT NULL THEN id END), MAX(id)) AS id
+          FROM commit_analyses
+          WHERE ${byLogin ? 'github_login = ? AND ' : ''}report_id IN (${scope})
+          GROUP BY commit_sha`;
 }
 
 export function aggregateWeekly(commits: any[]): WeeklyBucket[] {

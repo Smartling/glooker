@@ -317,3 +317,6 @@ CREATE TABLE IF NOT EXISTS team_pulse_summaries (
 
 CREATE INDEX idx_devstats_login ON developer_stats(github_login);
 CREATE INDEX idx_reports_org_status_created ON reports(org, status, created_at);
+CREATE INDEX idx_ca_login_report ON commit_analyses(github_login, report_id, commit_sha, complexity);
+CREATE INDEX idx_ca_report_committed ON commit_analyses(report_id, committed_at);
+CREATE INDEX idx_ca_sha_report ON commit_analyses(commit_sha, report_id, complexity);

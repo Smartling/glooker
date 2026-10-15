@@ -1,7 +1,7 @@
 import db from '../db/index';
 import { ReportNotFoundError } from './service';
 import {
-  dedupCommitsBySha, aggregateWeekly, weekKeyForDate,
+  canonicalCommitIdsSql, aggregateWeekly, weekKeyForDate,
   anchorWeekFor, completedReportWindows, coveredWeeksFromWindows,
 } from './timeline';
 
@@ -65,14 +65,15 @@ export async function getOrgReport(reportId: string) {
 
   let timelineCommits: any[] = [];
   if (reportIds.length > 0) {
-    const placeholders = reportIds.map(() => '?').join(',');
     const [tlRows] = await db.execute(
-      `SELECT commit_sha, github_login, committed_at, lines_added, lines_removed,
-              complexity, type, ai_co_authored, maybe_ai, pr_number
-       FROM commit_analyses WHERE report_id IN (${placeholders}) ORDER BY committed_at ASC`,
+      `SELECT ca.commit_sha, ca.github_login, ca.committed_at, ca.lines_added, ca.lines_removed,
+              ca.complexity, ca.type, ca.ai_co_authored, ca.maybe_ai, ca.pr_number
+       FROM commit_analyses ca
+       JOIN (${canonicalCommitIdsSql(reportIds.length)}) one ON one.id = ca.id
+       ORDER BY ca.committed_at ASC`,
       [...reportIds],
     ) as [any[], any];
-    timelineCommits = dedupCommitsBySha(tlRows);
+    timelineCommits = tlRows;
   }
 
   // 4. Weekly aggregation
