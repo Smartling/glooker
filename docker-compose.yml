@@ -64,7 +64,7 @@ services:
       AUTH_ALLOW_ANONYMOUS_ADMIN: ${AUTH_ALLOW_ANONYMOUS_ADMIN:-}
       # ...and this to let anything through at all with auth off in production.
       AUTH_ALLOW_ANONYMOUS: ${AUTH_ALLOW_ANONYMOUS:-}
-      # Comma-separated org allowlist; unset accepts any well-shaped org name.
+      # Comma-separated org allowlist; unset rejects all org-scoped routes.
       ALLOWED_ORGS: ${ALLOWED_ORGS:-}
       # AUTH_TEST_USER / AUTH_TEST_EMAIL are deliberately NOT passed through.
       # This image runs NODE_ENV=production, where that bypass is now inert by

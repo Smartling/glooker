@@ -197,11 +197,12 @@ export function validateEnv(): void {
   }
 
   // No org allowlist: `org` is caller-supplied on ~14 routes, including two that
-  // proxy the server's GitHub PAT at whichever org is named.
+  // proxy the server's GitHub PAT at whichever org is named. Without an explicit
+  // allowlist, all org-scoped routes return 404.
   if (!process.env.ALLOWED_ORGS?.trim()) {
     warnings.push(
-      '  - ALLOWED_ORGS: not set — any well-shaped org name is accepted, so the GitHub PAT '
-      + 'can be aimed at any organisation and any org in the database can be read',
+      '  - ALLOWED_ORGS: not set — all org-scoped routes (reports, projects, developers, etc.) '
+      + 'will return 404 until at least one org is configured',
     );
   }
 
