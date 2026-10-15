@@ -1,7 +1,10 @@
 // PR #81 review: req.json() sat outside the handler's try, so a malformed body
 // was an unhandled 500. It is the caller's error and now gets a 400.
 jest.mock('@/lib/chat/agent', () => ({ runChatAgent: jest.fn() }));
-jest.mock('@/lib/orgs/guard', () => ({ requireAllowedOrg: () => ({ ok: true }) }));
+jest.mock('@/lib/orgs/guard', () => ({ requireAllowedOrg: (org: string) => ({ ok: true, org }) }));
+jest.mock('@/lib/cost-visibility', () => ({
+  resolveRequester: jest.fn(async () => ({ githubLogin: 'test-user', isAdmin: false, authDisabled: false })),
+}));
 
 import { NextRequest } from 'next/server';
 import { POST } from '@/app/api/chat/route';
