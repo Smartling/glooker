@@ -104,7 +104,7 @@ it('shows the empty state, not a blank card, for an old report whose weeks are a
 it('the tooltip shows the week, the value, and the shipped / in-flight split when present', () => {
   const row = { week: '2026-09-21', value: 5, shipped: 3, inFlight: 2 };
   const { container } = render(<TimelineTooltip active payload={[{ payload: row }] as never} split />);
-  expect(screen.getByText('Sep 21')).toBeTruthy();
+  expect(screen.getByText('Sep 21, 2026')).toBeTruthy(); // tooltips carry the year (ranges > 90 days)
   expect(container.textContent).toContain('Shipped3');
   expect(container.textContent).toContain('In flight2');
 });
@@ -184,9 +184,10 @@ describe('Decision 15: measured weeks', () => {
   it('the tooltip reads "Not measured", not a value, for an unmeasured week', () => {
     const row = { week: '2026-08-31', value: 0, shipped: 0, inFlight: 0, measured: false };
     const { container } = render(<TimelineTooltip active payload={[{ payload: row }] as never} split />);
-    expect(container.textContent).toContain('Aug 31');
+    expect(container.textContent).toContain('Aug 31, 2026');
     expect(container.textContent).toContain('Not measured');
-    expect(container.textContent).not.toContain('0');
+    // No value after the heading (the heading's year contains a 0 of its own).
+    expect(container.textContent!.replace('Aug 31, 2026', '')).not.toContain('0');
   });
 
   it('the tooltip still shows a measured zero as 0', () => {
@@ -227,7 +228,7 @@ describe('Decision 15: only shipped work proves a week measured (in-flight-only 
   it('a chart with no in-flight layer (PRs / Week) shows plain "Not measured" for that week, never a proven 0', () => {
     const { rows } = buildTimelineRows(weeks, [shipped, inFlightOnly], { value: d => d.prs, kind: 'count', covered: new Set<string>() });
     const { container } = render(<TimelineTooltip active payload={[{ payload: rows[3] }] as never} />);
-    expect(container.textContent).toBe('Sep 21Not measured');
+    expect(container.textContent).toBe('Sep 21, 2026Not measured');
   });
 
   it('a COVERED in-flight-only week is measured and shows its shipped 0 and in-flight part', () => {

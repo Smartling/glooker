@@ -15,6 +15,7 @@ import { StackedTypesChart } from '@/components/charts/stacked-types-chart';
 import { LinesChangedChart } from '@/components/charts/lines-changed-chart';
 import { CommitTypeDonut } from '@/components/charts/commit-type-donut';
 import { typeEntriesFrom } from '@/components/charts/commit-types';
+import { CHART_RANGES, CHART_RANGE_LABELS, chartRangeDays, chartTicks, weekTickFormatter, type ChartRange } from './chart-range';
 
 interface WeeklyData {
   week: string; commits: number; prs: number; avgLinesPerPr: number; linesAdded: number; linesRemoved: number;
@@ -33,6 +34,14 @@ export default function OrgDetailPage() {
     values: ['impact', 'spend'] as const,
     default: 'impact',
     history: 'push',
+  });
+  const [range, setRange] = useUrlState<ChartRange>({
+    key: 'range',
+    type: 'enum',
+    values: CHART_RANGES,
+    default: '90d',
+    history: 'replace',
+    scroll: false,
   });
 
   const { data, isLoading: loading, error: fetchError } = useSWR(`/api/report/${params.id}/org`);
@@ -84,7 +93,14 @@ export default function OrgDetailPage() {
 
   // One week domain per render, ending at this report's own week (Decision 15), shared by every
   // chart below so hover sync (syncId) lines up.
-  const weeks = weekDomainEndingAt(anchorWeek);
+  // Earliest week with data, for "All time". The server sorts the timeline by week, but take the
+  // minimum anyway: it costs one pass and doesn't depend on that ordering.
+  const firstWeek = timeline.reduce<string | undefined>((m, r) => (m === undefined || r.week < m ? r.week : m), undefined);
+  // No hooks here: this runs after the loading/error early returns. Both values are cheap, and
+  // weekTickFormatter returns module-level functions, so chart props stay referentially stable.
+  const weeks = weekDomainEndingAt(anchorWeek, chartRangeDays(range, anchorWeek, firstWeek));
+  const tickFormatter = weekTickFormatter(range);
+  const ticks = chartTicks(range, weeks);
 
   const hasJira = developers.some(d => (d.total_jira_issues ?? 0) > 0);
   // Spend tab exists only when there is real spend to show. `!= null` alone is
@@ -234,7 +250,22 @@ export default function OrgDetailPage() {
       {/* Timeline Charts */}
       {timeline.length >= 2 && (
         <div className="mb-6">
-          <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-3">Org Activity Over Time (weekly)</p>
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">Org Activity Over Time (weekly)</p>
+            <div role="group" aria-label="Chart range" className="inline-flex rounded-md border border-gray-800 p-0.5 no-print">
+              {CHART_RANGES.map(r => (
+                <button
+                  key={r}
+                  type="button"
+                  aria-pressed={range === r}
+                  onClick={() => setRange(r)}
+                  className={`px-2.5 py-1 text-xs rounded transition-colors ${range === r ? 'bg-gray-800 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+                >
+                  {CHART_RANGE_LABELS[r]}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <TimelineChart
               data={timeline}
@@ -244,9 +275,9 @@ export default function OrgDetailPage() {
               kind="count"
               label="Commits / Week"
               inFlightValue={d => d.types?.in_flight ?? 0}
-              syncId="org-timeline"
+              syncId="org-timeline" tickFormatter={tickFormatter} ticks={ticks}
             />
-            <TimelineChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks} valueKey="prs" kind="count" label="PRs / Week" syncId="org-timeline" />
+            <TimelineChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks} valueKey="prs" kind="count" label="PRs / Week" syncId="org-timeline" tickFormatter={tickFormatter} ticks={ticks} />
             <TimelineChart
               data={timeline}
               weeks={weeks}
@@ -256,10 +287,10 @@ export default function OrgDetailPage() {
               isDefined={d => toNum(d.prs) > 0}
               label="Avg Lines Changed / PR (outliers excluded)"
               suffix=" lines"
-              syncId="org-timeline"
+              syncId="org-timeline" tickFormatter={tickFormatter} ticks={ticks}
             />
-            <TimelineChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks} valueKey="avgImpact" kind="ratio" label="Avg Impact Score / Week" decimals={1} syncId="org-timeline" />
-            <LinesChangedChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks} syncId="org-timeline" />
+            <TimelineChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks} valueKey="avgImpact" kind="ratio" label="Avg Impact Score / Week" decimals={1} syncId="org-timeline" tickFormatter={tickFormatter} ticks={ticks} />
+            <LinesChangedChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks} syncId="org-timeline" tickFormatter={tickFormatter} ticks={ticks} />
             <TimelineChart
               data={timeline}
               weeks={weeks}
@@ -269,14 +300,14 @@ export default function OrgDetailPage() {
               isDefined={hasShippedData}
               label="AI Assisted %"
               suffix="%"
-              syncId="org-timeline"
+              syncId="org-timeline" tickFormatter={tickFormatter} ticks={ticks}
             />
           </div>
         </div>
       )}
 
       {/* Stacked Commit Types Over Time */}
-      {timeline.length >= 2 && <StackedTypesChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks} />}
+      {timeline.length >= 2 && <StackedTypesChart data={timeline} weeks={weeks} coveredWeeks={coveredWeeks} tickFormatter={tickFormatter} ticks={ticks} />}
 
       {/* Top Developers Table — hidden, use Team Summary instead */}
       {false && <div className="bg-gray-900 rounded-xl overflow-hidden">
