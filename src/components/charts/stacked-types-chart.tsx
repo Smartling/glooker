@@ -4,7 +4,7 @@ import { type ReactElement } from 'react';
 import { Bar, BarChart, CartesianGrid, Rectangle, XAxis, YAxis, type BarShapeProps, type RectangleProps } from 'recharts';
 import type { TooltipContentProps, TooltipValueType } from 'recharts';
 import { ChartContainer, ChartTooltip, CHART_TOOLTIP_CLASS, NotMeasuredTooltip } from './chart';
-import { formatCompact, formatWeek, hasShippedData, indexByWeek, isMeasured, isTopOfStack } from './chart-format';
+import { formatCompact, formatWeek, formatWeekLong, hasShippedData, indexByWeek, isMeasured, isTopOfStack } from './chart-format';
 import { COMMIT_TYPE_ORDER, commitTypeColor, foldTypes, type CommitType } from './commit-types';
 import { inFlightFloor, TypeSwatch, useHatch } from './hatch';
 
@@ -55,7 +55,7 @@ export function StackedTypesTooltip({ active, payload }: Partial<TooltipContentP
   }
   return (
     <div className={CHART_TOOLTIP_CLASS}>
-      <div className="font-medium">{formatWeek(row.week)} · {row.total} total</div>
+      <div className="font-medium">{formatWeekLong(row.week)} · {row.total} total</div>
       {COMMIT_TYPE_ORDER.filter(t => row[t] > 0).map(t => (
         <div key={t} className="flex justify-between gap-4">
           <span>{t}</span>
@@ -66,7 +66,7 @@ export function StackedTypesTooltip({ active, payload }: Partial<TooltipContentP
   );
 }
 
-export function StackedTypesChart({ data, weeks, coveredWeeks, tickFormatter = formatWeek }: { data: TypesWeek[]; weeks: string[]; coveredWeeks?: string[]; tickFormatter?: (week: string) => string }) {
+export function StackedTypesChart({ data, weeks, coveredWeeks, tickFormatter = formatWeek, ticks }: { data: TypesWeek[]; weeks: string[]; coveredWeeks?: string[]; tickFormatter?: (week: string) => string; ticks?: string[] }) {
   const hatch = useHatch(commitTypeColor('in_flight'));
   const rows = buildStackRows(data, weeks, coveredWeeks ? new Set(coveredWeeks) : undefined);
   const present = COMMIT_TYPE_ORDER.filter(t => rows.some(r => r[t] > 0));
@@ -92,7 +92,7 @@ export function StackedTypesChart({ data, weeks, coveredWeeks, tickFormatter = f
           <BarChart data={rows} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
             {hatch.defs}
             <CartesianGrid vertical={false} />
-            <XAxis dataKey="week" tickLine={false} axisLine={false} minTickGap={24} tickFormatter={tickFormatter} />
+            <XAxis dataKey="week" tickLine={false} axisLine={false} minTickGap={24} tickFormatter={tickFormatter} ticks={ticks} />
             <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={36} tickFormatter={formatCompact} />
             <ChartTooltip content={<StackedTypesTooltip />} />
             {present.map(t => (

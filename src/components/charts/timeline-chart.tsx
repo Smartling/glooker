@@ -6,7 +6,7 @@
 import { Bar, BarChart, CartesianGrid, Rectangle, XAxis, YAxis, type BarShapeProps, type RectangleProps } from 'recharts';
 import type { TooltipContentProps, TooltipValueType } from 'recharts';
 import { ChartContainer, ChartTooltip, CHART_TOOLTIP_CLASS, NotMeasuredTooltip } from './chart';
-import { fillWeeks, formatCompact, formatValue, formatWeek, type MetricKind, type WeekPoint } from './chart-format';
+import { fillWeeks, formatCompact, formatValue, formatWeek, formatWeekLong, type MetricKind, type WeekPoint } from './chart-format';
 import { inFlightFloor, useHatch } from './hatch';
 
 export interface TimelineRow {
@@ -40,6 +40,8 @@ export interface TimelineChartProps<T extends TimelineRow> {
   syncId: string;
   /** X-axis week label; defaults to formatWeek ("Oct 13"). */
   tickFormatter?: (week: string) => string;
+  /** Explicit x-axis ticks (weeks); omitted, Recharts picks them. */
+  ticks?: string[];
 }
 
 export interface TimelineRowOptions<T> {
@@ -87,7 +89,7 @@ export function TimelineTooltip({ active, payload, suffix = '', decimals = 0, sp
   if (row.value === null) return null;
   return (
     <div className={CHART_TOOLTIP_CLASS}>
-      <div className="font-medium">{formatWeek(row.week)}</div>
+      <div className="font-medium">{formatWeekLong(row.week)}</div>
       <div className="font-mono tabular-nums">{fmt(row.value)}</div>
       {split && inFlight > 0 && (
         <>
@@ -106,7 +108,7 @@ function shippedShape(props: BarShapeProps) {
 }
 
 export function TimelineChart<T extends TimelineRow>({
-  data, weeks, coveredWeeks, valueKey, computeValue, kind, isDefined, label, suffix = '', decimals = 0, inFlightValue, syncId, tickFormatter = formatWeek,
+  data, weeks, coveredWeeks, valueKey, computeValue, kind, isDefined, label, suffix = '', decimals = 0, inFlightValue, syncId, tickFormatter = formatWeek, ticks,
 }: TimelineChartProps<T>) {
   // GLOOK-58 Decision 16: reads the user's chart-color preference (Vivid/Soft/Deep), which
   // defaults to the theme accent.
@@ -147,7 +149,7 @@ export function TimelineChart<T extends TimelineRow>({
           <BarChart data={rows} syncId={syncId} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
             {inFlightValue && hatch.defs}
             <CartesianGrid vertical={false} />
-            <XAxis dataKey="week" tickLine={false} axisLine={false} minTickGap={24} tickFormatter={tickFormatter} />
+            <XAxis dataKey="week" tickLine={false} axisLine={false} minTickGap={24} tickFormatter={tickFormatter} ticks={ticks} />
             <YAxis tickLine={false} axisLine={false} width={40} tickCount={4} allowDecimals={decimals > 0} tickFormatter={formatCompact} />
             <ChartTooltip content={<TimelineTooltip suffix={suffix} decimals={decimals} split={!!inFlightValue} />} />
             <Bar dataKey="shipped" stackId="timeline" fill="var(--chart-accent)" stroke="var(--chart-surface)" strokeWidth={2}

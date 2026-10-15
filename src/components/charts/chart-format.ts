@@ -126,6 +126,14 @@ export function formatWeek(iso: string): string {
   return new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
+/** Tooltip week heading, "Oct 13, 2025": a tooltip names one exact week, and on ranges longer
+ *  than 90 days the same month and day recur a year apart. Axis ticks stay short (formatWeek). */
+export function formatWeekLong(iso: string): string {
+  const t = utcDay(iso);
+  if (t === null) return iso;
+  return new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+}
+
 export function formatValue(v: number | null | undefined, { suffix = '', decimals = 0 }: { suffix?: string; decimals?: number } = {}): string {
   if (v == null || !Number.isFinite(v)) return '—';
   const body = decimals > 0 ? v.toFixed(decimals) : Math.round(v).toLocaleString('en-US');

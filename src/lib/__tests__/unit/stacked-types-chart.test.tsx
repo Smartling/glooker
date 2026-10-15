@@ -65,7 +65,7 @@ it('shows the empty state for an old report whose weeks are all outside the doma
 it('the tooltip lists the week total and only the non-zero types', () => {
   const row = { week: '2026-09-14', total: 4, feature: 3, bug: 0, refactor: 0, infra: 0, docs: 0, test: 0, other: 0, in_flight: 1 };
   const { container } = render(<StackedTypesTooltip active payload={[{ payload: row }] as never} />);
-  expect(container.textContent).toContain('Sep 14 · 4 total');
+  expect(container.textContent).toContain('Sep 14, 2026 · 4 total');
   expect(container.textContent).toContain('feature3');
   expect(container.textContent).toContain('in_flight1');
   expect(container.textContent).not.toContain('bug');
@@ -95,7 +95,7 @@ describe('Decision 15: measured weeks', () => {
     const row = buildStackRows([{ week: '2026-09-14', commits: 3, types: { feature: 3 } }], weeks, new Set<string>())[1];
     expect(row.measured).toBe(true);
     const { container } = render(<StackedTypesTooltip active payload={[{ payload: row }] as never} />);
-    expect(container.textContent).toContain('Sep 14 · 3 total');
+    expect(container.textContent).toContain('Sep 14, 2026 · 3 total');
     expect(container.textContent).toContain('feature3');
     expect(container.textContent).not.toContain('Not measured');
   });
@@ -118,7 +118,7 @@ describe('Decision 15: measured weeks', () => {
     const row = buildStackRows([inFlightOnly], weeks, new Set(['2026-09-21']))[2];
     expect(row.measured).toBe(true);
     const { container } = render(<StackedTypesTooltip active payload={[{ payload: row }] as never} />);
-    expect(container.textContent).toContain('Sep 21 · 4 total');
+    expect(container.textContent).toContain('Sep 21, 2026 · 4 total');
     expect(container.textContent).toContain('in_flight4');
     expect(container.textContent).not.toContain('feature');
     expect(container.textContent).not.toContain('Not measured');

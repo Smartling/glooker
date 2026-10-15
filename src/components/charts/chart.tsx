@@ -8,7 +8,7 @@ import * as React from 'react';
 import * as RechartsPrimitive from 'recharts';
 import type { TooltipValueType } from 'recharts';
 import { cn } from '@/lib/cn';
-import { formatWeek } from './chart-format';
+import { formatWeekLong } from './chart-format';
 
 // Format: { THEME_NAME: CSS_SELECTOR }. The app's unscoped styles are dark and light is the
 // override (applyTheme() in src/app/themes.ts sets data-theme-mode on <html>), so dark takes the
@@ -50,7 +50,7 @@ export const CHART_TOOLTIP_CLASS =
 export function NotMeasuredTooltip({ week, inFlight }: { week: string; inFlight?: string }) {
   return (
     <div className={CHART_TOOLTIP_CLASS}>
-      <div className="font-medium">{formatWeek(week)}</div>
+      <div className="font-medium">{formatWeekLong(week)}</div>
       {inFlight === undefined ? (
         <div>Not measured</div>
       ) : (

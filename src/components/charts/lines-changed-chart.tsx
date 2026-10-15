@@ -6,7 +6,7 @@
 import { Bar, BarChart, CartesianGrid, Rectangle, ReferenceLine, XAxis, YAxis, type BarShapeProps, type RectangleProps } from 'recharts';
 import type { TooltipContentProps, TooltipValueType } from 'recharts';
 import { ChartContainer, ChartTooltip, CHART_TOOLTIP_CLASS, NotMeasuredTooltip } from './chart';
-import { formatCompact, formatValue, formatWeek, hasShippedData, indexByWeek, isMeasured, toNum } from './chart-format';
+import { formatCompact, formatValue, formatWeek, formatWeekLong, hasShippedData, indexByWeek, isMeasured, toNum } from './chart-format';
 import { commitTypeColor } from './commit-types';
 import { inFlightFloor, TypeSwatch, useHatch } from './hatch';
 
@@ -49,7 +49,7 @@ export function LinesTooltip({ active, payload }: Partial<TooltipContentProps<To
   const total = row.added + row.inFlightAdded + Math.abs(row.removed) + Math.abs(row.inFlightRemoved);
   return (
     <div className={CHART_TOOLTIP_CLASS}>
-      <div className="font-medium">{formatWeek(row.week)}</div>
+      <div className="font-medium">{formatWeekLong(row.week)}</div>
       <div className="font-mono tabular-nums">+{fmt(row.added)} added</div>
       {row.inFlightAdded > 0 && <div className="font-mono tabular-nums">+{fmt(row.inFlightAdded)} added in flight</div>}
       <div className="font-mono tabular-nums">−{fmt(-row.removed)} removed</div>
@@ -92,7 +92,7 @@ export function buildLinesRows(data: LinesWeek[], weeks: string[], covered?: Rea
   });
 }
 
-export function LinesChangedChart({ data, weeks, coveredWeeks, syncId, tickFormatter = formatWeek }: { data: LinesWeek[]; weeks: string[]; coveredWeeks?: string[]; syncId?: string; tickFormatter?: (week: string) => string }) {
+export function LinesChangedChart({ data, weeks, coveredWeeks, syncId, tickFormatter = formatWeek, ticks }: { data: LinesWeek[]; weeks: string[]; coveredWeeks?: string[]; syncId?: string; tickFormatter?: (week: string) => string; ticks?: string[] }) {
   const hatch = useHatch(commitTypeColor('in_flight'));
   const rows = buildLinesRows(data, weeks, coveredWeeks ? new Set(coveredWeeks) : undefined);
   const hasAny = rows.some(r => r.added || r.inFlightAdded || r.removed || r.inFlightRemoved);
@@ -110,7 +110,7 @@ export function LinesChangedChart({ data, weeks, coveredWeeks, syncId, tickForma
           <BarChart data={rows} stackOffset="sign" syncId={syncId} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
             {hatch.defs}
             <CartesianGrid vertical={false} />
-            <XAxis dataKey="week" tickLine={false} axisLine={false} minTickGap={24} tickFormatter={tickFormatter} />
+            <XAxis dataKey="week" tickLine={false} axisLine={false} minTickGap={24} tickFormatter={tickFormatter} ticks={ticks} />
             <YAxis tickLine={false} axisLine={false} width={44} tickCount={5} tickFormatter={formatCompact} />
             <ChartTooltip content={<LinesTooltip />} />
             <ReferenceLine y={0} stroke="var(--chart-axis)" strokeWidth={1} ifOverflow="extendDomain" />
