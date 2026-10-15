@@ -3,6 +3,8 @@ import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, samplingParams } f
 import { parseModelJson, ModelJsonError, stripJsonFences } from '@/lib/llm-json';
 import { renderInflightBlock } from '@/lib/team-pulse/render';
 import type { TeamProjectInflightPr, TeamProjectInflightBranch } from '@/lib/team-pulse/data';
+import type { Requester } from '@/lib/cost-visibility';
+import { getAuthorizedOrgs } from '@/lib/cost-visibility';
 
 const INSIGHTS_CACHE_VERSION = 3;
 
@@ -55,7 +57,7 @@ export class ProjectInsightsGenerationError extends Error {
   }
 }
 
-export async function getProjectInsights(reportId?: string) {
+export async function getProjectInsights(reportId?: string, requester?: Requester) {
   let report: any;
   if (reportId) {
     const [rows] = await db.execute(
@@ -64,12 +66,38 @@ export async function getProjectInsights(reportId?: string) {
     ) as [any[], any];
     if (!rows.length) return { available: false };
     report = rows[0];
+    
+    // Authorization check: verify requester can access this report's org
+    if (requester) {
+      const authorizedOrgs = await getAuthorizedOrgs(requester);
+      if (authorizedOrgs.size > 0 && !authorizedOrgs.has(report.org)) {
+        return { available: false };
+      }
+    }
   } else {
-    const [latestRows] = await db.execute(
-      `SELECT id, org, period_days, created_at FROM reports
-       WHERE status = 'completed' ORDER BY completed_at DESC LIMIT 1`,
-      [],
-    ) as [any[], any];
+    // No reportId: select the globally newest completed report the requester can access
+    let latestRows: any[];
+    if (requester) {
+      const authorizedOrgs = await getAuthorizedOrgs(requester);
+      if (authorizedOrgs.size === 0) {
+        return { available: false };
+      }
+      const orgList = Array.from(authorizedOrgs);
+      const placeholders = orgList.map(() => '?').join(',');
+      [latestRows] = await db.execute(
+        `SELECT id, org, period_days, created_at FROM reports
+         WHERE status = 'completed' AND org IN (${placeholders})
+         ORDER BY completed_at DESC LIMIT 1`,
+        orgList,
+      ) as [any[], any];
+    } else {
+      // No requester context: fall back to global selection (backward compatibility for tests)
+      [latestRows] = await db.execute(
+        `SELECT id, org, period_days, created_at FROM reports
+         WHERE status = 'completed' ORDER BY completed_at DESC LIMIT 1`,
+        [],
+      ) as [any[], any];
+    }
     if (!latestRows.length) return { available: false };
     report = latestRows[0];
   }

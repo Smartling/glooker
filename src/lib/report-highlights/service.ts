@@ -2,15 +2,34 @@ import db from '../db/index';
 import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, promptTag, samplingParams } from '../llm-provider';
 import { loadPrompt } from '../prompt-loader';
 import { getAppConfig } from '../app-config/service';
+import type { Requester } from '../cost-visibility';
+import { getAuthorizedOrgs } from '../cost-visibility';
 
-export async function getReportHighlights() {
-  // 1. Find the latest completed report
-  const [latestRows] = await db.execute(
-    `SELECT id, org, period_days, created_at FROM reports
-     WHERE status = 'completed'
-     ORDER BY completed_at DESC LIMIT 1`,
-    [],
-  ) as [any[], any];
+export async function getReportHighlights(requester?: Requester) {
+  // 1. Find the latest completed report the requester can access
+  let latestRows: any[];
+  if (requester) {
+    const authorizedOrgs = await getAuthorizedOrgs(requester);
+    if (authorizedOrgs.size === 0) {
+      return { available: false };
+    }
+    const orgList = Array.from(authorizedOrgs);
+    const placeholders = orgList.map(() => '?').join(',');
+    [latestRows] = await db.execute(
+      `SELECT id, org, period_days, created_at FROM reports
+       WHERE status = 'completed' AND org IN (${placeholders})
+       ORDER BY completed_at DESC LIMIT 1`,
+      orgList,
+    ) as [any[], any];
+  } else {
+    // No requester context: fall back to global selection (backward compatibility for tests)
+    [latestRows] = await db.execute(
+      `SELECT id, org, period_days, created_at FROM reports
+       WHERE status = 'completed'
+       ORDER BY completed_at DESC LIMIT 1`,
+      [],
+    ) as [any[], any];
+  }
 
   if (!latestRows.length) {
     return { available: false };
