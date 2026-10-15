@@ -3,4 +3,4 @@ export { getReportCommits } from './commits';
 export { getOrgReport } from './org';
 export { getDevReport, DeveloperNotFoundError } from './dev';
 export { getDevSummary } from './summary';
-export { dedupCommitsBySha, aggregateWeekly, type WeeklyBucket } from './timeline';
+export { canonicalCommitIdsSql, aggregateWeekly, type WeeklyBucket } from './timeline';

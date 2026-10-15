@@ -14,6 +14,7 @@ let dbPath: string;
 let db: any;
 let getOrgReport: any;
 let getDevReport: any;
+let queryCommits: any;
 
 const priorSqlitePath = process.env.SQLITE_PATH;
 const priorDbType = process.env.DB_TYPE;
@@ -35,6 +36,7 @@ beforeAll(async () => {
   db = (await import('@/lib/db')).default;
   ({ getOrgReport } = await import('@/lib/report/org'));
   ({ getDevReport } = await import('@/lib/report/dev'));
+  ({ queryCommits } = await import('@/lib/mcp/queries'));
   for (const id of ['r1', 'r2']) {
     await db.execute(
       `INSERT INTO reports (id, org, period_days, status, created_at, completed_at) VALUES (?, 'dup', 14, 'completed', ?, ?)`,
@@ -85,5 +87,14 @@ describe('timeline reads one copy per commit', () => {
     expect(week((await getOrgReport('r1')).timeline)).toEqual(week((await getOrgReport('r2')).timeline));
     const [[{ n }]] = await db.execute('SELECT COUNT(*) AS n FROM commit_analyses');
     expect(Number(n)).toBe(COPIES.length);
+  });
+
+  it('MCP query_commits (cross-report) returns the same copy as the timelines, whole', async () => {
+    const out = await queryCommits({});
+    const bySha = Object.fromEntries(out.commits.map((c: any) => [c.commit_sha, c]));
+    expect(out.count).toBe(3);
+    expect(bySha.aaa).toMatchObject({ complexity: 4, type: 'feature' });  // not MIN() across copies
+    expect(bySha.bbb).toMatchObject({ complexity: 5, type: 'feature' });  // latest, not lowest (2)
+    expect((await queryCommits({ type: 'bug' })).count).toBe(0);          // filters see the chosen copy
   });
 });

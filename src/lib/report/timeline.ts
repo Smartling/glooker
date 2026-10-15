@@ -156,27 +156,24 @@ export function anchorWeekFor(status: unknown, completedAt: unknown, createdAt: 
  * copy the committed_at sort happened to put first, which was arbitrary. Preferring an analysed
  * copy is deterministic and never worse. Counts and line totals are the same on every copy.
  *
- * Takes `reportCount` `?` placeholders (report ids), preceded by one more for the login when
- * `byLogin` is set. Rows read here are never deleted: every report keeps all its own copies.
+ * "Latest" is MAX(id), i.e. insertion order. That holds because commit_analyses is write-once:
+ * the runner only ever `INSERT IGNORE`s (report-runner.ts) and nothing UPDATEs complexity/type in
+ * place. One edge: a resumed older report inserts its remaining rows late, so they count as latest
+ * — they are still a real analysis of that commit. If in-place re-analysis is ever added, order by
+ * the owning report's created_at here instead.
+ *
+ * `reports` is either a count of `?` report-id placeholders or a subquery yielding report ids
+ * (whose own placeholders the caller supplies). With `byLogin`, one `?` for the login comes first.
+ * Rows read here are never deleted: every report keeps all its own copies.
  */
-export function canonicalCommitIdsSql(reportCount: number, byLogin = false): string {
-  const placeholders = Array.from({ length: reportCount }, () => '?').join(',');
+export function canonicalCommitIdsSql(reports: number | { subquery: string }, byLogin = false): string {
+  const scope = typeof reports === 'number'
+    ? Array.from({ length: reports }, () => '?').join(',')
+    : reports.subquery;
   return `SELECT COALESCE(MAX(CASE WHEN complexity IS NOT NULL THEN id END), MAX(id)) AS id
           FROM commit_analyses
-          WHERE ${byLogin ? 'github_login = ? AND ' : ''}report_id IN (${placeholders})
+          WHERE ${byLogin ? 'github_login = ? AND ' : ''}report_id IN (${scope})
           GROUP BY commit_sha`;
-}
-
-export function dedupCommitsBySha(rows: any[]): any[] {
-  const seen = new Set<string>();
-  const result: any[] = [];
-  for (const row of rows) {
-    if (!seen.has(row.commit_sha)) {
-      seen.add(row.commit_sha);
-      result.push(row);
-    }
-  }
-  return result;
 }
 
 export function aggregateWeekly(commits: any[]): WeeklyBucket[] {

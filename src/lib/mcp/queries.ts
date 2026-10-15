@@ -1,6 +1,7 @@
 import db from '@/lib/db';
 import { resolveReportId } from './resolve';
 import { bucketByPeriod } from './dedup';
+import { canonicalCommitIdsSql } from '@/lib/report/timeline';
 import { buildCostVisibility, stripDevCost, gateModelRowsByLogin, type Requester, type CostVisibility } from '@/lib/cost-visibility';
 
 export const MAX_ROWS = 500;
@@ -121,9 +122,8 @@ export async function queryCommits(args: {
   const conditions: string[] = [];
   const params: any[] = [];
   if (crossReport) {
-    const org = await reportOrg(r.id);
-    conditions.push(`ca.report_id IN (SELECT id FROM reports WHERE org = ? AND status = 'completed')`);
-    params.push(org);
+    // The org scope lives in the canonical-copy subquery below; its `?` comes first.
+    params.push(await reportOrg(r.id));
   } else {
     conditions.push('ca.report_id = ?');
     params.push(r.id);
@@ -136,26 +136,26 @@ export async function queryCommits(args: {
   if (args.min_complexity != null) { conditions.push('ca.complexity >= ?'); params.push(args.min_complexity); }
   if (args.ai_only) { conditions.push('(ca.ai_co_authored = 1 OR ca.maybe_ai = 1)'); }
   params.push(clampLimit(args.limit, 100));
-  const where = conditions.join(' AND ');
+  const where = conditions.length ? conditions.join(' AND ') : '1 = 1';
 
-  // Cross-report: the same commit_sha appears in every overlapping report window.
-  // Dedup in SQL (GROUP BY the sha) so LIMIT bounds *distinct* commits — limiting
-  // raw rows and deduping afterward could silently return fewer than `limit`.
+  // Cross-report: the same commit_sha appears in every overlapping report window. Join ONE
+  // canonical copy per sha (canonicalCommitIdsSql — the same pick the org/dev timelines use) so
+  // LIMIT bounds *distinct* commits and every field comes from that one copy. The previous
+  // per-column MIN() mixed fields across copies and reported the LOWEST complexity, so MCP could
+  // disagree with the timelines. Filters apply to the canonical copy.
   // Report-scoped: commit_sha is unique per report, so a plain SELECT suffices.
-  const sql = crossReport
-    ? `SELECT ca.commit_sha,
-              MIN(ca.repo) AS repo, MIN(ca.github_login) AS github_login, MIN(ca.pr_number) AS pr_number,
-              MIN(ca.commit_message) AS commit_message, MIN(ca.type) AS type, MIN(ca.complexity) AS complexity,
-              MIN(ca.risk_level) AS risk_level, MIN(ca.lines_added) AS lines_added, MIN(ca.lines_removed) AS lines_removed,
-              MIN(ca.ai_co_authored) AS ai_co_authored, MIN(ca.maybe_ai) AS maybe_ai, MIN(ca.committed_at) AS committed_at
-       FROM commit_analyses ca
-       WHERE ${where}
-       GROUP BY ca.commit_sha
-       ORDER BY committed_at DESC
-       LIMIT ?`
-    : `SELECT ca.commit_sha, ca.repo, ca.github_login, ca.pr_number, ca.commit_message,
+  const cols = `ca.commit_sha, ca.repo, ca.github_login, ca.pr_number, ca.commit_message,
               ca.type, ca.complexity, ca.risk_level, ca.lines_added, ca.lines_removed,
-              ca.ai_co_authored, ca.maybe_ai, ca.committed_at
+              ca.ai_co_authored, ca.maybe_ai, ca.committed_at`;
+  const sql = crossReport
+    ? `SELECT ${cols}
+       FROM commit_analyses ca
+       JOIN (${canonicalCommitIdsSql({ subquery: `SELECT id FROM reports WHERE org = ? AND status = 'completed'` })}) one
+         ON one.id = ca.id
+       WHERE ${where}
+       ORDER BY ca.committed_at DESC
+       LIMIT ?`
+    : `SELECT ${cols}
        FROM commit_analyses ca
        WHERE ${where}
        ORDER BY ca.committed_at DESC
