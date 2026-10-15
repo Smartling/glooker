@@ -205,6 +205,17 @@ export function validateEnv(): void {
     );
   }
 
+  // Multi-org deployment without user-to-org authorization: authenticated users
+  // can read any hosted org's data by changing the `org` parameter.
+  const allowedOrgs = (process.env.ALLOWED_ORGS ?? '').split(',').map(o => o.trim()).filter(Boolean);
+  if (allowedOrgs.length > 1 && !process.env.AUTH_USER_ORG_CLAIM?.trim()) {
+    warnings.push(
+      '  - AUTH_USER_ORG_CLAIM: not set in a multi-org deployment (ALLOWED_ORGS has '
+      + `${allowedOrgs.length} orgs) — authenticated users can read any hosted org's data by `
+      + 'changing the org parameter. Set AUTH_USER_ORG_CLAIM to enforce user-to-org authorization',
+    );
+  }
+
   // Auth is enabled but no way to verify a token's signature is configured.
   // extractUser() denies every request in that state rather than trusting the
   // header, so this is a hard error: the app is up but nobody can sign in.
