@@ -15,7 +15,7 @@ import { StackedTypesChart } from '@/components/charts/stacked-types-chart';
 import { LinesChangedChart } from '@/components/charts/lines-changed-chart';
 import { CommitTypeDonut } from '@/components/charts/commit-type-donut';
 import { typeEntriesFrom } from '@/components/charts/commit-types';
-import { CHART_RANGES, CHART_RANGE_DAYS, CHART_RANGE_LABELS, weekTickFormatter, type ChartRange } from './chart-range';
+import { CHART_RANGES, CHART_RANGE_LABELS, chartRangeDays, weekTickFormatter, type ChartRange } from './chart-range';
 
 interface WeeklyData {
   week: string; commits: number; prs: number; avgLinesPerPr: number; linesAdded: number; linesRemoved: number;
@@ -94,7 +94,8 @@ export default function OrgDetailPage() {
 
   // One week domain per render, ending at this report's own week (Decision 15), shared by every
   // chart below so hover sync (syncId) lines up.
-  const weeks = weekDomainEndingAt(anchorWeek, CHART_RANGE_DAYS[range]);
+  // timeline is sorted by week, so its first row is where the org's data starts ("All time").
+  const weeks = weekDomainEndingAt(anchorWeek, chartRangeDays(range, anchorWeek, timeline[0]?.week));
 
   const hasJira = developers.some(d => (d.total_jira_issues ?? 0) > 0);
   // Spend tab exists only when there is real spend to show. `!= null` alone is
