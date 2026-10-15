@@ -92,7 +92,7 @@ export function buildLinesRows(data: LinesWeek[], weeks: string[], covered?: Rea
   });
 }
 
-export function LinesChangedChart({ data, weeks, coveredWeeks, syncId }: { data: LinesWeek[]; weeks: string[]; coveredWeeks?: string[]; syncId?: string }) {
+export function LinesChangedChart({ data, weeks, coveredWeeks, syncId, tickFormatter = formatWeek }: { data: LinesWeek[]; weeks: string[]; coveredWeeks?: string[]; syncId?: string; tickFormatter?: (week: string) => string }) {
   const hatch = useHatch(commitTypeColor('in_flight'));
   const rows = buildLinesRows(data, weeks, coveredWeeks ? new Set(coveredWeeks) : undefined);
   const hasAny = rows.some(r => r.added || r.inFlightAdded || r.removed || r.inFlightRemoved);
@@ -110,7 +110,7 @@ export function LinesChangedChart({ data, weeks, coveredWeeks, syncId }: { data:
           <BarChart data={rows} stackOffset="sign" syncId={syncId} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
             {hatch.defs}
             <CartesianGrid vertical={false} />
-            <XAxis dataKey="week" tickLine={false} axisLine={false} minTickGap={24} tickFormatter={formatWeek} />
+            <XAxis dataKey="week" tickLine={false} axisLine={false} minTickGap={24} tickFormatter={tickFormatter} />
             <YAxis tickLine={false} axisLine={false} width={44} tickCount={5} tickFormatter={formatCompact} />
             <ChartTooltip content={<LinesTooltip />} />
             <ReferenceLine y={0} stroke="var(--chart-axis)" strokeWidth={1} ifOverflow="extendDomain" />
