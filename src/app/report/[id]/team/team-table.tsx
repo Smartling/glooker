@@ -64,8 +64,11 @@ export default function TeamTable({ developers, teams, reportId }: TeamTableProp
       if (av == null && bv == null) return a.name.localeCompare(b.name);
       if (av == null) return 1;
       if (bv == null) return -1;
-      if (av === bv) return a.name.localeCompare(b.name);
-      return (av - bv) * sign;
+      if (av !== bv) return (av - bv) * sign;
+      // Tie on the sort column: factor 2 is impact (A) (mean per active dev, so team size is
+      // already accounted for), then the team name.
+      if (a.impact_avg !== b.impact_avg) return (a.impact_avg - b.impact_avg) * sign;
+      return a.name.localeCompare(b.name);
     });
   }, [rows, effectiveSortKey, sortDir]);
 
