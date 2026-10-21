@@ -10,6 +10,7 @@ import { TimelineChart } from '@/components/charts/timeline-chart';
 import { toNum, weekDomainEndingAt } from '@/components/charts/chart-format';
 import { commitTypeBadge, commitTypeBg, typeEntriesFrom } from '@/components/charts/commit-types';
 import SafeMarkdown from '@/components/SafeMarkdown';
+import { rankOfValue } from '@/lib/ranking';
 
 interface DevStats {
   github_login: string; github_name: string; avatar_url: string;
@@ -145,7 +146,7 @@ export default function DevDetailPage() {
   if (isLoading) return <div className="max-w-6xl mx-auto px-4 py-16 text-gray-500">Loading...</div>;
   if (devError || !dev || !report) return <div className="max-w-6xl mx-auto px-4 py-16 text-red-400">Error: {devError?.message || 'Not found'}</div>;
 
-  const rank = allDevs.findIndex(d => d.github_login === dev.github_login) + 1;
+  const rank = rankOfValue(allDevs.map(d => d.impact_score), dev.impact_score);
 
   // Percentile data
   const hasJiraData = allDevs.some(d => (d.total_jira_issues ?? 0) > 0);

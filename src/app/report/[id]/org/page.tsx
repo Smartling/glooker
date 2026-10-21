@@ -16,6 +16,7 @@ import { LinesChangedChart } from '@/components/charts/lines-changed-chart';
 import { CommitTypeDonut } from '@/components/charts/commit-type-donut';
 import { typeEntriesFrom } from '@/components/charts/commit-types';
 import { CHART_RANGES, CHART_RANGE_LABELS, chartRangeDays, chartTicks, weekTickFormatter, type ChartRange } from './chart-range';
+import { competitionRanks } from '@/lib/ranking';
 
 interface WeeklyData {
   week: string; commits: number; prs: number; avgLinesPerPr: number; linesAdded: number; linesRemoved: number;
@@ -72,6 +73,7 @@ export default function OrgDetailPage() {
   if (fetchError || !report) return <div className="max-w-7xl mx-auto px-4 py-16 text-red-400">Error: {fetchError?.message || 'Not found'}</div>;
 
   // Org-level aggregates
+  const ranks = competitionRanks(developers, d => d.impact_score);
   const totalCommits = developers.reduce((s, d) => s + d.total_commits, 0);
   const totalPRs = developers.reduce((s, d) => s + d.total_prs, 0);
   const totalLinesAdded = developers.reduce((s, d) => s + d.lines_added, 0);
@@ -332,6 +334,7 @@ export default function OrgDetailPage() {
           </thead>
           <tbody>
             {developers.map((dev, i) => {
+              const place = ranks[i];
               const complexity = Number(dev.avg_complexity) || 0;
               const complexColor = complexity >= 7 ? 'text-red-400' : complexity >= 4 ? 'text-yellow-400' : 'text-green-400';
               const impact = Number(dev.impact_score) || 0;
@@ -346,7 +349,7 @@ export default function OrgDetailPage() {
                 >
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
-                      <span className="text-gray-600 text-xs w-5 shrink-0 text-right">{i + 1}</span>
+                      <span className="text-gray-600 text-xs w-5 shrink-0 text-right">{place}</span>
                       {dev.avatar_url && (
                         <img src={dev.avatar_url} alt="" className="w-7 h-7 rounded-full shrink-0" />
                       )}

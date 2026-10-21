@@ -16,6 +16,7 @@ import type { TeamProject } from '@/lib/team-pulse/types';
 import type { RunMetadata } from '@/lib/report-runner/types';
 import SafeMarkdown from '@/components/SafeMarkdown';
 import { toCsv } from '@/lib/csv';
+import { competitionRanks } from '@/lib/ranking';
 
 interface Report {
   id:           string;
@@ -97,8 +98,9 @@ export default function TeamSummaryPage() {
 
   function exportCsv(devs: Developer[], report: Report) {
     const headers = ['Rank','Developer','Login','PRs','Commits','Lines Added','Lines Removed','Avg Complexity','PR%','AI%','Impact Score','Types','Active Repos'];
+    const ranks = competitionRanks(devs, d => d.impact_score);
     const rows = devs.map((d, i) => [
-      i + 1,
+      ranks[i],
       d.github_name || d.github_login,
       d.github_login,
       d.total_prs,
@@ -125,8 +127,9 @@ export default function TeamSummaryPage() {
 
   function exportGoogleSheet(devs: Developer[], report: Report) {
     const headers = ['Rank','Developer','Login','PRs','Commits','Lines Added','Lines Removed','Avg Complexity','PR%','AI%','Impact Score','Types','Active Repos'];
+    const ranks = competitionRanks(devs, d => d.impact_score);
     const rows = devs.map((d, i) => [
-      i + 1,
+      ranks[i],
       d.github_name || d.github_login,
       d.github_login,
       d.total_prs,

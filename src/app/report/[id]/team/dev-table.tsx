@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { createPortal } from 'react-dom';
 import { useUrlState } from '@/lib/url-state';
 import { commitTypeBadge, typeEntriesFrom } from '@/components/charts/commit-types';
+import { competitionRanks } from '@/lib/ranking';
 
 export interface Developer {
   github_login:       string;
@@ -77,7 +78,8 @@ export default function DevTable({ developers, reportId, org, filterLogins }: De
   // Build impact rank from server-sorted full list (impact order)
   const absoluteRanks = useMemo(() => {
     const map = new Map<string, number>();
-    developers.forEach((d, idx) => map.set(d.github_login, idx + 1));
+    const ranks = competitionRanks(developers, d => d.impact_score);
+    developers.forEach((d, idx) => map.set(d.github_login, ranks[idx]));
     return map;
   }, [developers]);
 
@@ -100,6 +102,19 @@ export default function DevTable({ developers, reportId, org, filterLogins }: De
       return (av - bv) * sign;
     });
   }, [filteredDevs, effectiveSortKey, sortDir]);
+
+  // Place in the active sort: equal values share a place. Name sort has no ranking
+  // meaning, so it keeps plain positions.
+  const sortedRanks = useMemo(
+    () => effectiveSortKey === 'name'
+      ? sortedDevs.map((_, i) => i + 1)
+      : competitionRanks(sortedDevs, d => {
+          const v = d[effectiveSortKey as keyof Developer];
+          // A stripped (hidden) cost is not $0: it must not share a place with anyone.
+          return effectiveSortKey === 'cc_total_cost' && v == null ? NaN : v;
+        }),
+    [sortedDevs, effectiveSortKey],
+  );
 
   const onSort = (key: DevSortKey) => {
     if (sortKey === key) {
@@ -195,9 +210,9 @@ export default function DevTable({ developers, reportId, org, filterLogins }: De
                   <span
                     className="text-gray-600 text-xs shrink-0 text-right tabular-nums"
                     style={{ minWidth: showAbsolute ? '3rem' : '1.25rem' }}
-                    title={showAbsolute ? `#${i + 1} in current sort (impact rank: #${absoluteRanks.get(dev.github_login)})` : undefined}
+                    title={showAbsolute ? `#${sortedRanks[i]} in current sort (impact rank: #${absoluteRanks.get(dev.github_login)})` : undefined}
                   >
-                    {i + 1}
+                    {sortedRanks[i]}
                     {showAbsolute && absoluteRanks.has(dev.github_login) && (
                       <span className="text-gray-700 ml-0.5">({absoluteRanks.get(dev.github_login)})</span>
                     )}
