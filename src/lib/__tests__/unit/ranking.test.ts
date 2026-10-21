@@ -18,6 +18,16 @@ describe('competitionRanks', () => {
   });
 });
 
+describe('competitionRanks with a tuple key', () => {
+  it('ties only when every part is equal', () => {
+    const items = [[5, 3], [5, 3], [5, 2], [4, 9]];
+    expect(competitionRanks(items, k => k)).toEqual([1, 1, 3, 4]);
+  });
+  it('never ties NaN keys', () => {
+    expect(competitionRanks([NaN, NaN, 1], v => v)).toEqual([1, 2, 3]);
+  });
+});
+
 describe('rankOfValue', () => {
   it('is 1 + the count of strictly higher values', () => {
     expect(rankOfValue([9, 9, 9, 7], 9)).toBe(1);

@@ -3,6 +3,7 @@
 import { useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUrlState } from '@/lib/url-state';
+import { competitionRanks } from '@/lib/ranking';
 import { aggregateTeams, type AggregatorDeveloper, type AggregatorTeam, type TeamRow } from '@/lib/teams/team-aggregator';
 
 interface TeamTableProps {
@@ -64,10 +65,25 @@ export default function TeamTable({ developers, teams, reportId }: TeamTableProp
       if (av == null && bv == null) return a.name.localeCompare(b.name);
       if (av == null) return 1;
       if (bv == null) return -1;
-      if (av === bv) return a.name.localeCompare(b.name);
-      return (av - bv) * sign;
+      if (av !== bv) return (av - bv) * sign;
+      // Tie on the sort column: factor 2 is impact (A) (mean per active dev, so team size is
+      // already accounted for), then the team name.
+      if (a.impact_avg !== b.impact_avg) return (a.impact_avg - b.impact_avg) * sign;
+      return a.name.localeCompare(b.name);
     });
   }, [rows, effectiveSortKey, sortDir]);
+
+  // Place = (sort column, impact (A)); equal on both -> shared place. Name sort has no ranking meaning.
+  const ranks = useMemo(
+    () => effectiveSortKey === 'name'
+      ? sortedRows.map((_, i) => i + 1)
+      : competitionRanks(sortedRows, r => {
+          const v = r[effectiveSortKey] as number | null;
+          // A hidden value (null) must not tie with anything, including a real 0.
+          return [v == null ? NaN : v, r.impact_avg];
+        }),
+    [sortedRows, effectiveSortKey],
+  );
 
   const onSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -124,13 +140,14 @@ export default function TeamTable({ developers, teams, reportId }: TeamTableProp
           </tr>
         </thead>
         <tbody>
-          {sortedRows.map(row => (
+          {sortedRows.map((row, i) => (
             <tr
               key={row.team_id}
               onClick={() => onRowClick(row)}
               className={`border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors cursor-pointer ${row.active_count === 0 ? 'opacity-50' : ''}`}
             >
               <td className="px-4 py-3 font-medium text-white">
+                <span className="inline-block w-5 mr-1 text-right text-xs text-gray-600 font-normal tabular-nums align-middle">{ranks[i]}</span>
                 <span className="inline-block w-2 h-2 rounded-full mr-2 align-middle" style={{ background: row.color }} />
                 {row.name}
               </td>

@@ -6,11 +6,22 @@
  * `items` must already be ordered best-first. Values are compared with Number(),
  * since DECIMAL columns may come back as strings.
  */
-export function competitionRanks<T>(items: readonly T[], getValue: (item: T) => unknown): number[] {
+export function competitionRanks<T>(
+  items: readonly T[],
+  getValue: (item: T) => unknown | readonly unknown[],
+): number[] {
+  // A key may be a tuple (primary, secondary, ...): items tie only when every part is equal.
+  const keyOf = (item: T): number[] => {
+    const k = getValue(item);
+    return (Array.isArray(k) ? k : [k]).map(x => Number(x ?? 0));
+  };
   const ranks: number[] = [];
+  let prev: number[] | null = null;
   items.forEach((item, i) => {
-    const v = Number(getValue(item) ?? 0);
-    ranks.push(i > 0 && v === Number(getValue(items[i - 1]) ?? 0) ? ranks[i - 1] : i + 1);
+    const key = keyOf(item);
+    const tied = prev !== null && key.length === prev.length && key.every((v, j) => v === prev![j]);
+    ranks.push(tied ? ranks[i - 1] : i + 1);
+    prev = key;
   });
   return ranks;
 }
