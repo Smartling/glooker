@@ -317,7 +317,7 @@ describe('teamRowsOverflow', () => {
     expect(teamRowsOverflow(fitWith + 1, true, bodyH)).toBe(true);
   });
 
-  it('a body sized for ten teams never scrolls for ten, and does for eleven only with the footnote', () => {
+  it('a body sized for ten teams never scrolls for ten, with or without the footnote; eleven scrolls', () => {
     expect(teamRowsOverflow(10, false, bodyH)).toBe(false);
     expect(teamRowsOverflow(10, true, bodyH)).toBe(false);
     expect(teamRowsOverflow(11, false, bodyH)).toBe(true);

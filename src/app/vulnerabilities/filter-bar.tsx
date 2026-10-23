@@ -100,83 +100,83 @@ export default function FilterBar({ url, teams, codebaseCounts, alertsCount, bas
       {/* The lower rule is this row's own border (the lighter one), not a shadow on the bar, so it ends at the cards' edges like the tab rule. */}
       <div className="box-border flex flex-none flex-col border-b border-gray-800" style={{ height: FILTER_ROW_H, paddingBottom: FILTER_PAD_BOTTOM }}>
         <div className="flex items-end" style={{ height: FILTER_CONTROLS_H, gap: FILTER_ROW_GAP }}>
-        <Field id="security-codebase" label="Codebase">
-          <select
-            id="security-codebase"
-            ref={codebaseRef}
-            value={url.codebase}
-            title={codebaseLabel(url.codebase)}
-            onChange={e => url.setCodebase(e.target.value as (typeof CODEBASE_GROUPS)[number])}
-            className={selectClass(!url.isDefault.codebase)}
-            style={selectStyle(SELECT_W.codebase)}
-          >
-            {CODEBASE_GROUPS.map(g => <option key={g} value={g}>{codebaseLabel(g)}</option>)}
-          </select>
-        </Field>
+          <Field id="security-codebase" label="Codebase">
+            <select
+              id="security-codebase"
+              ref={codebaseRef}
+              value={url.codebase}
+              title={codebaseLabel(url.codebase)}
+              onChange={e => url.setCodebase(e.target.value as (typeof CODEBASE_GROUPS)[number])}
+              className={selectClass(!url.isDefault.codebase)}
+              style={selectStyle(SELECT_W.codebase)}
+            >
+              {CODEBASE_GROUPS.map(g => <option key={g} value={g}>{codebaseLabel(g)}</option>)}
+            </select>
+          </Field>
 
-        <Field id="security-team" label="Owning team">
-          <select
-            id="security-team"
-            ref={teamRef}
-            value={url.team ?? ''}
-            title={url.team ?? 'All owning teams'}
-            onChange={e => url.setTeam(e.target.value || null)}
-            className={selectClass(!url.isDefault.team)}
-            style={selectStyle(SELECT_W.team)}
-          >
-            <option value="">All owning teams</option>
-            {/* A team from the URL that the summary has not listed (yet) still has an option, so the select shows it. */}
-            {url.team && !teams.includes(url.team) && <option value={url.team}>{url.team}</option>}
-            {teams.map(t => <option key={t} value={t}>{t}</option>)}
-          </select>
-        </Field>
+          <Field id="security-team" label="Owning team">
+            <select
+              id="security-team"
+              ref={teamRef}
+              value={url.team ?? ''}
+              title={url.team ?? 'All owning teams'}
+              onChange={e => url.setTeam(e.target.value || null)}
+              className={selectClass(!url.isDefault.team)}
+              style={selectStyle(SELECT_W.team)}
+            >
+              <option value="">All owning teams</option>
+              {/* A team from the URL that the summary has not listed (yet) still has an option, so the select shows it. */}
+              {url.team && !teams.includes(url.team) && <option value={url.team}>{url.team}</option>}
+              {teams.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </Field>
 
-        <Field id="security-severity" label="Severity">
-          <select
-            id="security-severity"
-            ref={severityRef}
-            value={url.severity}
-            title={severityLabel}
-            onChange={e => url.setSeverity(e.target.value as SeverityFilter)}
-            className={selectClass(!url.isDefault.severity)}
-            style={selectStyle(SELECT_W.severity)}
-          >
-            {SEVERITY_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
-        </Field>
+          <Field id="security-severity" label="Severity">
+            <select
+              id="security-severity"
+              ref={severityRef}
+              value={url.severity}
+              title={severityLabel}
+              onChange={e => url.setSeverity(e.target.value as SeverityFilter)}
+              className={selectClass(!url.isDefault.severity)}
+              style={selectStyle(SELECT_W.severity)}
+            >
+              {SEVERITY_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </Field>
 
-        <Field id="security-compare" label="Compare to">
-          <select
-            id="security-compare"
-            ref={compareRef}
-            value={compareValue}
-            title={compareLabel}
-            onChange={e => {
-              const v = e.target.value;
-              // "A date…" must write a concrete date now: the select's value is derived from the URL.
-              url.setBaseline(v === 'date' ? baselinePrefill : v);
-            }}
-            className={selectClass(!url.isDefault.baseline)}
-            style={selectStyle(SELECT_W.baseline)}
-          >
-            {COMPARE_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
-        </Field>
+          <Field id="security-compare" label="Compare to">
+            <select
+              id="security-compare"
+              ref={compareRef}
+              value={compareValue}
+              title={compareLabel}
+              onChange={e => {
+                const v = e.target.value;
+                // "A date…" must write a concrete date now: the select's value is derived from the URL.
+                url.setBaseline(v === 'date' ? baselinePrefill : v);
+              }}
+              className={selectClass(!url.isDefault.baseline)}
+              style={selectStyle(SELECT_W.baseline)}
+            >
+              {COMPARE_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </Field>
 
-        {/* Reserved slot: the input is always rendered, hidden unless the baseline is a date. It has no caption of its own. */}
-        <div data-testid="date-slot" className="shrink-0" style={{ width: SELECT_W.date, height: FILTER_SELECT_H }}>
-          <input
-            type="date"
-            aria-label="Compare to date"
-            value={isDate ? url.baseline : ''}
-            max={today}
-            disabled={!isDate}
-            tabIndex={isDate ? 0 : -1}
-            onChange={e => { if (e.target.value) url.setBaseline(e.target.value); }}
-            className={`${selectClass(isDate)} w-full ${isDate ? '' : 'invisible'}`}
-            style={{ height: FILTER_SELECT_H }}
-          />
-        </div>
+          {/* Reserved slot: the input is always rendered, hidden unless the baseline is a date. It has no caption of its own. */}
+          <div data-testid="date-slot" className="shrink-0" style={{ width: SELECT_W.date, height: FILTER_SELECT_H }}>
+            <input
+              type="date"
+              aria-label="Compare to date"
+              value={isDate ? url.baseline : ''}
+              max={today}
+              disabled={!isDate}
+              tabIndex={isDate ? 0 : -1}
+              onChange={e => { if (e.target.value) url.setBaseline(e.target.value); }}
+              className={`${selectClass(isDate)} w-full ${isDate ? '' : 'invisible'}`}
+              style={{ height: FILTER_SELECT_H }}
+            />
+          </div>
         </div>
 
         <div data-testid="chip-row" className="flex min-w-0 flex-nowrap items-center overflow-hidden" style={{ height: FILTER_CHIP_ROW_H, marginTop: FILTER_CHIP_ROW_GAP, gap: FILTER_ROW_GAP }}>

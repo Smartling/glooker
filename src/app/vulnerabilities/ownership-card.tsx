@@ -24,8 +24,8 @@ const TABS: Array<{ id: OwnTab; label: string }> = [
 
 export default function OwnershipCard(props: SecurityViewProps) {
   const { url, data, summary } = props;
-  const teamTotal = summary.knownTeams?.length ?? 0;
-  const bodyH = ownershipBodyH(teamTotal);
+  const orgTeamCount = summary.knownTeams?.length ?? 0;
+  const bodyH = ownershipBodyH(orgTeamCount);
   const [nameFilter, setNameFilter] = useState('');
 
   // Each tab's count (and the Owning teams hint) reads its own slot, never the team-scoped summary: with no data of its own
@@ -88,7 +88,7 @@ export default function OwnershipCard(props: SecurityViewProps) {
           </div>
         </div>
         <div
-          id="ownership-panel" role="region" aria-labelledby={`ownership-tab-${url.own}`} data-testid="ownership-card-body" data-team-count={teamTotal}
+          id="ownership-panel" role="region" aria-labelledby={`ownership-tab-${url.own}`} data-testid="ownership-card-body" data-team-count={orgTeamCount}
           className="mt-3 overflow-hidden" style={{ height: bodyH }}
         >
           {url.own === 'teams' ? <TeamTable {...props} /> : <RepoTable {...props} nameFilter={nameFilter} />}
