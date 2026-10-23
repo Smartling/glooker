@@ -74,7 +74,7 @@ export default function FilterBar({ url, teams, codebaseCounts, alertsCount, bas
   const chips: Array<{ key: string; label: string; remove: () => void; focus: () => void }> = [];
   if (!url.isDefault.codebase) chips.push({ key: 'codebase', label: `Codebase: ${CODEBASE_LABELS[url.codebase]}`, remove: () => url.setCodebase(CODEBASE_SCHEMA.default as (typeof CODEBASE_GROUPS)[number]), focus: () => codebaseRef.current?.focus() });
   if (!url.isDefault.team && url.team) chips.push({ key: 'team', label: `Team: ${url.team}`, remove: () => url.setTeam(null), focus: () => teamRef.current?.focus() });
-  if (!url.isDefault.repo && url.repo) chips.push({ key: 'repo', label: `Repo: ${url.repo}`, remove: () => url.setRepo(null), focus: () => codebaseRef.current?.focus() });
+  if (!url.isDefault.repo && url.repo) chips.push({ key: 'repo', label: `Repo: ${url.repo}`, remove: () => url.setRepo(null), focus: () => codebaseRef.current?.focus() }); // no repo select exists, so focus falls back to Codebase
   if (!url.isDefault.severity) chips.push({ key: 'severity', label: `Severity: ${url.severity === 'critical' ? 'Critical' : 'High'}`, remove: () => url.setSeverity('both'), focus: () => severityRef.current?.focus() });
   if (!url.isDefault.baseline) chips.push({ key: 'baseline', label: `Compare to: ${isDate ? url.baseline : COMPARE_CHIP[url.baseline] ?? url.baseline}`, remove: () => url.setBaseline('last'), focus: () => compareRef.current?.focus() });
 
@@ -192,7 +192,7 @@ export default function FilterBar({ url, teams, codebaseCounts, alertsCount, bas
               disabled={url.isDefault.all}
               tabIndex={url.isDefault.all ? -1 : 0}
               aria-hidden={url.isDefault.all ? true : undefined}
-              className={`text-xs text-gray-600 hover:text-gray-400 ${url.isDefault.all ? 'invisible' : ''}`}
+              className={`text-xs ${TYPE.link} ${url.isDefault.all ? 'invisible' : ''}`}
             >
               Clear all
             </button>
