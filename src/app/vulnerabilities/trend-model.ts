@@ -30,16 +30,20 @@ const allDates = (series: readonly TrendSeries[]): string[] =>
 
 /**
  * The x-axis span. "All" runs from the first point to today and never spans less than
- * TREND_MIN_SPAN_DAYS; the other ranges run from today minus 30, 90 or 365 days to today. A point
- * after today (a skewed clock) extends the end rather than falling off the plot.
+ * TREND_MIN_SPAN_DAYS; the other ranges run from today minus 30, 90 or 365 days to today, but never
+ * start before "All" does, so a range longer than the history fills the plot instead of squeezing
+ * the lines against the right edge. A point after today (a skewed clock) extends the end rather
+ * than falling off the plot.
  */
 export function trendDomain(range: TrendRange, series: readonly TrendSeries[], today: string): { start: string; end: string } {
   const dates = allDates(series);
   const last = dates[dates.length - 1];
   const end = last && last > today ? last : today;
-  if (range !== 'all') return { start: addDays(today, -RANGE_DAYS[range]), end };
   const floor = addDays(end, -TREND_MIN_SPAN_DAYS);
-  return { start: dates[0] && dates[0] < floor ? dates[0] : floor, end };
+  const allStart = dates[0] && dates[0] < floor ? dates[0] : floor;
+  if (range === 'all') return { start: allStart, end };
+  const windowStart = addDays(today, -RANGE_DAYS[range]);
+  return { start: windowStart > allStart ? windowStart : allStart, end };
 }
 
 /** Evenly spaced whole-day ticks across the domain, first and last included. */

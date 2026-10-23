@@ -277,8 +277,9 @@ describe('placement by date', () => {
     expect((dots[1] - x0) / (x4 - x0)).toBeCloseTo(6 / 7, 2);
   });
 
+  // The point 60 days back is outside the range: it is not drawn, and the history is long enough that the axis starts 30 days back.
   it('the other ranges run from today minus 30, 90 or 365 days', () => {
-    const s = [ovSeries('TeamA', [[ago(20), 1], [ago(10), 2]])];
+    const s = [ovSeries('TeamA', [[ago(60), 9], [ago(20), 1], [ago(10), 2]])];
     const { container } = render(<TrendCard {...props(s, { url: { range: '30d' } })} />);
     const [x0, x4] = edges(container);
     expect((dotXs(container)[0] - x0) / (x4 - x0)).toBeCloseTo(10 / 30, 2);

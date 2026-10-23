@@ -23,13 +23,20 @@ describe('trendDomain', () => {
     expect(trendDomain('all', [], TODAY)).toEqual({ start: floor, end: TODAY });
   });
 
-  // Revert: compute the start from the first point for the other ranges too.
-  it('the other ranges run from today minus 30, 90 or 365 days to today, whatever the data', () => {
-    const s = [ovSeries('A', [['2026-09-20', 1], ['2026-09-29', 2]])];
+  // Revert: start the other ranges at today minus N days whatever the data, which squeezes a short history against the right edge.
+  it('the other ranges run from today minus 30, 90 or 365 days to today when the history is longer', () => {
+    const s = [ovSeries('A', [['2025-01-01', 1], ['2026-09-29', 2]])];
     expect(trendDomain('30d', s, TODAY).start).toBe('2026-08-31');
     expect(trendDomain('90d', s, TODAY).start).toBe('2026-07-02');
     expect(trendDomain('1y', s, TODAY).start).toBe('2025-09-30');
     expect(trendDomain('30d', s, TODAY).end).toBe(TODAY);
+  });
+
+  it('a range longer than the history starts where All does', () => {
+    const s = [ovSeries('A', [['2026-09-01', 1], ['2026-09-29', 2]])];
+    expect(trendDomain('1y', s, TODAY)).toEqual(trendDomain('all', s, TODAY));
+    expect(trendDomain('90d', s, TODAY).start).toBe('2026-09-01');
+    expect(trendDomain('1y', [], TODAY)).toEqual(trendDomain('all', [], TODAY));
   });
 
   it('a point after today extends the end instead of falling off the plot', () => {
