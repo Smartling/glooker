@@ -53,11 +53,15 @@ export function trendTicks(start: string, end: string, count = 5): number[] {
 
 export interface TrendRow { t: number; date: string; values: Record<string, number> }
 
-/** One row per date that has a point in a drawn series, keyed by team (names may contain dots). */
-export function trendRows(drawn: readonly TrendSeries[]): TrendRow[] {
+/**
+ * One row per date that has a point in a drawn series, keyed by team (names may contain dots). With a domain, only the dates inside it
+ * (ends included): the y axis scales to the rows it is given, so points outside the range would keep the all-time scale.
+ */
+export function trendRows(drawn: readonly TrendSeries[], start?: string, end?: string): TrendRow[] {
   const byDate = new Map<string, TrendRow>();
   for (const s of drawn) {
     for (const p of s.points) {
+      if ((start && p.date < start) || (end && p.date > end)) continue;
       const row = byDate.get(p.date) ?? { t: dayNumber(p.date), date: p.date, values: {} };
       row.values[s.team] = toNum(p.open);
       byDate.set(p.date, row);

@@ -29,8 +29,8 @@ const SUBTITLE = 'One point per stored measurement';
 function Plot({ series, team, range, today }: { series: TrendSeries[]; team: string | null; range: TrendRange; today: string }) {
   const colors = assignTeamColors(series);
   const drawn = team ? series.filter(s => s.team === team) : series;
-  const rows = trendRows(drawn);
   const { start, end } = trendDomain(range, series, today);
+  const rows = trendRows(drawn, start, end);
   // The grey "other" lines go first, so the coloured top-12 lines are drawn over them.
   const ordered = [...drawn].sort((a, b) => Number(colors[b.team] === OTHER_TEAM_COLOR) - Number(colors[a.team] === OTHER_TEAM_COLOR));
   // Labels only: a colour here would make ChartStyle emit a --color-<team name> custom property per team.

@@ -87,6 +87,12 @@ describe('trendRows', () => {
   it('coerces a string count from the database', () => {
     expect(trendRows([{ team: 'A', points: [{ date: '2026-09-29', open: '4' as unknown as number }] }])[0].values.A).toBe(4);
   });
+
+  // Revert: pass every stored point to the chart, so a short range keeps the all-time y scale and lines run off the left edge.
+  it('keeps only the dates inside the given domain, ends included', () => {
+    const rows = trendRows([ovSeries('A', [['2026-01-01', 900], ['2026-09-01', 2], ['2026-09-29', 3], ['2026-10-30', 5]])], '2026-09-01', '2026-09-29');
+    expect(rows.map(r => r.date)).toEqual(['2026-09-01', '2026-09-29']);
+  });
 });
 
 describe('trendStatus', () => {
