@@ -1,10 +1,10 @@
 /** @jest-environment jsdom */
 // src/lib/__tests__/unit/vuln-ownership-card.test.tsx
-// The ownership card shell: tabs, the name filter and the fixed 330px body. The tables have their own
+// The ownership card shell: tabs, the name filter and the team-count-sized body. The tables have their own
 // files (vuln-team-table, vuln-repo-table).
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import OwnershipCard, { OWN_TAB_COUNT_MIN_W } from '@/app/vulnerabilities/ownership-card';
-import { OWNERSHIP_BODY_H } from '@/app/vulnerabilities/dimensions';
+import { ownershipBodyH } from '@/app/vulnerabilities/dimensions';
 import type { SecurityViewProps } from '@/app/vulnerabilities/view-props';
 import type { ReposData, SummaryData } from '@/app/vulnerabilities/api-types';
 import { cell, ovCell, ovProps, ovTeam, repoRow, reposFixture, REPO_ROWS, slot, summaryFixture } from '../support/security-fixtures';
@@ -31,8 +31,27 @@ describe('the body keeps its height in every state', () => {
   // Revert: apply the height only in the populated branch, or on the outer section.
   it.each(branches)('%s', (_name, props) => {
     render(<OwnershipCard {...props} />);
-    expect(body().style.height).toBe(`${OWNERSHIP_BODY_H}px`);
+    expect(body().style.height).toBe(`${ownershipBodyH(summaryFixture().knownTeams.length)}px`);
     expect(screen.getByTestId('ownership-card').style.height).toBe('');
+  });
+});
+
+describe('the body is sized from the org team count', () => {
+  const teams = Array.from({ length: 10 }, (_, i) => `T${i}`);
+  it('sizes the body from the org team count', () => {
+    render(<OwnershipCard {...ovProps({ summary: { knownTeams: teams } })} />);
+    expect(body().style.height).toBe(`${ownershipBodyH(10)}px`);
+    expect(body().getAttribute('data-team-count')).toBe('10');
+  });
+  it('keeps its height when a team filter narrows the rows', () => {
+    const { rerender } = render(<OwnershipCard {...ovProps({ summary: { knownTeams: teams } })} />);
+    const before = body().style.height;
+    rerender(<OwnershipCard {...ovProps({ summary: { knownTeams: teams }, url: { team: 'T3' } })} />);
+    expect(body().style.height).toBe(before);
+  });
+  it('uses the minimum before the summary lists any team', () => {
+    render(<OwnershipCard {...ovProps({ summary: { knownTeams: [] } })} />);
+    expect(body().style.height).toBe(`${ownershipBodyH(0)}px`);
   });
 });
 

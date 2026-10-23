@@ -1,12 +1,13 @@
 // src/lib/__tests__/unit/vuln-security-dimensions.test.ts
 import {
-  PAGE_MAX_W, PAGE_PAD, PAGE_GAP, KPI_ROW_H, OWNERSHIP_BODY_H, TEAM_ROW_H, ALERTS_STRIP_H, ALERTS_CARD_H,
+  PAGE_MAX_W, PAGE_PAD, PAGE_GAP, KPI_ROW_H, TEAM_ROW_H, ALERTS_STRIP_H, ALERTS_CARD_H,
   ALERT_ROW_H, ALERT_PAGE_SIZE, ALERT_LIST_H, RAIL_W, TREND_PLOT_H, SPARK_H, DRAWER_W, DRAWER_MAX_W,
   COVERAGE_LINE_MIN_H, SELECT_W, FILTER_ROW_GAP, BAR_ROW_H, FILTER_CAPTION_H, FILTER_CAPTION_GAP, FILTER_SELECT_H, FILTER_ROW_H,
   BAR_PAD_TOP, BAR_ROW_GAP, FILTER_CONTROLS_H, FILTER_PAD_BOTTOM, FILTER_RULE_H,
   COVERAGE_BADGE_SLOT_W, COVERAGE_EXCLUDED_SLOT_W, COVERAGE_TAGGING_SLOT_W, COVERAGE_RULE_PAD,
   KPI_PAD_Y, KPI_PAD_X, KPI_SINCE_ROW_H, KPI_NOTE_H, KPI_SLA_ROW_H, TREND_RANGE_W, TREND_FIGURES_W, TREND_LEGEND_MIN_W, TREND_FOOT_GAP,
   FILTER_BAR_H, RESET_SLOT_W, FILTER_ROW_W, Z, TYPE,
+  ownershipBodyH, OWNERSHIP_MIN_ROWS, OWNERSHIP_MAX_ROWS, TEAM_HEAD_H, TEAM_FOOTNOTE_H,
 } from '@/app/vulnerabilities/dimensions';
 
 it('matches the spec Dimensions table', () => {
@@ -14,8 +15,7 @@ it('matches the spec Dimensions table', () => {
   expect(PAGE_PAD).toEqual({ top: 32, x: 24, bottom: 40 });
   expect(PAGE_GAP).toBe(24);
   expect(KPI_ROW_H).toBe(178);
-  expect(OWNERSHIP_BODY_H).toBe(330);
-  expect(TEAM_ROW_H).toBe(50);
+  expect(TEAM_ROW_H).toBe(40);
   expect(ALERTS_STRIP_H).toBe(72);
   expect(ALERTS_CARD_H).toBe(776);
   expect(ALERT_ROW_H).toBe(56);
@@ -100,4 +100,21 @@ it('typography classes carry the spec sizes, weights, tracking and radii', () =>
   expect(TYPE.badge).toBe('rounded');                                  // 4px
   expect(TYPE.link.split(' ')).toContain('underline');                 // the non-colour cue for a link
   expect(TYPE.link.split(' ')).toContain('text-accent-light');
+});
+
+describe('ownershipBodyH', () => {
+  const chrome = TEAM_HEAD_H + TEAM_ROW_H /* Total */ + TEAM_FOOTNOTE_H;
+  it('uses 40px team rows', () => expect(TEAM_ROW_H).toBe(40));
+  it.each([
+    [0, OWNERSHIP_MIN_ROWS], [3, OWNERSHIP_MIN_ROWS], [5, 5], [10, 10], [12, 12], [30, OWNERSHIP_MAX_ROWS],
+  ])('%i teams -> %i visible rows', (teams, rows) => {
+    expect(ownershipBodyH(teams)).toBe(chrome + rows * TEAM_ROW_H);
+  });
+  it('10 teams fit with no scroll, even with the footnote', () => {
+    expect(10 * TEAM_ROW_H).toBeLessThanOrEqual(ownershipBodyH(10) - TEAM_HEAD_H - TEAM_ROW_H - TEAM_FOOTNOTE_H);
+  });
+  it('treats NaN/negative as the minimum', () => {
+    expect(ownershipBodyH(Number.NaN)).toBe(ownershipBodyH(0));
+    expect(ownershipBodyH(-4)).toBe(ownershipBodyH(0));
+  });
 });

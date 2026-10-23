@@ -138,7 +138,6 @@ const sizes: Array<[string, number, string]> = [
   ['KPI_SINCE_ROW_H', D.KPI_SINCE_ROW_H, 'KPI tile row'],
   ['KPI_NOTE_H', D.KPI_NOTE_H, 'KPI tile row'],
   ['KPI_SLA_ROW_H', D.KPI_SLA_ROW_H, 'KPI tile row'],
-  ['OWNERSHIP_BODY_H', D.OWNERSHIP_BODY_H, 'Ownership card body'],
   ['TEAM_ROW_H', D.TEAM_ROW_H, 'Ownership card body'],
   ['TEAM_HEAD_H', D.TEAM_HEAD_H, 'Ownership card body'],
   ['TEAM_FOOTNOTE_H', D.TEAM_FOOTNOTE_H, 'Ownership card body'],

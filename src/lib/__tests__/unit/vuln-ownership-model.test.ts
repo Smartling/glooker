@@ -4,7 +4,7 @@ import {
   buildRepoView, deltaOpenFor, hasCarriedFootnote, nextSort, noOpenText, orderTeamRows, repoDisplay, repoTotals, sevShown, shownRepoSort, shownTeamSort, sortGlyph, teamRowsOverflow, teamRowsRoom,
   REPO_SORT_FIRST, TEAM_SORT_FIRST, type RepoSortKey, type SortState, type TeamSortKey,
 } from '@/app/vulnerabilities/ownership-model';
-import { OWNERSHIP_BODY_H, TEAM_FOOTNOTE_H, TEAM_HEAD_H, TEAM_ROW_H } from '@/app/vulnerabilities/dimensions';
+import { ownershipBodyH, TEAM_FOOTNOTE_H, TEAM_HEAD_H, TEAM_ROW_H } from '@/app/vulnerabilities/dimensions';
 import { cell, ovCell, ovDelta, ovDeltaTeam, ovNoBaseline, ovTeam, repoRow } from '../support/security-fixtures';
 
 const names = (rows: Array<{ team: string }>) => rows.map(r => r.team);
@@ -295,30 +295,31 @@ describe('hasCarriedFootnote', () => {
 
 describe('teamRowsOverflow', () => {
   // The rows' room is the card body minus the pinned header and the pinned Total row (and the † footnote under it).
-  const room = OWNERSHIP_BODY_H - TEAM_HEAD_H - TEAM_ROW_H;
+  const bodyH = ownershipBodyH(10);
+  const room = bodyH - TEAM_HEAD_H - TEAM_ROW_H;
   const fit = Math.floor(room / TEAM_ROW_H);
 
   // Revert: count the footnote's height as zero, or forget the Total row's.
   it('is false while every row fits and true from the first row that does not', () => {
-    expect(teamRowsOverflow(0, false)).toBe(false);
-    expect(teamRowsOverflow(fit, false)).toBe(false);
-    expect(teamRowsOverflow(fit + 1, false)).toBe(true);
-    expect(teamRowsOverflow(14, false)).toBe(true);
+    expect(teamRowsOverflow(0, false, bodyH)).toBe(false);
+    expect(teamRowsOverflow(fit, false, bodyH)).toBe(false);
+    expect(teamRowsOverflow(fit + 1, false, bodyH)).toBe(true);
+    expect(teamRowsOverflow(fit + 4, false, bodyH)).toBe(true);
   });
 
   // Revert: stop subtracting TEAM_FOOTNOTE_H when there is a footnote. The row COUNT that fits can be the same with and
   // without it at today's constants, so the test pins the room in pixels.
   it('the † footnote under the Total row takes TEAM_FOOTNOTE_H of room from the rows', () => {
-    expect(teamRowsRoom(false)).toBe(room);
-    expect(teamRowsRoom(true)).toBe(room - TEAM_FOOTNOTE_H);
-    const fitWith = Math.floor(teamRowsRoom(true) / TEAM_ROW_H);
-    expect(teamRowsOverflow(fitWith, true)).toBe(false);
-    expect(teamRowsOverflow(fitWith + 1, true)).toBe(true);
+    expect(teamRowsRoom(false, bodyH)).toBe(room);
+    expect(teamRowsRoom(true, bodyH)).toBe(room - TEAM_FOOTNOTE_H);
+    const fitWith = Math.floor(teamRowsRoom(true, bodyH) / TEAM_ROW_H);
+    expect(teamRowsOverflow(fitWith, true, bodyH)).toBe(false);
+    expect(teamRowsOverflow(fitWith + 1, true, bodyH)).toBe(true);
   });
 
-  it('four teams fit the 330px body (the design\'s four-team organisation never scrolls)', () => {
-    expect(teamRowsOverflow(4, false)).toBe(false);
-    expect(teamRowsOverflow(4, true)).toBe(false);
-    expect(teamRowsOverflow(5, false)).toBe(true);
+  it('a body sized for ten teams never scrolls for ten, and does for eleven only with the footnote', () => {
+    expect(teamRowsOverflow(10, false, bodyH)).toBe(false);
+    expect(teamRowsOverflow(10, true, bodyH)).toBe(false);
+    expect(teamRowsOverflow(11, false, bodyH)).toBe(true);
   });
 });

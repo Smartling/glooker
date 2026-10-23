@@ -21,13 +21,27 @@ export const KPI_SINCE_ROW_H = 25;
 export const KPI_NOTE_H = 16;
 /** The SLA tile's rows: a ~33px pitch, as the mockup's. */
 export const KPI_SLA_ROW_H = 33;
-export const OWNERSHIP_BODY_H = 330;   // tables scroll inside it; header row and Total row stay pinned
-export const TEAM_ROW_H = 50;
+/** Team rows: 40px, so an org's teams (10 today) fit the card beside the trend without scrolling. */
+export const TEAM_ROW_H = 40;
+/** The ownership body shows between these many team rows; more scroll inside it, header and Total row pinned. */
+export const OWNERSHIP_MIN_ROWS = 5;
+export const OWNERSHIP_MAX_ROWS = 12;
 // The Owning teams table's pinned header (a band row over a column-header row) and the † footnote under its Total row.
 export const TEAM_BAND_H = 24;
 export const TEAM_COLHEAD_H = 32;
 export const TEAM_HEAD_H = TEAM_BAND_H + TEAM_COLHEAD_H;
 export const TEAM_FOOTNOTE_H = 20;
+/**
+ * The ownership card body's height, from the ORG's known-team count (summary.knownTeams.length), never the filtered row
+ * count, so a filter change never resizes the card. It settles once when the summary first loads (0 → real count); that
+ * is the one accepted size change (docs/vulnerabilities-page.md, "Layout stability"). Room for the pinned header, the
+ * visible rows, the pinned Total row and the † footnote line, whether or not the footnote shows.
+ */
+export function ownershipBodyH(teamCount: number): number {
+  const n = Number.isFinite(teamCount) ? teamCount : 0;
+  const rows = Math.min(Math.max(n, OWNERSHIP_MIN_ROWS), OWNERSHIP_MAX_ROWS);
+  return TEAM_HEAD_H + rows * TEAM_ROW_H + TEAM_ROW_H + TEAM_FOOTNOTE_H;
+}
 export const TREND_PLOT_H = 220;
 export const SPARK_H = 24;
 /** The trend card's Range select, so the figures block beside it never moves when the range changes ("Last 90 days" is its longest option). */

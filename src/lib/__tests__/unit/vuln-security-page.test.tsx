@@ -5,7 +5,7 @@ import { render, screen, fireEvent, waitFor, within, act } from '@testing-librar
 import { SWRConfig } from 'swr';
 import VulnerabilitiesContent from '@/app/vulnerabilities/vulnerabilities-content';
 import {
-  KPI_ROW_H, OWNERSHIP_BODY_H, TREND_PLOT_H, ALERTS_STRIP_H, ALERTS_CARD_H, ALERT_LIST_H, RAIL_W,
+  KPI_ROW_H, ownershipBodyH, TREND_PLOT_H, ALERTS_STRIP_H, ALERTS_CARD_H, ALERT_LIST_H, RAIL_W,
   PAGE_MAX_W, PAGE_PAD, PAGE_GAP, FILTER_BAR_H, Z,
 } from '@/app/vulnerabilities/dimensions';
 import { SwrFresh, fetchRouter, summaryFixture, coverageFixture, coverageRow, reposFixture, repoRow, cell, REPO_ROWS, syncInfo } from '../support/security-fixtures';
@@ -83,7 +83,7 @@ describe('views', () => {
     mount('');
     expect((await screen.findByTestId('kpi-tiles')).style.height).toBe(`${KPI_ROW_H}px`);
     // The body and the plot carry the fixed heights. The outer cards hold their own headers, so they set none.
-    expect(screen.getByTestId('ownership-card-body').style.height).toBe(`${OWNERSHIP_BODY_H}px`);
+    expect(screen.getByTestId('ownership-card-body').style.height).toBe(`${ownershipBodyH(summaryFixture().knownTeams.length)}px`);
     expect(screen.getByTestId('ownership-card').style.height).toBe('');
     expect(screen.getByTestId('trend-plot').style.height).toBe(`${TREND_PLOT_H}px`);
     expect(screen.getByTestId('trend-card').style.height).toBe('');
