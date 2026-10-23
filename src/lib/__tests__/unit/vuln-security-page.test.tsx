@@ -119,6 +119,7 @@ describe('views', () => {
     expect(plot.className).toContain('min-[1100px]:flex-1');
     expect(plot.className).toContain(`min-[1100px]:min-h-[${TREND_PLOT_COMPACT_MIN_H}px]`);
     const legend = screen.getByTestId('trend-legend');
+    expect(legend.className).toContain(`min-[1100px]:h-[${TREND_LEGEND_COMPACT_H}px]`);
     expect(legend.className).toContain(`min-[1100px]:max-h-[${TREND_LEGEND_COMPACT_H}px]`);
     expect(legend.className).toContain('min-[1100px]:overflow-y-auto');
   });

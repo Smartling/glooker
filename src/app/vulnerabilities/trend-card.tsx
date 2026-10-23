@@ -137,7 +137,7 @@ export default function TrendCard({ summary, data, url }: SecurityViewProps) {
         <div data-testid="trend-legend-rule" className="mt-3 border-t border-gray-800" aria-hidden="true" />
         <div
           data-testid="trend-legend"
-          className={`mt-1.5 grid min-h-[48px] content-start min-[1100px]:max-h-[112px] min-[1100px]:overflow-y-auto gap-x-4 gap-y-0 text-xs leading-4${stale ? ' opacity-60' : ''}`}
+          className={`mt-1.5 grid min-h-[48px] content-start min-[1100px]:h-[112px] min-[1100px]:max-h-[112px] min-[1100px]:overflow-y-auto gap-x-4 gap-y-0 text-xs leading-4${stale ? ' opacity-60' : ''}`}
           style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${TREND_LEGEND_MIN_W}px, 1fr))` }}
         >
           {legend.map((e, i) => (
