@@ -50,9 +50,9 @@ export default function OwnershipCard(props: SecurityViewProps) {
     : 'Click a repository to open its alerts';
 
   return (
-    <section aria-label="Ownership" data-testid="ownership-card" className="flex flex-col gap-3">
+    <section aria-label="Ownership" data-testid="ownership-card" className="flex h-full flex-col gap-3">
       <h2 className={`${TYPE.sectionLabel} text-gray-400`}>Open alerts by owner</h2>
-      <div className={`${TYPE.card} bg-gray-900 p-4`}>
+      <div className={`${TYPE.card} flex-1 bg-gray-900 p-4`}>
         <div className="flex h-9 items-center justify-between gap-3 border-b border-gray-800">
           {/* A pressed-button group, not role="tab": the page's own view tabs are the only tablist, and the
               composer's tabpanel is the only tabpanel. */}

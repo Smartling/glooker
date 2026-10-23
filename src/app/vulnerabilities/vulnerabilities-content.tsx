@@ -137,8 +137,12 @@ export default function VulnerabilitiesContent() {
         {url.view === 'overview' ? (
           <>
             <KpiTiles {...viewProps} />
-            <OwnershipCard {...viewProps} />
-            <TrendCard {...viewProps} />
+            {/* Below 1100px (OVERVIEW_STACK_BP) the cards stack; from 1100px they sit side by side, the same height: the ownership
+                card's body (sized to the org's teams) sets the row, and the trend card stretches to it. */}
+            <div data-testid="overview-grid" className="grid grid-cols-1 items-stretch min-[1100px]:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]" style={{ gap: PAGE_GAP }}>
+              <OwnershipCard {...viewProps} />
+              <TrendCard {...viewProps} />
+            </div>
           </>
         ) : (
           <>

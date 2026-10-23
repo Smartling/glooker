@@ -6,7 +6,8 @@ import { SWRConfig } from 'swr';
 import VulnerabilitiesContent from '@/app/vulnerabilities/vulnerabilities-content';
 import {
   KPI_ROW_H, ownershipBodyH, TREND_PLOT_H, ALERTS_STRIP_H, ALERTS_CARD_H, ALERT_LIST_H, RAIL_W,
-  PAGE_MAX_W, PAGE_PAD, PAGE_GAP, FILTER_BAR_H, Z,
+  PAGE_MAX_W, PAGE_PAD, PAGE_GAP, FILTER_BAR_H, Z, OVERVIEW_STACK_BP, OVERVIEW_GRID_COLS,
+  TREND_LEGEND_COMPACT_H, TREND_PLOT_COMPACT_MIN_H,
 } from '@/app/vulnerabilities/dimensions';
 import { SwrFresh, fetchRouter, summaryFixture, coverageFixture, coverageRow, reposFixture, repoRow, cell, REPO_ROWS, syncInfo } from '../support/security-fixtures';
 
@@ -89,6 +90,37 @@ describe('views', () => {
     expect(screen.getByTestId('trend-card').style.height).toBe('');
     expect(screen.queryByTestId('alerts-strip')).toBeNull();
     expect(screen.getByRole('tabpanel').style.gap).toBe(`${PAGE_GAP}px`);
+  });
+
+  it('puts the ownership and trend cards in one two-column grid, ownership first', async () => {
+    mount('');
+    const grid = await screen.findByTestId('overview-grid');
+    expect(OVERVIEW_STACK_BP).toBe(1100);
+    expect(grid.className).toContain(`min-[${OVERVIEW_STACK_BP}px]:grid-cols-[${OVERVIEW_GRID_COLS.replace(/ /g, '_').replace(/,_/g, ',')}]`);
+    expect(grid.className).toContain('min-[1100px]:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]');
+    expect(grid.className).toMatch(/\bgrid\b/);
+    expect(Array.from(grid.children).map(c => c.getAttribute('data-testid'))).toEqual(['ownership-card', 'trend-card']);
+    expect(grid.style.gap).toBe(`${PAGE_GAP}px`);
+  });
+
+  it('the KPI row stays outside the grid, full width', async () => {
+    mount('');
+    const kpi = await screen.findByTestId('kpi-tiles');
+    expect(screen.getByTestId('overview-grid').contains(kpi)).toBe(false);
+  });
+
+  it('the trend card switches to its compact parts at the breakpoint, the stacked layout unchanged', async () => {
+    mount('');
+    const plot = await screen.findByTestId('trend-plot');
+    expect(TREND_PLOT_COMPACT_MIN_H).toBe(160);
+    expect(TREND_LEGEND_COMPACT_H).toBe(112);
+    expect(plot.style.height).toBe(`${TREND_PLOT_H}px`);
+    expect(plot.className).toContain('min-[1100px]:!h-auto');
+    expect(plot.className).toContain('min-[1100px]:flex-1');
+    expect(plot.className).toContain(`min-[1100px]:min-h-[${TREND_PLOT_COMPACT_MIN_H}px]`);
+    const legend = screen.getByTestId('trend-legend');
+    expect(legend.className).toContain(`min-[1100px]:max-h-[${TREND_LEGEND_COMPACT_H}px]`);
+    expect(legend.className).toContain('min-[1100px]:overflow-y-auto');
   });
 
   it('Alerts shows the 72px strip above a 776px card holding the 260px rail and the 560px list area', async () => {

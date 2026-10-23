@@ -43,6 +43,14 @@ export function ownershipBodyH(teamCount: number): number {
   return TEAM_HEAD_H + rows * TEAM_ROW_H + TEAM_ROW_H + TEAM_FOOTNOTE_H;
 }
 export const TREND_PLOT_H = 220;
+/** The width at which the Overview's ownership and trend cards go side by side. Tailwind cannot read a constant, so the classes spell it
+ * (`min-[1100px]:`) and a test keeps the two equal. Below it the cards stack, the trend card at its full-width layout. */
+export const OVERVIEW_STACK_BP = 1100;
+/** Side by side, the two columns' template (ownership 3fr, trend 2fr), spelled in the grid's `min-[1100px]:grid-cols-[...]` class. */
+export const OVERVIEW_GRID_COLS = 'minmax(0, 3fr) minmax(0, 2fr)';
+/** Side by side, the trend legend is capped at seven lines and scrolls, and the plot (which fills the card's remaining height) keeps this minimum. */
+export const TREND_LEGEND_COMPACT_H = 7 * 16;
+export const TREND_PLOT_COMPACT_MIN_H = 160;
 export const SPARK_H = 24;
 /** The trend card's Range select, so the figures block beside it never moves when the range changes ("Last 90 days" is its longest option). */
 export const TREND_RANGE_W = 128;

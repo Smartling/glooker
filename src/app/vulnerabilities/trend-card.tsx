@@ -3,7 +3,9 @@
 // GLOOK-64: "Open {severity} alerts by owning team". One line per team, one dot per STORED
 // measurement, placed on a numeric time axis by the measurement's actual date. The series is the
 // unscoped trend (so colours and the legend never depend on the selected team); a selected team draws
-// only its own line and dims the other legend entries. The plot box is TREND_PLOT_H in every state.
+// only its own line and dims the other legend entries. The plot box is TREND_PLOT_H in every state. From OVERVIEW_STACK_BP (1100px) the card sits
+// beside the ownership card and its plot fills the remaining height instead (min TREND_PLOT_COMPACT_MIN_H, legend capped at TREND_LEGEND_COMPACT_H);
+// Tailwind cannot read those constants, so the classes spell 1100, 160 and 112 and a test keeps them equal.
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts';
 import type { TrendSeries } from '@/lib/vulnerabilities/aggregate';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/charts/chart';
@@ -79,10 +81,10 @@ export default function TrendCard({ summary, data, url }: SecurityViewProps) {
   const openNow = `${dash(summary.pivot.total[sev].open)} open now`;
 
   return (
-    <section aria-label="Trend" data-testid="trend-card" className="flex flex-col gap-3">
+    <section aria-label="Trend" data-testid="trend-card" className="flex h-full flex-col gap-3">
       <h2 className={`${TYPE.sectionLabel} text-gray-400`}>Trend</h2>
-      <div className={`${TYPE.card} bg-gray-900 p-4`}>
-        <div className="flex items-start justify-between gap-4">
+      <div className={`${TYPE.card} flex flex-col bg-gray-900 p-4 min-[1100px]:flex-1`}>
+        <div className="flex items-start justify-between gap-4 min-[1100px]:flex-col min-[1100px]:items-stretch">
           <div className="min-w-0">
             <h3 className="truncate text-sm font-semibold text-white" title={heading}>{heading}</h3>
             <p className="truncate text-xs text-gray-400" title={SUBTITLE}>{SUBTITLE}</p>
@@ -91,7 +93,7 @@ export default function TrendCard({ summary, data, url }: SecurityViewProps) {
               figures' block TREND_FIGURES_W, measured for the widest sentence that fits), so neither moves when the range or a figure changes. The block
               is sized to that widest sentence, not wider, so the gap between the select and a short sentence is as small as a fixed box allows. Each
               figure is one line (cut with "…", the full text in the title). */}
-          <div className="flex shrink-0 items-center gap-4">
+          <div className="flex shrink-0 items-center gap-4 min-[1100px]:justify-between">
             <select
               aria-label="Range" value={url.range} onChange={e => url.setRange(e.target.value as TrendRange)}
               className={`h-8 shrink-0 ${TYPE.control} border border-gray-700 bg-gray-800 px-2 text-xs text-gray-200`}
@@ -106,7 +108,7 @@ export default function TrendCard({ summary, data, url }: SecurityViewProps) {
           </div>
         </div>
 
-        <div data-testid="trend-plot" className={`relative mt-3${stale ? ' opacity-60' : ''}`} style={{ height: TREND_PLOT_H }}>
+        <div data-testid="trend-plot" className={`relative mt-3 min-[1100px]:!h-auto min-[1100px]:min-h-[160px] min-[1100px]:flex-1${stale ? ' opacity-60' : ''}`} style={{ height: TREND_PLOT_H }}>
           {view.kind === 'error' && <p className="flex h-full items-center justify-center text-xs text-red-400">{view.text}</p>}
           {view.kind === 'loading' && <p className="flex h-full items-center justify-center text-xs text-gray-500">Loading…</p>}
           {view.kind === 'unavailable' && <p data-testid="trend-unavailable" className="flex h-full items-center justify-center text-xs text-gray-500" title={view.title}>{view.text}</p>}
@@ -135,7 +137,7 @@ export default function TrendCard({ summary, data, url }: SecurityViewProps) {
         <div data-testid="trend-legend-rule" className="mt-3 border-t border-gray-800" aria-hidden="true" />
         <div
           data-testid="trend-legend"
-          className={`mt-1.5 grid min-h-[48px] content-start gap-x-4 gap-y-0 text-xs leading-4${stale ? ' opacity-60' : ''}`}
+          className={`mt-1.5 grid min-h-[48px] content-start min-[1100px]:max-h-[112px] min-[1100px]:overflow-y-auto gap-x-4 gap-y-0 text-xs leading-4${stale ? ' opacity-60' : ''}`}
           style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${TREND_LEGEND_MIN_W}px, 1fr))` }}
         >
           {legend.map((e, i) => (
