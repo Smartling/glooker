@@ -129,7 +129,6 @@ const sizes: Array<[string, number, string]> = [
   ['SELECT_W.severity', D.SELECT_W.severity, 'Bar selects'],
   ['SELECT_W.baseline', D.SELECT_W.baseline, 'Bar selects'],
   ['SELECT_W.date', D.SELECT_W.date, 'Bar selects'],
-  ['RESET_SLOT_W', D.RESET_SLOT_W, 'Bar reserved slots'],
   ['SELECT_W.date', D.SELECT_W.date, 'Bar reserved slots'],
   ['ALERTS_TAB_COUNT_W', D.ALERTS_TAB_COUNT_W, 'Bar reserved slots'],
   ['KPI_ROW_H', D.KPI_ROW_H, 'KPI tile row'],

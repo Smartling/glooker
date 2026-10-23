@@ -232,9 +232,9 @@ describe('filters write the URL without scrolling and without switching the view
     expect(p.get('team')).toBe('Payments');
   });
 
-  it('Reset filters clears the five filters and never changes the view', async () => {
+  it('Clear all clears the five filters and never changes the view', async () => {
     mount('view=alerts&codebase=frontend&team=Search&severity=high');
-    fireEvent.click(await screen.findByText('Reset filters'));
+    fireEvent.click(await screen.findByText('Clear all'));
     await waitFor(() => expect(nav().__calls.length).toBe(1));
     expect(Object.fromEntries(params(nav().__calls[0].url).entries())).toEqual({ view: 'alerts' });
   });

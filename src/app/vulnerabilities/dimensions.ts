@@ -109,12 +109,16 @@ export const FILTER_SELECT_H = 32;
 export const FILTER_CONTROLS_H = FILTER_CAPTION_H + FILTER_CAPTION_GAP + FILTER_SELECT_H; // 52
 export const FILTER_PAD_BOTTOM = 14;          // from the selects to the lower rule
 export const FILTER_RULE_H = 1;
-export const FILTER_ROW_H = FILTER_CONTROLS_H + FILTER_PAD_BOTTOM + FILTER_RULE_H; // 67
-export const FILTER_BAR_H = BAR_PAD_TOP + BAR_ROW_H + BAR_ROW_GAP + FILTER_ROW_H; // 127: padding + tabs row + gap + filters row
-export const RESET_SLOT_W = 116;
-/** The four selects, the date slot, the "Reset filters" slot at the row's right end, and the 5 gaps between them. */
+export const FILTER_CHIP_ROW_GAP = 8;         // from the selects to the chip row
+export const FILTER_CHIP_ROW_H = 28;          // one line of chips; always rendered (a nbsp when no filter is active)
+/** A chip's maximum width; a longer label is cut with "…" (the full text is in its title). */
+export const CHIP_MAX_W = 240;
+export const FILTER_ROW_H =
+  FILTER_CONTROLS_H + FILTER_CHIP_ROW_GAP + FILTER_CHIP_ROW_H + FILTER_PAD_BOTTOM + FILTER_RULE_H; // 103
+export const FILTER_BAR_H = BAR_PAD_TOP + BAR_ROW_H + BAR_ROW_GAP + FILTER_ROW_H; // 163: padding + tabs row + gap + filters row
+/** The four selects, the date slot, and the 4 gaps between them. */
 export const FILTER_ROW_W =
-  SELECT_W.codebase + SELECT_W.team + SELECT_W.severity + SELECT_W.baseline + SELECT_W.date + RESET_SLOT_W + 5 * FILTER_ROW_GAP;
+  SELECT_W.codebase + SELECT_W.team + SELECT_W.severity + SELECT_W.baseline + SELECT_W.date + 4 * FILTER_ROW_GAP;
 
 /** Layer order: tables' pinned rows < sticky bar < drawer. Apply as inline `zIndex`. */
 export const Z = { pinnedRows: 10, stickyBar: 20, drawer: 40 } as const;
