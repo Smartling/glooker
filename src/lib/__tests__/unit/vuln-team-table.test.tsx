@@ -67,7 +67,7 @@ describe('layout', () => {
     expect(templateOf()).toEqual(without);
   });
 
-  // Revert: size a track by content, change the 8px spacer, or take the Overdue column's track out.
+  // Revert: size a track by content, change the 8px spacer, take the Overdue column's track out, or give Resolved an equal track (it spills over Change).
   it.each([
     ['no Overdue column', { critical: 'none', high: 'none' }, 4, 4],
     ['critical Overdue only', { critical: 'active', high: 'none' }, 5, 4],
@@ -77,7 +77,8 @@ describe('layout', () => {
     const policy = (['critical', 'high'] as const).filter(s => status[s] === 'active')
       .map(severity => ({ id: `${severity}-1`, severity, days: 7, effectiveFrom: '2020-01-08', until: null, pending: false }));
     render(<TeamTable {...table({ slaStatus: status as SummaryData['slaStatus'], policy: policy as SummaryData['policy'] })} />);
-    const expected = `minmax(0, 1.5fr) repeat(${nC}, minmax(0, 1fr)) 8px repeat(${nH}, minmax(0, 1fr))`;
+    const group = (n: number) => ['1fr', '0.75fr', '1.5fr', '0.75fr', '0.75fr'].slice(0, n).map(fr => `minmax(0, ${fr})`).join(' ');
+    const expected = `minmax(0, 1.5fr) ${group(nC)} 8px ${group(nH)}`;
     for (const row of [rowOf('Payments'), screen.getByTestId('team-total-row')]) expect(row.style.gridTemplateColumns).toBe(expected);
   });
 
