@@ -23,7 +23,10 @@ const RANGE_DAYS: Record<Exclude<TrendRange, 'all'>, number> = { '30d': 30, '90d
 
 /**
  * Whether a range shows less than All time: false when the history (from its first measured day) fits inside the range, so the
- * Range select can grey it out instead of offering a choice that changes nothing. Unknown history (null) cuts nothing either.
+ * Range select can grey it out instead of offering a choice that changes nothing. Unknown history (null: no measurements
+ * yet) cuts nothing either, so every range but the current one is greyed out. historyStart is org-wide for the codebase and severity,
+ * never per team (the trend request is never team-scoped, see the trend card): with a team selected whose own history starts later,
+ * a range can stay enabled and draw the same chart as All time.
  */
 export function rangeCutsHistory(range: TrendRange, historyStart: string | null, today: string): boolean {
   if (range === 'all') return true;
@@ -44,12 +47,17 @@ const allDates = (series: readonly TrendSeries[]): string[] =>
  * the lines against the right edge. A point after today (a skewed clock) extends the end rather
  * than falling off the plot.
  */
-export function trendDomain(range: TrendRange, series: readonly TrendSeries[], today: string): { start: string; end: string } {
+export function trendDomain(
+  range: TrendRange, series: readonly TrendSeries[], today: string, historyStart?: string | null,
+): { start: string; end: string } {
   const dates = allDates(series);
   const last = dates[dates.length - 1];
   const end = last && last > today ? last : today;
   const floor = addDays(end, -TREND_MIN_SPAN_DAYS);
-  const allStart = dates[0] && dates[0] < floor ? dates[0] : floor;
+  // The server has already cut the series at `since`, so its first point is not where the history starts: with a gap at the start of
+  // the window it would start the axis late. The response's historyStart is; without it (tests, older responses) the first point stands in.
+  const first = historyStart ?? dates[0];
+  const allStart = first && first < floor ? first : floor;
   if (range === 'all') return { start: allStart, end };
   const windowStart = addDays(today, -RANGE_DAYS[range]);
   return { start: windowStart > allStart ? windowStart : allStart, end };

@@ -199,6 +199,7 @@ describe('filter chips', () => {
     expect(chips()).toEqual([]);
     const row = screen.getByTestId('chip-row');
     expect(row.style.height).toBe(`${FILTER_CHIP_ROW_H}px`);
+    expect(screen.getByRole('group', { name: 'Active filters' })).toBe(row);   // the × buttons are heard in context
     expect(screen.getByTestId('clear-all-slot').querySelector('button')!.className).toMatch(/invisible/);
   });
 

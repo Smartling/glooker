@@ -51,6 +51,13 @@ describe('trendDomain', () => {
     expect(trendDomain('1y', [], TODAY)).toEqual(trendDomain('all', [], TODAY));
   });
 
+  // Revert: start a range at the series' first point, which the server has already cut at `since`.
+  it('a range starts at its window when historyStart is earlier, even with a gap at the start of the window', () => {
+    const s = [ovSeries('A', [['2026-09-20', 1], ['2026-09-29', 2]])];   // cut at since; the history goes back much further
+    expect(trendDomain('90d', s, TODAY, '2026-03-01').start).toBe('2026-07-02');
+    expect(trendDomain('all', s, TODAY, '2026-03-01').start).toBe('2026-03-01');
+  });
+
   it('a point after today extends the end instead of falling off the plot', () => {
     expect(trendDomain('all', [ovSeries('A', [['2026-09-01', 1], ['2026-10-02', 2]])], TODAY).end).toBe('2026-10-02');
   });

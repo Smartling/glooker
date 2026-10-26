@@ -179,7 +179,7 @@ export default function FilterBar({ url, teams, codebaseCounts, alertsCount, bas
           </div>
         </div>
 
-        <div data-testid="chip-row" className="flex min-w-0 flex-nowrap items-center overflow-hidden" style={{ height: FILTER_CHIP_ROW_H, marginTop: FILTER_CHIP_ROW_GAP, gap: FILTER_ROW_GAP }}>
+        <div data-testid="chip-row" role="group" aria-label="Active filters" className="flex min-w-0 flex-nowrap items-center overflow-hidden" style={{ height: FILTER_CHIP_ROW_H, marginTop: FILTER_CHIP_ROW_GAP, gap: FILTER_ROW_GAP }}>
           {chips.length === 0 && <span aria-hidden="true">&nbsp;</span>}
           {chips.map(c => (
             <FilterChip key={c.key} label={c.label} maxWidth={CHIP_MAX_W} onRemove={() => { c.remove(); c.focus(); }} />

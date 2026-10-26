@@ -26,10 +26,10 @@ const FOOTNOTE = `Each dot is one stored measurement (an imported CSV run or a s
 const AXIS_TICK = { fontSize: 11 } as const;
 const SUBTITLE = 'One point per stored measurement';
 
-function Plot({ series, team, range, today }: { series: TrendSeries[]; team: string | null; range: TrendRange; today: string }) {
+function Plot({ series, team, range, today, historyStart }: { series: TrendSeries[]; team: string | null; range: TrendRange; today: string; historyStart: string | null }) {
   const colors = assignTeamColors(series);
   const drawn = team ? series.filter(s => s.team === team) : series;
-  const { start, end } = trendDomain(range, series, today);
+  const { start, end } = trendDomain(range, series, today, historyStart);
   const rows = trendRows(drawn, start, end);
   // The grey "other" lines go first, so the coloured top-12 lines are drawn over them.
   const ordered = [...drawn].sort((a, b) => Number(colors[b.team] === OTHER_TEAM_COLOR) - Number(colors[a.team] === OTHER_TEAM_COLOR));
@@ -129,7 +129,7 @@ export default function TrendCard({ summary, data, url }: SecurityViewProps) {
           )}
           {series && status && !status.message && (
             <>
-              <Plot series={series} team={url.team} range={url.range} today={today} />
+              <Plot series={series} team={url.team} range={url.range} today={today} historyStart={historyStart ?? null} />
               {status.note && <p data-testid="trend-note" className="pointer-events-none absolute left-9 top-0 text-[11px] text-gray-500">{status.note}</p>}
               {teamMissing && (
                 <p data-testid="trend-team-missing" className="pointer-events-none absolute inset-x-12 top-1/2 -translate-y-1/2 truncate text-center text-xs text-gray-400" title={teamMissing}>{teamMissing}</p>

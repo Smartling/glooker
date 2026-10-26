@@ -145,6 +145,12 @@ describe('header', () => {
     expect(opts()['90d']).toEqual([false, 'Last 90 days']);
   });
 
+  it('with no measurements (historyStart null) every range but the current one is greyed out', () => {
+    render(<TrendCard {...props([])} />);
+    const disabled = Array.from((screen.getByLabelText('Range') as HTMLSelectElement).options).map(o => [o.value, o.disabled]);
+    expect(disabled).toEqual([['all', false], ['1y', true], ['90d', true], ['30d', true]]);
+  });
+
   // Revert: write another URL key, or ignore the change.
   it('choosing a range calls url.setRange', () => {
     const p = props();
