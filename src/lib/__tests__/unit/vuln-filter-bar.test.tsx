@@ -3,7 +3,7 @@
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import FilterBar, { type FilterBarProps } from '@/app/vulnerabilities/filter-bar';
 import {
-  FILTER_BAR_H, SELECT_W, RESET_SLOT_W, BAR_ROW_H, FILTER_ROW_H, FILTER_SELECT_H, FILTER_ROW_GAP, FILTER_ROW_W, ALERTS_TAB_COUNT_W, Z,
+  FILTER_BAR_H, SELECT_W, CHIP_MAX_W, FILTER_CHIP_ROW_H, BAR_ROW_H, FILTER_ROW_H, FILTER_SELECT_H, FILTER_ROW_GAP, FILTER_ROW_W, ALERTS_TAB_COUNT_W, Z,
   BAR_PAD_TOP, BAR_ROW_GAP, FILTER_PAD_BOTTOM,
 } from '@/app/vulnerabilities/dimensions';
 
@@ -16,8 +16,8 @@ const COUNTS = {
 function props(over: Partial<FilterBarProps['url']> = {}, rest: Partial<FilterBarProps> = {}): FilterBarProps {
   return {
     url: {
-      view: 'overview', codebase: 'backend', team: null, severity: 'both', baseline: 'last', isDefault: DEFAULTS,
-      setView: jest.fn(), setCodebase: jest.fn(), setTeam: jest.fn(), setSeverity: jest.fn(), setBaseline: jest.fn(), resetFilters: jest.fn(),
+      view: 'overview', codebase: 'backend', team: null, repo: null, severity: 'both', baseline: 'last', isDefault: DEFAULTS,
+      setView: jest.fn(), setCodebase: jest.fn(), setTeam: jest.fn(), setRepo: jest.fn(), setSeverity: jest.fn(), setBaseline: jest.fn(), resetFilters: jest.fn(),
       ...over,
     },
     teams: ['Payments', 'Search', 'Unassigned'],
@@ -44,26 +44,26 @@ describe('layout stability', () => {
     expect(screen.getByLabelText('Owning team').getAttribute('title')).toBe('A very long owning team name that cannot fit in 170 pixels');
   });
 
-  it('the bar keeps the same height, the same slot classes and the same slot widths whether Reset and the date input are hidden or shown', () => {
+  it('the bar keeps the same height, the same slot classes and the same slot widths whether Clear all and the date input are hidden or shown', () => {
     const hidden = render(<FilterBar {...props()} />);
     const bar1 = screen.getByTestId('security-bar');
     const snap = () => ({
       barHeight: screen.getByTestId('security-bar').style.height,
       rowHeights: Array.from(screen.getByTestId('security-bar').children).map(c => (c as HTMLElement).style.height),
-      resetClass: screen.getByTestId('reset-slot').className,
-      resetWidth: (screen.getByTestId('reset-slot') as HTMLElement).style.width,
+      clearClass: screen.getByTestId('clear-all-slot').className,
+      chipRowHeight: (screen.getByTestId('chip-row') as HTMLElement).style.height,
       dateClass: screen.getByTestId('date-slot').className,
       dateWidth: (screen.getByTestId('date-slot') as HTMLElement).style.width,
       // Hidden, not removed: both controls exist in every state.
-      hasResetButton: !!screen.queryByText('Reset filters'),
+      hasClearButton: !!screen.queryByText('Clear all'),
       hasDateInput: !!screen.queryByLabelText('Compare to date'),
     });
     const before = snap();
     expect(before.barHeight).toBe(`${FILTER_BAR_H}px`);
     expect(before.rowHeights).toEqual([`${BAR_ROW_H}px`, `${FILTER_ROW_H}px`]);
-    expect(before.resetWidth).toBe(`${RESET_SLOT_W}px`);
+    expect(before.chipRowHeight).toBe(`${FILTER_CHIP_ROW_H}px`);
     expect(before.dateWidth).toBe(`${SELECT_W.date}px`);
-    expect([before.hasResetButton, before.hasDateInput]).toEqual([true, true]);
+    expect([before.hasClearButton, before.hasDateInput]).toEqual([true, true]);
     expect(bar1).toBeTruthy();
     hidden.unmount();
 
@@ -116,21 +116,20 @@ describe('layout stability', () => {
     expect([bar.style.marginLeft, bar.style.marginRight, bar.style.paddingLeft, bar.style.paddingRight]).toEqual(['-24px', '-24px', '24px', '24px']);
   });
 
-  // Revert: put the `flex-1` spacer back before the Reset slot: the row then has six gaps, and FILTER_ROW_W (five) understates it by 8px.
-  it('the filter row is exactly FILTER_ROW_W wide: its children plus the gaps between them, as rendered', () => {
+  // Revert: add a child with no fixed width (a spacer) to the selects row, or a gap the constant does not count.
+  it('the selects row is exactly FILTER_ROW_W wide: its children plus the gaps between them, as rendered', () => {
     render(<FilterBar {...props()} />);
-    const row = screen.getByTestId('security-bar').children[1] as HTMLElement;
+    const row = (screen.getByTestId('security-bar').children[1] as HTMLElement).children[0] as HTMLElement;
     const widthOf = (el: HTMLElement) => {
       const w = el.style.width || (el.querySelector('select') as HTMLElement | null)?.style.width;
       expect(w).toBeTruthy();   // a child with no fixed width (a spacer) would make the row's fit unknowable
       return parseInt(w as string, 10);
     };
     const kids = Array.from(row.children) as HTMLElement[];
-    expect(kids).toHaveLength(6);
+    expect(kids).toHaveLength(5);
     const total = kids.reduce((n, el) => n + widthOf(el), 0) + (kids.length - 1) * FILTER_ROW_GAP;
     expect(total).toBe(FILTER_ROW_W);
     expect(row.style.gap).toBe(`${FILTER_ROW_GAP}px`);
-    expect(screen.getByTestId('reset-slot').className).toContain('ml-auto');
   });
 
   it('is sticky at the top with the body background variable and a z-index between pinned rows and the drawer', () => {
@@ -181,51 +180,79 @@ describe('field captions', () => {
   });
 });
 
-describe('Reset filters', () => {
-  it('stays in the DOM but hidden (invisible, disabled, out of the tab order) when every filter is at its default', () => {
-    render(<FilterBar {...props()} />);
-    const btn = screen.getByText('Reset filters') as HTMLButtonElement;
-    expect(btn.className).toContain('invisible');
+function urlWith(over: Record<string, unknown> = {}): FilterBarProps['url'] {
+  const url = props().url;
+  const merged = { ...url, ...over } as FilterBarProps['url'];
+  const isDefault = {
+    codebase: merged.codebase === 'backend', team: merged.team === null, repo: merged.repo === null,
+    severity: merged.severity === 'both', baseline: merged.baseline === 'last', all: false,
+  };
+  isDefault.all = Object.values({ ...isDefault, all: true }).every(Boolean);
+  return { ...merged, isDefault };
+}
+const renderBar = (url: FilterBarProps['url']) => render(<FilterBar {...props({}, {})} url={url} />);
+const chips = () => screen.queryAllByTestId('filter-chip').map(c => c.querySelector('span')!.textContent);
+
+describe('filter chips', () => {
+  it('shows no chips at the defaults, but keeps the chip row', () => {
+    renderBar(urlWith());
+    expect(chips()).toEqual([]);
+    const row = screen.getByTestId('chip-row');
+    expect(row.style.height).toBe(`${FILTER_CHIP_ROW_H}px`);
+    expect(screen.getByRole('group', { name: 'Active filters' })).toBe(row);   // the × buttons are heard in context
+    expect(screen.getByTestId('clear-all-slot').querySelector('button')!.className).toMatch(/invisible/);
+  });
+
+  it('shows one chip per non-default filter, in order', () => {
+    renderBar(urlWith({ codebase: 'frontend', team: 'Platform', repo: 'billing-api', severity: 'critical', baseline: '30d' }));
+    expect(chips()).toEqual(['Codebase: Frontend', 'Team: Platform', 'Repo: billing-api', 'Severity: Critical', 'Compare to: 30 days ago']);
+  });
+
+  it('labels a dated baseline with its date', () => {
+    renderBar(urlWith({ baseline: '2026-09-01' }));
+    expect(chips()).toEqual(['Compare to: 2026-09-01']);
+  });
+
+  it('shows the Repo chip from the URL alone', () => {
+    renderBar(urlWith({ repo: 'billing-api' }));
+    expect(chips()).toEqual(['Repo: billing-api']);
+  });
+
+  it('× resets only its filter and focuses that filter\'s select', () => {
+    const url = urlWith({ team: 'Platform', severity: 'high' });
+    renderBar(url);
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Team: Platform filter' }));
+    expect(url.setTeam).toHaveBeenCalledWith(null);
+    expect(url.setSeverity).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(document.getElementById('security-team'));
+  });
+
+  it('the Repo chip × clears the repo and focuses Codebase', () => {
+    const url = urlWith({ repo: 'billing-api' });
+    renderBar(url);
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Repo: billing-api filter' }));
+    expect(url.setRepo).toHaveBeenCalledWith(null);
+    expect(document.activeElement).toBe(document.getElementById('security-codebase'));
+  });
+
+  it('Clear all resets every filter', () => {
+    const url = urlWith({ team: 'Platform' });
+    renderBar(url);
+    fireEvent.click(screen.getByRole('button', { name: 'Clear all' }));
+    expect(url.resetFilters).toHaveBeenCalled();
+  });
+
+  it('Clear all stays in the DOM but hidden (invisible, disabled, out of the tab order) at the defaults', () => {
+    renderBar(urlWith());
+    const btn = screen.getByText('Clear all') as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
     expect(btn.tabIndex).toBe(-1);
     expect(btn.getAttribute('aria-hidden')).toBe('true');
   });
 
-  it('is visible when any filter differs and calls resetFilters', () => {
-    const resetFilters = jest.fn();
-    render(<FilterBar {...props({ resetFilters, isDefault: { ...DEFAULTS, team: false, all: false }, team: 'Payments' })} />);
-    const btn = screen.getByText('Reset filters') as HTMLButtonElement;
-    expect(btn.className).not.toContain('invisible');
-    expect(btn.disabled).toBe(false);
-    fireEvent.click(btn);
-    expect(resetFilters).toHaveBeenCalledTimes(1);
-  });
-
-  // Revert: move the slot back into the tabs row.
-  it('sits at the right end of the filter row, after the date slot, and reads as a link', () => {
-    render(<FilterBar {...props({ isDefault: { ...DEFAULTS, team: false, all: false }, team: 'Payments' })} />);
-    const bar = screen.getByTestId('security-bar');
-    const filterRow = bar.children[1] as HTMLElement;
-    const slot = screen.getByTestId('reset-slot');
-    expect(filterRow.contains(slot)).toBe(true);
-    expect(filterRow.lastElementChild).toBe(slot);
-    expect(screen.getByTestId('date-slot').compareDocumentPosition(slot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByText('Reset filters').className).toContain('underline');
-  });
-
-  // Revert: drop the focus call: once the button hides itself, focus falls to the page body and a keyboard user loses their place.
-  it('moves focus to the Codebase select, since the button hides itself when the filters are default again', () => {
-    render(<FilterBar {...props({ isDefault: { ...DEFAULTS, team: false, all: false }, team: 'Payments' })} />);
-    const btn = screen.getByText('Reset filters');
-    btn.focus();
-    expect(document.activeElement).toBe(btn);
-    fireEvent.click(btn);
-    expect(document.activeElement).toBe(screen.getByLabelText('Codebase'));
-  });
-
-  it('appears when only the selected repository differs (Reset clears it too)', () => {
-    render(<FilterBar {...props({ isDefault: { ...DEFAULTS, repo: false, all: false } })} />);
-    expect((screen.getByText('Reset filters') as HTMLButtonElement).className).not.toContain('invisible');
+  it('chips cap their width', () => {
+    renderBar(urlWith({ team: 'A very long team name that will not fit in the chip' }));
+    expect(screen.getByTestId('filter-chip').style.maxWidth).toBe(`${CHIP_MAX_W}px`);
   });
 });
 

@@ -124,12 +124,31 @@ describe('header', () => {
 
   // Revert: change the default, the order or the labels.
   it('the range select lists All time (the default), Last year, Last 90 days, Last 30 days', () => {
-    render(<TrendCard {...props()} />);
+    render(<TrendCard {...props([ovSeries('TeamA', [[ago(400), 1], [ago(1), 2]])])} />);
     const select = screen.getByLabelText('Range') as HTMLSelectElement;
     expect(select.value).toBe('all');
     expect(Array.from(select.options).map(o => [o.value, o.textContent])).toEqual([
       ['all', 'All time'], ['1y', 'Last year'], ['90d', 'Last 90 days'], ['30d', 'Last 30 days'],
     ]);
+  });
+
+  // Revert: offer every range on a young history, where each draws the same chart as All time.
+  it('greys out the ranges the history fits inside, except the current one', () => {
+    const s = [ovSeries('TeamA', [[ago(40), 1], [ago(10), 2]])];
+    const { rerender } = render(<TrendCard {...props(s)} />);
+    const opts = () => Object.fromEntries(Array.from((screen.getByLabelText('Range') as HTMLSelectElement).options).map(o => [o.value, [o.disabled, o.textContent]]));
+    expect(opts()).toEqual({
+      all: [false, 'All time'], '1y': [true, 'Last year (not enough history yet)'],
+      '90d': [true, 'Last 90 days (not enough history yet)'], '30d': [false, 'Last 30 days'],
+    });
+    rerender(<TrendCard {...props(s, { url: { range: '90d' } })} />);
+    expect(opts()['90d']).toEqual([false, 'Last 90 days']);
+  });
+
+  it('with no measurements (historyStart null) every range but the current one is greyed out', () => {
+    render(<TrendCard {...props([])} />);
+    const disabled = Array.from((screen.getByLabelText('Range') as HTMLSelectElement).options).map(o => [o.value, o.disabled]);
+    expect(disabled).toEqual([['all', false], ['1y', true], ['90d', true], ['30d', true]]);
   });
 
   // Revert: write another URL key, or ignore the change.
@@ -277,8 +296,9 @@ describe('placement by date', () => {
     expect((dots[1] - x0) / (x4 - x0)).toBeCloseTo(6 / 7, 2);
   });
 
+  // The point 60 days back is outside the range: it is not drawn, and the history is long enough that the axis starts 30 days back.
   it('the other ranges run from today minus 30, 90 or 365 days', () => {
-    const s = [ovSeries('TeamA', [[ago(20), 1], [ago(10), 2]])];
+    const s = [ovSeries('TeamA', [[ago(60), 9], [ago(20), 1], [ago(10), 2]])];
     const { container } = render(<TrendCard {...props(s, { url: { range: '30d' } })} />);
     const [x0, x4] = edges(container);
     expect((dotXs(container)[0] - x0) / (x4 - x0)).toBeCloseTo(10 / 30, 2);

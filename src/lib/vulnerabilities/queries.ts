@@ -320,8 +320,12 @@ export async function getTrend(f: ParsedFilters, now: Date = new Date()) {
   const index = await loadSnapshotIndex(p.org);
   const chosen = pickTrendSets(index, { codebase: f.codebase, severity, since: f.since });
   const snaps = await loadTrendSnapshotRows(p.org, chosen);
+  // The first measured day whatever `since` is, from the set index alone: lets the page tell a range that cuts history from one
+  // that covers all of it (and would draw the same chart as All time).
+  const historyStart = pickTrendSets(index, { codebase: f.codebase, severity }).reduce<string | null>(
+    (min, s) => (min === null || s.takenOn < min ? s.takenOn : min), null);
   return { available: true as const, sync: p.sync, appliedFilters: pickApplied({ ...f, severity }, ['codebase', 'team', 'severity', 'since']),
-    configErrors: p.configErrors,
+    configErrors: p.configErrors, historyStart,
     series: computeTrend(snaps, p.repos, { codebase: f.codebase, team: f.team, severity, since: f.since }) };
 }
 

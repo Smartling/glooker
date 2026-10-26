@@ -5,8 +5,9 @@ import { render, screen, fireEvent, waitFor, within, act } from '@testing-librar
 import { SWRConfig } from 'swr';
 import VulnerabilitiesContent from '@/app/vulnerabilities/vulnerabilities-content';
 import {
-  KPI_ROW_H, OWNERSHIP_BODY_H, TREND_PLOT_H, ALERTS_STRIP_H, ALERTS_CARD_H, ALERT_LIST_H, RAIL_W,
-  PAGE_MAX_W, PAGE_PAD, PAGE_GAP, FILTER_BAR_H, Z,
+  KPI_ROW_H, ownershipBodyH, TREND_PLOT_H, ALERTS_STRIP_H, ALERTS_CARD_H, ALERT_LIST_H, RAIL_W,
+  PAGE_MAX_W, PAGE_PAD, PAGE_GAP, FILTER_BAR_H, Z, OVERVIEW_STACK_BP, OVERVIEW_GRID_COLS,
+  TREND_LEGEND_COMPACT_H, TREND_PLOT_COMPACT_MIN_H,
 } from '@/app/vulnerabilities/dimensions';
 import { SwrFresh, fetchRouter, summaryFixture, coverageFixture, coverageRow, reposFixture, repoRow, cell, REPO_ROWS, syncInfo } from '../support/security-fixtures';
 
@@ -83,12 +84,44 @@ describe('views', () => {
     mount('');
     expect((await screen.findByTestId('kpi-tiles')).style.height).toBe(`${KPI_ROW_H}px`);
     // The body and the plot carry the fixed heights. The outer cards hold their own headers, so they set none.
-    expect(screen.getByTestId('ownership-card-body').style.height).toBe(`${OWNERSHIP_BODY_H}px`);
+    expect(screen.getByTestId('ownership-card-body').style.height).toBe(`${ownershipBodyH(summaryFixture().knownTeams.length)}px`);
     expect(screen.getByTestId('ownership-card').style.height).toBe('');
     expect(screen.getByTestId('trend-plot').style.height).toBe(`${TREND_PLOT_H}px`);
     expect(screen.getByTestId('trend-card').style.height).toBe('');
     expect(screen.queryByTestId('alerts-strip')).toBeNull();
     expect(screen.getByRole('tabpanel').style.gap).toBe(`${PAGE_GAP}px`);
+  });
+
+  it('puts the ownership and trend cards in one two-column grid, ownership first', async () => {
+    mount('');
+    const grid = await screen.findByTestId('overview-grid');
+    expect(OVERVIEW_STACK_BP).toBe(1100);
+    expect(grid.className).toContain(`min-[${OVERVIEW_STACK_BP}px]:grid-cols-[${OVERVIEW_GRID_COLS.replace(/ /g, '_').replace(/,_/g, ',')}]`);
+    expect(grid.className).toContain('min-[1100px]:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]');
+    expect(grid.className).toMatch(/\bgrid\b/);
+    expect(Array.from(grid.children).map(c => c.getAttribute('data-testid'))).toEqual(['ownership-card', 'trend-card']);
+    expect(grid.style.gap).toBe(`${PAGE_GAP}px`);
+  });
+
+  it('the KPI row stays outside the grid, full width', async () => {
+    mount('');
+    const kpi = await screen.findByTestId('kpi-tiles');
+    expect(screen.getByTestId('overview-grid').contains(kpi)).toBe(false);
+  });
+
+  it('the trend card switches to its compact parts at the breakpoint, the stacked layout unchanged', async () => {
+    mount('');
+    const plot = await screen.findByTestId('trend-plot');
+    expect(TREND_PLOT_COMPACT_MIN_H).toBe(160);
+    expect(TREND_LEGEND_COMPACT_H).toBe(112);
+    expect(plot.style.height).toBe(`${TREND_PLOT_H}px`);
+    expect(plot.className).toContain('min-[1100px]:!h-auto');
+    expect(plot.className).toContain('min-[1100px]:flex-1');
+    expect(plot.className).toContain(`min-[1100px]:min-h-[${TREND_PLOT_COMPACT_MIN_H}px]`);
+    const legend = screen.getByTestId('trend-legend');
+    expect(legend.className).toContain(`min-[1100px]:h-[${TREND_LEGEND_COMPACT_H}px]`);
+    expect(legend.className).toContain(`min-[1100px]:max-h-[${TREND_LEGEND_COMPACT_H}px]`);
+    expect(legend.className).toContain('min-[1100px]:overflow-y-auto');
   });
 
   it('Alerts shows the 72px strip above a 776px card holding the 260px rail and the 560px list area', async () => {
@@ -232,9 +265,9 @@ describe('filters write the URL without scrolling and without switching the view
     expect(p.get('team')).toBe('Payments');
   });
 
-  it('Reset filters clears the five filters and never changes the view', async () => {
+  it('Clear all clears the five filters and never changes the view', async () => {
     mount('view=alerts&codebase=frontend&team=Search&severity=high');
-    fireEvent.click(await screen.findByText('Reset filters'));
+    fireEvent.click(await screen.findByText('Clear all'));
     await waitFor(() => expect(nav().__calls.length).toBe(1));
     expect(Object.fromEntries(params(nav().__calls[0].url).entries())).toEqual({ view: 'alerts' });
   });

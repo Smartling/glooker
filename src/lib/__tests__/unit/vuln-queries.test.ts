@@ -216,6 +216,19 @@ it("getTrend loads snapshot rows only for the sets it plots, not every set the o
   spy.mockRestore();
 });
 
+it('getTrend reports the first measured day, ignoring since (null with no measurements)', async () => {
+  await seedOk();
+  expect((await q.getTrend(f(), NOW)).historyStart).toBeNull();
+  const snap = (syncId: number, day: string) => db.execute(
+    `INSERT INTO vulnerability_repo_snapshots (org, source, sync_id, taken_on, measured_at, repo_id, full_name, archived, open_critical, open_high, resolved_critical_since_start, resolved_high_since_start)
+     VALUES ('o','sync',?,?,?,1,'o/r1',0,1,0,0,0)`, [syncId, day, `${day}T10:00:00Z`]);
+  await snap(1, '2026-09-21');
+  await snap(2, '2026-09-22');
+  const r = await q.getTrend(f({ since: '2026-09-22' }), NOW);
+  expect(r.historyStart).toBe('2026-09-21');
+  expect(r.series.flatMap((s: any) => s.points.map((p: any) => p.date))).not.toContain('2026-09-21');
+});
+
 it('getTrend success path returns a series with a real value', async () => {
   await seedOk();
   await db.execute(`INSERT INTO vulnerability_repo_snapshots (org, source, sync_id, taken_on, measured_at, repo_id, full_name, archived, open_critical, open_high, resolved_critical_since_start, resolved_high_since_start) VALUES ('o','sync',1,'2026-09-22','2026-09-22T10:00:00Z',1,'o/r1',0,1,0,0,0)`);

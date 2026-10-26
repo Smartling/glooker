@@ -21,6 +21,18 @@ export const TREND_RANGES: ReadonlyArray<readonly [TrendRange, string]> = [
 ];
 const RANGE_DAYS: Record<Exclude<TrendRange, 'all'>, number> = { '30d': 30, '90d': 90, '1y': 365 };
 
+/**
+ * Whether a range shows less than All time: false when the history (from its first measured day) fits inside the range, so the
+ * Range select can grey it out instead of offering a choice that changes nothing. Unknown history (null: no measurements
+ * yet) cuts nothing either, so every range but the current one is greyed out. historyStart is org-wide for the codebase and severity,
+ * never per team (the trend request is never team-scoped, see the trend card): with a team selected whose own history starts later,
+ * a range can stay enabled and draw the same chart as All time.
+ */
+export function rangeCutsHistory(range: TrendRange, historyStart: string | null, today: string): boolean {
+  if (range === 'all') return true;
+  return historyStart !== null && historyStart < addDays(today, -RANGE_DAYS[range]);
+}
+
 /** Days since the epoch, as the chart's numeric x value. */
 export const dayNumber = (iso: string): number => Math.round(Date.parse(`${iso}T00:00:00Z`) / DAY_MS);
 export const isoOfDay = (n: number): string => new Date(n * DAY_MS).toISOString().slice(0, 10);
@@ -30,16 +42,25 @@ const allDates = (series: readonly TrendSeries[]): string[] =>
 
 /**
  * The x-axis span. "All" runs from the first point to today and never spans less than
- * TREND_MIN_SPAN_DAYS; the other ranges run from today minus 30, 90 or 365 days to today. A point
- * after today (a skewed clock) extends the end rather than falling off the plot.
+ * TREND_MIN_SPAN_DAYS; the other ranges run from today minus 30, 90 or 365 days to today, but never
+ * start before "All" does, so a range longer than the history fills the plot instead of squeezing
+ * the lines against the right edge. A point after today (a skewed clock) extends the end rather
+ * than falling off the plot.
  */
-export function trendDomain(range: TrendRange, series: readonly TrendSeries[], today: string): { start: string; end: string } {
+export function trendDomain(
+  range: TrendRange, series: readonly TrendSeries[], today: string, historyStart?: string | null,
+): { start: string; end: string } {
   const dates = allDates(series);
   const last = dates[dates.length - 1];
   const end = last && last > today ? last : today;
-  if (range !== 'all') return { start: addDays(today, -RANGE_DAYS[range]), end };
   const floor = addDays(end, -TREND_MIN_SPAN_DAYS);
-  return { start: dates[0] && dates[0] < floor ? dates[0] : floor, end };
+  // The server has already cut the series at `since`, so its first point is not where the history starts: with a gap at the start of
+  // the window it would start the axis late. The response's historyStart is; without it (tests, older responses) the first point stands in.
+  const first = historyStart ?? dates[0];
+  const allStart = first && first < floor ? first : floor;
+  if (range === 'all') return { start: allStart, end };
+  const windowStart = addDays(today, -RANGE_DAYS[range]);
+  return { start: windowStart > allStart ? windowStart : allStart, end };
 }
 
 /** Evenly spaced whole-day ticks across the domain, first and last included. */
@@ -53,11 +74,15 @@ export function trendTicks(start: string, end: string, count = 5): number[] {
 
 export interface TrendRow { t: number; date: string; values: Record<string, number> }
 
-/** One row per date that has a point in a drawn series, keyed by team (names may contain dots). */
-export function trendRows(drawn: readonly TrendSeries[]): TrendRow[] {
+/**
+ * One row per date that has a point in a drawn series, keyed by team (names may contain dots). With a domain, only the dates inside it
+ * (ends included): the y axis scales to the rows it is given, so points outside the range would keep the all-time scale.
+ */
+export function trendRows(drawn: readonly TrendSeries[], start?: string, end?: string): TrendRow[] {
   const byDate = new Map<string, TrendRow>();
   for (const s of drawn) {
     for (const p of s.points) {
+      if ((start && p.date < start) || (end && p.date > end)) continue;
       const row = byDate.get(p.date) ?? { t: dayNumber(p.date), date: p.date, values: {} };
       row.values[s.team] = toNum(p.open);
       byDate.set(p.date, row);

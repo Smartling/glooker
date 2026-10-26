@@ -5,7 +5,7 @@
 import type { DeltaResult, RepoRow, TeamRow } from '@/lib/vulnerabilities/aggregate';
 import type { Severity } from '@/lib/vulnerabilities/types';
 import type { SeverityFilter } from './security-state';
-import { OWNERSHIP_BODY_H, TEAM_FOOTNOTE_H, TEAM_HEAD_H, TEAM_ROW_H } from './dimensions';
+import { TEAM_FOOTNOTE_H, TEAM_HEAD_H, TEAM_ROW_H } from './dimensions';
 
 export type SortDir = 'asc' | 'desc';
 export interface SortState<K extends string> { key: K; dir: SortDir }
@@ -51,13 +51,13 @@ export function hasCarriedFootnote(summary: { pivot: { total: TeamRow } }, sever
  * True when `rowCount` team rows do not all fit between the pinned header and the pinned Total row (and the † footnote
  * under it, when there is one), so the body scrolls. The card appends "· scroll for more" to its hint then.
  */
-export function teamRowsOverflow(rowCount: number, hasFootnote: boolean): boolean {
-  return rowCount * TEAM_ROW_H > teamRowsRoom(hasFootnote);
+export function teamRowsOverflow(rowCount: number, hasFootnote: boolean, bodyH: number): boolean {
+  return rowCount * TEAM_ROW_H > teamRowsRoom(hasFootnote, bodyH);
 }
 
 /** The height in px the team rows may fill: the body minus the pinned header and Total row, and the † footnote when there is one. */
-export const teamRowsRoom = (hasFootnote: boolean): number =>
-  OWNERSHIP_BODY_H - TEAM_HEAD_H - TEAM_ROW_H - (hasFootnote ? TEAM_FOOTNOTE_H : 0);
+export const teamRowsRoom = (hasFootnote: boolean, bodyH: number): number =>
+  bodyH - TEAM_HEAD_H - TEAM_ROW_H - (hasFootnote ? TEAM_FOOTNOTE_H : 0);
 
 export type TeamSortKey =
   | 'name'

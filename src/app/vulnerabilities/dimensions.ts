@@ -21,14 +21,36 @@ export const KPI_SINCE_ROW_H = 25;
 export const KPI_NOTE_H = 16;
 /** The SLA tile's rows: a ~33px pitch, as the mockup's. */
 export const KPI_SLA_ROW_H = 33;
-export const OWNERSHIP_BODY_H = 330;   // tables scroll inside it; header row and Total row stay pinned
-export const TEAM_ROW_H = 50;
+/** Team rows: 40px, so an org's teams (10 today) fit the card beside the trend without scrolling. */
+export const TEAM_ROW_H = 40;
+/** The ownership body shows between these many team rows; more scroll inside it, header and Total row pinned. */
+export const OWNERSHIP_MIN_ROWS = 5;
+export const OWNERSHIP_MAX_ROWS = 12;
 // The Owning teams table's pinned header (a band row over a column-header row) and the † footnote under its Total row.
 export const TEAM_BAND_H = 24;
 export const TEAM_COLHEAD_H = 32;
 export const TEAM_HEAD_H = TEAM_BAND_H + TEAM_COLHEAD_H;
 export const TEAM_FOOTNOTE_H = 20;
+/**
+ * The ownership card body's height, from the ORG's known-team count (summary.knownTeams.length), never the filtered row
+ * count, so a filter change never resizes the card. It settles once when the summary first loads (0 → real count); that
+ * is the one accepted size change (docs/vulnerabilities-page.md, "Layout stability"). Room for the pinned header, the
+ * visible rows, the pinned Total row and the † footnote line, whether or not the footnote shows.
+ */
+export function ownershipBodyH(teamCount: number): number {
+  const n = Number.isFinite(teamCount) ? teamCount : 0;
+  const rows = Math.min(Math.max(n, OWNERSHIP_MIN_ROWS), OWNERSHIP_MAX_ROWS);
+  return TEAM_HEAD_H + rows * TEAM_ROW_H + TEAM_ROW_H + TEAM_FOOTNOTE_H;
+}
 export const TREND_PLOT_H = 220;
+/** The width at which the Overview's ownership and trend cards go side by side. Tailwind cannot read a constant, so the classes spell it
+ * (`min-[1100px]:`) and a test keeps the two equal. Below it the cards stack, the trend card at its full-width layout. */
+export const OVERVIEW_STACK_BP = 1100;
+/** Side by side, the two columns' template (ownership 3fr, trend 2fr), spelled in the grid's `min-[1100px]:grid-cols-[...]` class. */
+export const OVERVIEW_GRID_COLS = 'minmax(0, 3fr) minmax(0, 2fr)';
+/** Side by side, the trend legend is capped at seven lines and scrolls, and the plot (which fills the card's remaining height) keeps this minimum. */
+export const TREND_LEGEND_COMPACT_H = 7 * 16;
+export const TREND_PLOT_COMPACT_MIN_H = 160;
 export const SPARK_H = 24;
 /** The trend card's Range select, so the figures block beside it never moves when the range changes ("Last 90 days" is its longest option). */
 export const TREND_RANGE_W = 128;
@@ -95,12 +117,16 @@ export const FILTER_SELECT_H = 32;
 export const FILTER_CONTROLS_H = FILTER_CAPTION_H + FILTER_CAPTION_GAP + FILTER_SELECT_H; // 52
 export const FILTER_PAD_BOTTOM = 14;          // from the selects to the lower rule
 export const FILTER_RULE_H = 1;
-export const FILTER_ROW_H = FILTER_CONTROLS_H + FILTER_PAD_BOTTOM + FILTER_RULE_H; // 67
-export const FILTER_BAR_H = BAR_PAD_TOP + BAR_ROW_H + BAR_ROW_GAP + FILTER_ROW_H; // 127: padding + tabs row + gap + filters row
-export const RESET_SLOT_W = 116;
-/** The four selects, the date slot, the "Reset filters" slot at the row's right end, and the 5 gaps between them. */
+export const FILTER_CHIP_ROW_GAP = 8;         // from the selects to the chip row
+export const FILTER_CHIP_ROW_H = 28;          // one line of chips; always rendered (a nbsp when no filter is active)
+/** A chip's maximum width; a longer label is cut with "…" (the full text is in its title). */
+export const CHIP_MAX_W = 240;
+export const FILTER_ROW_H =
+  FILTER_CONTROLS_H + FILTER_CHIP_ROW_GAP + FILTER_CHIP_ROW_H + FILTER_PAD_BOTTOM + FILTER_RULE_H; // 103
+export const FILTER_BAR_H = BAR_PAD_TOP + BAR_ROW_H + BAR_ROW_GAP + FILTER_ROW_H; // 163: padding + tabs row + gap + filters row
+/** The four selects, the date slot, and the 4 gaps between them. */
 export const FILTER_ROW_W =
-  SELECT_W.codebase + SELECT_W.team + SELECT_W.severity + SELECT_W.baseline + SELECT_W.date + RESET_SLOT_W + 5 * FILTER_ROW_GAP;
+  SELECT_W.codebase + SELECT_W.team + SELECT_W.severity + SELECT_W.baseline + SELECT_W.date + 4 * FILTER_ROW_GAP;
 
 /** Layer order: tables' pinned rows < sticky bar < drawer. Apply as inline `zIndex`. */
 export const Z = { pinnedRows: 10, stickyBar: 20, drawer: 40 } as const;

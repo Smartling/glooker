@@ -1,12 +1,12 @@
 // src/app/vulnerabilities/ownership-card.tsx
 'use client';
 // GLOOK-64: the Overview's ownership card: an "Owning teams" tab and a "Repositories" tab over one
-// 330px body that the tables scroll inside (their header and footer rows stay pinned). The body keeps
+// body, sized to the org's team count, that the tables scroll inside (their header and footer rows stay pinned). The body keeps
 // its height in every state (loading, error, empty, populated), so a filter change never resizes the card.
 import { useState } from 'react';
 import type { SecurityViewProps } from './view-props';
 import type { OwnTab } from './security-state';
-import { OWNERSHIP_BODY_H, TYPE } from './dimensions';
+import { ownershipBodyH, TYPE } from './dimensions';
 import { dash } from './format';
 import { slotView } from './slot-view';
 import TeamTable from './team-table';
@@ -23,7 +23,9 @@ const TABS: Array<{ id: OwnTab; label: string }> = [
 ];
 
 export default function OwnershipCard(props: SecurityViewProps) {
-  const { url, data } = props;
+  const { url, data, summary } = props;
+  const orgTeamCount = summary.knownTeams?.length ?? 0;
+  const bodyH = ownershipBodyH(orgTeamCount);
   const [nameFilter, setNameFilter] = useState('');
 
   // Each tab's count (and the Owning teams hint) reads its own slot, never the team-scoped summary: with no data of its own
@@ -31,7 +33,7 @@ export default function OwnershipCard(props: SecurityViewProps) {
   const teamsView = slotView(data.teamSummary);
   const teamsSrc = teamsView.kind === 'data' ? teamsView.data : null;
   const teamCount = teamsSrc ? teamsSrc.pivot.rows.length : null;
-  const teamsScroll = teamsSrc !== null && teamRowsOverflow(teamsSrc.pivot.rows.length, hasCarriedFootnote(teamsSrc, url.severity));
+  const teamsScroll = teamsSrc !== null && teamRowsOverflow(teamsSrc.pivot.rows.length, hasCarriedFootnote(teamsSrc, url.severity), bodyH);
   const reposView = slotView(data.repos);
   const repoRows = reposView.kind === 'data' ? reposView.data.rows : null;
   const unmeasured = repoRows ? repoRows.filter(r => r.unmeasured).length : 0;
@@ -48,9 +50,9 @@ export default function OwnershipCard(props: SecurityViewProps) {
     : 'Click a repository to open its alerts';
 
   return (
-    <section aria-label="Ownership" data-testid="ownership-card" className="flex flex-col gap-3">
+    <section aria-label="Ownership" data-testid="ownership-card" className="flex h-full flex-col gap-3">
       <h2 className={`${TYPE.sectionLabel} text-gray-400`}>Open alerts by owner</h2>
-      <div className={`${TYPE.card} bg-gray-900 p-4`}>
+      <div className={`${TYPE.card} flex-1 bg-gray-900 p-4`}>
         <div className="flex h-9 items-center justify-between gap-3 border-b border-gray-800">
           {/* A pressed-button group, not role="tab": the page's own view tabs are the only tablist, and the
               composer's tabpanel is the only tabpanel. */}
@@ -86,8 +88,8 @@ export default function OwnershipCard(props: SecurityViewProps) {
           </div>
         </div>
         <div
-          id="ownership-panel" role="region" aria-labelledby={`ownership-tab-${url.own}`} data-testid="ownership-card-body"
-          className="mt-3 overflow-hidden" style={{ height: OWNERSHIP_BODY_H }}
+          id="ownership-panel" role="region" aria-labelledby={`ownership-tab-${url.own}`} data-testid="ownership-card-body" data-team-count={orgTeamCount}
+          className="mt-3 overflow-hidden" style={{ height: bodyH }}
         >
           {url.own === 'teams' ? <TeamTable {...props} /> : <RepoTable {...props} nameFilter={nameFilter} />}
         </div>

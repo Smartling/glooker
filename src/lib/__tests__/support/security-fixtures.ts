@@ -88,6 +88,7 @@ export const trendFixture = (
   series: TrendData['series'] = [], applied: TrendData['appliedFilters'] = { codebase: 'backend', severity: 'critical' },
 ): TrendData => ({
   available: true, sync: syncInfo(), appliedFilters: applied, configErrors: [], series,
+  historyStart: series.flatMap(s => s.points.map(p => p.date)).sort()[0] ?? null,
 });
 
 /** An alert-list row (a critical, open, not yet due alert). Override what a test needs. */

@@ -1,13 +1,25 @@
 // src/lib/__tests__/unit/vuln-trend-model.test.ts
 // The trend card's pure rules: the domain, the rows, the history messages and the legend.
 import {
-  buildLegend, dayNumber, isoOfDay, trendDomain, trendRows, trendStatus, trendTicks, SHORT_HISTORY_DAYS, TREND_MIN_SPAN_DAYS,
+  buildLegend, dayNumber, rangeCutsHistory, isoOfDay, trendDomain, trendRows, trendStatus, trendTicks, SHORT_HISTORY_DAYS, TREND_MIN_SPAN_DAYS,
 } from '@/app/vulnerabilities/trend-model';
 import { addDays } from '@/lib/vulnerabilities/time';
 import { assignTeamColors, latestOpen, OTHER_TEAM_COLOR } from '@/app/vulnerabilities/team-colors';
 import { ovSeries } from '../support/security-fixtures';
 
 const TODAY = '2026-09-30';
+
+describe('rangeCutsHistory', () => {
+  // Revert: offer every range whatever the history, so on a young history all four draw the same chart.
+  it('a range cuts history only when the first measured day is before its window; All always counts', () => {
+    expect(rangeCutsHistory('all', null, TODAY)).toBe(true);
+    expect(rangeCutsHistory('30d', null, TODAY)).toBe(false);
+    expect(rangeCutsHistory('30d', '2026-08-30', TODAY)).toBe(true);   // window starts 2026-08-31
+    expect(rangeCutsHistory('30d', '2026-08-31', TODAY)).toBe(false);
+    expect(rangeCutsHistory('90d', '2026-08-30', TODAY)).toBe(false);
+    expect(rangeCutsHistory('1y', '2025-01-01', TODAY)).toBe(true);
+  });
+});
 
 describe('trendDomain', () => {
   // Revert: start "All" at the window start instead of the first point, or drop the 7-day floor.
@@ -23,13 +35,27 @@ describe('trendDomain', () => {
     expect(trendDomain('all', [], TODAY)).toEqual({ start: floor, end: TODAY });
   });
 
-  // Revert: compute the start from the first point for the other ranges too.
-  it('the other ranges run from today minus 30, 90 or 365 days to today, whatever the data', () => {
-    const s = [ovSeries('A', [['2026-09-20', 1], ['2026-09-29', 2]])];
+  // Revert: start the other ranges at today minus N days whatever the data, which squeezes a short history against the right edge.
+  it('the other ranges run from today minus 30, 90 or 365 days to today when the history is longer', () => {
+    const s = [ovSeries('A', [['2025-01-01', 1], ['2026-09-29', 2]])];
     expect(trendDomain('30d', s, TODAY).start).toBe('2026-08-31');
     expect(trendDomain('90d', s, TODAY).start).toBe('2026-07-02');
     expect(trendDomain('1y', s, TODAY).start).toBe('2025-09-30');
     expect(trendDomain('30d', s, TODAY).end).toBe(TODAY);
+  });
+
+  it('a range longer than the history starts where All does', () => {
+    const s = [ovSeries('A', [['2026-09-01', 1], ['2026-09-29', 2]])];
+    expect(trendDomain('1y', s, TODAY)).toEqual(trendDomain('all', s, TODAY));
+    expect(trendDomain('90d', s, TODAY).start).toBe('2026-09-01');
+    expect(trendDomain('1y', [], TODAY)).toEqual(trendDomain('all', [], TODAY));
+  });
+
+  // Revert: start a range at the series' first point, which the server has already cut at `since`.
+  it('a range starts at its window when historyStart is earlier, even with a gap at the start of the window', () => {
+    const s = [ovSeries('A', [['2026-09-20', 1], ['2026-09-29', 2]])];   // cut at since; the history goes back much further
+    expect(trendDomain('90d', s, TODAY, '2026-03-01').start).toBe('2026-07-02');
+    expect(trendDomain('all', s, TODAY, '2026-03-01').start).toBe('2026-03-01');
   });
 
   it('a point after today extends the end instead of falling off the plot', () => {
@@ -86,6 +112,12 @@ describe('trendRows', () => {
 
   it('coerces a string count from the database', () => {
     expect(trendRows([{ team: 'A', points: [{ date: '2026-09-29', open: '4' as unknown as number }] }])[0].values.A).toBe(4);
+  });
+
+  // Revert: pass every stored point to the chart, so a short range keeps the all-time y scale and lines run off the left edge.
+  it('keeps only the dates inside the given domain, ends included', () => {
+    const rows = trendRows([ovSeries('A', [['2026-01-01', 900], ['2026-09-01', 2], ['2026-09-29', 3], ['2026-10-30', 5]])], '2026-09-01', '2026-09-29');
+    expect(rows.map(r => r.date)).toEqual(['2026-09-01', '2026-09-29']);
   });
 });
 
