@@ -19,7 +19,7 @@ import { TREND_FIGURES_W, TREND_FOOT_GAP, TREND_LEGEND_MIN_W, TREND_PLOT_H, TREN
 import { displayDate, utcToday } from './labels';
 import { openChange } from './overview-format';
 import { OTHER_TEAM_COLOR, TEAM_COLOR_SLOTS, assignTeamColors } from './team-colors';
-import { buildLegend, dayNumber, isoOfDay, TREND_RANGES, trendDomain, trendRows, trendStatus, trendTicks, type TrendRow } from './trend-model';
+import { buildLegend, dayNumber, rangeCutsHistory, isoOfDay, TREND_RANGES, trendDomain, trendRows, trendStatus, trendTicks, type TrendRow } from './trend-model';
 
 const FOOTNOTE = `Each dot is one stored measurement (an imported CSV run or a sync). The ${TEAM_COLOR_SLOTS} owning teams with the most open alerts get a colour; the rest are grey.`;
 /** The axes' labels: 11px, as the mockup's. */
@@ -71,6 +71,7 @@ export default function TrendCard({ summary, data, url }: SecurityViewProps) {
   const view = slotView(data.trend);
   const series = view.kind === 'data' ? view.data.series : undefined;
   const stale = view.kind === 'data' && view.dimmed;
+  const historyStart = view.kind === 'data' ? view.data.historyStart : undefined;
   const today = utcToday();
   const status = series ? trendStatus(series, url.range, today) : null;
   const legend = series ? buildLegend(series, url.team) : [];
@@ -99,7 +100,12 @@ export default function TrendCard({ summary, data, url }: SecurityViewProps) {
               className={`h-8 shrink-0 ${TYPE.control} border border-gray-700 bg-gray-800 px-2 text-xs text-gray-200`}
               style={{ width: TREND_RANGE_W }}
             >
-              {TREND_RANGES.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+              {/* A range the history fits inside would draw the same chart as All time: greyed out, unless it is the current value
+                  (a disabled selected option would read as broken). Until the trend loads, every range is offered. */}
+              {TREND_RANGES.map(([v, label]) => {
+                const empty = historyStart !== undefined && v !== url.range && !rangeCutsHistory(v, historyStart, today);
+                return <option key={v} value={v} disabled={empty}>{empty ? `${label} (not enough history yet)` : label}</option>;
+              })}
             </select>
             <div className={`shrink-0 text-right${stale || data.summary.stale ? ' opacity-60' : ''}`} style={{ width: TREND_FIGURES_W }}>
               <div data-testid="trend-open-now" className="truncate text-sm font-semibold text-white" title={openNow}>{openNow}</div>

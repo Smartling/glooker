@@ -124,12 +124,25 @@ describe('header', () => {
 
   // Revert: change the default, the order or the labels.
   it('the range select lists All time (the default), Last year, Last 90 days, Last 30 days', () => {
-    render(<TrendCard {...props()} />);
+    render(<TrendCard {...props([ovSeries('TeamA', [[ago(400), 1], [ago(1), 2]])])} />);
     const select = screen.getByLabelText('Range') as HTMLSelectElement;
     expect(select.value).toBe('all');
     expect(Array.from(select.options).map(o => [o.value, o.textContent])).toEqual([
       ['all', 'All time'], ['1y', 'Last year'], ['90d', 'Last 90 days'], ['30d', 'Last 30 days'],
     ]);
+  });
+
+  // Revert: offer every range on a young history, where each draws the same chart as All time.
+  it('greys out the ranges the history fits inside, except the current one', () => {
+    const s = [ovSeries('TeamA', [[ago(40), 1], [ago(10), 2]])];
+    const { rerender } = render(<TrendCard {...props(s)} />);
+    const opts = () => Object.fromEntries(Array.from((screen.getByLabelText('Range') as HTMLSelectElement).options).map(o => [o.value, [o.disabled, o.textContent]]));
+    expect(opts()).toEqual({
+      all: [false, 'All time'], '1y': [true, 'Last year (not enough history yet)'],
+      '90d': [true, 'Last 90 days (not enough history yet)'], '30d': [false, 'Last 30 days'],
+    });
+    rerender(<TrendCard {...props(s, { url: { range: '90d' } })} />);
+    expect(opts()['90d']).toEqual([false, 'Last 90 days']);
   });
 
   // Revert: write another URL key, or ignore the change.

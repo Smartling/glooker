@@ -21,6 +21,15 @@ export const TREND_RANGES: ReadonlyArray<readonly [TrendRange, string]> = [
 ];
 const RANGE_DAYS: Record<Exclude<TrendRange, 'all'>, number> = { '30d': 30, '90d': 90, '1y': 365 };
 
+/**
+ * Whether a range shows less than All time: false when the history (from its first measured day) fits inside the range, so the
+ * Range select can grey it out instead of offering a choice that changes nothing. Unknown history (null) cuts nothing either.
+ */
+export function rangeCutsHistory(range: TrendRange, historyStart: string | null, today: string): boolean {
+  if (range === 'all') return true;
+  return historyStart !== null && historyStart < addDays(today, -RANGE_DAYS[range]);
+}
+
 /** Days since the epoch, as the chart's numeric x value. */
 export const dayNumber = (iso: string): number => Math.round(Date.parse(`${iso}T00:00:00Z`) / DAY_MS);
 export const isoOfDay = (n: number): string => new Date(n * DAY_MS).toISOString().slice(0, 10);

@@ -1,13 +1,25 @@
 // src/lib/__tests__/unit/vuln-trend-model.test.ts
 // The trend card's pure rules: the domain, the rows, the history messages and the legend.
 import {
-  buildLegend, dayNumber, isoOfDay, trendDomain, trendRows, trendStatus, trendTicks, SHORT_HISTORY_DAYS, TREND_MIN_SPAN_DAYS,
+  buildLegend, dayNumber, rangeCutsHistory, isoOfDay, trendDomain, trendRows, trendStatus, trendTicks, SHORT_HISTORY_DAYS, TREND_MIN_SPAN_DAYS,
 } from '@/app/vulnerabilities/trend-model';
 import { addDays } from '@/lib/vulnerabilities/time';
 import { assignTeamColors, latestOpen, OTHER_TEAM_COLOR } from '@/app/vulnerabilities/team-colors';
 import { ovSeries } from '../support/security-fixtures';
 
 const TODAY = '2026-09-30';
+
+describe('rangeCutsHistory', () => {
+  // Revert: offer every range whatever the history, so on a young history all four draw the same chart.
+  it('a range cuts history only when the first measured day is before its window; All always counts', () => {
+    expect(rangeCutsHistory('all', null, TODAY)).toBe(true);
+    expect(rangeCutsHistory('30d', null, TODAY)).toBe(false);
+    expect(rangeCutsHistory('30d', '2026-08-30', TODAY)).toBe(true);   // window starts 2026-08-31
+    expect(rangeCutsHistory('30d', '2026-08-31', TODAY)).toBe(false);
+    expect(rangeCutsHistory('90d', '2026-08-30', TODAY)).toBe(false);
+    expect(rangeCutsHistory('1y', '2025-01-01', TODAY)).toBe(true);
+  });
+});
 
 describe('trendDomain', () => {
   // Revert: start "All" at the window start instead of the first point, or drop the 7-day floor.
