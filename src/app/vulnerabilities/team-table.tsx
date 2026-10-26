@@ -41,6 +41,14 @@ const GLYPH_GAP = 'gap-0.5';
 const NAME_FR = 1.5;
 /** The header labels use normal letter-spacing: the 0.06em tracking of TYPE.tableHeader is about 0.7px per letter, which put "% CLOSED" 2px past its cell at 1024px. Team table only. Important (`!`), because two letter-spacing utilities on one element are decided by their order in the generated stylesheet, not by their order in the class list. */
 const HEAD_TRACKING = '!tracking-normal';
+/**
+ * Each severity group's tracks, in cell order: Open, Change, Resolved, % closed, then Overdue when its SLA is active. Resolved holds a
+ * four-digit count plus "(dismissed)" (about 85px), while Change and % closed hold a few characters, so equal tracks let Resolved spill
+ * left over Change once the Overview put this table beside the trend card (75px tracks at 1440px). A group still totals 4fr without
+ * Overdue, so the name track and the other group keep their width.
+ */
+const groupTracks = (overdue: boolean) =>
+  ['1fr', '0.75fr', '1.5fr', '0.75fr', ...(overdue ? ['0.75fr'] : [])].map(fr => `minmax(0, ${fr})`).join(' ');
 /** A row that holds a focusable child (the unmeasured badge) scrolls whole into view when that child takes focus. */
 const scrollRowIntoView = (e: { currentTarget: HTMLElement }) => e.currentTarget.scrollIntoView?.({ block: 'nearest' });
 /** A keyboard-focused row: an inset ring, so the scrolling body does not clip it. */
@@ -73,7 +81,7 @@ interface RowCtx {
  * One tinted cell. It stretches to the row's full height (`self-stretch`, the row centres its other cells) and centres its own text, so the
  * critical and high wash is one continuous column band through every row and the Total row, not a strip as tall as the text.
  */
-const CELL = 'flex items-center justify-end self-stretch px-2';
+const CELL = 'flex items-center justify-end self-stretch overflow-hidden whitespace-nowrap px-2'; // clips, never spills over the next cell
 
 /** The cells of one severity group for one row (or the Total row). */
 function GroupCells({ row, g, ctx }: { row: TeamRow; g: typeof GROUPS[number]; ctx: RowCtx }) {
@@ -132,7 +140,7 @@ export default function TeamTable({ data, url, openDrawer }: SecurityViewProps) 
   const total = src.pivot.total;
   const nC = 4 + (columns.critical.overdue ? 1 : 0);
   const nH = 4 + (columns.high.overdue ? 1 : 0);
-  const template = `minmax(0, ${NAME_FR}fr) repeat(${nC}, minmax(0, 1fr)) 8px repeat(${nH}, minmax(0, 1fr))`;
+  const template = `minmax(0, ${NAME_FR}fr) ${groupTracks(columns.critical.overdue)} 8px ${groupTracks(columns.high.overdue)}`;
   const rowStyle = { display: 'grid', gridTemplateColumns: template } as const;
   // The caption is a display date ("vs Sep 29"); its title carries the measurement's ISO date.
   const baselineOf = (d: typeof deltas.critical) => ({
