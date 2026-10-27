@@ -1,5 +1,6 @@
 import db from '@/lib/db';
 import { getGitHubProvider } from '@/lib/github';
+import { completedReportWindows, windowOverlaps } from '@/lib/report/timeline';
 import { upsertPrActivity, recordPrCoverage, hasPrCoverage } from './store';
 
 const DAY_MS = 86_400_000;
@@ -38,14 +39,26 @@ export async function backfillPrs(opts: {
   const result: BackfillResult = { done: 0, skipped: 0, failed: [] };
   if (slices.length === 0) return result;
 
-  const [loginRows] = await db.execute(
-    `SELECT DISTINCT ds.github_login
-     FROM developer_stats ds JOIN reports r ON r.id = ds.report_id
-     WHERE r.org = ? AND r.created_at >= ?
-     ORDER BY ds.github_login`,
-    [org, slices[0].since],
+  // Developers of the completed reports whose search window overlaps the backfill period.
+  const periodSince = Date.parse(`${slices[0].since}T00:00:00Z`);
+  const periodUntil = Date.parse(`${slices[slices.length - 1].until}T00:00:00Z`);
+  const [reportRows] = await db.execute(
+    `SELECT id, status, period_days, created_at, completed_at FROM reports WHERE org = ?`,
+    [org],
   ) as [any[], any];
-  const logins: string[] = loginRows.map((r: any) => r.github_login);
+  const ids: string[] = reportRows
+    .filter((r: any) => { const [w] = completedReportWindows([r]); return !!w && windowOverlaps(w, periodSince, periodUntil); })
+    .map((r: any) => r.id);
+  let logins: string[] = [];
+  if (ids.length > 0) {
+    const [loginRows] = await db.execute(
+      `SELECT DISTINCT github_login FROM developer_stats
+       WHERE report_id IN (${ids.map(() => '?').join(',')})
+       ORDER BY github_login`,
+      ids,
+    ) as [any[], any];
+    logins = loginRows.map((r: any) => r.github_login);
+  }
   log(`Backfilling ${logins.length} developers x ${slices.length} months for ${org}`);
 
   const gh = getGitHubProvider();

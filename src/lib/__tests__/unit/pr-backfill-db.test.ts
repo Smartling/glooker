@@ -26,7 +26,10 @@ beforeAll(async () => {
   store = await import('@/lib/pr-activity/store');
   await db.execute(`INSERT INTO reports (id, org, period_days, status, created_at, completed_at) VALUES ('r1', 'acme', 14, 'completed', '2026-10-01T10:00:00Z', '2026-10-01T11:00:00Z')`);
   await db.execute(`INSERT INTO reports (id, org, period_days, status, created_at, completed_at) VALUES ('r0', 'acme', 14, 'completed', '2025-01-01T10:00:00Z', '2025-01-01T11:00:00Z')`);
-  await db.execute(`INSERT INTO developer_stats (report_id, github_login) VALUES ('r1', 'alice'), ('r1', 'bob'), ('r0', 'ancient')`);
+  // After the period (window Oct 6–20) and not completed: neither's developers are in scope.
+  await db.execute(`INSERT INTO reports (id, org, period_days, status, created_at, completed_at) VALUES ('r2', 'acme', 14, 'completed', '2026-10-20T10:00:00Z', '2026-10-20T11:00:00Z')`);
+  await db.execute(`INSERT INTO reports (id, org, period_days, status, created_at, completed_at) VALUES ('rf', 'acme', 14, 'failed', '2026-09-20T10:00:00Z', '2026-09-20T11:00:00Z')`);
+  await db.execute(`INSERT INTO developer_stats (report_id, github_login) VALUES ('r1', 'alice'), ('r1', 'bob'), ('r0', 'ancient'), ('r2', 'late'), ('rf', 'failedonly')`);
 });
 afterAll(() => {
   if (priorSqlitePath === undefined) delete process.env.SQLITE_PATH; else process.env.SQLITE_PATH = priorSqlitePath;
@@ -52,7 +55,8 @@ it('searches each in-period login month by month with an inclusive bounded windo
   expect(res).toEqual({ done: 2, skipped: 0, failed: [] });
   const [org, login, since, , until] = mockFetchMergedPRs.mock.calls[0];
   expect([org, login, since.toISOString(), until.toISOString()]).toEqual(['acme', 'alice', '2026-09-01T00:00:00.000Z', '2026-09-30T00:00:00.000Z']);
-  expect(mockFetchMergedPRs.mock.calls.map(c => c[1]).sort()).toEqual(['alice', 'bob']); // 'ancient' is out of period
+  // 'ancient' ends before the period, 'late' starts after it, 'failedonly' is in a failed report.
+  expect(mockFetchMergedPRs.mock.calls.map(c => c[1]).sort()).toEqual(['alice', 'bob']);
   expect(await store.hasPrCoverage('acme', 'alice', '2026-09-01', '2026-10-01')).toBe(true);
 });
 
@@ -74,4 +78,13 @@ it('a failed or unproven slice writes no coverage and is listed; others continue
   expect(await store.hasPrCoverage('acme', 'alice', '2026-08-01', '2026-09-01')).toBe(false);
   expect(await store.hasPrCoverage('acme', 'bob', '2026-08-01', '2026-09-01')).toBe(false);
   expect(res.skipped).toBe(2); // September slices from the earlier run
+});
+
+it('authored rows truncated at the search cap write no coverage', async () => {
+  mockFetchMergedPRs.mockResolvedValue({ prs: [], itemsComplete: false });
+  const res = await backfill.backfillPrs({ org: 'acme', months: 3, now: NOW });
+  const jul = res.failed.filter(f => f.since === '2026-07-01');
+  expect(jul.map(f => f.login).sort()).toEqual(['alice', 'bob']);
+  expect(jul[0].error).toMatch(/truncated at the search cap/);
+  expect(await store.hasPrCoverage('acme', 'alice', '2026-07-01', '2026-08-01')).toBe(false);
 });
