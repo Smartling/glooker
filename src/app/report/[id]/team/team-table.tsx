@@ -3,6 +3,7 @@
 import { useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUrlState } from '@/lib/url-state';
+import type { ReportRange } from '@/lib/report/range-options';
 import { aggregateTeams, type AggregatorDeveloper, type AggregatorTeam, type TeamRow } from '@/lib/teams/team-aggregator';
 
 interface TeamTableProps {
@@ -11,6 +12,8 @@ interface TeamTableProps {
   reportId:   string;
   /** Days the aggregates cover; defaults to the 14-day report window. */
   periodDays?: number;
+  /** GLOOK-63: the drill-down keeps the selected range. */
+  range?:     ReportRange;
 }
 
 const SORT_KEYS = [
@@ -21,7 +24,7 @@ const SORT_KEYS = [
 ] as const;
 type SortKey = typeof SORT_KEYS[number];
 
-export default function TeamTable({ developers, teams, reportId, periodDays = 14 }: TeamTableProps) {
+export default function TeamTable({ developers, teams, reportId, periodDays = 14, range = 'current' }: TeamTableProps) {
   const router = useRouter();
   const rows: TeamRow[] = useMemo(() => aggregateTeams(developers, teams, periodDays), [developers, teams, periodDays]);
 
@@ -91,6 +94,7 @@ export default function TeamTable({ developers, teams, reportId, periodDays = 14
     params.set('view', 'individuals');
     params.set('team', row.name);
     for (const login of team?.members ?? []) params.append('dev', login);
+    if (range !== 'current') params.set('range', range);
     router.push(`/report/${reportId}/team?${params.toString()}`);
   };
 

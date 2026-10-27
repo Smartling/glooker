@@ -388,7 +388,7 @@ export default function TeamSummaryPage() {
             loading={projectsExpanded && teamPulseLoading && !teamPulse}
             title="Current Projects"
             subtitle={`${selectedTeamName} · ${activeReport!.period_days}d${payloadRange !== 'current' ? ' · Current report' : ''}`}
-            developerHref={(login) => `/report/${params.id}/dev/${login}`}
+            developerHref={(login) => withRange(`/report/${params.id}/dev/${login}`, range)}
             collapsible
             expanded={projectsExpanded}
             onExpandedChange={setProjectsExpanded}
@@ -413,6 +413,7 @@ export default function TeamSummaryPage() {
           teams={teams}
           reportId={params.id}
           periodDays={rangeMeta ? rangeMeta.measuredDays : activeReport.period_days}
+          range={range}
         />
       )}
 

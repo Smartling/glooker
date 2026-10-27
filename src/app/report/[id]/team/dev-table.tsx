@@ -191,7 +191,7 @@ export default function DevTable({ developers, reportId, org, filterLogins, rang
             <tr
               key={dev.github_login}
               className="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors cursor-pointer"
-              onClick={() => router.push(`/report/${reportId}/dev/${dev.github_login}`)}
+              onClick={() => router.push(withRange(`/report/${reportId}/dev/${dev.github_login}`, range))}
             >
               <td className="px-4 py-3">
                 <div className="flex items-center gap-3">
