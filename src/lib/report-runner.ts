@@ -1,3 +1,4 @@
+import { upsertPrActivity, recordPrCoverage, reportCoverageSlice } from './pr-activity/store';
 import pLimit from 'p-limit';
 import db from './db/index';
 import { getGitHubProvider, getCommitDetail, type CommitData, type OpenPrInfo } from './github';
@@ -43,6 +44,8 @@ export async function runReport(
   testMode = false,
 ): Promise<void> {
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  // GLOOK-63: the whole days every member's PR searches provably covered this run.
+  const prCoverageSlice = reportCoverageSlice(since, new Date());
   // msg carries integration error text and `org`, both untrusted; logSafe stops
   // a CR/LF payload forging extra lines in the console stream.
   const log = (msg: string) => { addLog(reportId, msg); console.log(`[${reportId.slice(0,8)}] ${logSafe(msg, 2000)}`); };
@@ -227,6 +230,16 @@ export async function runReport(
 
         prCounts.set(member.login, activity.prs.length);
 
+        // GLOOK-63: persist merged PRs so ranges can count each PR once across overlapping reports.
+        // Coverage is recorded only when every PR search for this member was trustworthy.
+        let prSearchTrusted = !activity.prsUnverified;
+        try {
+          await upsertPrActivity(org, member.login, 'authored', activity.prs);
+        } catch (err) {
+          prSearchTrusted = false;
+          log(`@${member.login}: pr_activity (authored) write failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+
         // Fetch PR review count (overlaps with LLM work from previous members)
         try {
           const reviewResult = await github.countReviewedPRs(org, member.login, since, log);
@@ -242,11 +255,24 @@ export async function runReport(
               reason: reviewResult.unverified,
             });
           }
+          if (reviewResult.unverified || reviewResult.itemsComplete !== true) prSearchTrusted = false;
+          try {
+            await upsertPrActivity(org, member.login, 'reviewed', reviewResult.prs ?? []);
+          } catch (err) {
+            prSearchTrusted = false;
+            log(`@${member.login}: pr_activity (reviewed) write failed: ${err instanceof Error ? err.message : String(err)}`);
+          }
         } catch (err) {
+          prSearchTrusted = false;
           reviewCounts.set(member.login, 0);
           const message = err instanceof Error ? err.message : String(err);
           log(`@${member.login} countReviewedPRs failed: ${message}`);
           integrity.recordError({ context: 'other', login: member.login, message });
+        }
+
+        if (prSearchTrusted && prCoverageSlice) {
+          await recordPrCoverage(org, member.login, prCoverageSlice.sinceDate, prCoverageSlice.untilDate, 'report')
+            .catch((err) => log(`@${member.login}: pr coverage write failed: ${err instanceof Error ? err.message : String(err)}`));
         }
 
         // Fetch open PRs for this member (in-flight metadata, not counted in impact)
