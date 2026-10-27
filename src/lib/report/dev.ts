@@ -2,6 +2,7 @@ import db from '@/lib/db';
 import { ReportNotFoundError } from './service';
 import { canonicalCommitIdsSql, aggregateWeekly, anchorWeekFor, completedReportWindows, coveredWeeksFromWindows } from './timeline';
 import { UNMERGED_LOOKBACK_DAYS } from './unmerged-window';
+import { rangeWindow, getRangeDeveloperStats, getRangeCommits, type ReportRange, type RangeMeta } from './range';
 
 export class DeveloperNotFoundError extends Error {
   constructor(login: string) {
@@ -25,7 +26,7 @@ export interface DevModelUsage {
   requests?: number;
 }
 
-export async function getDevReport(reportId: string, login: string) {
+export async function getDevReport(reportId: string, login: string, range: ReportRange = 'current') {
   // Report metadata
   const [reportRows] = await db.execute(
     `SELECT id, org, period_days, status, created_at, completed_at
@@ -52,7 +53,16 @@ export async function getDevReport(reportId: string, login: string) {
     [reportId, login],
   ) as [any[], any];
 
-  if (!devRows.length) {
+  if (!devRows.length && range === 'current') {
+    throw new DeveloperNotFoundError(login);
+  }
+
+  // GLOOK-63: a range developer need not be in the current report (the Team page links to
+  // range-only developers); only a login with neither a current row nor range stats is unknown.
+  const window = range === 'current' ? null : rangeWindow(reportRows[0], range);
+  const rangeRows = window ? await getRangeDeveloperStats(org, window) : [];
+  const me = rangeRows.find(r => r.github_login === login);
+  if (!devRows.length && !me) {
     throw new DeveloperNotFoundError(login);
   }
 
@@ -186,9 +196,9 @@ export async function getDevReport(reportId: string, login: string) {
   const coveredWeeks = coveredWeeksFromWindows(completedReportWindows(allReportIds));
   const anchorWeek = anchorWeekFor(reportRows[0].status, reportRows[0].completed_at, reportRows[0].created_at);
 
-  return {
+  const base = {
     report: reportRows[0],
-    developer: parseDev(devRows[0]),
+    developer: devRows.length ? parseDev(devRows[0]) : undefined,
     allDevelopers: allDevRows,
     commits: commitRows,
     timeline,
@@ -205,5 +215,25 @@ export async function getDevReport(reportId: string, login: string) {
     })),
     coveredWeeks,
     anchorWeek,
+  };
+
+  if (!window) return { ...base, developer: base.developer! };
+
+  // GLOOK-63: KPIs, percentiles and commit list over the range. Timeline, unmerged work, the LLM
+  // summary and Claude Code spend/models/skills stay on the current report.
+  const cur = base.developer;
+  const meta: RangeMeta = {
+    key: range as RangeMeta['key'], since: window.since, until: window.until, days: window.days,
+    measuredDays: me!.measured_days, prCoveredSince: me!.pr_covered_since ?? null,
+  };
+  const developer: any = cur
+    ? { ...me!, cc_total_cost: cur.cc_total_cost, cc_requests: cur.cc_requests, cc_skills_used: cur.cc_skills_used }
+    : { ...me! };
+  return {
+    ...base,
+    developer,
+    allDevelopers: rangeRows as any[],
+    commits: await getRangeCommits(org, login, window) as any[],
+    range: meta,
   };
 }
