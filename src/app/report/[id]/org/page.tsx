@@ -15,7 +15,8 @@ import { StackedTypesChart } from '@/components/charts/stacked-types-chart';
 import { LinesChangedChart } from '@/components/charts/lines-changed-chart';
 import { CommitTypeDonut } from '@/components/charts/commit-type-donut';
 import { typeEntriesFrom } from '@/components/charts/commit-types';
-import { CHART_RANGES, CHART_RANGE_LABELS, chartRangeDays, chartTicks, weekTickFormatter, type ChartRange } from './chart-range';
+import { CHART_RANGES, CHART_RANGE_LABELS, chartRangeDays, chartTicks, weekTickFormatter, type ChartRange } from '@/components/range/chart-range';
+import RangePicker from '@/components/range/RangePicker';
 
 interface WeeklyData {
   week: string; commits: number; prs: number; avgLinesPerPr: number; linesAdded: number; linesRemoved: number;
@@ -252,19 +253,7 @@ export default function OrgDetailPage() {
         <div className="mb-6">
           <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
             <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">Org Activity Over Time (weekly)</p>
-            <div role="group" aria-label="Chart range" className="inline-flex rounded-md border border-gray-800 p-0.5 no-print">
-              {CHART_RANGES.map(r => (
-                <button
-                  key={r}
-                  type="button"
-                  aria-pressed={range === r}
-                  onClick={() => setRange(r)}
-                  className={`px-2.5 py-1 text-xs rounded transition-colors ${range === r ? 'bg-gray-800 text-white' : 'text-gray-500 hover:text-gray-300'}`}
-                >
-                  {CHART_RANGE_LABELS[r]}
-                </button>
-              ))}
-            </div>
+            <RangePicker options={CHART_RANGES} labels={CHART_RANGE_LABELS} value={range} onChange={setRange} ariaLabel="Chart range" />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <TimelineChart
