@@ -9,6 +9,8 @@ interface TeamTableProps {
   developers: AggregatorDeveloper[];
   teams:      AggregatorTeam[];
   reportId:   string;
+  /** Days the aggregates cover; defaults to the 14-day report window. */
+  periodDays?: number;
 }
 
 const SORT_KEYS = [
@@ -19,9 +21,9 @@ const SORT_KEYS = [
 ] as const;
 type SortKey = typeof SORT_KEYS[number];
 
-export default function TeamTable({ developers, teams, reportId }: TeamTableProps) {
+export default function TeamTable({ developers, teams, reportId, periodDays = 14 }: TeamTableProps) {
   const router = useRouter();
-  const rows: TeamRow[] = useMemo(() => aggregateTeams(developers, teams), [developers, teams]);
+  const rows: TeamRow[] = useMemo(() => aggregateTeams(developers, teams, periodDays), [developers, teams, periodDays]);
 
   // URL-stated so sort survives reload and shareable links.
   const [sortKey, setSortKey] = useUrlState<SortKey>({
