@@ -118,8 +118,18 @@ export function createMockGitHubProvider(): GitHubProvider {
       };
     },
 
-    async countReviewedPRs() {
-      return { reviews: Math.floor(Math.random() * 15) };
+    async countReviewedPRs(_org, _user, since) {
+      const reviews = Math.floor(Math.random() * 15);
+      const start = since.getTime();
+      const prs = Array.from({ length: reviews }, (_, i) => ({
+        number: 9000 + i, title: `Mock reviewed PR ${i}`, repo: 'api-gateway',
+        mergedAt: new Date(start + (i + 1) * 3_600_000).toISOString(),
+      }));
+      return { reviews, prs, itemsComplete: true };
+    },
+
+    async fetchMergedPRs() {
+      return { prs: [] };
     },
 
     async fetchOpenPRs(_org, user, _since, log) {
