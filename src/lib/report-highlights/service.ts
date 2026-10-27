@@ -2,6 +2,7 @@ import db from '../db/index';
 import { getLLMClient, LLM_MODEL, extraBodyProps, tokenLimit, promptTag, samplingParams } from '../llm-provider';
 import { loadPrompt } from '../prompt-loader';
 import { getAppConfig } from '../app-config/service';
+import { competitionRanks } from '@/lib/ranking';
 
 export async function getReportHighlights() {
   // 1. Find the latest completed report
@@ -84,8 +85,10 @@ export async function getReportHighlights() {
   ) as [any[], any];
 
   // Compute deltas
-  const mapA = new Map(statsA.map((d: any, i: number) => [d.github_login, { ...d, rank: i + 1 }]));
-  const mapB = new Map(statsB.map((d: any, i: number) => [d.github_login, { ...d, rank: i + 1 }]));
+  const ranksA = competitionRanks(statsA, (d: any) => d.impact_score);
+  const ranksB = competitionRanks(statsB, (d: any) => d.impact_score);
+  const mapA = new Map(statsA.map((d: any, i: number) => [d.github_login, { ...d, rank: ranksA[i] }]));
+  const mapB = new Map(statsB.map((d: any, i: number) => [d.github_login, { ...d, rank: ranksB[i] }]));
 
   const allLogins = new Set([...mapA.keys(), ...mapB.keys()]);
   const newDevs = [...allLogins].filter(l => !mapA.has(l) && mapB.has(l));

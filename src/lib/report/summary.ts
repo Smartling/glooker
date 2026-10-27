@@ -6,6 +6,7 @@ import { ReportNotFoundError } from './service';
 import { DeveloperNotFoundError } from './dev';
 import { canonicalCommitIdsSql } from './timeline';
 import { UNMERGED_LOOKBACK_DAYS } from './unmerged-window';
+import { rankOfValue } from '@/lib/ranking';
 
 interface UnmergedPrSummary { title: string; updatedAt: string; createdAt: string; draft: boolean; }
 interface UnmergedCommitSummary { message: string; repo: string; committedAt: string; }
@@ -108,11 +109,13 @@ export async function getDevSummary(reportId: string, login: string) {
   }
 
   const dev = allDevs[devIdx];
-  const rank = devIdx + 1;
+  const rank = rankOfValue(allDevs.map((d: any) => d.impact_score), dev.impact_score);
   const totalDevs = allDevs.length;
 
   // Devs above (up to 3 positions above)
-  const devsAbove = allDevs.slice(Math.max(0, devIdx - 3), devIdx);
+  // Only developers strictly ahead (a tie shares the place, so tied peers are not "above").
+  const strictlyAbove = allDevs.filter((d: any) => Number(d.impact_score) > Number(dev.impact_score));
+  const devsAbove = strictlyAbove.slice(-3);
 
   // Get this dev's commits split by recent 7 days vs prior 7 days
   const [allReportIds] = await db.execute(
@@ -197,7 +200,7 @@ export async function getDevSummary(reportId: string, login: string) {
   const systemPrompt = loadPrompt('report-summary-system.txt');
 
   const devsAboveSection = devsAbove.length > 0
-    ? `Developers ranked above (anonymous, for comparison only):\n${devsAbove.map((d, i) => `  ${formatDev({ ...d, rank: rank - devsAbove.length + i }, true)}`).join('\n')}`
+    ? `Developers ranked above (anonymous, for comparison only):\n${devsAbove.map((d, i) => `  ${formatDev({ ...d, rank: rankOfValue(allDevs.map((a: any) => a.impact_score), d.impact_score) }, true)}`).join('\n')}`
     : 'This developer is #1 — no one above them.';
 
   const userMessage = loadPrompt('report-summary-user.txt', {

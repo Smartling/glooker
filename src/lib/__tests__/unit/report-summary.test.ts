@@ -251,6 +251,44 @@ describe('getDevSummary', () => {
     });
   });
 
+  describe('tied impact scores', () => {
+    const dev = (login: string, impact: string) => ({ ...devRow, github_login: login, github_name: login, impact_score: impact });
+    // bob and carol tie for first; alice and dave tie behind them.
+    const allDevs = [dev('bob', '9.0'), dev('carol', '9.0'), dev('alice', '5.0'), dev('dave', '5.0')];
+
+    async function run(login: string) {
+      const createFn = jest.fn().mockResolvedValue({
+        choices: [{ message: { content: JSON.stringify(llmResponse) } }],
+      });
+      mockGetLLMClient.mockResolvedValue({ chat: { completions: { create: createFn } } });
+      mockDbExecute
+        .mockResolvedValueOnce([[], null])
+        .mockResolvedValueOnce([[reportRow], null])
+        .mockResolvedValueOnce([allDevs, null])
+        .mockResolvedValueOnce([[{ id: 'report-1' }], null])
+        .mockResolvedValueOnce([[commitRow], null])
+        .mockResolvedValueOnce([[], null])
+        .mockResolvedValueOnce([[], null])
+        .mockResolvedValueOnce([{ affectedRows: 1 }, null]);
+      await getDevSummary('report-1', login);
+      return createFn.mock.calls[0][0].messages.find((m: any) => m.role === 'user').content as string;
+    }
+
+    it('a developer tied for first is 1st with no one above', async () => {
+      const msg = await run('carol');
+      expect(msg).toContain('Rank: 1st (top of leaderboard)');
+      expect(msg).toContain('This developer is #1');
+    });
+
+    it('ranks behind a tie skip the places the tie took, and tied peers are not "above"', async () => {
+      const msg = await run('dave');
+      expect(msg).toContain('Rank: 3rd');
+      const above = msg.split('Developers ranked above')[1];
+      expect(above.match(/rank #1:/g)).toHaveLength(2);   // bob and carol, both place 1
+      expect(above).not.toContain('rank #3');             // alice (tied with dave) is not listed
+    });
+  });
+
   describe('error cases', () => {
     it('throws ReportNotFoundError when report is missing', async () => {
       mockDbExecute

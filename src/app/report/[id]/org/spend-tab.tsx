@@ -5,6 +5,7 @@ import type { useRouter } from 'next/navigation';
 import type { RunMetadata } from '@/lib/report-runner/types';
 import { SpendImpactScatter } from '@/components/charts/spend-impact-scatter';
 import { toNum } from '@/components/charts/chart-format';
+import { competitionRanks } from '@/lib/ranking';
 
 export interface Developer {
   github_login: string; github_name: string; avatar_url: string;
@@ -198,6 +199,7 @@ export function SpendTab({ developers, reportId, router, report, spendWindow, mo
 
   const displayCount = showCount === 'all' ? withSpend.length : showCount;
   const visibleDevs = withSpend.slice(0, displayCount);
+  const spendRanks = competitionRanks(visibleDevs, d => d.cc_total_cost);
   const hiddenDevs = withSpend.slice(displayCount);
   const hiddenTotal = hiddenDevs.reduce((s, d) => s + Number(d.cc_total_cost ?? 0), 0);
 
@@ -470,7 +472,7 @@ export function SpendTab({ developers, reportId, router, report, spendWindow, mo
                   className="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors cursor-pointer"
                   onClick={() => router.push(`/report/${reportId}/dev/${dev.github_login}`)}
                 >
-                  <td className="px-4 py-3 text-gray-600 text-xs">{i + 1}</td>
+                  <td className="px-4 py-3 text-gray-600 text-xs">{spendRanks[i]}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
                       {dev.avatar_url && <img src={dev.avatar_url} alt="" className="w-6 h-6 rounded-full shrink-0" />}
