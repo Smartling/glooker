@@ -12,7 +12,11 @@ jest.mock('@/lib/github', () => ({
 jest.mock('@/lib/analyzer');
 jest.mock('@/lib/db/index', () => ({
   __esModule: true,
-  default: { execute: jest.fn().mockResolvedValue([[], null]) },
+  default: (() => {
+    const mockDb: any = { execute: jest.fn().mockResolvedValue([[], null]) };
+    mockDb.transaction = async (fn: (tx: any) => Promise<unknown>) => fn(mockDb);
+    return mockDb;
+  })(),
 }));
 jest.mock('@/lib/progress-store');
 jest.mock('p-limit', () => ({
@@ -522,7 +526,9 @@ describe('runReport', () => {
 
     it('upserts authored and reviewed PR rows with the org', async () => {
       await runReport('rp1', 'my-org', 14);
-      const rows = sqlCalls('INSERT INTO pr_activity').map((c: any[]) => c[1]);
+      // Multi-row INSERTs: six params per row.
+      const rows = sqlCalls('INSERT INTO pr_activity').flatMap((c: any[]) =>
+        Array.from({ length: c[1].length / 6 }, (_, i) => c[1].slice(i * 6, i * 6 + 6)));
       expect(rows).toEqual(expect.arrayContaining([
         ['my-org', 'alice', 'authored', 'my-repo', 1, '2025-01-15T00:00:00.000Z'],
         ['my-org', 'alice', 'reviewed', 'other', 9, '2025-01-16T00:00:00.000Z'],

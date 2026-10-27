@@ -7,23 +7,36 @@ export type PrActivityKind = 'authored' | 'reviewed';
 const DAY_MS = 86_400_000;
 const isoDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
-/** Upsert PR rows; returns how many were written. Rows without a repo or a parseable merge time are skipped. */
+/** Rows per multi-row INSERT: well under MySQL's packet limit and SQLite's 32k-variable cap. */
+export const PR_ACTIVITY_BATCH = 200;
+
+/**
+ * Upsert PR rows; returns how many were written. Rows without a repo or a parseable merge time are
+ * skipped. Written as multi-row INSERTs of PR_ACTIVITY_BATCH rows inside one transaction, so a
+ * heavy reviewer costs a few statements instead of one per PR, and a failure writes nothing.
+ */
 export async function upsertPrActivity(
   org: string, login: string, kind: PrActivityKind, prs: PRInfo[],
 ): Promise<number> {
-  let written = 0;
+  const rows: unknown[][] = [];
   for (const pr of prs) {
     const t = Date.parse(pr.mergedAt);
     if (!pr.repo || !Number.isFinite(t)) continue;
-    await db.execute(
-      `INSERT INTO pr_activity (org, github_login, kind, repo, pr_number, merged_at)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE merged_at = VALUES(merged_at)`,
-      [org, login, kind, pr.repo, pr.number, new Date(t).toISOString()],
-    );
-    written++;
+    rows.push([org, login, kind, pr.repo, pr.number, new Date(t).toISOString()]);
   }
-  return written;
+  if (rows.length === 0) return 0;
+  await db.transaction(async (tx) => {
+    for (let i = 0; i < rows.length; i += PR_ACTIVITY_BATCH) {
+      const chunk = rows.slice(i, i + PR_ACTIVITY_BATCH);
+      await tx.execute(
+        `INSERT INTO pr_activity (org, github_login, kind, repo, pr_number, merged_at)
+         VALUES ${chunk.map(() => '(?, ?, ?, ?, ?, ?)').join(', ')}
+         ON DUPLICATE KEY UPDATE merged_at = VALUES(merged_at)`,
+        chunk.flat(),
+      );
+    }
+  });
+  return rows.length;
 }
 
 /** Record that [sinceDate, untilDate) of this login's PR data is complete. Idempotent. */
