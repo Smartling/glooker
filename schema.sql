@@ -315,6 +315,30 @@ CREATE TABLE IF NOT EXISTS team_pulse_summaries (
   UNIQUE KEY uq_report_team_pulse (report_id, team_name)
 );
 
+-- GLOOK-63: merged PRs authored/reviewed, one row per PR per developer. No FK to reports:
+-- PR history outlives reports. merged_at is an ISO string.
+CREATE TABLE IF NOT EXISTS pr_activity (
+  org          VARCHAR(128) NOT NULL,
+  github_login VARCHAR(128) NOT NULL,
+  kind         VARCHAR(16)  NOT NULL,
+  repo         VARCHAR(200) NOT NULL,
+  pr_number    INT          NOT NULL,
+  merged_at    VARCHAR(32)  NOT NULL,
+  PRIMARY KEY (org, github_login, kind, repo, pr_number),
+  KEY idx_pr_activity_org_merged (org, merged_at)
+);
+
+-- GLOOK-63: which (org, login, [since_date, until_date)) slices of PR data are complete.
+-- Column names avoid UNTIL, a MySQL reserved word.
+CREATE TABLE IF NOT EXISTS pr_activity_coverage (
+  org          VARCHAR(128) NOT NULL,
+  github_login VARCHAR(128) NOT NULL,
+  since_date   VARCHAR(10)  NOT NULL,
+  until_date   VARCHAR(10)  NOT NULL,
+  source       VARCHAR(16)  NOT NULL,
+  PRIMARY KEY (org, github_login, since_date, until_date)
+);
+
 CREATE INDEX idx_devstats_login ON developer_stats(github_login);
 CREATE INDEX idx_reports_org_status_created ON reports(org, status, created_at);
 CREATE INDEX idx_ca_login_report ON commit_analyses(github_login, report_id, commit_sha, complexity);

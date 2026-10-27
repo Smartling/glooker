@@ -45,6 +45,8 @@ async function main() {
   await seed('unmerged_commits', data.seedUnmergedCommits);
   await seed('cc_skills_usage', data.seedCcSkillsUsage);
   await seed('cc_model_usage', data.seedCcModelUsage);
+  await seed('pr_activity', data.seedPrActivity);
+  await seed('pr_activity_coverage', data.seedPrActivityCoverage);
 
   const { seedVulnerabilities } = await import('./seed-vulnerabilities');
   await seedVulnerabilities(db);

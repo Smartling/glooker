@@ -374,6 +374,26 @@ CREATE TABLE IF NOT EXISTS cc_model_usage (
   UNIQUE (report_id, github_login, model)
 );
 
+CREATE TABLE IF NOT EXISTS pr_activity (
+  org          TEXT    NOT NULL,
+  github_login TEXT    NOT NULL,
+  kind         TEXT    NOT NULL,
+  repo         TEXT    NOT NULL,
+  pr_number    INTEGER NOT NULL,
+  merged_at    TEXT    NOT NULL,
+  PRIMARY KEY (org, github_login, kind, repo, pr_number)
+);
+CREATE INDEX IF NOT EXISTS idx_pr_activity_org_merged ON pr_activity(org, merged_at);
+
+CREATE TABLE IF NOT EXISTS pr_activity_coverage (
+  org          TEXT NOT NULL,
+  github_login TEXT NOT NULL,
+  since_date   TEXT NOT NULL,
+  until_date   TEXT NOT NULL,
+  source       TEXT NOT NULL,
+  PRIMARY KEY (org, github_login, since_date, until_date)
+);
+
 CREATE INDEX IF NOT EXISTS idx_devstats_login ON developer_stats(github_login);
 CREATE INDEX IF NOT EXISTS idx_reports_org_status_created ON reports(org, status, created_at);
 CREATE INDEX IF NOT EXISTS idx_ca_login_report ON commit_analyses(github_login, report_id, commit_sha, complexity);
@@ -596,6 +616,8 @@ export function translateSQL(sql: string): string {
       report_skip_allowlist: 'github_login',
       vulnerability_repos: 'repo_id',
       vulnerability_alerts: 'repo_id, number',
+      pr_activity: 'org, github_login, kind, repo, pr_number',
+      pr_activity_coverage: 'org, github_login, since_date, until_date',
     };
     const conflict = conflictCols[table] || 'id';
 
