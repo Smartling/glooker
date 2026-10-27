@@ -79,3 +79,12 @@ it('getDevReport: a login with no current row and no range stats is not found', 
   await expect(getDevReport('r2', 'nobody', '90d')).rejects.toThrow(/Developer not found/);
   await expect(getDevReport('r2', 'carol')).rejects.toThrow(/Developer not found/);
 });
+
+it('getDevReport range with no overlapping completed report: current developer gets zero figures, not a 500', async () => {
+  await db.execute(`INSERT INTO reports (id, org, period_days, status, created_at) VALUES ('r3', 'solo', 14, 'running', '2026-10-05T12:00:00Z')`);
+  await db.execute(`INSERT INTO developer_stats (report_id, github_login, github_name, total_commits, impact_score, cc_total_cost) VALUES ('r3', 'dana', 'Dana', 7, 5, 99)`);
+  const res = await getDevReport('r3', 'dana', '90d');
+  expect(res.developer).toMatchObject({ github_login: 'dana', total_commits: 0, total_prs: 0, lines_added: 0, cc_total_cost: 99 });
+  expect(res.range).toMatchObject({ key: '90d', measuredDays: 0, prCoveredSince: null });
+  expect(res.commits).toEqual([]);
+});

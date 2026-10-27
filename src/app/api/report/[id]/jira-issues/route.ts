@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getJiraIssues } from '@/lib/jira';
-import { parseRange, loadReportRangeWindow, getRangeJiraIssues } from '@/lib/report/range';
+import { parseRange } from '@/lib/report/range-options';
+import { loadReportRangeWindow, getRangeJiraIssues } from '@/lib/report/range';
 import { withRequestLog } from '@/lib/logger';
 
 async function getHandler(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
