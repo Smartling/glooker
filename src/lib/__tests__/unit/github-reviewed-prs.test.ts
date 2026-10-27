@@ -92,8 +92,19 @@ describe('searchUserMergedPRs with until (GLOOK-63)', () => {
     const r = await drain(searchUserMergedPRs('acme', 'alice', new Date('2026-03-01T00:00:00Z'), undefined, new Date('2026-03-31T00:00:00Z')));
     expect(calls[0].q).toBe('org:acme type:pr is:merged author:alice merged:2026-03-01..2026-03-31');
     expect(r.prs).toHaveLength(2);
+    expect(r.itemsComplete).toBe(true);
 
     stubPages([{ total_count: 4, incomplete_results: false, items: [] }]);
     await expect(drain(searchUserMergedPRs('acme', 'alice', SINCE))).rejects.toThrow(/counted 4 PRs but delivered none/);
+  });
+
+  it('past the 1000-result cap the rows are truncated, so itemsComplete is false (no raise)', async () => {
+    const pages = Array.from({ length: 10 }, (_, i) => page(1500, i * 100 + 1, 100));
+    const calls = stubPages(pages);
+    const r = await drain(searchUserMergedPRs('acme', 'alice', SINCE));
+    expect(calls).toHaveLength(10);
+    expect(r.prs).toHaveLength(1000);
+    expect(r.itemsComplete).toBe(false);
+    expect(r.unverified).toBeUndefined();
   });
 });

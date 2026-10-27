@@ -60,6 +60,7 @@ export async function backfillPrs(opts: {
         await upsertPrActivity(org, login, 'authored', authored.prs);
         await upsertPrActivity(org, login, 'reviewed', reviewed.prs);
         const doubt = authored.unverified ?? reviewed.unverified
+          ?? (authored.itemsComplete === false ? `authored rows truncated at the search cap (${authored.prs.length})` : undefined)
           ?? (reviewed.itemsComplete ? undefined : `review rows incomplete (${reviewed.prs.length} of ${reviewed.reviews})`);
         if (doubt) {
           result.failed.push({ login, since, until, error: `not provably complete: ${doubt}` });

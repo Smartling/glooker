@@ -133,7 +133,7 @@ export function createMockGitHubProvider(): GitHubProvider {
       const start = since.getTime();
       const end = (until ?? new Date()).getTime();
       const span = end - start;
-      if (!(span > 0)) return { prs: [] };
+      if (!(span > 0)) return { prs: [], itemsComplete: true };
       const seed = String(user).split('').reduce((n, c) => n + c.charCodeAt(0), 0);
       const prs = Array.from({ length: 3 }, (_, i) => ({
         number: 5000 + (seed % 100) * 10 + i,
@@ -141,7 +141,7 @@ export function createMockGitHubProvider(): GitHubProvider {
         repo: 'api-gateway',
         mergedAt: new Date(start + Math.floor((span * (i + 1)) / 4)).toISOString(),
       }));
-      return { prs };
+      return { prs, itemsComplete: true };
     },
 
     async fetchOpenPRs(_org, user, _since, log) {

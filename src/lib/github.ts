@@ -92,6 +92,15 @@ export interface UserActivity {
    * uncertainty is recorded, rather than skipping the member outright.
    */
   prsUnverified?: string;
+  /** GLOOK-63: false when the merged-PR rows were truncated at the 1000-result search cap. */
+  prsItemsComplete?: boolean;
+}
+
+/** GLOOK-63: merged PRs authored. `itemsComplete` is false when total_count exceeds the search cap. */
+export interface MergedPRsResult {
+  prs: PRInfo[];
+  itemsComplete: boolean;
+  unverified?: string;
 }
 
 /** GLOOK-63: reviewed PRs as rows, plus the review count that total_reviews has always stored. */
@@ -109,7 +118,7 @@ export interface GitHubProvider extends VulnerabilitySource {
   fetchUserActivity(org: string, user: string, since: Date, log?: (msg: string) => void): Promise<UserActivity>;
   listOrgs(): Promise<Array<{ login: string; avatar_url: string }>>;
   countReviewedPRs(org: string, user: string, since: Date, log?: (msg: string) => void, until?: Date): Promise<ReviewedPRsResult>;
-  fetchMergedPRs(org: string, user: string, since: Date, log?: (msg: string) => void, until?: Date): Promise<{ prs: PRInfo[]; unverified?: string }>;
+  fetchMergedPRs(org: string, user: string, since: Date, log?: (msg: string) => void, until?: Date): Promise<MergedPRsResult>;
   fetchOpenPRs(org: string, user: string, since: Date, log?: (msg: string) => void): Promise<OpenPrInfo[]>;
   isCommitInDefaultBranch(owner: string, repo: string, sha: string): Promise<boolean>;
   fetchRepoEvents(owner: string, repo: string, log?: (msg: string) => void): Promise<RepoEvent[]>;
@@ -746,7 +755,7 @@ export async function searchUserMergedPRs(
   since: Date,
   log?:  (msg: string) => void,
   until?: Date,
-): Promise<{ prs: PRInfo[]; unverified?: string }> {
+): Promise<MergedPRsResult> {
   const query = `org:${org} type:pr is:merged author:${user} ${mergedDateClause(since, until, '>=')}`;
   const prs: PRInfo[] = [];
 
@@ -797,10 +806,10 @@ export async function searchUserMergedPRs(
       const unverified =
         `merged-PR search timed out on an empty result (page ${page}); kept 0 as unverified`;
       log?.(`[search] merged-prs @${user} UNVERIFIED ${unverified}`);
-      return { prs, unverified };
+      return { prs, itemsComplete: true, unverified };
     }
 
-    if (page === 1 && data.total_count === 0) return { prs: [] };
+    if (page === 1 && data.total_count === 0) return { prs: [], itemsComplete: true };
 
     prs.push(...toPRInfos(data.items as any[]));
     // Same 1000-result ceiling as the commit search: paging past it returns
@@ -818,7 +827,11 @@ export async function searchUserMergedPRs(
       `GitHub merged-PR search under-delivered for @${user}: got ${prs.length} of ${owed}`,
     );
   }
-  return { prs };
+  // Past the cap GitHub won't page, so the rows are a truncated set that would otherwise look
+  // complete: flag it so PR coverage is withheld (the runner's count stays as before).
+  const itemsComplete = (expectedTotal ?? 0) <= SEARCH_RESULT_CAP;
+  if (!itemsComplete) log?.(`[search] merged-prs @${user} TRUNCATED ${prs.length} of ${expectedTotal} (search cap)`);
+  return { prs, itemsComplete };
 }
 
 // ---------- Commit detail (diff) ----------
@@ -1005,6 +1018,7 @@ export async function fetchUserActivity(
     prs,
     commitsShortfall: commitResult.shortfall,
     prsUnverified:    prResult.unverified,
+    prsItemsComplete: prResult.itemsComplete,
   };
 }
 

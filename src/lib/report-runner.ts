@@ -232,7 +232,7 @@ export async function runReport(
 
         // GLOOK-63: persist merged PRs so ranges can count each PR once across overlapping reports.
         // Coverage is recorded only when every PR search for this member was trustworthy.
-        let prSearchTrusted = !activity.prsUnverified;
+        let prSearchTrusted = !activity.prsUnverified && activity.prsItemsComplete !== false;
         try {
           await upsertPrActivity(org, member.login, 'authored', activity.prs);
         } catch (err) {
