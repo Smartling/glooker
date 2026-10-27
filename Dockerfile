@@ -6,7 +6,7 @@
 # Next 16 requires >=20.9.0; 22 is the supported LTS. The digest makes the build
 # reproducible and stops a retagged or compromised upstream being picked up
 # silently.
-FROM node:22.23.3-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS base
+FROM node:22.23.4-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS base
 
 # Install dependencies for better-sqlite3
 RUN apk add --no-cache python3 make g++
@@ -31,7 +31,7 @@ ENV COMMIT_SHA=$COMMIT_SHA
 RUN npm run build
 
 # Production
-FROM node:22.23.3-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS runner
+FROM node:22.23.4-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS runner
 # Only the C++ runtime is needed for better-sqlite3 (not the compiler toolchain).
 # The server runs `node server.js` and never uses a package manager, so drop the
 # npm/npx/corepack/yarn bundled with the base image: their vendored dependencies were
