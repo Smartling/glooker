@@ -56,9 +56,11 @@ export default function TeamSummaryPage() {
   const { data: reportData, isLoading } = useSWR(withRange(`/api/report/${params.id}`, range), { keepPreviousData: true });
   const developers: Developer[] = reportData?.developers ?? [];
   const activeReport: Report | null = reportData?.report ?? null;
-  const rangeMeta: RangeMeta | null = range === 'current' ? null : (reportData?.range ?? null);
+  // Labels follow the payload actually on screen (keepPreviousData can hold the previous range's data).
+  const payloadRange: ReportRange = reportData?.range?.key ?? 'current';
+  const rangeMeta: RangeMeta | null = payloadRange === 'current' ? null : (reportData?.range ?? null);
   const notes = rangeNotes(rangeMeta);
-  const periodLabel = range === 'current' ? `${activeReport?.period_days ?? ''}d` : range;
+  const periodLabel = payloadRange === 'current' ? `${activeReport?.period_days ?? ''}d` : payloadRange;
 
   // Teams (dependent on org from report)
   const org = activeReport?.org;
@@ -190,7 +192,7 @@ export default function TeamSummaryPage() {
               onClick={() => router.push(`/report/${activeReport!.id}/org`)}
             >{activeReport.org}</span>
           }
-          meta={<>{range === 'current' ? `last ${activeReport.period_days} days` : RANGE_LABELS[range]} &middot; {developers.length} developers</>}
+          meta={<>{payloadRange === 'current' ? `last ${activeReport.period_days} days` : RANGE_LABELS[payloadRange]} &middot; {developers.length} developers</>}
           badges={activeReport.run_metadata?.state !== 'failed' && (
             <IntegrityBadge metadata={activeReport.run_metadata ?? null} />
           )}
@@ -385,7 +387,7 @@ export default function TeamSummaryPage() {
             projects={teamPulse?.projects ?? []}
             loading={projectsExpanded && teamPulseLoading && !teamPulse}
             title="Current Projects"
-            subtitle={`${selectedTeamName} · ${activeReport!.period_days}d${range !== 'current' ? ' · Current report' : ''}`}
+            subtitle={`${selectedTeamName} · ${activeReport!.period_days}d${payloadRange !== 'current' ? ' · Current report' : ''}`}
             developerHref={(login) => `/report/${params.id}/dev/${login}`}
             collapsible
             expanded={projectsExpanded}

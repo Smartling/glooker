@@ -71,3 +71,18 @@ it('the team table aggregates with the range\'s measured days', () => {
   render(<TeamSummaryPage />);
   expect(mockTableProps.team.periodDays).toBe(212);
 });
+
+it('labels follow the payload on screen when the selected range has not loaded yet', () => {
+  // 12m selected, but keepPreviousData still serves the 90d payload.
+  mockUrl = { range: '12m', team: 'Core', view: 'individuals' };
+  mockSwrData['/api/report/r1?range=12m'] = {
+    report: REPORT, developers: [DEV],
+    range: { key: '90d', since: '2026-07-30', until: '2026-10-28', days: 90, measuredDays: 60, prCoveredSince: null },
+  };
+  render(<TeamSummaryPage />);
+  expect(screen.getByText('60 of 90 days measured')).toBeTruthy();
+  expect(screen.getByText(/Past 90 days\s*·/)).toBeTruthy();
+  expect(screen.queryByText(/365/)).toBeNull();
+  // The picker still shows the selected range.
+  expect(mockTableProps.dev.range).toBe('12m');
+});

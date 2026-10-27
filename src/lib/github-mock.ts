@@ -128,8 +128,20 @@ export function createMockGitHubProvider(): GitHubProvider {
       return { reviews, prs, itemsComplete: true };
     },
 
-    async fetchMergedPRs() {
-      return { prs: [] };
+    async fetchMergedPRs(_org, user, since, _log, until) {
+      // Deterministic per login, all inside [since, until) so backfill/range runs have authored PRs.
+      const start = since.getTime();
+      const end = (until ?? new Date()).getTime();
+      const span = end - start;
+      if (!(span > 0)) return { prs: [] };
+      const seed = String(user).split('').reduce((n, c) => n + c.charCodeAt(0), 0);
+      const prs = Array.from({ length: 3 }, (_, i) => ({
+        number: 5000 + (seed % 100) * 10 + i,
+        title: `Mock merged PR ${i + 1} by ${user}`,
+        repo: 'api-gateway',
+        mergedAt: new Date(start + Math.floor((span * (i + 1)) / 4)).toISOString(),
+      }));
+      return { prs };
     },
 
     async fetchOpenPRs(_org, user, _since, log) {

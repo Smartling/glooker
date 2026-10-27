@@ -57,13 +57,13 @@ export interface RangeDeveloperRow {
   pr_covered_since: string | null;
 }
 
-const ORG_REPORTS = { subquery: 'SELECT id FROM reports WHERE org = ?' };
+const ORG_REPORTS = { subquery: "SELECT id FROM reports WHERE org = ? AND status = 'completed'" };
 const dayMs = (iso: string) => Date.parse(`${iso}T00:00:00Z`);
 
 /** One jira_issues id per issue_key (the latest copy) among the org's reports. */
 function canonicalJiraIdsSql(): string {
   return `SELECT MAX(id) AS id FROM jira_issues
-          WHERE report_id IN (SELECT id FROM reports WHERE org = ?)
+          WHERE report_id IN (SELECT id FROM reports WHERE org = ? AND status = 'completed')
           GROUP BY issue_key`;
 }
 

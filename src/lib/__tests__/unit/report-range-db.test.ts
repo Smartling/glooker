@@ -43,6 +43,19 @@ beforeAll(async () => {
     await db.execute(`INSERT INTO developer_stats (report_id, github_login, github_name, avatar_url) VALUES (?, 'alice', ?, 'a.png')`, [id, `Alice ${id}`]);
   }
   await db.execute(`INSERT INTO developer_stats (report_id, github_login, github_name) VALUES ('x1', 'alice', 'Other')`);
+  // Failed and running reports in the range: their rows must never be counted.
+  for (const [id, status] of [['f1', 'failed'], ['p1', 'running']]) {
+    await db.execute(
+      `INSERT INTO reports (id, org, period_days, status, created_at, completed_at) VALUES (?, 'acme', 14, ?, '2026-10-04T12:00:00Z', '2026-10-04T13:00:00Z')`,
+      [id, status],
+    );
+    await db.execute(
+      `INSERT INTO commit_analyses (report_id, github_login, repo, commit_sha, complexity, type, lines_added, lines_removed, committed_at, pr_number, ai_co_authored, maybe_ai)
+       VALUES (?, 'alice', 'app', ?, 4, 'feature', 10, 2, '2026-09-25T10:00:00Z', 7, 0, 1)`, [id, `bad-${id}`]);
+    await db.execute(
+      `INSERT INTO jira_issues (report_id, github_login, jira_account_id, issue_key, project_key, story_points, resolved_at)
+       VALUES (?, 'alice', 'acc', ?, 'J', 3, '2026-09-26T10:00:00Z')`, [id, `J-BAD-${id}`]);
+  }
 
   const commit = (rid: string, sha: string, at: string) => db.execute(
     `INSERT INTO commit_analyses (report_id, github_login, repo, commit_sha, complexity, type, lines_added, lines_removed, committed_at, pr_number, ai_co_authored, maybe_ai)
@@ -118,6 +131,16 @@ describe('range drill-downs', () => {
   it('getRangeCommits returns one row per commit, in range only', async () => {
     const rows = await range.getRangeCommits('acme', 'alice', WINDOW);
     expect(rows.map((r: any) => r.commit_sha)).toEqual(['aaa']);
+  });
+  it('ignores commits and issues that exist only in failed or running reports', async () => {
+    const commits = await range.getRangeCommits('acme', 'alice', WINDOW);
+    expect(commits.map((r: any) => r.commit_sha)).not.toEqual(expect.arrayContaining(['bad-f1']));
+    expect(commits.map((r: any) => r.commit_sha)).toEqual(['aaa']);
+    const issues = await range.getRangeJiraIssues('acme', 'alice', WINDOW);
+    expect(issues.map((r: any) => r.issue_key)).toEqual(['J-1']);
+    const [a] = await range.getRangeDeveloperStats('acme', WINDOW);
+    expect(a.total_commits).toBe(1);
+    expect(a.total_jira_issues).toBe(1);
   });
   it('getRangeJiraIssues returns one row per issue key, in range only', async () => {
     const rows = await range.getRangeJiraIssues('acme', 'alice', WINDOW);
