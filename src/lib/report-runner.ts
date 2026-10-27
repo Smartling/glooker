@@ -124,7 +124,7 @@ export async function runReport(
       // Attach review counts (already fetched during per-member loop)
       for (const s of memStats) {
         s.totalReviews = reviewCounts.get(s.githubLogin) || 0;
-        s.impactScore = computeImpactScore(s);
+        s.impactScore = computeImpactScore({ ...s, periodDays: days });
       }
 
       // Save developer_stats to DB immediately (progressive)
@@ -665,7 +665,7 @@ export async function runReport(
       s.totalReviews = reviewCounts.get(s.githubLogin) || 0;
 
       // Recalculate impact score with Jira + reviews
-      s.impactScore = computeImpactScore(s);
+      s.impactScore = computeImpactScore({ ...s, periodDays: days });
     }
 
     for (const s of stats) {

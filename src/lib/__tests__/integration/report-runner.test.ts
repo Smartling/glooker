@@ -124,6 +124,20 @@ describe('runReport', () => {
     expect(completedCall).toBeTruthy();
   });
 
+  it('scores with the report period (GLOOK-63): a 28-day report scales caps', async () => {
+    const finalImpact = () => {
+      const calls = mockDbExecute.mock.calls.filter(
+        (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO developer_stats') && c[1][1] === 'alice',
+      );
+      return Number(calls[calls.length - 1][1][9]); // impact_score param
+    };
+    await runReport('r-14', 'my-org', 14);
+    const at14 = finalImpact();
+    mockDbExecute.mockClear();
+    await runReport('r-28', 'my-org', 28);
+    expect(finalImpact()).toBeLessThan(at14);
+  });
+
   it('deduplicates shared commit SHAs across members', async () => {
     const sharedCommit = makeCommit({ sha: 'shared-sha', author: 'alice', authorName: 'alice' });
     mockFetchUserActivity.mockImplementation(async (_org: string, user: string) => ({
