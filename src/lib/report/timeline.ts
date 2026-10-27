@@ -81,6 +81,16 @@ export function completedReportWindows(
 }
 
 /**
+ * GLOOK-63: true when a completed report's searched window [completedAt − periodDays, createdAt]
+ * overlaps [sinceMs, untilMs). An empty or inverted window never overlaps.
+ */
+export function windowOverlaps(w: CoverageWindow, sinceMs: number, untilMs: number): boolean {
+  const start = w.completedAt.getTime() - Number(w.periodDays) * 86_400_000;
+  const end = w.createdAt.getTime();
+  return start < end && start < untilMs && end > sinceMs;
+}
+
+/**
  * GLOOK-58 Decision 15: the UTC Monday keys of every week all 7 of whose UTC days lie wholly inside
  * the UNION of the windows [completedAt − periodDays, createdAt]. The windows are merged as time
  * intervals first, so two windows that meet (or overlap) mid-day form one continuous interval and

@@ -1,6 +1,6 @@
 import db from '@/lib/db';
 import { computeImpactScore } from '@/lib/impact-score';
-import { canonicalCommitIdsSql, completedReportWindows, measuredDaysInWindow, unionDayCount } from './timeline';
+import { canonicalCommitIdsSql, completedReportWindows, measuredDaysInWindow, unionDayCount, windowOverlaps } from './timeline';
 import { RANGE_DAYS, type ReportRangeKey } from './range-options';
 
 export * from './range-options';
@@ -57,14 +57,33 @@ export interface RangeDeveloperRow {
   pr_covered_since: string | null;
 }
 
-const ORG_REPORTS = { subquery: "SELECT id FROM reports WHERE org = ? AND status = 'completed'" };
 const dayMs = (iso: string) => Date.parse(`${iso}T00:00:00Z`);
+const placeholders = (n: number) => Array.from({ length: n }, () => '?').join(',');
 
-/** One jira_issues id per issue_key (the latest copy) among the org's reports. */
-function canonicalJiraIdsSql(): string {
+/** One jira_issues id per issue_key (the latest copy) among the given reports. */
+function canonicalJiraIdsSql(reportCount: number): string {
   return `SELECT MAX(id) AS id FROM jira_issues
-          WHERE report_id IN (SELECT id FROM reports WHERE org = ? AND status = 'completed')
+          WHERE report_id IN (${placeholders(reportCount)})
           GROUP BY issue_key`;
+}
+
+/**
+ * The org's completed reports whose search window overlaps the range, and the range's measured
+ * days. Canonical-row dedupe runs over these ids only, so its cost scales with the window rather
+ * than with the org's whole history.
+ */
+async function rangeReports(org: string, window: RangeWindow): Promise<{ ids: string[]; measuredDays: number }> {
+  const [reportRows] = await db.execute(
+    `SELECT id, status, period_days, created_at, completed_at FROM reports WHERE org = ?`,
+    [org],
+  ) as [any[], any];
+  const sinceMs = dayMs(window.since);
+  const untilMs = dayMs(window.until);
+  const measuredDays = measuredDaysInWindow(completedReportWindows(reportRows), window.since, window.until);
+  const ids = reportRows
+    .filter((r: any) => { const [w] = completedReportWindows([r]); return !!w && windowOverlaps(w, sinceMs, untilMs); })
+    .map((r: any) => r.id);
+  return { ids, measuredDays };
 }
 
 /**
@@ -76,21 +95,9 @@ export async function getRangeDeveloperStats(org: string, window: RangeWindow): 
   const sinceMs = dayMs(window.since);
   const untilMs = dayMs(window.until);
 
-  const [reportRows] = await db.execute(
-    `SELECT id, status, period_days, created_at, completed_at FROM reports WHERE org = ?`,
-    [org],
-  ) as [any[], any];
-  const measuredDays = measuredDaysInWindow(completedReportWindows(reportRows), window.since, window.until);
-  const overlapping = reportRows.filter((r: any) => {
-    const [w] = completedReportWindows([r]);
-    if (!w) return false;
-    const start = w.completedAt.getTime() - Number(w.periodDays) * DAY_MS;
-    const end = w.createdAt.getTime();
-    return start < end && start < untilMs && end > sinceMs;
-  });
-  if (overlapping.length === 0) return [];
+  const { ids, measuredDays } = await rangeReports(org, window);
+  if (ids.length === 0) return [];
 
-  const ids = overlapping.map((r: any) => r.id);
   const [devRows] = await db.execute(
     `SELECT ds.github_login, ds.github_name, ds.avatar_url, r.created_at
      FROM developer_stats ds JOIN reports r ON r.id = ds.report_id
@@ -108,17 +115,17 @@ export async function getRangeDeveloperStats(org: string, window: RangeWindow): 
     `SELECT ca.github_login, ca.repo, ca.lines_added, ca.lines_removed, ca.complexity, ca.type,
             ca.ai_co_authored, ca.maybe_ai, ca.pr_number
      FROM commit_analyses ca
-     JOIN (${canonicalCommitIdsSql(ORG_REPORTS)}) one ON one.id = ca.id
+     JOIN (${canonicalCommitIdsSql(ids.length)}) one ON one.id = ca.id
      WHERE ca.committed_at >= ? AND ca.committed_at < ?`,
-    [org, window.since, window.until],
+    [...ids, window.since, window.until],
   ) as [any[], any];
 
   const [jiraRows] = await db.execute(
     `SELECT ji.github_login, ji.story_points
      FROM jira_issues ji
-     JOIN (${canonicalJiraIdsSql()}) one ON one.id = ji.id
+     JOIN (${canonicalJiraIdsSql(ids.length)}) one ON one.id = ji.id
      WHERE ji.resolved_at >= ? AND ji.resolved_at < ?`,
-    [org, window.since, window.until],
+    [...ids, window.since, window.until],
   ) as [any[], any];
 
   const [prRows] = await db.execute(
@@ -211,37 +218,50 @@ export async function getRangeDeveloperStats(org: string, window: RangeWindow): 
 
 /** GLOOK-63: this developer's commits in the range, one row per commit_sha. */
 export async function getRangeCommits(org: string, login: string, window: RangeWindow): Promise<any[]> {
+  const { ids } = await rangeReports(org, window);
+  if (ids.length === 0) return [];
   const [rows] = await db.execute(
     `SELECT ca.commit_sha, ca.repo, ca.commit_message, ca.pr_number, ca.pr_title,
             ca.type, ca.complexity, ca.risk_level, ca.impact_summary,
             ca.lines_added, ca.lines_removed, ca.committed_at,
             ca.ai_co_authored, ca.ai_tool_name, ca.maybe_ai
      FROM commit_analyses ca
-     JOIN (${canonicalCommitIdsSql(ORG_REPORTS, true)}) one ON one.id = ca.id
+     JOIN (${canonicalCommitIdsSql(ids.length, true)}) one ON one.id = ca.id
      WHERE ca.committed_at >= ? AND ca.committed_at < ?
      ORDER BY ca.committed_at DESC`,
-    [login, org, window.since, window.until],
+    [login, ...ids, window.since, window.until],
   ) as [any[], any];
   return rows;
 }
 
 /** GLOOK-63: resolved Jira issues in the range, one row per issue_key; same shape as getJiraIssues. */
 export async function getRangeJiraIssues(org: string, login: string | undefined, window: RangeWindow): Promise<any[]> {
+  const { ids } = await rangeReports(org, window);
+  if (ids.length === 0) return [];
   const [rows] = await db.execute(
     `SELECT ji.issue_key, ji.project_key, ji.issue_type, ji.summary, ji.description,
             ji.status, ji.labels, ji.story_points, ji.original_estimate_seconds,
             ji.issue_url, ji.created_at, ji.resolved_at
      FROM jira_issues ji
-     JOIN (${canonicalJiraIdsSql()}) one ON one.id = ji.id
+     JOIN (${canonicalJiraIdsSql(ids.length)}) one ON one.id = ji.id
      WHERE ji.resolved_at >= ? AND ji.resolved_at < ?${login ? ' AND ji.github_login = ?' : ''}
      ORDER BY ji.resolved_at DESC`,
-    login ? [org, window.since, window.until, login] : [org, window.since, window.until],
+    login ? [...ids, window.since, window.until, login] : [...ids, window.since, window.until],
   ) as [any[], any];
   return rows.map((r: any) => ({
     ...r,
-    labels: typeof r.labels === 'string' ? JSON.parse(r.labels || '[]') : (r.labels || []),
+    labels: typeof r.labels === 'string' ? parseLabels(r.labels) : (r.labels || []),
     story_points: r.story_points != null ? Number(r.story_points) : null,
   }));
+}
+
+function parseLabels(raw: string): unknown[] {
+  try {
+    const v = JSON.parse(raw || '[]');
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
 }
 
 /** Report id → its org and range window; null when the report doesn't exist. */

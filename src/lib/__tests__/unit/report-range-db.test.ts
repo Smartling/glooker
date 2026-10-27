@@ -155,3 +155,28 @@ describe('range drill-downs', () => {
     expect(await range.loadReportRangeWindow('missing', '90d')).toBeNull();
   });
 });
+
+describe('canonical dedupe scope (runs after the counts above; adds rows)', () => {
+  it('ignores a commit and an issue that exist only in a report whose window does not overlap the range', async () => {
+    // r0 (May) is completed but its window ends long before WINDOW: its rows are out of scope
+    // even when their dates fall inside the range.
+    await db.execute(
+      `INSERT INTO commit_analyses (report_id, github_login, repo, commit_sha, complexity, type, lines_added, lines_removed, committed_at, pr_number, ai_co_authored, maybe_ai)
+       VALUES ('r0', 'alice', 'app', 'stray', 4, 'feature', 10, 2, '2026-09-21T10:00:00Z', NULL, 0, 0)`);
+    await db.execute(
+      `INSERT INTO jira_issues (report_id, github_login, jira_account_id, issue_key, project_key, story_points, resolved_at)
+       VALUES ('r0', 'alice', 'acc', 'J-STRAY', 'J', 5, '2026-09-21T10:00:00Z')`);
+    expect((await range.getRangeCommits('acme', 'alice', WINDOW)).map((r: any) => r.commit_sha)).toEqual(['aaa']);
+    expect((await range.getRangeJiraIssues('acme', 'alice', WINDOW)).map((r: any) => r.issue_key)).toEqual(['J-1']);
+    const [a] = await range.getRangeDeveloperStats('acme', WINDOW);
+    expect(a).toMatchObject({ total_commits: 1, total_jira_issues: 1 });
+  });
+
+  it('unparseable stored labels read as an empty list', async () => {
+    await db.execute(
+      `INSERT INTO jira_issues (report_id, github_login, jira_account_id, issue_key, project_key, labels, resolved_at)
+       VALUES ('r3', 'alice', 'acc', 'J-BADLABELS', 'J', 'not json', '2026-09-23T10:00:00Z')`);
+    const rows = await range.getRangeJiraIssues('acme', 'alice', WINDOW);
+    expect(rows.find((r: any) => r.issue_key === 'J-BADLABELS').labels).toEqual([]);
+  });
+});
