@@ -143,8 +143,9 @@ export default function DevDetailPage() {
   const anchorWeek: string | undefined = devData?.anchorWeek;
   // With keepPreviousData the previous range's payload shows while the new one loads, so range
   // meta and chart domain are derived only from a payload that belongs to the selected range.
-  const rangeFresh = range === 'current' || devData?.range?.key === range;
-  const rangeMeta: RangeMeta | null = range !== 'current' && rangeFresh ? (devData?.range ?? null) : null;
+  // Labels, notes and the chart window all follow the payload's own range (absent = current).
+  const payloadRange: ReportRange = devData?.range?.key ?? 'current';
+  const rangeMeta: RangeMeta | null = payloadRange !== 'current' ? (devData?.range ?? null) : null;
   const notes = rangeNotes(rangeMeta);
 
   // 3. Summary (dependent on devData)
@@ -187,7 +188,7 @@ export default function DevDetailPage() {
 
   // One week domain per render, ending at this report's own week (Decision 15), shared by every
   // chart below so hover sync (syncId) lines up.
-  const weeks = weekDomainEndingAt(anchorWeek, range === '12m' && rangeFresh ? 365 : 90);
+  const weeks = weekDomainEndingAt(anchorWeek, payloadRange === '12m' ? 365 : 90);
 
   // Repo commit counts
   const repoMap = new Map<string, number>();
@@ -219,7 +220,7 @@ export default function DevDetailPage() {
             </div>
             <p className="text-gray-500 mt-0.5">@{dev.github_login}</p>
             <p className="text-gray-600 text-sm mt-1">
-              {report.org} &middot; {range === 'current' ? `${report.period_days} days` : RANGE_LABELS[range]} &middot; {new Date(report.created_at).toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' })}
+              {report.org} &middot; {payloadRange === 'current' ? `${report.period_days} days` : RANGE_LABELS[payloadRange]} &middot; {new Date(report.created_at).toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' })}
             </p>
           </div>
         </div>
@@ -280,7 +281,7 @@ export default function DevDetailPage() {
         })}
       </div>
 
-      {range !== 'current' && (
+      {payloadRange !== 'current' && (
         <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-2">Claude Code<CurrentReportLabel /></p>
       )}
       <ClaudeCodeUsageCard
@@ -385,7 +386,7 @@ export default function DevDetailPage() {
 
       {/* AI Summary + Badges */}
       <div className="bg-gray-900 rounded-xl p-6 mb-6">
-        <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-4">Performance Summary{range !== 'current' && <CurrentReportLabel />}</p>
+        <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-4">Performance Summary{payloadRange !== 'current' && <CurrentReportLabel />}</p>
         {summaryLoading && (
           <div>
             <div className="flex items-center gap-3 text-gray-500 mb-3">
