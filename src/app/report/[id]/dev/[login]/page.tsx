@@ -13,6 +13,7 @@ import SafeMarkdown from '@/components/SafeMarkdown';
 import { useUrlState } from '@/lib/url-state';
 import RangePicker from '@/components/range/RangePicker';
 import CurrentReportLabel from '@/components/range/CurrentReportLabel';
+import RangeLoadStatus from '@/components/range/RangeLoadStatus';
 import { RANGE_OPTIONS, RANGE_LABELS, withRange, rangeNotes, type ReportRange, type RangeMeta } from '@/lib/report/range-options';
 
 interface DevStats {
@@ -123,7 +124,7 @@ export default function DevDetailPage() {
   const jiraHost = config?.jira?.host ?? null;
 
   // 2. Main dev data
-  const { data: devData, isLoading, error: devError } = useSWR(
+  const { data: devData, isLoading, error: devError, mutate: retryDev } = useSWR(
     withRange(`/api/report/${params.id}/dev/${params.login}`, range),
     { keepPreviousData: true },
   );
@@ -147,10 +148,16 @@ export default function DevDetailPage() {
   const payloadRange: ReportRange = devData?.range?.key ?? 'current';
   const rangeMeta: RangeMeta | null = payloadRange !== 'current' ? (devData?.range ?? null) : null;
   const notes = rangeNotes(rangeMeta);
+  // keepPreviousData: the selected range may not be the one on screen yet (or may have failed).
+  const rangeFailed = !!devError && !!devData;
+  const rangePending = !!devData && payloadRange !== range && !rangeFailed;
+  const dimmed = rangePending || rangeFailed;
+  // A range-only developer has no row in this report, so there is no per-report summary to fetch.
+  const inCurrentReport: boolean = devData?.inCurrentReport ?? true;
 
   // 3. Summary (dependent on devData)
   const { data: summaryData, isLoading: summaryLoading, error: summaryError } = useSWR(
-    devData ? `/api/report/${params.id}/dev/${params.login}/summary` : null,
+    devData && inCurrentReport ? `/api/report/${params.id}/dev/${params.login}/summary` : null,
     { revalidateIfStale: false }
   );
   const summary: string | null = summaryData?.summary ?? null;
@@ -165,7 +172,7 @@ export default function DevDetailPage() {
   const jiraIssues: JiraIssue[] = jiraIssuesData ?? [];
 
   if (isLoading) return <div className="max-w-6xl mx-auto px-4 py-16 text-gray-500">Loading...</div>;
-  if (devError || !dev || !report) return <div className="max-w-6xl mx-auto px-4 py-16 text-red-400">Error: {devError?.message || 'Not found'}</div>;
+  if ((devError && !devData) || !dev || !report) return <div className="max-w-6xl mx-auto px-4 py-16 text-red-400">Error: {devError?.message || 'Not found'}</div>;
 
   const rank = allDevs.findIndex(d => d.github_login === dev.github_login) + 1;
 
@@ -236,7 +243,16 @@ export default function DevDetailPage() {
       <div className="flex flex-wrap items-center gap-3 mb-4 no-print">
         <RangePicker options={RANGE_OPTIONS} labels={RANGE_LABELS} value={range} onChange={setRange} ariaLabel="Date range" />
         {notes.map(n => <span key={n} className="text-xs text-gray-500">{n}</span>)}
+        <RangeLoadStatus
+          pending={rangePending}
+          failed={rangeFailed}
+          selectedLabel={RANGE_LABELS[range]}
+          shownLabel={RANGE_LABELS[payloadRange]}
+          onRetry={() => { void retryDev(); }}
+        />
       </div>
+
+      <div data-testid="range-content" aria-busy={rangePending} className={dimmed ? 'opacity-50 transition-opacity' : 'transition-opacity'}>
 
       {/* Percentile Cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
@@ -387,6 +403,9 @@ export default function DevDetailPage() {
       {/* AI Summary + Badges */}
       <div className="bg-gray-900 rounded-xl p-6 mb-6">
         <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-4">Performance Summary{payloadRange !== 'current' && <CurrentReportLabel />}</p>
+        {!inCurrentReport && (
+          <p className="text-sm text-gray-500">Not in the current report — no summary.</p>
+        )}
         {summaryLoading && (
           <div>
             <div className="flex items-center gap-3 text-gray-500 mb-3">
@@ -687,6 +706,7 @@ export default function DevDetailPage() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

@@ -18,6 +18,7 @@ import SafeMarkdown from '@/components/SafeMarkdown';
 import { toCsv } from '@/lib/csv';
 import RangePicker from '@/components/range/RangePicker';
 import CurrentReportLabel from '@/components/range/CurrentReportLabel';
+import RangeLoadStatus from '@/components/range/RangeLoadStatus';
 import { RANGE_OPTIONS, RANGE_LABELS, withRange, rangeNotes, type ReportRange, type RangeMeta } from '@/lib/report/range-options';
 
 interface Report {
@@ -53,13 +54,19 @@ export default function TeamSummaryPage() {
 
   // Main report data. keepPreviousData stops the tables blanking while a new range loads.
   // Developer rows are passed through untouched so pr_covered_days reaches aggregateTeams.
-  const { data: reportData, isLoading } = useSWR(withRange(`/api/report/${params.id}`, range), { keepPreviousData: true });
+  const { data: reportData, isLoading, error: reportError, mutate: retryReport } = useSWR(withRange(`/api/report/${params.id}`, range), { keepPreviousData: true });
   const developers: Developer[] = reportData?.developers ?? [];
   const activeReport: Report | null = reportData?.report ?? null;
   // Labels follow the payload actually on screen (keepPreviousData can hold the previous range's data).
   const payloadRange: ReportRange = reportData?.range?.key ?? 'current';
   const rangeMeta: RangeMeta | null = payloadRange === 'current' ? null : (reportData?.range ?? null);
   const notes = rangeNotes(rangeMeta);
+  // keepPreviousData: the selected range may not be the one on screen yet (or may have failed).
+  const rangeFailed = !!reportError && !!reportData;
+  const rangePending = !!reportData && payloadRange !== range && !rangeFailed;
+  const dimmed = rangePending || rangeFailed;
+  // GLOOK-63: no completed report overlaps the range — say so instead of an empty table.
+  const noReportsInRange = !!rangeMeta && rangeMeta.measuredDays === 0 && developers.length === 0;
   const periodLabel = payloadRange === 'current' ? `${activeReport?.period_days ?? ''}d` : payloadRange;
 
   // Teams (dependent on org from report)
@@ -243,7 +250,16 @@ export default function TeamSummaryPage() {
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <RangePicker options={RANGE_OPTIONS} labels={RANGE_LABELS} value={range} onChange={setRange} ariaLabel="Date range" />
         {notes.map(n => <span key={n} className="text-xs text-gray-500">{n}</span>)}
+        <RangeLoadStatus
+          pending={rangePending}
+          failed={rangeFailed}
+          selectedLabel={RANGE_LABELS[range]}
+          shownLabel={RANGE_LABELS[payloadRange]}
+          onRetry={() => { void retryReport(); }}
+        />
       </div>
+
+      <div data-testid="range-content" aria-busy={rangePending} className={dimmed ? 'opacity-50 transition-opacity' : 'transition-opacity'}>
 
       {/* Tabs */}
       <div className="border-b border-gray-800 mb-6">
@@ -397,17 +413,17 @@ export default function TeamSummaryPage() {
       )}
 
       {/* Developer table */}
-      <DevTable
+      {!noReportsInRange && <DevTable
         developers={developers}
         reportId={params.id}
         org={activeReport?.org ?? ''}
         filterLogins={filterLogins}
         range={range}
-      />
+      />}
       </>
       )}
 
-      {view === 'teams' && activeReport && teamsData !== undefined && activeReport?.run_metadata?.state !== 'failed' && (
+      {view === 'teams' && activeReport && teamsData !== undefined && !noReportsInRange && activeReport?.run_metadata?.state !== 'failed' && (
         <TeamTable
           developers={developers}
           teams={teams}
@@ -421,11 +437,16 @@ export default function TeamSummaryPage() {
         <IntegrityBadge metadata={activeReport.run_metadata ?? null} />
       )}
 
-      {activeReport && developers.length === 0 && activeReport.status === 'completed' && (
+      {noReportsInRange ? (
+        <div className="text-center text-gray-500 py-16">
+          No reports in this range.
+        </div>
+      ) : activeReport && developers.length === 0 && activeReport.status === 'completed' && (
         <div className="text-center text-gray-500 py-16">
           No commits found for this org in the selected period.
         </div>
       )}
+      </div>
 
       {activeReport?.org && <ChatPanel org={activeReport.org} />}
     </div>

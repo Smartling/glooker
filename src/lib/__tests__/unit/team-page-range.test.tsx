@@ -1,18 +1,20 @@
 /** @jest-environment jsdom */
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import TeamSummaryPage from '@/app/report/[id]/team/page';
 
 const mockKeys: string[] = [];
 let mockSwrData: Record<string, unknown> = {};
 let mockUrl: Record<string, unknown> = {};
+let mockSwrError: Record<string, Error> = {};
+const mockMutate = jest.fn();
 const mockTableProps: { team?: any; dev?: any } = {};
 
 jest.mock('swr', () => ({
   __esModule: true,
   default: (key: string | null) => {
     if (key) mockKeys.push(key);
-    return { data: key ? mockSwrData[key.split('?team=')[0].includes('team-pulse') ? 'pulse' : key] : undefined, isLoading: false, error: undefined };
+    return { data: key ? mockSwrData[key.split('?team=')[0].includes('team-pulse') ? 'pulse' : key] : undefined, isLoading: false, error: key ? mockSwrError[key] : undefined, mutate: mockMutate };
   },
 }));
 jest.mock('next/navigation', () => ({ useParams: () => ({ id: 'r1' }), useRouter: () => ({ push: () => undefined }) }));
@@ -34,6 +36,8 @@ const DEV = { github_login: 'alice', github_name: 'Alice', avatar_url: '', total
 beforeEach(() => {
   mockKeys.length = 0;
   mockUrl = {};
+  mockSwrError = {};
+  mockMutate.mockClear();
   mockSwrData = {
     '/api/report/r1': { report: REPORT, developers: [DEV] },
     '/api/report/r1?range=12m': {
@@ -85,4 +89,42 @@ it('labels follow the payload on screen when the selected range has not loaded y
   expect(screen.queryByText(/365/)).toBeNull();
   // The picker still shows the selected range.
   expect(mockTableProps.dev.range).toBe('12m');
+});
+
+it('while the selected range loads, the content dims and the picker says Loading', () => {
+  mockUrl = { range: '12m', view: 'individuals' };
+  mockSwrData['/api/report/r1?range=12m'] = { report: REPORT, developers: [DEV] }; // still the current payload
+  render(<TeamSummaryPage />);
+  expect(screen.getByRole('status').textContent).toMatch(/Loading/);
+  expect(screen.getByTestId('range-content').className).toContain('opacity-50');
+});
+
+it('a failed range load shows a banner naming what is on screen, with retry', () => {
+  mockUrl = { range: '12m', view: 'individuals' };
+  mockSwrData['/api/report/r1?range=12m'] = { report: REPORT, developers: [DEV] };
+  mockSwrError['/api/report/r1?range=12m'] = new Error('boom');
+  render(<TeamSummaryPage />);
+  expect(screen.getByRole('alert').textContent).toContain("Couldn't load Past 12 months. Showing Current report.");
+  expect(screen.queryByRole('status')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  expect(mockMutate).toHaveBeenCalled();
+});
+
+it('a loaded range is neither pending nor dimmed', () => {
+  mockUrl = { range: '12m', view: 'individuals' };
+  render(<TeamSummaryPage />);
+  expect(screen.queryByRole('status')).toBeNull();
+  expect(screen.getByTestId('range-content').className).not.toContain('opacity-50');
+});
+
+it('a range with no completed report shows an explicit empty state, not an empty table', () => {
+  mockUrl = { range: '90d', view: 'individuals' };
+  mockSwrData['/api/report/r1?range=90d'] = {
+    report: REPORT, developers: [],
+    range: { key: '90d', since: '2026-07-30', until: '2026-10-28', days: 90, measuredDays: 0, prCoveredSince: null },
+  };
+  mockTableProps.dev = undefined;
+  render(<TeamSummaryPage />);
+  expect(screen.getByText('No reports in this range.')).toBeTruthy();
+  expect(mockTableProps.dev).toBeUndefined();
 });

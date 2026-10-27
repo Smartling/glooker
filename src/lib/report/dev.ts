@@ -216,6 +216,8 @@ export async function getDevReport(reportId: string, login: string, range: Repor
     })),
     coveredWeeks,
     anchorWeek,
+    /** GLOOK-63: false for a range-only developer (no row in this report, so no summary). */
+    inCurrentReport: devRows.length > 0,
   };
 
   if (!window || range === 'current') return { ...base, developer: base.developer! };

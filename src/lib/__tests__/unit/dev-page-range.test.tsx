@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { weekDomainEndingAt } from '@/components/charts/chart-format';
 import DevDetailPage from '@/app/report/[id]/dev/[login]/page';
 
@@ -8,10 +8,12 @@ const mockKeys: string[] = [];
 const mockWeeks: string[][] = [];
 let mockSwrData: Record<string, unknown> = {};
 let mockRange: string = 'current';
+let mockSwrError: Record<string, Error> = {};
+const mockMutate = jest.fn();
 
 jest.mock('swr', () => ({
   __esModule: true,
-  default: (key: string | null) => { if (key) mockKeys.push(key); return { data: key ? mockSwrData[key] : undefined, isLoading: false, error: undefined }; },
+  default: (key: string | null) => { if (key) mockKeys.push(key); return { data: key ? mockSwrData[key] : undefined, isLoading: false, error: key ? mockSwrError[key] : undefined, mutate: mockMutate }; },
 }));
 jest.mock('next/navigation', () => ({ useParams: () => ({ id: 'r1', login: 'alice' }), useRouter: () => ({ push: () => undefined }) }));
 jest.mock('@/lib/url-state', () => ({
@@ -31,7 +33,7 @@ const TIMELINE = [{ week: '2026-10-19', commits: 1, prs: 1, avgLinesPerPr: 1, li
 const body = (extra = {}) => ({ report: REPORT, developer: DEV, allDevelopers: [DEV], commits: [], timeline: TIMELINE, coveredWeeks: [], anchorWeek: ANCHOR, ...extra });
 
 beforeEach(() => {
-  mockKeys.length = 0; mockWeeks.length = 0;
+  mockKeys.length = 0; mockWeeks.length = 0; mockSwrError = {}; mockMutate.mockClear();
   mockSwrData = {
     '/api/report/r1/dev/alice': body(),
     '/api/report/r1/dev/alice?range=12m': body({ range: { key: '12m', since: '2025-10-28', until: '2026-10-28', days: 365, measuredDays: 365, prCoveredSince: null } }),
@@ -77,4 +79,30 @@ it('stale: current selected but a 12m payload is shown -> labels reflect 12 mont
   expect(screen.getByText(/acme/).textContent).toContain('Past 12 months');
   expect(mockWeeks[0]).toEqual(weekDomainEndingAt(ANCHOR, 365));
   expect(screen.getAllByText('Current report').filter(e => e.tagName === 'SPAN').length).toBeGreaterThanOrEqual(2);
+});
+
+it('pending range: dims the content and shows Loading next to the picker', () => {
+  mockRange = '12m';
+  mockSwrData['/api/report/r1/dev/alice?range=12m'] = body(); // previous (current) payload still on screen
+  render(<DevDetailPage />);
+  expect(screen.getByRole('status').textContent).toMatch(/Loading/);
+  expect(screen.getByTestId('range-content').className).toContain('opacity-50');
+});
+
+it('failed range: keeps the previous payload with a banner and retry', () => {
+  mockRange = '12m';
+  mockSwrData['/api/report/r1/dev/alice?range=12m'] = body();
+  mockSwrError['/api/report/r1/dev/alice?range=12m'] = new Error('boom');
+  render(<DevDetailPage />);
+  expect(screen.getByRole('alert').textContent).toContain("Couldn't load Past 12 months. Showing Current report.");
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  expect(mockMutate).toHaveBeenCalled();
+});
+
+it('range-only developer: no summary fetch, and says why', () => {
+  mockRange = '12m';
+  mockSwrData['/api/report/r1/dev/alice?range=12m'] = body({ inCurrentReport: false, range: { key: '12m', since: '2025-10-28', until: '2026-10-28', days: 365, measuredDays: 365, prCoveredSince: null } });
+  render(<DevDetailPage />);
+  expect(mockKeys).not.toContain('/api/report/r1/dev/alice/summary');
+  expect(screen.getByText('Not in the current report — no summary.')).toBeTruthy();
 });

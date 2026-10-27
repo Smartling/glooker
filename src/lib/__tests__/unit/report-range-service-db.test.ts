@@ -60,6 +60,7 @@ it('getDevReport 90d: range KPIs, range commits, percentiles over range develope
   expect(res.commits.map((c: any) => c.commit_sha)).toEqual(['s2', 's1']);
   expect(res.allDevelopers.map((d: any) => d.github_login).sort()).toEqual(['alice', 'carol']);
   expect(res.range.key).toBe('90d');
+  expect(res.inCurrentReport).toBe(true);
 });
 
 it('getDevReport current: unchanged (one report\'s commits, no range)', async () => {
@@ -73,6 +74,7 @@ it('getDevReport 90d: a range-only developer resolves, with no cc fields and no 
   expect(res.developer.github_login).toBe('carol');
   expect(res.developer).not.toHaveProperty('cc_total_cost');
   expect(res.range.prCoveredSince).toBeNull();
+  expect(res.inCurrentReport).toBe(false);
 });
 
 it('getDevReport: a login with no current row and no range stats is not found', async () => {
