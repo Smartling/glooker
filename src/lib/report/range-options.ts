@@ -52,3 +52,15 @@ export function rangeNotes(meta: RangeMeta | null | undefined): string[] {
   else if (meta.prCoveredSince > meta.since) notes.push(`PR and review data from ${shortDay(meta.prCoveredSince)}`);
   return notes;
 }
+
+/**
+ * Claude Code spend exists only per report, never over a range, so range views
+ * drop it rather than show a 14-day figure beside 90-day ones. A missing cost
+ * reads as hidden, so the Spend columns disappear from tables and exports.
+ */
+export function withoutSpendInRange<T extends { cc_total_cost?: unknown; cc_requests?: unknown }>(
+  rows: T[], range: ReportRange,
+): T[] {
+  if (range === 'current') return rows;
+  return rows.map(({ cc_total_cost: _c, cc_requests: _r, ...rest }) => rest as T);
+}

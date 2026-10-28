@@ -47,6 +47,7 @@ it('Current report: no range param, 90-day chart window, no labels', () => {
   expect(mockKeys.some(k => k.includes('range='))).toBe(false);
   expect(mockWeeks[0]).toEqual(weekDomainEndingAt(ANCHOR, 90));
   expect(screen.queryAllByText('Current report').filter(e => e.tagName === 'SPAN')).toHaveLength(0);
+  expect(screen.getByText("Claude Code usage")).toBeTruthy();
 });
 
 it('12 months: range fetch, 12-month chart window, notes, and per-report sections labelled', () => {
@@ -56,8 +57,9 @@ it('12 months: range fetch, 12-month chart window, notes, and per-report section
   expect(mockKeys).toContain('/api/report/r1/dev/alice/summary'); // summary stays per report
   expect(mockWeeks[0]).toEqual(weekDomainEndingAt(ANCHOR, 365));
   expect(screen.getByText('No PR and review data in this range')).toBeTruthy();
-  // Performance Summary + Claude Code usage are both labelled.
-  expect(screen.getAllByText('Current report').filter(e => e.tagName === 'SPAN').length).toBeGreaterThanOrEqual(2);
+  // Performance Summary is labelled; Claude Code usage is hidden in range mode.
+  expect(screen.getAllByText('Current report').filter(e => e.tagName === 'SPAN').length).toBeGreaterThanOrEqual(1);
+  expect(screen.queryByText("Claude Code usage")).toBeNull();
 });
 
 it('stale: 12m selected but only the current payload is available -> labelled and windowed as current', () => {
@@ -78,7 +80,8 @@ it('stale: current selected but a 12m payload is shown -> labels reflect 12 mont
   render(<DevDetailPage />);
   expect(screen.getByText(/acme/).textContent).toContain('Past 12 months');
   expect(mockWeeks[0]).toEqual(weekDomainEndingAt(ANCHOR, 365));
-  expect(screen.getAllByText('Current report').filter(e => e.tagName === 'SPAN').length).toBeGreaterThanOrEqual(2);
+  expect(screen.getAllByText('Current report').filter(e => e.tagName === 'SPAN').length).toBeGreaterThanOrEqual(1);
+  expect(screen.queryByText("Claude Code usage")).toBeNull();
 });
 
 it('pending range: dims the content and shows Loading next to the picker', () => {

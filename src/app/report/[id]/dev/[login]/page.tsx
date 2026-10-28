@@ -297,16 +297,16 @@ export default function DevDetailPage() {
         })}
       </div>
 
-      {payloadRange !== 'current' && (
-        <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-2">Claude Code<CurrentReportLabel /></p>
+      {/* Claude Code usage is per report, never over a range: hidden in range mode. */}
+      {payloadRange === 'current' && (
+        <ClaudeCodeUsageCard
+          costCents={dev.cc_total_cost}
+          requests={dev.cc_requests}
+          skillsUsed={dev.cc_skills_used}
+          skills={skills}
+          models={models}
+        />
       )}
-      <ClaudeCodeUsageCard
-        costCents={dev.cc_total_cost}
-        requests={dev.cc_requests}
-        skillsUsed={dev.cc_skills_used}
-        skills={skills}
-        models={models}
-      />
 
       {/* Type Breakdown + Active Repos */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">

@@ -19,7 +19,7 @@ import { toCsv } from '@/lib/csv';
 import RangePicker from '@/components/range/RangePicker';
 import CurrentReportLabel from '@/components/range/CurrentReportLabel';
 import RangeLoadStatus from '@/components/range/RangeLoadStatus';
-import { RANGE_OPTIONS, RANGE_LABELS, withRange, rangeNotes, type ReportRange, type RangeMeta } from '@/lib/report/range-options';
+import { RANGE_OPTIONS, RANGE_LABELS, withRange, rangeNotes, withoutSpendInRange, type ReportRange, type RangeMeta } from '@/lib/report/range-options';
 
 interface Report {
   id:           string;
@@ -55,7 +55,7 @@ export default function TeamSummaryPage() {
   // Main report data. keepPreviousData stops the tables blanking while a new range loads.
   // Developer rows are passed through untouched so pr_covered_days reaches aggregateTeams.
   const { data: reportData, isLoading, error: reportError, mutate: retryReport } = useSWR(withRange(`/api/report/${params.id}`, range), { keepPreviousData: true });
-  const developers: Developer[] = reportData?.developers ?? [];
+  const developers: Developer[] = withoutSpendInRange(reportData?.developers ?? [], reportData?.range?.key ?? 'current');
   const activeReport: Report | null = reportData?.report ?? null;
   // Labels follow the payload actually on screen (keepPreviousData can hold the previous range's data).
   const payloadRange: ReportRange = reportData?.range?.key ?? 'current';
