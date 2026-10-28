@@ -204,6 +204,11 @@ export function anchorWeekFor(status: unknown, completedAt: unknown, createdAt: 
  * (whose own placeholders the caller supplies). With `byLogin`, one `?` for the login comes first.
  * Rows read here are never deleted: every report keeps all its own copies.
  */
+// Callers put this derived table FIRST in FROM and add `/*+ JOIN_FIXED_ORDER() */`. Without it,
+// MySQL on dev (128 MB buffer pool, 185k commits) chose to full-scan commit_analyses rows and
+// probe the derived table: 8s for a 12-month range vs ~0.1s the other way round, and erratic as
+// the cache warmed and cooled. SQLite ignores the hint as a comment. Guarded by
+// canonical-join-order.test.ts.
 export function canonicalCommitIdsSql(reports: number | { subquery: string }, byLogin = false): string {
   const scope = typeof reports === 'number'
     ? Array.from({ length: reports }, () => '?').join(',')

@@ -107,10 +107,10 @@ export async function getDevReport(reportId: string, login: string, range: Repor
   let timelineCommits: any[] = [];
   if (reportIds.length > 0) {
     const [tlRows] = await db.execute(
-      `SELECT ca.commit_sha, ca.committed_at, ca.lines_added, ca.lines_removed,
+      `SELECT /*+ JOIN_FIXED_ORDER() */ ca.commit_sha, ca.committed_at, ca.lines_added, ca.lines_removed,
               ca.complexity, ca.type, ca.ai_co_authored, ca.maybe_ai, ca.pr_number
-       FROM commit_analyses ca
-       JOIN (${canonicalCommitIdsSql(reportIds.length, true)}) one ON one.id = ca.id
+       FROM (${canonicalCommitIdsSql(reportIds.length, true)}) one
+       JOIN commit_analyses ca ON ca.id = one.id
        ORDER BY ca.committed_at ASC`,
       [login, ...reportIds],
     ) as [any[], any];

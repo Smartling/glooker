@@ -1,3 +1,4 @@
+import { warmRangeCache } from './report/range';
 import { upsertPrActivity, recordPrCoverage, reportCoverageSlice } from './pr-activity/store';
 import pLimit from 'p-limit';
 import db from './db/index';
@@ -754,6 +755,8 @@ export async function runReport(
     );
     log(`Report complete: ${stats.length} developers`);
     updateProgress(reportId, { status: 'completed', step: 'Done', totalDevelopers: membersWithCommits, completedDevelopers: membersWithCommits });
+    // GLOOK-63: pre-compute the 90-day and 12-month views so the first viewer doesn't wait.
+    warmRangeCache(reportId).catch(err => log(`Range cache warm-up failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`));
 
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

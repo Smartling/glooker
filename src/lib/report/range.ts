@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import db from '@/lib/db';
 import { computeImpactScore } from '@/lib/impact-score';
 import { canonicalCommitIdsSql, completedReportWindows, measuredDaysInWindow, unionDayCount, windowOverlaps } from './timeline';
@@ -92,11 +93,53 @@ async function rangeReports(org: string, window: RangeWindow): Promise<{ ids: st
  * row in any completed report whose search window overlaps the range (requirement 7).
  */
 export async function getRangeDeveloperStats(org: string, window: RangeWindow): Promise<RangeDeveloperRow[]> {
-  const sinceMs = dayMs(window.since);
-  const untilMs = dayMs(window.until);
-
   const { ids, measuredDays } = await rangeReports(org, window);
   if (ids.length === 0) return [];
+  // The key carries the exact report set, so a newly completed or deleted report is a new key and
+  // a cached result is never stale for report-scoped data. Only an out-of-band pr_activity load
+  // (backfill/import) can lag, and that by at most RANGE_CACHE_TTL_MS.
+  const key = createHash('sha1').update(JSON.stringify([org, window.since, window.until, measuredDays, ids])).digest('hex');
+  const now = Date.now();
+  const hit = rangeCache.get(key);
+  if (hit && hit.expires > now) return hit.rows;
+  const rows = computeRangeDeveloperStats(window, ids, measuredDays, org);
+  rangeCache.set(key, { rows, expires: now + RANGE_CACHE_TTL_MS });
+  rows.catch(() => { if (rangeCache.get(key)?.rows === rows) rangeCache.delete(key); });
+  while (rangeCache.size > RANGE_CACHE_MAX) rangeCache.delete(rangeCache.keys().next().value!);
+  return rows;
+}
+
+/**
+ * Range figures are expensive on a small MySQL (the canonical de-dupe plus tens of thousands of
+ * row lookups, ~4s for 12 months on dev's db.t4g.micro) and identical for every viewer of the same
+ * window, so they are memoised per (org, window, report set). The promise is stored, so concurrent
+ * requests share one computation. globalThis survives Next.js HMR, like the progress store.
+ */
+const RANGE_CACHE_TTL_MS = 60 * 60 * 1000;
+const RANGE_CACHE_MAX = 32;
+const g = globalThis as unknown as { __glookerRangeCache?: Map<string, { rows: Promise<RangeDeveloperRow[]>; expires: number }> };
+const rangeCache = (g.__glookerRangeCache ??= new Map());
+
+/** Test hook. */
+export function clearRangeCache(): void { rangeCache.clear(); }
+
+/**
+ * Computes the 90-day and 12-month figures ending at this report so the first viewer doesn't pay
+ * for them. Fire-and-forget after a report completes; failures only cost the warm-up.
+ */
+export async function warmRangeCache(reportId: string): Promise<void> {
+  const [rows] = await db.execute(`SELECT org, created_at, completed_at FROM reports WHERE id = ?`, [reportId]) as [any[], any];
+  if (!rows[0]) return;
+  for (const range of ['90d', '12m'] as const) {
+    await getRangeDeveloperStats(rows[0].org, rangeWindow(rows[0], range));
+  }
+}
+
+async function computeRangeDeveloperStats(
+  window: RangeWindow, ids: string[], measuredDays: number, org: string,
+): Promise<RangeDeveloperRow[]> {
+  const sinceMs = dayMs(window.since);
+  const untilMs = dayMs(window.until);
 
   const [devRows] = await db.execute(
     `SELECT ds.github_login, ds.github_name, ds.avatar_url, r.created_at
@@ -112,18 +155,18 @@ export async function getRangeDeveloperStats(org: string, window: RangeWindow): 
   }
 
   const [commitRows] = await db.execute(
-    `SELECT ca.github_login, ca.repo, ca.lines_added, ca.lines_removed, ca.complexity, ca.type,
+    `SELECT /*+ JOIN_FIXED_ORDER() */ ca.github_login, ca.repo, ca.lines_added, ca.lines_removed, ca.complexity, ca.type,
             ca.ai_co_authored, ca.maybe_ai, ca.pr_number
-     FROM commit_analyses ca
-     JOIN (${canonicalCommitIdsSql(ids.length)}) one ON one.id = ca.id
+     FROM (${canonicalCommitIdsSql(ids.length)}) one
+     JOIN commit_analyses ca ON ca.id = one.id
      WHERE ca.committed_at >= ? AND ca.committed_at < ?`,
     [...ids, window.since, window.until],
   ) as [any[], any];
 
   const [jiraRows] = await db.execute(
-    `SELECT ji.github_login, ji.story_points
-     FROM jira_issues ji
-     JOIN (${canonicalJiraIdsSql(ids.length)}) one ON one.id = ji.id
+    `SELECT /*+ JOIN_FIXED_ORDER() */ ji.github_login, ji.story_points
+     FROM (${canonicalJiraIdsSql(ids.length)}) one
+     JOIN jira_issues ji ON ji.id = one.id
      WHERE ji.resolved_at >= ? AND ji.resolved_at < ?`,
     [...ids, window.since, window.until],
   ) as [any[], any];
@@ -221,12 +264,12 @@ export async function getRangeCommits(org: string, login: string, window: RangeW
   const { ids } = await rangeReports(org, window);
   if (ids.length === 0) return [];
   const [rows] = await db.execute(
-    `SELECT ca.commit_sha, ca.repo, ca.commit_message, ca.pr_number, ca.pr_title,
+    `SELECT /*+ JOIN_FIXED_ORDER() */ ca.commit_sha, ca.repo, ca.commit_message, ca.pr_number, ca.pr_title,
             ca.type, ca.complexity, ca.risk_level, ca.impact_summary,
             ca.lines_added, ca.lines_removed, ca.committed_at,
             ca.ai_co_authored, ca.ai_tool_name, ca.maybe_ai
-     FROM commit_analyses ca
-     JOIN (${canonicalCommitIdsSql(ids.length, true)}) one ON one.id = ca.id
+     FROM (${canonicalCommitIdsSql(ids.length, true)}) one
+     JOIN commit_analyses ca ON ca.id = one.id
      WHERE ca.committed_at >= ? AND ca.committed_at < ?
      ORDER BY ca.committed_at DESC`,
     [login, ...ids, window.since, window.until],
@@ -239,11 +282,11 @@ export async function getRangeJiraIssues(org: string, login: string | undefined,
   const { ids } = await rangeReports(org, window);
   if (ids.length === 0) return [];
   const [rows] = await db.execute(
-    `SELECT ji.issue_key, ji.project_key, ji.issue_type, ji.summary, ji.description,
+    `SELECT /*+ JOIN_FIXED_ORDER() */ ji.issue_key, ji.project_key, ji.issue_type, ji.summary, ji.description,
             ji.status, ji.labels, ji.story_points, ji.original_estimate_seconds,
             ji.issue_url, ji.created_at, ji.resolved_at
-     FROM jira_issues ji
-     JOIN (${canonicalJiraIdsSql(ids.length)}) one ON one.id = ji.id
+     FROM (${canonicalJiraIdsSql(ids.length)}) one
+     JOIN jira_issues ji ON ji.id = one.id
      WHERE ji.resolved_at >= ? AND ji.resolved_at < ?${login ? ' AND ji.github_login = ?' : ''}
      ORDER BY ji.resolved_at DESC`,
     login ? [...ids, window.since, window.until, login] : [...ids, window.since, window.until],
