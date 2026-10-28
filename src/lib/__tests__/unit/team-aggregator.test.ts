@@ -1,3 +1,4 @@
+import { computeImpactScore } from '@/lib/impact-score';
 import { aggregateTeams, type AggregatorDeveloper, type AggregatorTeam } from '@/lib/teams/team-aggregator';
 
 const DEV_BASE: AggregatorDeveloper = {
@@ -196,5 +197,35 @@ describe('aggregateTeams — edge cases', () => {
     expect(rows[0].team_id).toBe('t-real');
     expect(consoleSpy).toHaveBeenCalled();
     consoleSpy.mockRestore();
+  });
+});
+
+describe('aggregateTeams — periodDays (GLOOK-63)', () => {
+  it('scales impact_weighted caps with periodDays, default 14', () => {
+    const devs: AggregatorDeveloper[] = [{ ...DEV_BASE, github_login: 'a', total_commits: 20 }];
+    const teams: AggregatorTeam[] = [{ ...TEAM_BASE, members: ['a'] }];
+    expect(aggregateTeams(devs, teams)[0].impact_weighted).toBe(2);
+    expect(aggregateTeams(devs, teams, 14)[0].impact_weighted).toBe(2);
+    expect(aggregateTeams(devs, teams, 28)[0].impact_weighted).toBe(1);
+  });
+
+  it('uses the mean of members pr_covered_days as prPeriodDays when present', () => {
+    const devs: AggregatorDeveloper[] = [
+      { ...DEV_BASE, github_login: 'a', total_commits: 20, total_prs: 10, pr_covered_days: 0 },
+      { ...DEV_BASE, github_login: 'b', total_commits: 20, total_prs: 10, pr_covered_days: 0 },
+    ];
+    const teams: AggregatorTeam[] = [{ ...TEAM_BASE, members: ['a', 'b'] }];
+    const expected = computeImpactScore({
+      totalCommits: 20, totalPRs: 10, avgComplexity: 0, prPercentage: 0,
+      totalStoryPoints: 0, totalJiraIssues: 0, totalReviews: 0, periodDays: 14, prPeriodDays: 0,
+    });
+    expect(expected).toBeGreaterThan(0);
+    expect(aggregateTeams(devs, teams)[0].impact_weighted).toBe(expected);
+    // Without pr_covered_days the PR term still counts (defaults to periodDays).
+    const noCov = devs.map(({ pr_covered_days, ...d }) => d);
+    expect(aggregateTeams(noCov, teams)[0].impact_weighted).toBe(
+      computeImpactScore({ totalCommits: 20, totalPRs: 10, avgComplexity: 0, prPercentage: 0,
+        totalStoryPoints: 0, totalJiraIssues: 0, totalReviews: 0 }),
+    );
   });
 });

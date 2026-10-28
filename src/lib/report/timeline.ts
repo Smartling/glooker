@@ -81,6 +81,16 @@ export function completedReportWindows(
 }
 
 /**
+ * GLOOK-63: true when a completed report's searched window [completedAt − periodDays, createdAt]
+ * overlaps [sinceMs, untilMs). An empty or inverted window never overlaps.
+ */
+export function windowOverlaps(w: CoverageWindow, sinceMs: number, untilMs: number): boolean {
+  const start = w.completedAt.getTime() - Number(w.periodDays) * 86_400_000;
+  const end = w.createdAt.getTime();
+  return start < end && start < untilMs && end > sinceMs;
+}
+
+/**
  * GLOOK-58 Decision 15: the UTC Monday keys of every week all 7 of whose UTC days lie wholly inside
  * the UNION of the windows [completedAt − periodDays, createdAt]. The windows are merged as time
  * intervals first, so two windows that meet (or overlap) mid-day form one continuous interval and
@@ -125,6 +135,34 @@ export function coveredWeeksFromWindows(windows: CoverageWindow[]): string[] {
     if (whole) weeks.add(key);
   }
   return [...weeks].sort();
+}
+
+/**
+ * GLOOK-63: how many UTC days lie wholly inside the union of `intervals` AND inside
+ * [startMs, endMs). Same "whole day" rule as coveredWeeksFromWindows, so a range's measured days
+ * and the charts' covered weeks never disagree. Overlapping intervals count once.
+ */
+export function unionDayCount(intervals: Array<[number, number]>, startMs: number, endMs: number): number {
+  const clipped = intervals
+    .map(([s, e]) => [Math.max(s, startMs), Math.min(e, endMs)] as [number, number])
+    .filter(([s, e]) => Number.isFinite(s) && Number.isFinite(e) && s < e)
+    .sort((a, b) => a[0] - b[0]);
+  const merged: Array<[number, number]> = [];
+  for (const [s, e] of clipped) {
+    const last = merged[merged.length - 1];
+    if (last && s <= last[1]) last[1] = Math.max(last[1], e);
+    else merged.push([s, e]);
+  }
+  let days = 0;
+  for (const [s, e] of merged) days += Math.max(0, Math.floor(e / DAY_MS) - Math.ceil(s / DAY_MS));
+  return days;
+}
+
+/** GLOOK-63: measured days in [since, until) (YYYY-MM-DD, until exclusive) from completed reports' windows. */
+export function measuredDaysInWindow(windows: CoverageWindow[], since: string, until: string): number {
+  const intervals: Array<[number, number]> = windows.map(({ completedAt, createdAt, periodDays }) =>
+    [completedAt.getTime() - Number(periodDays) * DAY_MS, createdAt.getTime()]);
+  return unionDayCount(intervals, Date.parse(`${since}T00:00:00Z`), Date.parse(`${until}T00:00:00Z`));
 }
 
 /**

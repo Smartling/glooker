@@ -184,6 +184,34 @@ for (const rid of completedReportIds) {
 }
 
 // ---------------------------------------------------------------------------
+// GLOOK-63: pr_activity + pr_activity_coverage (no report_id: PR history outlives reports)
+// ---------------------------------------------------------------------------
+
+export const seedPrActivity: Record<string, any>[] = [];
+export const seedPrActivityCoverage: Record<string, any>[] = [];
+MOCK_DEVELOPERS.forEach((dev, i) => {
+  const p = profiles[i];
+  for (let n = 0; n < p.prs; n++) {
+    seedPrActivity.push({
+      org: MOCK_ORG, github_login: dev.githubLogin, kind: 'authored',
+      repo: p.activeRepos[n % p.activeRepos.length], pr_number: 1000 + i * 100 + n,
+      merged_at: new Date(Date.parse(`${dateDaysAgo(1 + ((n * 3) % 28))}T15:00:00Z`)).toISOString(),
+    });
+  }
+  for (let n = 0; n < 4; n++) {
+    seedPrActivity.push({
+      org: MOCK_ORG, github_login: dev.githubLogin, kind: 'reviewed',
+      repo: p.activeRepos[0], pr_number: 5000 + i * 100 + n,
+      merged_at: new Date(Date.parse(`${dateDaysAgo(2 + n * 5)}T11:00:00Z`)).toISOString(),
+    });
+  }
+  seedPrActivityCoverage.push({
+    org: MOCK_ORG, github_login: dev.githubLogin,
+    since_date: dateDaysAgo(29), until_date: dateDaysAgo(0), source: 'report',
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 3. seedCommitAnalyses
 // ---------------------------------------------------------------------------
 

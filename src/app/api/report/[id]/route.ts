@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getReport, deleteReport, ReportNotFoundError } from '@/lib/report/service';
 import { requireAdmin } from '@/lib/auth';
 import { resolveRequester, buildCostVisibility, stripDevCost, costCacheHeaders } from '@/lib/cost-visibility';
+import { parseRange } from '@/lib/report/range-options';
 import { withRequestLog } from '@/lib/logger';
 
 async function getHandler(
@@ -9,9 +10,11 @@ async function getHandler(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
+  const range = parseRange(new URL(req.url).searchParams.get('range'));
+  if (!range) return NextResponse.json({ error: 'Invalid range' }, { status: 400 });
 
   try {
-    const result = await getReport(id);
+    const result = await getReport(id, range);
     const requester = await resolveRequester(req.headers, result.report.org);
     const { canSeeCost } = await buildCostVisibility(result.report.org, requester);
     result.developers = stripDevCost(result.developers, canSeeCost);

@@ -92,13 +92,33 @@ export interface UserActivity {
    * uncertainty is recorded, rather than skipping the member outright.
    */
   prsUnverified?: string;
+  /** GLOOK-63: false when the merged-PR rows were truncated at the 1000-result search cap. */
+  prsItemsComplete?: boolean;
+}
+
+/** GLOOK-63: merged PRs authored. `itemsComplete` is false when total_count exceeds the search cap. */
+export interface MergedPRsResult {
+  prs: PRInfo[];
+  itemsComplete: boolean;
+  unverified?: string;
+}
+
+/** GLOOK-63: reviewed PRs as rows, plus the review count that total_reviews has always stored. */
+export interface ReviewedPRsResult {
+  /** Page-1 total_count — the exact value total_reviews stored before GLOOK-63. */
+  reviews: number;
+  prs: PRInfo[];
+  /** False when the rows fall short of `reviews` (timeout, cap). Withholds PR coverage only. */
+  itemsComplete: boolean;
+  unverified?: string;
 }
 
 export interface GitHubProvider extends VulnerabilitySource {
   listOrgMembers(org: string, log?: (msg: string) => void): Promise<OrgMember[]>;
   fetchUserActivity(org: string, user: string, since: Date, log?: (msg: string) => void): Promise<UserActivity>;
   listOrgs(): Promise<Array<{ login: string; avatar_url: string }>>;
-  countReviewedPRs(org: string, user: string, since: Date, log?: (msg: string) => void): Promise<{ reviews: number; unverified?: string }>;
+  countReviewedPRs(org: string, user: string, since: Date, log?: (msg: string) => void, until?: Date): Promise<ReviewedPRsResult>;
+  fetchMergedPRs(org: string, user: string, since: Date, log?: (msg: string) => void, until?: Date): Promise<MergedPRsResult>;
   fetchOpenPRs(org: string, user: string, since: Date, log?: (msg: string) => void): Promise<OpenPrInfo[]>;
   isCommitInDefaultBranch(owner: string, repo: string, sha: string): Promise<boolean>;
   fetchRepoEvents(owner: string, repo: string, log?: (msg: string) => void): Promise<RepoEvent[]>;
@@ -712,14 +732,31 @@ export async function searchUserCommits(
 
 // ---------- Per-user PR search ----------
 
-async function searchUserMergedPRs(
+/** `merged:` clause. With `until`, an inclusive day range (backfill months); else the open-ended form each search always used. */
+function mergedDateClause(since: Date, until: Date | undefined, op: '>=' | '>'): string {
+  const s = since.toISOString().split('T')[0];
+  if (!until) return `merged:${op}${s}`;
+  return `merged:${s}..${until.toISOString().split('T')[0]}`;
+}
+
+function toPRInfos(items: any[] | undefined): PRInfo[] {
+  const out: PRInfo[] = [];
+  for (const item of items ?? []) {
+    const repoFullName = (item.repository_url || '').split('/repos/')[1] || '';
+    const repo = repoFullName.split('/')[1] || '';
+    out.push({ number: item.number, title: item.title, repo, mergedAt: item.pull_request?.merged_at || '' });
+  }
+  return out;
+}
+
+export async function searchUserMergedPRs(
   org:   string,
   user:  string,
   since: Date,
   log?:  (msg: string) => void,
-): Promise<{ prs: PRInfo[]; unverified?: string }> {
-  const sinceStr = since.toISOString().split('T')[0];
-  const query    = `org:${org} type:pr is:merged author:${user} merged:>=${sinceStr}`;
+  until?: Date,
+): Promise<MergedPRsResult> {
+  const query = `org:${org} type:pr is:merged author:${user} ${mergedDateClause(since, until, '>=')}`;
   const prs: PRInfo[] = [];
 
   let page = 1;
@@ -769,21 +806,12 @@ async function searchUserMergedPRs(
       const unverified =
         `merged-PR search timed out on an empty result (page ${page}); kept 0 as unverified`;
       log?.(`[search] merged-prs @${user} UNVERIFIED ${unverified}`);
-      return { prs, unverified };
+      return { prs, itemsComplete: true, unverified };
     }
 
-    if (page === 1 && data.total_count === 0) return { prs: [] };
+    if (page === 1 && data.total_count === 0) return { prs: [], itemsComplete: true };
 
-    for (const item of (data.items ?? []) as any[]) {
-      const repoFullName = item.repository_url.split('/repos/')[1] || '';
-      const repo = repoFullName.split('/')[1] || '';
-      prs.push({
-        number:   item.number,
-        title:    item.title,
-        repo,
-        mergedAt: item.pull_request?.merged_at || '',
-      });
-    }
+    prs.push(...toPRInfos(data.items as any[]));
     // Same 1000-result ceiling as the commit search: paging past it returns
     // "Only the first 1000 search results are available".
     if (prs.length >= Math.min(expectedTotal ?? 0, SEARCH_RESULT_CAP)) break;
@@ -799,7 +827,11 @@ async function searchUserMergedPRs(
       `GitHub merged-PR search under-delivered for @${user}: got ${prs.length} of ${owed}`,
     );
   }
-  return { prs };
+  // Past the cap GitHub won't page, so the rows are a truncated set that would otherwise look
+  // complete: flag it so PR coverage is withheld (the runner's count stays as before).
+  const itemsComplete = (expectedTotal ?? 0) <= SEARCH_RESULT_CAP;
+  if (!itemsComplete) log?.(`[search] merged-prs @${user} TRUNCATED ${prs.length} of ${expectedTotal} (search cap)`);
+  return { prs, itemsComplete };
 }
 
 // ---------- Commit detail (diff) ----------
@@ -986,6 +1018,7 @@ export async function fetchUserActivity(
     prs,
     commitsShortfall: commitResult.shortfall,
     prsUnverified:    prResult.unverified,
+    prsItemsComplete: prResult.itemsComplete,
   };
 }
 
@@ -1002,40 +1035,54 @@ export async function listOrgs(): Promise<Array<{ login: string; avatar_url: str
 
 // ---------- PR review count ----------
 
-async function countReviewedPRs(
+/**
+ * GLOOK-63: merged PRs this user reviewed, paged at per_page 100 so each one can be stored in
+ * pr_activity. Trust rules are the GLOOK-50 ones, unchanged: `reviews` is page 1's total_count (the
+ * figure total_reviews has always stored). A page-1 result that stays untrustworthy is kept as
+ * UNVERIFIED and never raised. A later page that goes bad cannot change the count, which is already
+ * known, so it doesn't raise either. It only marks the rows incomplete, which withholds coverage.
+ * Do not unify this with the commit search's strict policy.
+ */
+export async function countReviewedPRs(
   org: string,
   user: string,
   since: Date,
   log?: (msg: string) => void,
-): Promise<{ reviews: number; unverified?: string }> {
-  const sinceStr = since.toISOString().split('T')[0];
-  const q = `org:${org} is:pr is:merged reviewed-by:${user} merged:>${sinceStr}`;
-  await sleep(2500);
-  const { data, trustworthy } = await searchPageWithRetry(
-    'reviewed-prs', user, 1,
-    () => withRetry(
-      () => getOctokit().search.issuesAndPullRequests({ q, per_page: 1 }),
+  until?: Date,
+): Promise<ReviewedPRsResult> {
+  const q = `org:${org} is:pr is:merged reviewed-by:${user} ${mergedDateClause(since, until, '>')}`;
+  const prs: PRInfo[] = [];
+  let reviews = 0;
+  let page = 1;
+  while (true) {
+    await sleep(2500);
+    const { data, trustworthy } = await searchPageWithRetry(
+      'reviewed-prs', user, page,
+      () => withRetry(
+        () => getOctokit().search.issuesAndPullRequests({ q, per_page: SEARCH_PER_PAGE, page }),
+        log,
+      ),
       log,
-    ),
-    log,
-  );
-  // per_page:1 means items is capped at 1 while total_count is the real answer,
-  // so the "counts matches but delivered nothing" arm cannot fire here. The
-  // timeout arm still can, and a timed-out review count reads 0 — which halves
-  // a scoring factor (weight 0.5, min(reviews/15, 1)) and moves the developer
-  // down the ranking.
-  if (!trustworthy) {
-    // per_page:1 caps items at 1, so isContradictoryPage can effectively never
-    // fire here — which means without a doubt channel this endpoint would trust
-    // everything. A timed-out review count reads 0 and halves a scoring factor
-    // (weight 0.5, min(reviews/15, 1)), moving the developer down the ranking.
-    // Keep the number, hand the caller the doubt.
-    const unverified =
-      `review-count search timed out (total_count=${data.total_count ?? 0}); kept as unverified`;
-    log?.(`[search] reviewed-prs @${user} UNVERIFIED ${unverified}`);
-    return { reviews: data.total_count ?? 0, unverified };
+    );
+    if (page === 1) {
+      reviews = data.total_count ?? 0;
+      if (!trustworthy) {
+        // A timed-out review count reads low and halves a scoring factor. Keep it, hand the caller the doubt.
+        const unverified =
+          `review-count search timed out (total_count=${reviews}); kept as unverified`;
+        log?.(`[search] reviewed-prs @${user} UNVERIFIED ${unverified}`);
+        return { reviews, prs: toPRInfos(data.items as any[]), itemsComplete: false, unverified };
+      }
+    } else if (!trustworthy) {
+      log?.(`[search] reviewed-prs @${user} page=${page} untrustworthy; kept count ${reviews}, rows incomplete (${prs.length})`);
+      return { reviews, prs, itemsComplete: false };
+    }
+    prs.push(...toPRInfos(data.items as any[]));
+    if (prs.length >= Math.min(reviews, SEARCH_RESULT_CAP)) break;
+    if ((data.items ?? []).length < SEARCH_PER_PAGE) break;
+    page++;
   }
-  return { reviews: data.total_count ?? 0 };
+  return { reviews, prs, itemsComplete: prs.length >= reviews };
 }
 
 // ---------- Open PR search ----------
@@ -1503,6 +1550,7 @@ export function getGitHubProvider(): GitHubProvider {
     fetchUserActivity,
     listOrgs,
     countReviewedPRs,
+    fetchMergedPRs: searchUserMergedPRs,
     fetchOpenPRs,
     isCommitInDefaultBranch,
     fetchRepoEvents,

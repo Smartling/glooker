@@ -118,8 +118,30 @@ export function createMockGitHubProvider(): GitHubProvider {
       };
     },
 
-    async countReviewedPRs() {
-      return { reviews: Math.floor(Math.random() * 15) };
+    async countReviewedPRs(_org, _user, since) {
+      const reviews = Math.floor(Math.random() * 15);
+      const start = since.getTime();
+      const prs = Array.from({ length: reviews }, (_, i) => ({
+        number: 9000 + i, title: `Mock reviewed PR ${i}`, repo: 'api-gateway',
+        mergedAt: new Date(start + (i + 1) * 3_600_000).toISOString(),
+      }));
+      return { reviews, prs, itemsComplete: true };
+    },
+
+    async fetchMergedPRs(_org, user, since, _log, until) {
+      // Deterministic per login, all inside [since, until) so backfill/range runs have authored PRs.
+      const start = since.getTime();
+      const end = (until ?? new Date()).getTime();
+      const span = end - start;
+      if (!(span > 0)) return { prs: [], itemsComplete: true };
+      const seed = String(user).split('').reduce((n, c) => n + c.charCodeAt(0), 0);
+      const prs = Array.from({ length: 3 }, (_, i) => ({
+        number: 5000 + (seed % 100) * 10 + i,
+        title: `Mock merged PR ${i + 1} by ${user}`,
+        repo: 'api-gateway',
+        mergedAt: new Date(start + Math.floor((span * (i + 1)) / 4)).toISOString(),
+      }));
+      return { prs, itemsComplete: true };
     },
 
     async fetchOpenPRs(_org, user, _since, log) {

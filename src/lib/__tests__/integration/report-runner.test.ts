@@ -12,7 +12,11 @@ jest.mock('@/lib/github', () => ({
 jest.mock('@/lib/analyzer');
 jest.mock('@/lib/db/index', () => ({
   __esModule: true,
-  default: { execute: jest.fn().mockResolvedValue([[], null]) },
+  default: (() => {
+    const mockDb: any = { execute: jest.fn().mockResolvedValue([[], null]) };
+    mockDb.transaction = async (fn: (tx: any) => Promise<unknown>) => fn(mockDb);
+    return mockDb;
+  })(),
 }));
 jest.mock('@/lib/progress-store');
 jest.mock('p-limit', () => ({
@@ -122,6 +126,20 @@ describe('runReport', () => {
       (call: any[]) => typeof call[0] === 'string' && call[0].includes('completed'),
     );
     expect(completedCall).toBeTruthy();
+  });
+
+  it('scores with the report period (GLOOK-63): a 28-day report scales caps', async () => {
+    const finalImpact = () => {
+      const calls = mockDbExecute.mock.calls.filter(
+        (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO developer_stats') && c[1][1] === 'alice',
+      );
+      return Number(calls[calls.length - 1][1][9]); // impact_score param
+    };
+    await runReport('r-14', 'my-org', 14);
+    const at14 = finalImpact();
+    mockDbExecute.mockClear();
+    await runReport('r-28', 'my-org', 28);
+    expect(finalImpact()).toBeLessThan(at14);
   });
 
   it('deduplicates shared commit SHAs across members', async () => {
@@ -489,6 +507,60 @@ describe('runReport', () => {
       await runReport('rResume2', 'my-org', 14, true);
 
       expect(mockRefreshCc).toHaveBeenCalledWith('rResume2', expect.any(Function));
+    });
+  });
+  describe('pr_activity (GLOOK-63)', () => {
+    const sqlCalls = (frag: string) =>
+      mockDbExecute.mock.calls.filter((c: any[]) => typeof c[0] === 'string' && c[0].includes(frag));
+    const reviewed = { reviews: 1, prs: [{ number: 9, title: 'R', repo: 'other', mergedAt: '2025-01-16T00:00:00Z' }], itemsComplete: true };
+
+    beforeEach(() => {
+      mockListOrgMembers.mockResolvedValue([{ login: 'alice', avatarUrl: '' }]);
+      mockCountReviewedPRs.mockReset();
+      mockCountReviewedPRs.mockResolvedValue(reviewed);
+    });
+    afterEach(() => {
+      mockCountReviewedPRs.mockReset();
+      mockCountReviewedPRs.mockResolvedValue(0); // the file-level default other tests rely on
+    });
+
+    it('upserts authored and reviewed PR rows with the org', async () => {
+      await runReport('rp1', 'my-org', 14);
+      // Multi-row INSERTs: six params per row.
+      const rows = sqlCalls('INSERT INTO pr_activity').flatMap((c: any[]) =>
+        Array.from({ length: c[1].length / 6 }, (_, i) => c[1].slice(i * 6, i * 6 + 6)));
+      expect(rows).toEqual(expect.arrayContaining([
+        ['my-org', 'alice', 'authored', 'my-repo', 1, '2025-01-15T00:00:00.000Z'],
+        ['my-org', 'alice', 'reviewed', 'other', 9, '2025-01-16T00:00:00.000Z'],
+      ]));
+    });
+
+    it('records a report coverage slice when both PR searches were trustworthy', async () => {
+      await runReport('rp2', 'my-org', 14);
+      const cov = sqlCalls('INTO pr_activity_coverage');
+      expect(cov).toHaveLength(1);
+      expect(cov[0][1][0]).toBe('my-org');
+      expect(cov[0][1][1]).toBe('alice');
+      expect(cov[0][1][4]).toBe('report');
+    });
+
+    it.each([
+      ['merged-PR count unverified', () => mockFetchUserActivity.mockImplementation(async () => ({ commits: [], prs: [], prsUnverified: 'timed out' }))],
+      ['review count unverified', () => mockCountReviewedPRs.mockResolvedValue({ ...reviewed, unverified: 'timed out' })],
+      ['review rows incomplete', () => mockCountReviewedPRs.mockResolvedValue({ ...reviewed, itemsComplete: false })],
+      ['review search threw', () => mockCountReviewedPRs.mockRejectedValue(new Error('boom'))],
+    ])('writes no coverage when %s', async (_label, arrange) => {
+      arrange();
+      await runReport('rp3', 'my-org', 14);
+      expect(sqlCalls('INTO pr_activity_coverage')).toHaveLength(0);
+    });
+
+    it('still records the review doubt on the unverified channel, as before', async () => {
+      mockCountReviewedPRs.mockResolvedValue({ ...reviewed, unverified: 'timed out' });
+      await runReport('rp4', 'my-org', 14);
+      const done = sqlCalls(`status = 'completed'`).pop()!;
+      const meta = JSON.parse(done[1][0]);
+      expect(meta.unverified).toEqual([expect.objectContaining({ login: 'alice', field: 'reviews', kept: 1 })]);
     });
   });
 });

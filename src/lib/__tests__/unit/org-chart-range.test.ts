@@ -1,4 +1,4 @@
-import { CHART_RANGES, chartRangeDays, chartTicks, weekTickFormatter, type ChartRange } from '@/app/report/[id]/org/chart-range';
+import { CHART_RANGES, chartRangeDays, chartTicks, weekTickFormatter, type ChartRange } from '@/components/range/chart-range';
 import { formatWeek, formatWeekLong, weekDomainEndingAt } from '@/components/charts/chart-format';
 
 const ANCHOR = '2026-10-12'; // a Monday

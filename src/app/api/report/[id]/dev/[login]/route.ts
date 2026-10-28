@@ -3,12 +3,15 @@ import { getDevReport } from '@/lib/report/dev';
 import { ReportNotFoundError } from '@/lib/report/service';
 import { DeveloperNotFoundError } from '@/lib/report/dev';
 import { resolveRequester, buildCostVisibility, stripCostFields, stripModelCost, costCacheHeaders } from '@/lib/cost-visibility';
+import { parseRange } from '@/lib/report/range-options';
 import { withRequestLog } from '@/lib/logger';
 
 async function getHandler(req: NextRequest, { params }: { params: Promise<{ id: string; login: string }> }) {
   const { id, login } = await params;
+  const range = parseRange(new URL(req.url).searchParams.get('range'));
+  if (!range) return NextResponse.json({ error: 'Invalid range' }, { status: 400 });
   try {
-    const result = await getDevReport(id, login);
+    const result = await getDevReport(id, login, range);
     const requester = await resolveRequester(req.headers, result.report.org);
     const { canSeeCost } = await buildCostVisibility(result.report.org, requester);
     if (!canSeeCost(result.developer.github_login)) result.developer = stripCostFields(result.developer);

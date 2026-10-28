@@ -46,6 +46,8 @@ export interface AggregatorDeveloper {
   cc_total_cost?:     number;
   type_breakdown:     Record<string, number>;
   active_repos:       string[];
+  /** GLOOK-63: days of PR coverage behind this developer's PR figures. Absent = full period. */
+  pr_covered_days?:   number;
 }
 
 export interface AggregatorTeam {
@@ -58,6 +60,8 @@ export interface AggregatorTeam {
 export function aggregateTeams(
   developers: AggregatorDeveloper[],
   teams:      AggregatorTeam[],
+  /** GLOOK-63: the period the developer figures cover — report.period_days, or range.measuredDays. */
+  periodDays: number = 14,
 ): TeamRow[] {
   const devByLogin = new Map(developers.map(d => [d.github_login, d]));
 
@@ -127,6 +131,14 @@ export function aggregateTeams(
       ? 0
       : Math.round((impact_score_sum / activeDevs.length) * 10) / 10;
 
+    // Mean of active members' PR coverage; omitted (-> periodDays) when no member carries it.
+    const covered = activeDevs
+      .map(d => d.pr_covered_days)
+      .filter((v): v is number => typeof v === 'number');
+    const prPeriodDays = covered.length > 0
+      ? Math.round(covered.reduce((a, b) => a + b, 0) / covered.length)
+      : undefined;
+
     const teamSize = team.members.length;
     const impact_weighted = teamSize === 0
       ? 0
@@ -138,6 +150,8 @@ export function aggregateTeams(
           totalStoryPoints: total_story_points / teamSize,
           totalJiraIssues:  total_jira_issues / teamSize,
           totalReviews:     total_reviews     / teamSize,
+          periodDays,
+          prPeriodDays,
         });
 
     rows.push({

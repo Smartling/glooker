@@ -16,6 +16,10 @@ import type { TeamProject } from '@/lib/team-pulse/types';
 import type { RunMetadata } from '@/lib/report-runner/types';
 import SafeMarkdown from '@/components/SafeMarkdown';
 import { toCsv } from '@/lib/csv';
+import RangePicker from '@/components/range/RangePicker';
+import CurrentReportLabel from '@/components/range/CurrentReportLabel';
+import RangeLoadStatus from '@/components/range/RangeLoadStatus';
+import { RANGE_OPTIONS, RANGE_LABELS, withRange, rangeNotes, type ReportRange, type RangeMeta } from '@/lib/report/range-options';
 
 interface Report {
   id:           string;
@@ -38,10 +42,32 @@ export default function TeamSummaryPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
 
-  // Main report data
-  const { data: reportData, isLoading } = useSWR(`/api/report/${params.id}`);
+  // GLOOK-63: the date range. Current report sends no range param (today's request, unchanged).
+  const [range, setRange] = useUrlState<ReportRange>({
+    key: 'range',
+    type: 'enum',
+    values: RANGE_OPTIONS,
+    default: 'current',
+    history: 'replace',
+    scroll: false,
+  });
+
+  // Main report data. keepPreviousData stops the tables blanking while a new range loads.
+  // Developer rows are passed through untouched so pr_covered_days reaches aggregateTeams.
+  const { data: reportData, isLoading, error: reportError, mutate: retryReport } = useSWR(withRange(`/api/report/${params.id}`, range), { keepPreviousData: true });
   const developers: Developer[] = reportData?.developers ?? [];
   const activeReport: Report | null = reportData?.report ?? null;
+  // Labels follow the payload actually on screen (keepPreviousData can hold the previous range's data).
+  const payloadRange: ReportRange = reportData?.range?.key ?? 'current';
+  const rangeMeta: RangeMeta | null = payloadRange === 'current' ? null : (reportData?.range ?? null);
+  const notes = rangeNotes(rangeMeta);
+  // keepPreviousData: the selected range may not be the one on screen yet (or may have failed).
+  const rangeFailed = !!reportError && !!reportData;
+  const rangePending = !!reportData && payloadRange !== range && !rangeFailed;
+  const dimmed = rangePending || rangeFailed;
+  // GLOOK-63: no completed report overlaps the range — say so instead of an empty table.
+  const noReportsInRange = !!rangeMeta && rangeMeta.measuredDays === 0 && developers.length === 0;
+  const periodLabel = payloadRange === 'current' ? `${activeReport?.period_days ?? ''}d` : payloadRange;
 
   // Teams (dependent on org from report)
   const org = activeReport?.org;
@@ -118,7 +144,7 @@ export default function TeamSummaryPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `glooker_${report.org}_${report.period_days}d_${new Date(report.created_at).toISOString().slice(0, 10)}.csv`;
+    a.download = `glooker_${report.org}_${periodLabel}_${new Date(report.created_at).toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -145,7 +171,7 @@ export default function TeamSummaryPage() {
     const csv = toCsv([headers, ...rows]);
 
     // Copy CSV to clipboard and open a new Google Sheet
-    const title = encodeURIComponent(`Glooker: ${report.org} (${report.period_days}d) - ${new Date(report.created_at).toLocaleDateString()}`);
+    const title = encodeURIComponent(`Glooker: ${report.org} (${periodLabel}) - ${new Date(report.created_at).toLocaleDateString()}`);
     navigator.clipboard.writeText(csv).then(() => {
       window.open(`https://docs.google.com/spreadsheets/create?title=${title}`, '_blank');
       alert('Report data copied to clipboard!\\n\\nA new Google Sheet is opening.\\nPress Ctrl+V (or Cmd+V) in cell A1 to paste the data.');
@@ -173,7 +199,7 @@ export default function TeamSummaryPage() {
               onClick={() => router.push(`/report/${activeReport!.id}/org`)}
             >{activeReport.org}</span>
           }
-          meta={<>last {activeReport.period_days} days &middot; {developers.length} developers</>}
+          meta={<>{payloadRange === 'current' ? `last ${activeReport.period_days} days` : RANGE_LABELS[payloadRange]} &middot; {developers.length} developers</>}
           badges={activeReport.run_metadata?.state !== 'failed' && (
             <IntegrityBadge metadata={activeReport.run_metadata ?? null} />
           )}
@@ -219,6 +245,21 @@ export default function TeamSummaryPage() {
           />
         </PageHeader>
       )}
+
+      {/* GLOOK-63: date range */}
+      <div className="flex flex-wrap items-center gap-3 mb-4">
+        <RangePicker options={RANGE_OPTIONS} labels={RANGE_LABELS} value={range} onChange={setRange} ariaLabel="Date range" />
+        {notes.map(n => <span key={n} className="text-xs text-gray-500">{n}</span>)}
+        <RangeLoadStatus
+          pending={rangePending}
+          failed={rangeFailed}
+          selectedLabel={RANGE_LABELS[range]}
+          shownLabel={RANGE_LABELS[payloadRange]}
+          onRetry={() => { void retryReport(); }}
+        />
+      </div>
+
+      <div data-testid="range-content" aria-busy={rangePending} className={dimmed ? 'opacity-50 transition-opacity' : 'transition-opacity'}>
 
       {/* Tabs */}
       <div className="border-b border-gray-800 mb-6">
@@ -352,6 +393,7 @@ export default function TeamSummaryPage() {
           teamName={selectedTeamName}
           org={activeReport.org}
           periodDays={activeReport.period_days}
+          currentReportOnly={range !== 'current'}
         />
       )}
 
@@ -361,8 +403,8 @@ export default function TeamSummaryPage() {
             projects={teamPulse?.projects ?? []}
             loading={projectsExpanded && teamPulseLoading && !teamPulse}
             title="Current Projects"
-            subtitle={`${selectedTeamName} · ${activeReport!.period_days}d`}
-            developerHref={(login) => `/report/${params.id}/dev/${login}`}
+            subtitle={`${selectedTeamName} · ${activeReport!.period_days}d${payloadRange !== 'current' ? ' · Current report' : ''}`}
+            developerHref={(login) => withRange(`/report/${params.id}/dev/${login}`, range)}
             collapsible
             expanded={projectsExpanded}
             onExpandedChange={setProjectsExpanded}
@@ -371,20 +413,23 @@ export default function TeamSummaryPage() {
       )}
 
       {/* Developer table */}
-      <DevTable
+      {!noReportsInRange && <DevTable
         developers={developers}
         reportId={params.id}
         org={activeReport?.org ?? ''}
         filterLogins={filterLogins}
-      />
+        range={range}
+      />}
       </>
       )}
 
-      {view === 'teams' && activeReport && teamsData !== undefined && activeReport?.run_metadata?.state !== 'failed' && (
+      {view === 'teams' && activeReport && teamsData !== undefined && !noReportsInRange && activeReport?.run_metadata?.state !== 'failed' && (
         <TeamTable
           developers={developers}
           teams={teams}
           reportId={params.id}
+          periodDays={rangeMeta ? rangeMeta.measuredDays : activeReport.period_days}
+          range={range}
         />
       )}
 
@@ -392,22 +437,28 @@ export default function TeamSummaryPage() {
         <IntegrityBadge metadata={activeReport.run_metadata ?? null} />
       )}
 
-      {activeReport && developers.length === 0 && activeReport.status === 'completed' && (
+      {noReportsInRange ? (
+        <div className="text-center text-gray-500 py-16">
+          No reports in this range.
+        </div>
+      ) : activeReport && developers.length === 0 && activeReport.status === 'completed' && (
         <div className="text-center text-gray-500 py-16">
           No commits found for this org in the selected period.
         </div>
       )}
+      </div>
 
       {activeReport?.org && <ChatPanel org={activeReport.org} />}
     </div>
   );
 }
 
-function TeamPulseCard({ reportId, teamName, org, periodDays }: {
+function TeamPulseCard({ reportId, teamName, org, periodDays, currentReportOnly }: {
   reportId: string;
   teamName: string;
   org: string;
   periodDays: number;
+  currentReportOnly?: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -448,7 +499,7 @@ function TeamPulseCard({ reportId, teamName, org, periodDays }: {
           <svg className={`w-3.5 h-3.5 text-gray-500 transition-transform ${collapsed ? '' : 'rotate-90'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
           </svg>
-          <span className="text-sm font-semibold text-white">Team Pulse: {teamName}</span>
+          <span className="text-sm font-semibold text-white">Team Pulse: {teamName}{currentReportOnly && <CurrentReportLabel />}</span>
           {isLoading && <span className="text-xs text-gray-500 animate-pulse">Generating...</span>}
         </div>
         {data?.health && (

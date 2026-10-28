@@ -4,6 +4,7 @@ import { useState, useRef, useMemo, useEffect, type RefObject } from 'react';
 import { useRouter } from 'next/navigation';
 import { createPortal } from 'react-dom';
 import { useUrlState } from '@/lib/url-state';
+import { withRange, type ReportRange } from '@/lib/report/range-options';
 import { commitTypeBadge, typeEntriesFrom } from '@/components/charts/commit-types';
 
 export interface Developer {
@@ -39,9 +40,11 @@ interface DevTableProps {
   reportId:     string;
   org:          string;        // needed for commit URL links in tooltip
   filterLogins: Set<string>;
+  /** GLOOK-63: date range; drill-downs follow it. */
+  range?:       ReportRange;
 }
 
-export default function DevTable({ developers, reportId, org, filterLogins }: DevTableProps) {
+export default function DevTable({ developers, reportId, org, filterLogins, range = 'current' }: DevTableProps) {
   const router = useRouter();
   const commitCache = useRef<Map<string, any[]>>(new Map());
   const jiraCache   = useRef<Map<string, any[]>>(new Map());
@@ -188,7 +191,7 @@ export default function DevTable({ developers, reportId, org, filterLogins }: De
             <tr
               key={dev.github_login}
               className="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors cursor-pointer"
-              onClick={() => router.push(`/report/${reportId}/dev/${dev.github_login}`)}
+              onClick={() => router.push(withRange(`/report/${reportId}/dev/${dev.github_login}`, range))}
             >
               <td className="px-4 py-3">
                 <div className="flex items-center gap-3">
@@ -219,6 +222,7 @@ export default function DevTable({ developers, reportId, org, filterLogins }: De
                   login={dev.github_login}
                   org={org}
                   cacheRef={commitCache}
+                  range={range}
                 />
               </td>
               <td className="px-4 py-3 text-right">
@@ -243,6 +247,7 @@ export default function DevTable({ developers, reportId, org, filterLogins }: De
                       reportId={reportId}
                       login={dev.github_login}
                       cacheRef={jiraCache}
+                      range={range}
                     />
                   ) : (
                     <span className="text-gray-600 text-sm">—</span>
@@ -320,9 +325,9 @@ function TypeBreakdown({ breakdown }: { breakdown: Record<string, number> }) {
 }
 
 function CommitCountWithTooltip({
-  count, reportId, login, org, cacheRef,
+  count, reportId, login, org, cacheRef, range,
 }: {
-  count: number; reportId: string; login: string; org: string;
+  count: number; reportId: string; login: string; org: string; range: ReportRange;
   cacheRef: RefObject<Map<string, any[]>>;
 }) {
   const [commits, setCommits] = useState<any[] | null>(null);
@@ -342,11 +347,11 @@ function CommitCountWithTooltip({
       setPos({ top: flipDown ? rect.bottom + 8 : rect.top - 8, left: rect.right, flipDown });
     }
     setShow(true);
-    const key = `${reportId}:${login}`;
+    const key = `${reportId}:${range}:${login}`;
     if (cacheRef.current!.has(key)) { setCommits(cacheRef.current!.get(key)!); setLoading(false); return; }
     setLoading(true);
     try {
-      const res = await fetch(`/api/report/${reportId}/commits?login=${encodeURIComponent(login)}`);
+      const res = await fetch(withRange(`/api/report/${reportId}/commits?login=${encodeURIComponent(login)}`, range));
       if (!res.ok) throw new Error(res.statusText);
       const rows = await res.json();
       cacheRef.current!.set(key, rows);
@@ -413,9 +418,9 @@ function CommitCountWithTooltip({
 }
 
 function JiraCountWithTooltip({
-  count, reportId, login, cacheRef,
+  count, reportId, login, cacheRef, range,
 }: {
-  count: number; reportId: string; login: string;
+  count: number; reportId: string; login: string; range: ReportRange;
   cacheRef: RefObject<Map<string, any[]>>;
 }) {
   const [issues, setIssues] = useState<any[] | null>(null);
@@ -435,11 +440,11 @@ function JiraCountWithTooltip({
       setPos({ top: flipDown ? rect.bottom + 8 : rect.top - 8, left: rect.right, flipDown, bottomOffset: window.innerHeight - rect.top });
     }
     setShow(true);
-    const key = `jira:${reportId}:${login}`;
+    const key = `jira:${reportId}:${range}:${login}`;
     if (cacheRef.current!.has(key)) { setIssues(cacheRef.current!.get(key)!); setLoading(false); return; }
     setLoading(true);
     try {
-      const res = await fetch(`/api/report/${reportId}/jira-issues?login=${encodeURIComponent(login)}`);
+      const res = await fetch(withRange(`/api/report/${reportId}/jira-issues?login=${encodeURIComponent(login)}`, range));
       if (!res.ok) throw new Error(res.statusText);
       const rows = await res.json();
       cacheRef.current!.set(key, rows);

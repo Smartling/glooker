@@ -10,6 +10,11 @@ import { TimelineChart } from '@/components/charts/timeline-chart';
 import { toNum, weekDomainEndingAt } from '@/components/charts/chart-format';
 import { commitTypeBadge, commitTypeBg, typeEntriesFrom } from '@/components/charts/commit-types';
 import SafeMarkdown from '@/components/SafeMarkdown';
+import { useUrlState } from '@/lib/url-state';
+import RangePicker from '@/components/range/RangePicker';
+import CurrentReportLabel from '@/components/range/CurrentReportLabel';
+import RangeLoadStatus from '@/components/range/RangeLoadStatus';
+import { RANGE_OPTIONS, RANGE_LABELS, withRange, rangeNotes, type ReportRange, type RangeMeta } from '@/lib/report/range-options';
 
 interface DevStats {
   github_login: string; github_name: string; avatar_url: string;
@@ -104,13 +109,25 @@ export default function DevDetailPage() {
   const params = useParams<{ id: string; login: string }>();
   const [expandedSha, setExpandedSha] = useState<string | null>(null);
   const [expandedIssueKey, setExpandedIssueKey] = useState<string | null>(null);
+  // GLOOK-63: date range; Current report sends no range param.
+  const [range, setRange] = useUrlState<ReportRange>({
+    key: 'range',
+    type: 'enum',
+    values: RANGE_OPTIONS,
+    default: 'current',
+    history: 'replace',
+    scroll: false,
+  });
 
   // 1. Config (jiraHost)
   const { data: config } = useSWR('/api/llm-config', { revalidateIfStale: false });
   const jiraHost = config?.jira?.host ?? null;
 
   // 2. Main dev data
-  const { data: devData, isLoading, error: devError } = useSWR(`/api/report/${params.id}/dev/${params.login}`);
+  const { data: devData, isLoading, error: devError, mutate: retryDev } = useSWR(
+    withRange(`/api/report/${params.id}/dev/${params.login}`, range),
+    { keepPreviousData: true },
+  );
   const report: ReportMeta | null = devData?.report ?? null;
   const dev: DevStats | null = devData?.developer ?? null;
   const allDevs: CompactDev[] = devData?.allDevelopers ?? [];
@@ -125,10 +142,22 @@ export default function DevDetailPage() {
   // gives [], so unmeasured weeks never claim a zero.
   const coveredWeeks: string[] = devData?.coveredWeeks ?? [];
   const anchorWeek: string | undefined = devData?.anchorWeek;
+  // With keepPreviousData the previous range's payload shows while the new one loads, so range
+  // meta and chart domain are derived only from a payload that belongs to the selected range.
+  // Labels, notes and the chart window all follow the payload's own range (absent = current).
+  const payloadRange: ReportRange = devData?.range?.key ?? 'current';
+  const rangeMeta: RangeMeta | null = payloadRange !== 'current' ? (devData?.range ?? null) : null;
+  const notes = rangeNotes(rangeMeta);
+  // keepPreviousData: the selected range may not be the one on screen yet (or may have failed).
+  const rangeFailed = !!devError && !!devData;
+  const rangePending = !!devData && payloadRange !== range && !rangeFailed;
+  const dimmed = rangePending || rangeFailed;
+  // A range-only developer has no row in this report, so there is no per-report summary to fetch.
+  const inCurrentReport: boolean = devData?.inCurrentReport ?? true;
 
   // 3. Summary (dependent on devData)
   const { data: summaryData, isLoading: summaryLoading, error: summaryError } = useSWR(
-    devData ? `/api/report/${params.id}/dev/${params.login}/summary` : null,
+    devData && inCurrentReport ? `/api/report/${params.id}/dev/${params.login}/summary` : null,
     { revalidateIfStale: false }
   );
   const summary: string | null = summaryData?.summary ?? null;
@@ -137,13 +166,13 @@ export default function DevDetailPage() {
   // 4. Jira issues (dependent on dev having jira issues)
   const hasJira = dev && (dev.total_jira_issues ?? 0) > 0;
   const { data: jiraIssuesData } = useSWR(
-    hasJira ? `/api/report/${params.id}/jira-issues?login=${params.login}` : null,
+    hasJira ? withRange(`/api/report/${params.id}/jira-issues?login=${params.login}`, range) : null,
     { revalidateIfStale: false }
   );
   const jiraIssues: JiraIssue[] = jiraIssuesData ?? [];
 
   if (isLoading) return <div className="max-w-6xl mx-auto px-4 py-16 text-gray-500">Loading...</div>;
-  if (devError || !dev || !report) return <div className="max-w-6xl mx-auto px-4 py-16 text-red-400">Error: {devError?.message || 'Not found'}</div>;
+  if ((devError && !devData) || !dev || !report) return <div className="max-w-6xl mx-auto px-4 py-16 text-red-400">Error: {devError?.message || 'Not found'}</div>;
 
   const rank = allDevs.findIndex(d => d.github_login === dev.github_login) + 1;
 
@@ -166,7 +195,7 @@ export default function DevDetailPage() {
 
   // One week domain per render, ending at this report's own week (Decision 15), shared by every
   // chart below so hover sync (syncId) lines up.
-  const weeks = weekDomainEndingAt(anchorWeek);
+  const weeks = weekDomainEndingAt(anchorWeek, payloadRange === '12m' ? 365 : 90);
 
   // Repo commit counts
   const repoMap = new Map<string, number>();
@@ -198,7 +227,7 @@ export default function DevDetailPage() {
             </div>
             <p className="text-gray-500 mt-0.5">@{dev.github_login}</p>
             <p className="text-gray-600 text-sm mt-1">
-              {report.org} &middot; {report.period_days} days &middot; {new Date(report.created_at).toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' })}
+              {report.org} &middot; {payloadRange === 'current' ? `${report.period_days} days` : RANGE_LABELS[payloadRange]} &middot; {new Date(report.created_at).toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' })}
             </p>
           </div>
         </div>
@@ -210,6 +239,20 @@ export default function DevDetailPage() {
           </button>
         </div>
       </div>
+
+      <div className="flex flex-wrap items-center gap-3 mb-4 no-print">
+        <RangePicker options={RANGE_OPTIONS} labels={RANGE_LABELS} value={range} onChange={setRange} ariaLabel="Date range" />
+        {notes.map(n => <span key={n} className="text-xs text-gray-500">{n}</span>)}
+        <RangeLoadStatus
+          pending={rangePending}
+          failed={rangeFailed}
+          selectedLabel={RANGE_LABELS[range]}
+          shownLabel={RANGE_LABELS[payloadRange]}
+          onRetry={() => { void retryDev(); }}
+        />
+      </div>
+
+      <div data-testid="range-content" aria-busy={rangePending} className={dimmed ? 'opacity-50 transition-opacity' : 'transition-opacity'}>
 
       {/* Percentile Cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
@@ -254,6 +297,9 @@ export default function DevDetailPage() {
         })}
       </div>
 
+      {payloadRange !== 'current' && (
+        <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-2">Claude Code<CurrentReportLabel /></p>
+      )}
       <ClaudeCodeUsageCard
         costCents={dev.cc_total_cost}
         requests={dev.cc_requests}
@@ -356,7 +402,10 @@ export default function DevDetailPage() {
 
       {/* AI Summary + Badges */}
       <div className="bg-gray-900 rounded-xl p-6 mb-6">
-        <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-4">Performance Summary</p>
+        <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-4">Performance Summary{payloadRange !== 'current' && <CurrentReportLabel />}</p>
+        {!inCurrentReport && (
+          <p className="text-sm text-gray-500">Not in the current report — no summary.</p>
+        )}
         {summaryLoading && (
           <div>
             <div className="flex items-center gap-3 text-gray-500 mb-3">
@@ -657,6 +706,7 @@ export default function DevDetailPage() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

@@ -196,6 +196,29 @@ CREATE TABLE IF NOT EXISTS cc_model_usage (
   FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE
 )`;
 
+// GLOOK-63: PR activity + coverage ledger (also in schema.sql and sqlite.ts). No FK to reports, and
+// no charset pin (see mysql-schema-fk-charset.test.ts).
+const PR_ACTIVITY_SCHEMAS: string[] = [
+  `CREATE TABLE IF NOT EXISTS pr_activity (
+  org          VARCHAR(128) NOT NULL,
+  github_login VARCHAR(128) NOT NULL,
+  kind         VARCHAR(16)  NOT NULL,
+  repo         VARCHAR(200) NOT NULL,
+  pr_number    INT          NOT NULL,
+  merged_at    VARCHAR(32)  NOT NULL,
+  PRIMARY KEY (org, github_login, kind, repo, pr_number),
+  KEY idx_pr_activity_org_merged (org, merged_at)
+)`,
+  `CREATE TABLE IF NOT EXISTS pr_activity_coverage (
+  org          VARCHAR(128) NOT NULL,
+  github_login VARCHAR(128) NOT NULL,
+  since_date   VARCHAR(10)  NOT NULL,
+  until_date   VARCHAR(10)  NOT NULL,
+  source       VARCHAR(16)  NOT NULL,
+  PRIMARY KEY (org, github_login, since_date, until_date)
+)`,
+];
+
 // GLOOK-43: vulnerability tracking tables (also in schema.sql and sqlite.ts).
 const VULNERABILITY_SCHEMAS: string[] = [
   `CREATE TABLE IF NOT EXISTS vulnerability_repos (
@@ -349,6 +372,11 @@ export function createMySQLDB(): DB {
   await pool.execute(CC_MODEL_USAGE_SCHEMA).catch((err) => {
     console.error('[db/mysql] Failed to create cc_model_usage table:', err);
   });
+  for (const ddl of PR_ACTIVITY_SCHEMAS) {
+    await pool.execute(ddl).catch((err) => {
+      console.error('[db/mysql] Failed to create a pr_activity table:', err);
+    });
+  }
   await pool.execute('DROP TABLE IF EXISTS unmerged_work').catch((err) => {
     console.error('[db/mysql] Failed to drop unmerged_work table:', err);
   });

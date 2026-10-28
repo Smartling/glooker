@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import db from '@/lib/db';
+import { rangeWindow, getRangeDeveloperStats, type ReportRange, type RangeMeta } from './range';
 import { runReport, requestStop } from '@/lib/report-runner';
 import { initProgress, updateProgress, getProgress } from '@/lib/progress-store';
 import { reportHealth, type RunHealth } from '@/lib/runs/health';
@@ -96,7 +97,7 @@ export async function createReport(input: {
   return id;
 }
 
-export async function getReport(id: string) {
+export async function getReport(id: string, range: ReportRange = 'current') {
   const [reportRows] = await db.execute(
     `SELECT id, org, period_days, status, error, run_metadata, created_at, completed_at
      FROM reports WHERE id = ?`,
@@ -142,10 +143,25 @@ export async function getReport(id: string) {
     reportRows[0].run_metadata = null;
   }
 
-  return {
-    report: reportRows[0],
-    developers,
+  if (range === 'current') {
+    return { report: reportRows[0], developers };
+  }
+
+  // GLOOK-63: recompute every developer figure over the range; spend stays on the current report.
+  const window = rangeWindow(reportRows[0], range);
+  const rows = await getRangeDeveloperStats(reportRows[0].org, window);
+  const current = new Map(developers.map((d: any) => [d.github_login, d]));
+  const rangeDevelopers: any[] = rows.map((r) => {
+    const cur: any = current.get(r.github_login);
+    return cur ? { ...r, cc_total_cost: cur.cc_total_cost, cc_requests: cur.cc_requests } : { ...r };
+  });
+  const covered = rows.map(r => r.pr_covered_since).filter((x): x is string => x != null).sort();
+  const meta: RangeMeta = {
+    key: range, since: window.since, until: window.until, days: window.days,
+    measuredDays: rows[0]?.measured_days ?? 0,
+    prCoveredSince: covered[0] ?? null,
   };
+  return { report: reportRows[0], developers: rangeDevelopers, range: meta };
 }
 
 export async function deleteReport(id: string): Promise<void> {

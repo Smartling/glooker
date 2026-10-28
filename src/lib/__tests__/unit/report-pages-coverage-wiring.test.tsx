@@ -24,7 +24,7 @@ jest.mock('next/navigation', () => ({
   useParams: () => ({ id: 'r1', login: 'alice' }),
   useRouter: () => ({ push: () => undefined }),
 }));
-jest.mock('@/lib/url-state', () => ({ useUrlState: () => ['impact', () => undefined] }));
+jest.mock('@/lib/url-state', () => ({ useUrlState: (s: { default: unknown }) => [s.default, () => undefined] }));
 jest.mock('@/app/chat-panel', () => ({ __esModule: true, default: () => null }));
 jest.mock('@/components/IntegrityBadge', () => ({ __esModule: true, default: () => null }));
 jest.mock('@/components/Breadcrumb', () => ({ __esModule: true, default: () => null }));
