@@ -53,5 +53,8 @@
     "ts-node": "^10.9.2",
     "tsx": "^4.23.15",
     "typescript": "^5"
+  },
+  "overrides": {
+    "postcss-selector-parser": "^6.1.5"
   }
 }
