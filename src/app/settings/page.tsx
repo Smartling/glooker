@@ -7,6 +7,7 @@ import { useAuth } from '../auth-context';
 import ProjectsTab from './projects-tab';
 import { ChartAccentPicker } from './chart-accent-picker';
 import SchedulesTab from './schedules-tab';
+import CanonicalCard from './canonical-card';
 
 type Tab = 'schedules' | 'teams' | 'projects' | 'app' | 'appearance' | 'cc-spend' | 'skip-allowlist';
 
@@ -640,6 +641,8 @@ function AppSettingsTab({ org }: { org: string }) {
 
   return (
     <div>
+      <div className="mb-6"><CanonicalCard /></div>
+
       <p className="text-sm text-gray-400 mb-6">Current app configuration (read-only). Edit <code className="text-xs bg-gray-800 px-1.5 py-0.5 rounded">.env.local</code> to change settings.</p>
 
       {/* Status */}
