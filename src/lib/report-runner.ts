@@ -1,4 +1,5 @@
 import { warmRangeCache } from './report/range';
+import { completeReport } from './canonical/upkeep';
 import { upsertPrActivity, recordPrCoverage, reportCoverageSlice } from './pr-activity/store';
 import pLimit from 'p-limit';
 import db from './db/index';
@@ -749,10 +750,7 @@ export async function runReport(
     };
 
     // 4. Mark complete
-    await db.execute(
-      `UPDATE reports SET status = 'completed', run_metadata = ?, completed_at = NOW() WHERE id = ?`,
-      [JSON.stringify(runMetadata), reportId],
-    );
+    await completeReport(reportId, JSON.stringify(runMetadata));
     log(`Report complete: ${stats.length} developers`);
     updateProgress(reportId, { status: 'completed', step: 'Done', totalDevelopers: membersWithCommits, completedDevelopers: membersWithCommits });
     // GLOOK-63: pre-compute the 90-day and 12-month views so the first viewer doesn't wait.

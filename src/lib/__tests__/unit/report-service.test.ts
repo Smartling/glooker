@@ -1,5 +1,6 @@
 jest.mock('@octokit/rest', () => ({ Octokit: jest.fn().mockImplementation(() => ({})) }));
-jest.mock('@/lib/db/index', () => ({ __esModule: true, default: { execute: jest.fn() } }));
+jest.mock('@/lib/db/index', () => ({ __esModule: true, default: { execute: jest.fn(), transaction: jest.fn((fn: any) => fn(require('@/lib/db/index').default)) } }));
+jest.mock('@/lib/canonical/state', () => ({ isCanonicalBuilt: jest.fn().mockResolvedValue(false) }));
 jest.mock('@/lib/report-runner', () => ({ runReport: jest.fn().mockResolvedValue(undefined), requestStop: jest.fn() }));
 jest.mock('@/lib/progress-store', () => ({ initProgress: jest.fn(), updateProgress: jest.fn(), getProgress: jest.fn() }));
 jest.mock('uuid', () => ({ v4: jest.fn().mockReturnValue('mock-report-id') }));
