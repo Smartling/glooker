@@ -646,6 +646,9 @@ export function translateSQL(sql: string): string {
     return c;
   });
 
+  // MySQL locking read: SQLite has no row locks (a write transaction is already exclusive).
+  s = s.replace(/\s+FOR\s+UPDATE\s*;?\s*$/i, '');
+
   // Guard against the passthrough default. translateSQL is a whitelist rewriter:
   // anything unmatched previously reached better-sqlite3 verbatim and failed at
   // request time (GLOOK-41 surfaced as `near "1": syntax error`). Mocked suites

@@ -133,3 +133,14 @@ describe('SQLite driver accepts the translated spend-window clause', () => {
     expect(await inWindow('2026-04-01T00:00:00Z')).toBe(false);
   });
 });
+
+describe('translateSQL — FOR UPDATE', () => {
+  it('strips a trailing locking-read clause', () => {
+    expect(translateSQL('SELECT org FROM canonical_builds WHERE org = ? FOR UPDATE')).toBe(
+      'SELECT org FROM canonical_builds WHERE org = ?',
+    );
+  });
+  it('leaves FOR UPDATE inside a string literal alone', () => {
+    expect(translateSQL("SELECT 'x FOR UPDATE'")).toBe("SELECT 'x FOR UPDATE'");
+  });
+});
