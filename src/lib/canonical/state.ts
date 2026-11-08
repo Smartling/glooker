@@ -50,3 +50,44 @@ export async function recordCanonicalBuild(tx: DB, b: CanonicalBuild): Promise<v
     [b.org, b.builtAt, b.durationMs, b.commitRows, b.jiraRows],
   );
 }
+
+/**
+ * Per-org canonical lock. LOCK ORDER: always canonical_builds first. Upkeep (completeReport,
+ * deleteReportWithUpkeep), the rebuild (rebuildOrg) and its late-report catch-up (refreshReport)
+ * all make this the FIRST statement of their transaction, before touching commit_canonical or
+ * jira_canonical; taking it in any other order deadlocks against the others. Being first also
+ * matters under MySQL REPEATABLE READ: the read view is created at the first consistent read, so
+ * later SELECTs see everything committed before the lock was granted. On an unbuilt org the row is
+ * missing and only a gap lock is taken. Returns whether the org is built.
+ */
+export async function lockBuild(tx: any, org: string | null): Promise<boolean> {
+  if (!org) return false;
+  const [rows] = await tx.execute(`SELECT org FROM canonical_builds WHERE org = ? FOR UPDATE`, [org]);
+  return rows.length > 0;
+}
+
+const LOCK_ERRNOS = new Set([1213, 1205]);
+const LOCK_CODES = new Set(['ER_LOCK_DEADLOCK', 'ER_LOCK_WAIT_TIMEOUT']);
+export const LOCK_RETRY_BACKOFF_MS = [250, 1000];
+
+export function isLockConflict(err: any): boolean {
+  return !!err && (LOCK_ERRNOS.has(Number(err.errno)) || LOCK_CODES.has(String(err.code)));
+}
+
+/**
+ * Run `fn` (a whole transaction) up to 3 times, retrying only on a MySQL deadlock (1213) or
+ * lock-wait timeout (1205). Anything else, or the last lock error, is rethrown.
+ */
+export async function withLockRetry<T>(
+  fn: () => Promise<T>,
+  sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (!isLockConflict(e) || attempt >= LOCK_RETRY_BACKOFF_MS.length) throw e;
+      await sleep(LOCK_RETRY_BACKOFF_MS[attempt]);
+    }
+  }
+}

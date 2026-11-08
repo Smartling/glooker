@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import db from '@/lib/db';
-import { recordCanonicalBuild, listCanonicalBuilds } from '@/lib/canonical/state';
+import { recordCanonicalBuild, listCanonicalBuilds, lockBuild } from '@/lib/canonical/state';
 import {
   CANONICAL_BATCH, expectedCommitPicks, expectedJiraPicks,
   insertCommitsByIds, insertJiraByIds, refreshCommitKeys, refreshJiraKeys,
@@ -117,6 +117,8 @@ async function rebuildOrg(org: string, opts: RebuildOptions): Promise<CanonicalR
     const commitIds = [...(await expectedCommitPicks(org)).values()];
     const jiraIds = [...(await expectedJiraPicks(org)).values()];
     await db.transaction(async (tx) => {
+      // Lock order: always canonical_builds first, same as upkeep, or the two deadlock.
+      await lockBuild(tx, org);
       await tx.execute('DELETE FROM commit_canonical WHERE org = ?', [org]);
       await tx.execute('DELETE FROM jira_canonical WHERE org = ?', [org]);
       for (const b of batches(commitIds)) { await insertCommitsByIds(tx, org, b); opts.onBatch?.(org, 'commit'); }
@@ -136,6 +138,8 @@ async function refreshReport(reportId: string, org: string): Promise<void> {
   const [c] = await db.execute<any>('SELECT DISTINCT commit_sha AS k FROM commit_analyses WHERE report_id = ?', [reportId]);
   const [j] = await db.execute<any>('SELECT DISTINCT issue_key AS k FROM jira_issues WHERE report_id = ?', [reportId]);
   await db.transaction(async (tx) => {
+    // Lock order: always canonical_builds first (see lockBuild).
+    await lockBuild(tx, org);
     await refreshCommitKeys(tx, org, c.map((r: any) => String(r.k)));
     await refreshJiraKeys(tx, org, j.map((r: any) => String(r.k)));
   });
