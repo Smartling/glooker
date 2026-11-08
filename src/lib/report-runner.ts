@@ -1,10 +1,12 @@
 import { warmRangeCache } from './report/range';
 import { completeReport } from './canonical/upkeep';
+import { isCanonicalBuilt } from './canonical/state';
+import { analyzeWithReuse } from './canonical/reuse';
 import { upsertPrActivity, recordPrCoverage, reportCoverageSlice } from './pr-activity/store';
 import pLimit from 'p-limit';
 import db from './db/index';
 import { getGitHubProvider, getCommitDetail, type CommitData, type OpenPrInfo } from './github';
-import { analyzeCommit, type CommitAnalysis } from './analyzer';
+import type { CommitAnalysis } from './analyzer';
 import { aggregate, computeImpactScore } from './aggregator';
 import { updateProgress, addLog } from './progress-store';
 import { getJiraClient } from './jira';
@@ -111,6 +113,10 @@ export async function runReport(
     const pendingLLM: Promise<void>[] = [];
     const limit            = pLimit(CONCURRENCY);
     let llmErrors          = 0;
+    let reusedCount        = 0;
+    let llmCalls           = 0;
+    // GLOOK-63: once the org's canonical tables exist, an earlier report's LLM verdict is reused.
+    const reuseEnabled = await isCanonicalBuilt(org);
     let processedMembers   = 0;
     let activeMemberCount  = 0;
 
@@ -446,7 +452,8 @@ export async function runReport(
           const p = limit(async () => {
             if (shouldStop(reportId)) return;
             try {
-              const result = await analyzeCommit(commit);
+              const { analysis: result, reused } = await analyzeWithReuse(org, commit, reuseEnabled);
+              if (reused) reusedCount++; else llmCalls++;
               analyses.set(commit.sha, result);
               const totalAnalyzed = analyses.size;
               if (totalAnalyzed <= 3 || totalAnalyzed % 25 === 0) {
@@ -513,6 +520,7 @@ export async function runReport(
 
     // Wait for remaining LLM work
     await Promise.all(pendingLLM);
+    log(`Reused ${reusedCount.toLocaleString('en-US')} analyses, ${llmCalls.toLocaleString('en-US')} new LLM calls`);
 
     // GLOOK-13: evaluate integrity AFTER the gather loop is drained but BEFORE
     // we spend more time on Jira / report aggregation. On 'failed' we still
