@@ -17,6 +17,16 @@ import os from 'os';
 import path from 'path';
 import { translateSQL } from '@/lib/db/sqlite';
 
+describe('translateSQL — FOR UPDATE', () => {
+  it('strips a trailing FOR UPDATE', () => {
+    expect(translateSQL('SELECT org FROM canonical_builds WHERE org = ? FOR UPDATE')).not.toMatch(/FOR UPDATE/i);
+  });
+  it('leaves a non-trailing FOR UPDATE as is (documented limit: only trailing is stripped)', () => {
+    const sql = 'SELECT * FROM (SELECT org FROM canonical_builds FOR UPDATE) t WHERE org = ?';
+    expect(translateSQL(sql)).toContain('FOR UPDATE');
+  });
+});
+
 describe('translateSQL — MySQL date expressions', () => {
   it('rewrites the org spend-window DATE_ADD, keeping the bound parameter', () => {
     expect(

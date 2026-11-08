@@ -80,3 +80,13 @@ it('never reuses across orgs', async () => {
   expect(analyzeCommit).toHaveBeenCalledTimes(1);
   expect(r.reused).toBe(false);
 });
+
+it('falls back to the LLM when the reuse lookup throws', async () => {
+  const spy = jest.spyOn(db, 'execute').mockRejectedValueOnce(new Error('db down'));
+  const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  const r = await reuse.analyzeWithReuse('acme', commitFor('aaa'), true);
+  expect(r.reused).toBe(false);
+  expect(r.analysis.impactSummary).toBe('llm');
+  expect(analyzeCommit).toHaveBeenCalledTimes(1);
+  spy.mockRestore(); warn.mockRestore();
+});

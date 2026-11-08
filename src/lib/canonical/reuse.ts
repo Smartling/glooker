@@ -31,7 +31,11 @@ export async function analyzeWithReuse(
   reuseEnabled: boolean,
 ): Promise<{ analysis: CommitAnalysis; reused: boolean }> {
   if (reuseEnabled) {
-    const found = await findReusableAnalysis(org, commit.sha);
+    // Best-effort: a failed lookup falls back to a fresh analysis rather than failing the commit.
+    const found = await findReusableAnalysis(org, commit.sha).catch((e) => {
+      console.warn(`[canonical] reuse lookup failed for ${commit.sha}: ${e?.message ?? e}`);
+      return null;
+    });
     if (found) return { analysis: found, reused: true };
   }
   return { analysis: await analyzeCommit(commit), reused: false };

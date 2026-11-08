@@ -647,6 +647,8 @@ export function translateSQL(sql: string): string {
   });
 
   // MySQL locking read: SQLite has no row locks (a write transaction is already exclusive).
+  // Only a TRAILING `FOR UPDATE` is stripped; one mid-statement (e.g. before a UNION or in a
+  // subquery) is left as is and SQLite will reject it. Keep locking reads at the end.
   s = s.replace(/\s+FOR\s+UPDATE\s*;?\s*$/i, '');
 
   // Guard against the passthrough default. translateSQL is a whitelist rewriter:
