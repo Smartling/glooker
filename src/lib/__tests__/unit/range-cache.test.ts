@@ -1,5 +1,6 @@
 const execute = jest.fn();
 jest.mock('@/lib/db', () => ({ __esModule: true, default: { execute: (...a: unknown[]) => execute(...a) } }));
+jest.mock('@/lib/canonical/state', () => ({ isCanonicalBuilt: jest.fn().mockResolvedValue(false), getCanonicalBuild: jest.fn().mockResolvedValue(null) }));
 
 import { getRangeDeveloperStats, clearRangeCache } from '@/lib/report/range';
 
