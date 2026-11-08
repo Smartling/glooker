@@ -394,6 +394,69 @@ CREATE TABLE IF NOT EXISTS pr_activity_coverage (
   PRIMARY KEY (org, github_login, since_date, until_date)
 );
 
+CREATE TABLE IF NOT EXISTS commit_canonical (
+  org            TEXT NOT NULL,
+  commit_sha     TEXT NOT NULL,
+  analysis_id    INTEGER NOT NULL,
+  report_id      TEXT NOT NULL,
+  github_login   TEXT NOT NULL,
+  repo           TEXT NOT NULL,
+  committed_at   TEXT,
+  lines_added    INTEGER NOT NULL DEFAULT 0,
+  lines_removed  INTEGER NOT NULL DEFAULT 0,
+  complexity     INTEGER,
+  type           TEXT,
+  ai_co_authored INTEGER NOT NULL DEFAULT 0,
+  ai_tool_name   TEXT,
+  maybe_ai       INTEGER NOT NULL DEFAULT 0,
+  pr_number      INTEGER,
+  pr_title       TEXT,
+  risk_level     TEXT,
+  commit_message TEXT,
+  impact_summary TEXT,
+  PRIMARY KEY (org, commit_sha)
+);
+CREATE INDEX IF NOT EXISTS idx_commit_canonical_org_committed ON commit_canonical(org, committed_at);
+CREATE INDEX IF NOT EXISTS idx_commit_canonical_org_login ON commit_canonical(org, github_login, committed_at);
+CREATE INDEX IF NOT EXISTS idx_commit_canonical_report ON commit_canonical(report_id);
+
+CREATE TABLE IF NOT EXISTS jira_canonical (
+  org                       TEXT NOT NULL,
+  issue_key                 TEXT NOT NULL,
+  issue_id                  INTEGER NOT NULL,
+  report_id                 TEXT NOT NULL,
+  github_login              TEXT NOT NULL,
+  project_key               TEXT NOT NULL,
+  issue_type                TEXT,
+  summary                   TEXT,
+  description               TEXT,
+  status                    TEXT,
+  labels                    TEXT,
+  story_points              REAL,
+  original_estimate_seconds INTEGER,
+  issue_url                 TEXT,
+  created_at                TEXT,
+  resolved_at               TEXT,
+  PRIMARY KEY (org, issue_key)
+);
+CREATE INDEX IF NOT EXISTS idx_jira_canonical_org_resolved ON jira_canonical(org, resolved_at);
+CREATE INDEX IF NOT EXISTS idx_jira_canonical_org_login ON jira_canonical(org, github_login, resolved_at);
+CREATE INDEX IF NOT EXISTS idx_jira_canonical_report ON jira_canonical(report_id);
+
+CREATE TABLE IF NOT EXISTS canonical_builds (
+  org         TEXT NOT NULL PRIMARY KEY,
+  built_at    TEXT NOT NULL,
+  duration_ms INTEGER NOT NULL,
+  commit_rows INTEGER NOT NULL,
+  jira_rows   INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS canonical_rebuild_lock (
+  id         INTEGER NOT NULL PRIMARY KEY,
+  started_at TEXT NOT NULL,
+  holder     TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_devstats_login ON developer_stats(github_login);
 CREATE INDEX IF NOT EXISTS idx_reports_org_status_created ON reports(org, status, created_at);
 CREATE INDEX IF NOT EXISTS idx_ca_login_report ON commit_analyses(github_login, report_id, commit_sha, complexity);
