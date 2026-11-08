@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../auth-context';
 import type { CanonicalBuild } from '@/lib/canonical/state';
 import type { RebuildProgress } from '@/lib/canonical/progress';
@@ -8,6 +8,7 @@ import type { CanonicalOrgCheck, CanonicalCheckTable } from '@/lib/canonical/reb
 
 interface Status {
   builds: CanonicalBuild[];
+  orgs?: string[];
   lock: { startedAt: string; holder: string } | null;
   progress: RebuildProgress;
 }
@@ -23,12 +24,13 @@ export default function CanonicalCard() {
   const [error, setError] = useState<string | null>(null);
   const [started, setStarted] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<boolean> => {
     try {
       const res = await fetch('/api/settings/canonical');
-      if (!res.ok) return;
+      if (!res.ok) return false;
       setStatus(await res.json());
-    } catch { /* keep last status */ }
+      return true;
+    } catch { return false; /* keep last status */ }
   }, []);
 
   useEffect(() => {
@@ -36,8 +38,6 @@ export default function CanonicalCard() {
   }, [canAct, load]);
 
   const running = started || !!status?.progress?.running || !!status?.lock;
-  const runningRef = useRef(running);
-  runningRef.current = running;
 
   useEffect(() => {
     if (!canAct || !running) return;
@@ -46,11 +46,6 @@ export default function CanonicalCard() {
     }, POLL_MS);
     return () => clearInterval(t);
   }, [canAct, running, load]);
-
-  // The POST flag only bridges the gap until the first status says running.
-  useEffect(() => {
-    if (started && status && (status.progress.running || status.lock)) setStarted(false);
-  }, [started, status]);
 
   if (!canAct) return null;
 
@@ -72,6 +67,7 @@ export default function CanonicalCard() {
   async function runRebuild() {
     setConfirming(false);
     setError(null);
+    setCheck(null);
     try {
       const res = await fetch('/api/settings/canonical/rebuild', { method: 'POST' });
       const data = await res.json().catch(() => ({}));
@@ -81,10 +77,15 @@ export default function CanonicalCard() {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-    await load();
+    // Any status read after the POST is authoritative, so the bridging flag
+    // can never outlive a rebuild that finished before the first read.
+    if (await load()) setStarted(false);
   }
 
   const progress = status?.progress;
+  const orgList = status
+    ? [...new Set([...(status.orgs ?? []), ...status.builds.map(b => b.org)])].sort()
+    : [];
   const failed = (progress?.results ?? []).filter(r => !r.ok);
   const btn = 'px-4 py-2 text-sm font-medium rounded transition-colors disabled:opacity-50';
 
@@ -97,14 +98,17 @@ export default function CanonicalCard() {
 
       {status && (
         <div className="space-y-1 mb-4">
-          {status.builds.length === 0 ? (
-            <div className="text-xs text-gray-400">Not built yet — range views use the slower path</div>
-          ) : status.builds.map(b => (
-            <div key={b.org} className="text-xs text-gray-400">
-              <span className="text-gray-300 mr-2">{b.org}</span>
-              <span>{`Last rebuild ${new Date(b.builtAt).toLocaleString()} · took ${(b.durationMs / 1000).toFixed(1)}s · ${b.commitRows} commits, ${b.jiraRows} issues`}</span>
-            </div>
-          ))}
+          {orgList.map(org => {
+            const b = status.builds.find(x => x.org === org);
+            return (
+              <div key={org} className="text-xs text-gray-400">
+                <span className="text-gray-300 mr-2">{org}</span>
+                <span>{b
+                  ? `Last rebuild ${new Date(b.builtAt).toLocaleString()} · took ${(b.durationMs / 1000).toFixed(1)}s · ${b.commitRows} commits, ${b.jiraRows} issues`
+                  : 'Not built yet — range views use the slower path'}</span>
+              </div>
+            );
+          })}
         </div>
       )}
 

@@ -6,7 +6,7 @@ jest.mock('@/lib/auth', () => ({
   isAuthEnabled: jest.fn().mockReturnValue(false),
   extractUser: jest.fn().mockReturnValue(null),
 }));
-jest.mock('@/lib/canonical/state', () => ({ listCanonicalBuilds: jest.fn() }));
+jest.mock('@/lib/canonical/state', () => ({ listCanonicalBuilds: jest.fn(), listCanonicalOrgs: jest.fn().mockResolvedValue([]) }));
 jest.mock('@/lib/canonical/rebuild', () => ({
   ...jest.requireActual('@/lib/canonical/rebuild'),
   checkCanonical: jest.fn(),
@@ -18,7 +18,7 @@ jest.mock('@/lib/report/range', () => ({ clearRangeCache: jest.fn() }));
 
 import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth';
-import { listCanonicalBuilds } from '@/lib/canonical/state';
+import { listCanonicalBuilds, listCanonicalOrgs } from '@/lib/canonical/state';
 import * as rebuild from '@/lib/canonical/rebuild';
 import { clearRangeCache } from '@/lib/report/range';
 import { getRebuildProgress } from '@/lib/canonical/progress';
@@ -50,8 +50,10 @@ describe('canonical admin api', () => {
 
   it('status returns builds, lock and progress', async () => {
     (listCanonicalBuilds as jest.Mock).mockResolvedValue([{ org: 'o' }]);
+    (listCanonicalOrgs as jest.Mock).mockResolvedValue(['o', 'p']);
     mocks.getRebuildLock.mockResolvedValue({ startedAt: 't', holder: 'h' });
     const body = await (await statusGET(req('GET'))).json();
+    expect(body.orgs).toEqual(['o', 'p']);
     expect(body.builds).toEqual([{ org: 'o' }]);
     expect(body.lock).toEqual({ startedAt: 't', holder: 'h' });
     expect(body.progress.running).toBe(false);

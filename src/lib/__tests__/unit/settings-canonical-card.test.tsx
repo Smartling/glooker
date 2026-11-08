@@ -44,7 +44,7 @@ it('renders nothing for a viewer', async () => {
 });
 
 it('shows Not built yet for an org without a build', async () => {
-  status = { builds: [], lock: null, progress: idle };
+  status = { builds: [], orgs: ['acme'], lock: null, progress: idle };
   render(<CanonicalCard />);
   expect(await screen.findByText(/Not built yet — range views use the slower path/)).toBeTruthy();
 });
@@ -101,4 +101,36 @@ it('shows rebuild already running on 409', async () => {
   fireEvent.click(screen.getByText('Rebuild'));
   fireEvent.click(screen.getByText('Confirm rebuild'));
   await waitFor(() => expect(screen.getByText('rebuild already running')).toBeTruthy());
+});
+
+it('shows one line per org, built or not', async () => {
+  status = { builds: [build], orgs: ['acme', 'zeta'], lock: null, progress: idle };
+  render(<CanonicalCard />);
+  expect(await screen.findByText(/Last rebuild .* 120 commits, 30 issues/)).toBeTruthy();
+  expect(screen.getByText('Not built yet — range views use the slower path')).toBeTruthy();
+  expect(screen.getByText('zeta')).toBeTruthy();
+});
+
+it('does not stick on Rebuilding when the rebuild finished before the first status read', async () => {
+  render(<CanonicalCard />);
+  await flush();
+  fireEvent.click(screen.getByText('Rebuild'));
+  fireEvent.click(screen.getByText('Confirm rebuild'));
+  await flush();
+  await flush();
+  expect(screen.queryByText(/Rebuilding…/)).toBeNull();
+  expect(screen.getByText(/120 commits, 30 issues/)).toBeTruthy();
+  expect((screen.getByText('Check') as HTMLButtonElement).disabled).toBe(false);
+  expect((screen.getByText('Rebuild') as HTMLButtonElement).disabled).toBe(false);
+});
+
+it('clears check results when a rebuild starts', async () => {
+  render(<CanonicalCard />);
+  await flush();
+  fireEvent.click(screen.getByText('Check'));
+  await screen.findByText('Examples: sha1, sha2');
+  fireEvent.click(screen.getByText('Rebuild'));
+  fireEvent.click(screen.getByText('Confirm rebuild'));
+  await flush();
+  expect(screen.queryByText('Examples: sha1, sha2')).toBeNull();
 });

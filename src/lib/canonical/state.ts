@@ -34,6 +34,14 @@ export async function listCanonicalBuilds(): Promise<CanonicalBuild[]> {
   return rows.map(toBuild);
 }
 
+/** Every org with a completed report or a canonical build, sorted. */
+export async function listCanonicalOrgs(): Promise<string[]> {
+  const [reportRows] = await db.execute<any>(`SELECT DISTINCT org FROM reports WHERE status = 'completed'`);
+  const [buildRows] = await db.execute<any>('SELECT org FROM canonical_builds');
+  const all = new Set<string>([...reportRows, ...buildRows].map((r: any) => String(r.org)));
+  return [...all].sort();
+}
+
 /** Replace the org's build marker. Call inside the same transaction that wrote the rows. */
 export async function recordCanonicalBuild(tx: DB, b: CanonicalBuild): Promise<void> {
   await tx.execute('DELETE FROM canonical_builds WHERE org = ?', [b.org]);
