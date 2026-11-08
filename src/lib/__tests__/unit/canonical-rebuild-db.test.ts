@@ -147,9 +147,17 @@ it('a report completed during a rebuild is applied after the swap', async () => 
 
 it('rebuild re-runs an org whose snapshot report was deleted mid-rebuild', async () => {
   const snap = await rb.acquireRebuildLock('h');
-  await db.execute(`DELETE FROM reports WHERE id = 'r2'`);
-  await rb.runRebuild('h', snap);
+  // Delete r2 after acme has been swapped, so the first pass still included it.
+  await rb.runRebuild('h', snap, {
+    onProgress: async (org: string) => {
+      if (org === 'acme') await db.execute(`DELETE FROM reports WHERE id = 'r2'`);
+    },
+  });
   expect((await byOrg()).acme.commits.differ).toBe(0);
+  const [gone] = await db.execute(`SELECT commit_sha FROM commit_canonical WHERE org = 'acme' AND commit_sha = 'a2'`);
+  expect(gone).toHaveLength(0);
+  const [goneJ] = await db.execute(`SELECT issue_key FROM jira_canonical WHERE org = 'acme' AND issue_key = 'J-2'`);
+  expect(goneJ).toHaveLength(0);
   expect((await byOrg()).acme.jira.differ).toBe(0);
 });
 

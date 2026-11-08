@@ -19,7 +19,7 @@ export interface CanonicalRebuildOrgResult {
   org: string; ok: boolean; commitRows: number; jiraRows: number; durationMs: number; error?: string;
 }
 export interface RebuildOptions {
-  onProgress?: (org: string, done: number, total: number) => void;
+  onProgress?: (org: string, done: number, total: number) => void | Promise<void>;
   /** Test hook: called after each insert batch inside the org's transaction. */
   onBatch?: (org: string, table: 'commit' | 'jira') => void;
 }
@@ -155,7 +155,7 @@ export async function runRebuild(
     for (const org of orgs) {
       usedIds.set(org, await completedIds(org));
       results.set(org, await rebuildOrg(org, opts));
-      opts.onProgress?.(org, ++done, orgs.length);
+      await opts.onProgress?.(org, ++done, orgs.length);
     }
 
     // Reports completed after the snapshot: apply per-report refresh for built orgs (Decision 6).
