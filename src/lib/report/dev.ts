@@ -1,4 +1,5 @@
 import db from '@/lib/db';
+import { isCanonicalBuilt } from '@/lib/canonical/state';
 import { ReportNotFoundError } from './service';
 import { canonicalCommitIdsSql, measuredDaysInWindow, aggregateWeekly, anchorWeekFor, completedReportWindows, coveredWeeksFromWindows } from './timeline';
 import { computeImpactScore } from '@/lib/impact-score';
@@ -105,7 +106,14 @@ export async function getDevReport(reportId: string, login: string, range: Repor
   const reportIds = allReportIds.map((r: any) => r.id);
 
   let timelineCommits: any[] = [];
-  if (reportIds.length > 0) {
+  // GLOOK-63: built orgs read commit_canonical (completed reports only — user decision).
+  if (await isCanonicalBuilt(org)) {
+    const [tlRows] = await db.execute(
+      `SELECT commit_sha, committed_at, lines_added, lines_removed, complexity, type, ai_co_authored, maybe_ai, pr_number FROM commit_canonical WHERE org = ? AND github_login = ? ORDER BY committed_at ASC`,
+      [org, login],
+    ) as [any[], any];
+    timelineCommits = tlRows;
+  } else if (reportIds.length > 0) {
     const [tlRows] = await db.execute(
       `SELECT /*+ JOIN_FIXED_ORDER() */ ca.commit_sha, ca.committed_at, ca.lines_added, ca.lines_removed,
               ca.complexity, ca.type, ca.ai_co_authored, ca.maybe_ai, ca.pr_number

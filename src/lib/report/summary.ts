@@ -5,6 +5,7 @@ import { getAppConfig } from '@/lib/app-config/service';
 import { ReportNotFoundError } from './service';
 import { DeveloperNotFoundError } from './dev';
 import { canonicalCommitIdsSql } from './timeline';
+import { isCanonicalBuilt } from '@/lib/canonical/state';
 import { UNMERGED_LOOKBACK_DAYS } from './unmerged-window';
 
 interface UnmergedPrSummary { title: string; updatedAt: string; createdAt: string; draft: boolean; }
@@ -57,6 +58,35 @@ export function formatUnmergedWorkSection(
   }
 
   return lines.join('\n');
+}
+
+/**
+ * One row per commit_sha for this developer, newest first. GLOOK-63: built orgs read
+ * commit_canonical (completed reports only — user decision); not-built orgs keep today's
+ * all-report canonical-copy query.
+ */
+export async function loadDevCommitHistory(org: string, login: string): Promise<any[]> {
+  if (await isCanonicalBuilt(org)) {
+    const [rows] = await db.execute(
+      `SELECT commit_sha, committed_at, lines_added, lines_removed, complexity, type, ai_co_authored, maybe_ai FROM commit_canonical WHERE org = ? AND github_login = ? ORDER BY committed_at DESC`,
+      [org, login],
+    ) as [any[], any];
+    return rows;
+  }
+  const [allReportIds] = await db.execute(
+    `SELECT id FROM reports WHERE org = ?`, [org],
+  ) as [any[], any];
+  const reportIds = allReportIds.map((r: any) => r.id);
+  if (reportIds.length === 0) return [];
+  const [rows] = await db.execute(
+    `SELECT /*+ JOIN_FIXED_ORDER() */ ca.commit_sha, ca.committed_at, ca.lines_added, ca.lines_removed,
+            ca.complexity, ca.type, ca.ai_co_authored, ca.maybe_ai
+     FROM (${canonicalCommitIdsSql(reportIds.length, true)}) one
+     JOIN commit_analyses ca ON ca.id = one.id
+     ORDER BY ca.committed_at DESC`,
+    [login, ...reportIds],
+  ) as [any[], any];
+  return rows;
 }
 
 export async function getDevSummary(reportId: string, login: string) {
@@ -115,23 +145,7 @@ export async function getDevSummary(reportId: string, login: string) {
   const devsAbove = allDevs.slice(Math.max(0, devIdx - 3), devIdx);
 
   // Get this dev's commits split by recent 7 days vs prior 7 days
-  const [allReportIds] = await db.execute(
-    `SELECT id FROM reports WHERE org = ?`, [org],
-  ) as [any[], any];
-  const reportIds = allReportIds.map((r: any) => r.id);
-
-  let allCommits: any[] = [];
-  if (reportIds.length > 0) {
-    const [rows] = await db.execute(
-      `SELECT /*+ JOIN_FIXED_ORDER() */ ca.commit_sha, ca.committed_at, ca.lines_added, ca.lines_removed,
-              ca.complexity, ca.type, ca.ai_co_authored, ca.maybe_ai
-       FROM (${canonicalCommitIdsSql(reportIds.length, true)}) one
-       JOIN commit_analyses ca ON ca.id = one.id
-       ORDER BY ca.committed_at DESC`,
-      [login, ...reportIds],
-    ) as [any[], any];
-    allCommits = rows;
-  }
+  const allCommits = await loadDevCommitHistory(org, login);
 
   const now = new Date();
   const d7 = new Date(now.getTime() - 7 * 86400000);

@@ -4,6 +4,7 @@ import {
   canonicalCommitIdsSql, aggregateWeekly, weekKeyForDate,
   anchorWeekFor, completedReportWindows, coveredWeeksFromWindows,
 } from './timeline';
+import { isCanonicalBuilt } from '@/lib/canonical/state';
 
 /**
  * Per-model usage rows, one per (login, model), unaggregated. `cost`/`requests`
@@ -64,7 +65,16 @@ export async function getOrgReport(reportId: string) {
   const reportIds = allReportIds.map((r: any) => r.id);
 
   let timelineCommits: any[] = [];
-  if (reportIds.length > 0) {
+  // GLOOK-63: once the org's canonical tables are built, the weekly charts read one row per
+  // commit_sha from commit_canonical (completed reports only — user decision). Not-built orgs keep
+  // today's all-report query below.
+  if (await isCanonicalBuilt(org)) {
+    const [tlRows] = await db.execute(
+      `SELECT commit_sha, github_login, committed_at, lines_added, lines_removed, complexity, type, ai_co_authored, maybe_ai, pr_number FROM commit_canonical WHERE org = ? ORDER BY committed_at ASC`,
+      [org],
+    ) as [any[], any];
+    timelineCommits = tlRows;
+  } else if (reportIds.length > 0) {
     const [tlRows] = await db.execute(
       `SELECT /*+ JOIN_FIXED_ORDER() */ ca.commit_sha, ca.github_login, ca.committed_at, ca.lines_added, ca.lines_removed,
               ca.complexity, ca.type, ca.ai_co_authored, ca.maybe_ai, ca.pr_number

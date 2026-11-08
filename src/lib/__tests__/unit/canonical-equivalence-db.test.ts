@@ -11,6 +11,10 @@ let db: any;
 let range: typeof import('@/lib/report/range');
 let rb: typeof import('@/lib/canonical/rebuild');
 let service: typeof import('@/lib/report/service');
+let orgMod: typeof import('@/lib/report/org');
+let devMod: typeof import('@/lib/report/dev');
+let summaryMod: typeof import('@/lib/report/summary');
+let mcp: typeof import('@/lib/mcp/queries');
 const priorSqlitePath = process.env.SQLITE_PATH;
 const priorDbType = process.env.DB_TYPE;
 
@@ -27,6 +31,11 @@ async function snapshot() {
     jira90: await range.getRangeJiraIssues('acme', undefined, w90),
     jira12: await range.getRangeJiraIssues('acme', undefined, w12),
     current: await service.getReport('r3', 'current'),
+    orgTimeline: (await orgMod.getOrgReport('r3')).timeline,
+    devTimeline: (await devMod.getDevReport('r3', 'alice')).timeline,
+    history: await summaryMod.loadDevCommitHistory('acme', 'alice'),
+    // resolveReportId (real) resolves to the latest completed report, r3 (acme).
+    mcp: await mcp.queryCommits({ limit: 500 }),
   };
 }
 
@@ -45,6 +54,10 @@ beforeAll(async () => {
   range = await import('@/lib/report/range');
   rb = await import('@/lib/canonical/rebuild');
   service = await import('@/lib/report/service');
+  orgMod = await import('@/lib/report/org');
+  devMod = await import('@/lib/report/dev');
+  summaryMod = await import('@/lib/report/summary');
+  mcp = await import('@/lib/mcp/queries');
 
   const reports: Array<[string, string, string]> = [
     ['r0', 'completed', '2026-05-01'],
@@ -97,7 +110,25 @@ it('fallback (not built) matches the canonical tables after a rebuild', async ()
   await rb.rebuildCanonical();
   range.clearRangeCache();
   after = await snapshot();
-  expect(after).toEqual(before);
+  // Weekly charts and summary history are compared in the documented-difference test below.
+  const strip = ({ orgTimeline, devTimeline, history, ...rest }: any) => rest;
+  expect(strip(after)).toEqual(strip(before));
+});
+
+it('weekly charts and summary history become completed-only (documented difference)', () => {
+  const shas = (rows: any[]) => rows.map((c: any) => c.commit_sha);
+  expect(shas(before.history)).toContain('fx');
+  expect(shas(after.history)).not.toContain('fx');
+  const total = (tl: any[]) => tl.reduce((s, w) => s + w.commits, 0);
+  expect(total(before.orgTimeline) - total(after.orgTimeline)).toBe(1);
+  expect(total(before.devTimeline) - total(after.devTimeline)).toBe(1);
+  const byWeek = (tl: any[]) => new Map(tl.map((w: any) => [w.week, w.commits]));
+  const b = byWeek(before.orgTimeline);
+  const a = byWeek(after.orgTimeline);
+  const changed = [...b.keys()].filter((k) => b.get(k) !== (a.get(k) ?? 0));
+  expect(changed).toHaveLength(1);
+  // With fx removed from `before`, the two are equal.
+  expect(before.history.filter((c: any) => c.commit_sha !== 'fx')).toEqual(after.history);
 });
 
 it('current-report figures are unchanged by a build', () => {
