@@ -517,6 +517,7 @@ export function createSQLiteDB(): DB {
   // GLOOK-43 Wave A / A1: completeness-guard recovery column (see sync.ts writePhase).
   try { db.exec('ALTER TABLE vulnerability_alerts ADD COLUMN withheld_since TEXT'); } catch (_) {}
 
+  let txQueue: Promise<void> = Promise.resolve();
   const dbApi: DB = {
     execute: <T = any>(sql: string, params?: any[]): Promise<[T[], any]> => {
       const translated = translateSQL(sql);
@@ -554,17 +555,24 @@ export function createSQLiteDB(): DB {
       }
     },
     transaction: async <T>(fn: (tx: DB) => Promise<T>): Promise<T> => {
-      // better-sqlite3 is synchronous and serializes queries; using async fn
-      // here is safe because the underlying handle is single-threaded.
-      db.exec('BEGIN');
-      try {
-        const result = await fn(dbApi);
-        db.exec('COMMIT');
-        return result;
-      } catch (err) {
-        try { db.exec('ROLLBACK'); } catch (_) {}
-        throw err;
-      }
+      // One handle, async fn: two overlapping transactions would hit "cannot start a transaction
+      // within a transaction", so they queue behind each other (GLOOK-63: a canonical rebuild
+      // and a report completion). Never call transaction() from inside fn — it would wait on
+      // itself. Plain execute() calls from elsewhere still run inside whichever transaction is
+      // open; that is inherent to sharing one handle.
+      const run = txQueue.then(async () => {
+        db.exec('BEGIN');
+        try {
+          const result = await fn(dbApi);
+          db.exec('COMMIT');
+          return result;
+        } catch (err) {
+          try { db.exec('ROLLBACK'); } catch (_) {}
+          throw err;
+        }
+      });
+      txQueue = run.then(() => undefined, () => undefined);
+      return run;
     },
   };
   return dbApi;

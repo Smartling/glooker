@@ -125,11 +125,18 @@ it('concurrent rebuilds are refused', async () => {
   await expect(rb.acquireRebuildLock('b')).resolves.toBeDefined();
 });
 
-it('a lock older than two hours is broken', async () => {
-  const old = new Date(Date.now() - 3 * 3600_000).toISOString();
+it('a lock with no heartbeat for 30 minutes is broken', async () => {
+  const old = new Date(Date.now() - 31 * 60_000).toISOString();
   await db.execute('INSERT INTO canonical_rebuild_lock (id, started_at, holder) VALUES (1, ?, ?)', [old, 'dead']);
   await expect(rb.acquireRebuildLock('c')).resolves.toBeDefined();
   expect(await rb.getRebuildLock()).toMatchObject({ holder: 'c' });
+});
+
+it('a lock with a recent heartbeat is not broken', async () => {
+  const recent = new Date(Date.now() - 20 * 60_000).toISOString();
+  await db.execute('INSERT INTO canonical_rebuild_lock (id, started_at, holder) VALUES (1, ?, ?)', [recent, 'alive']);
+  await expect(rb.acquireRebuildLock('d')).rejects.toBeInstanceOf(rb.RebuildRunningError);
+  await rb.releaseRebuildLock('alive');
 });
 
 it('a report completed during a rebuild is applied after the swap', async () => {

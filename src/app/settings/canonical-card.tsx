@@ -14,6 +14,8 @@ interface Status {
 }
 
 const POLL_MS = 2000;
+/** Slower poll while the lock is held by a rebuild this server is not running (CLI, another instance). */
+const POLL_ELSEWHERE_MS = 15000;
 
 export default function CanonicalCard() {
   const { canAct } = useAuth();
@@ -37,15 +39,19 @@ export default function CanonicalCard() {
     if (canAct) void load();
   }, [canAct, load]);
 
-  const running = started || !!status?.progress?.running || !!status?.lock;
+  const runningHere = started || !!status?.progress?.running;
+  // The lock is held but not by this server's rebuild: the CLI, another instance, or a crashed run
+  // whose lock has not gone stale yet.
+  const lockedElsewhere = !runningHere && !!status?.lock;
+  const running = runningHere || lockedElsewhere;
 
   useEffect(() => {
     if (!canAct || !running) return;
     const t = setInterval(async () => {
       await load();
-    }, POLL_MS);
+    }, runningHere ? POLL_MS : POLL_ELSEWHERE_MS);
     return () => clearInterval(t);
-  }, [canAct, running, load]);
+  }, [canAct, running, runningHere, load]);
 
   if (!canAct) return null;
 
@@ -54,7 +60,7 @@ export default function CanonicalCard() {
     setError(null);
     try {
       const res = await fetch('/api/settings/canonical/check');
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) setError(data.error || 'Check failed');
       else setCheck(data.orgs);
     } catch (e) {
@@ -112,9 +118,14 @@ export default function CanonicalCard() {
         </div>
       )}
 
-      {running && (
+      {runningHere && (
         <div className="text-xs text-gray-300 mb-3">
           {`Rebuilding… ${progress?.orgsDone ?? 0}/${progress?.orgsTotal ?? 0} orgs`}
+        </div>
+      )}
+      {lockedElsewhere && status?.lock && (
+        <div className="text-xs text-gray-300 mb-3">
+          {`A rebuild started elsewhere holds the lock (${status.lock.holder}, last active ${new Date(status.lock.startedAt).toLocaleString()}). It is released when that rebuild ends, or after 30 minutes without activity.`}
         </div>
       )}
 

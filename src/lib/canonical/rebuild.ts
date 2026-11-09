@@ -1,8 +1,8 @@
 import { randomUUID } from 'crypto';
 import db from '@/lib/db';
-import { recordCanonicalBuild, listCanonicalBuilds, lockBuild } from '@/lib/canonical/state';
+import { recordCanonicalBuild, listCanonicalBuilds, lockBuild, withLockRetry } from '@/lib/canonical/state';
 import {
-  CANONICAL_BATCH, expectedCommitPicks, expectedJiraPicks,
+  chunks, expectedCommitPicks, expectedJiraPicks,
   insertCommitsByIds, insertJiraByIds, refreshCommitKeys, refreshJiraKeys,
 } from '@/lib/canonical/pick';
 
@@ -24,7 +24,10 @@ export interface RebuildOptions {
   onBatch?: (org: string, table: 'commit' | 'jira') => void;
 }
 
-const STALE_LOCK_MS = 2 * 60 * 60 * 1000;
+/** A lock whose heartbeat (started_at, bumped after every org) is older than this is abandoned. */
+const STALE_LOCK_MS = 30 * 60 * 1000;
+/** How many times an org whose reports vanished mid-rebuild is rebuilt again. */
+const MAX_VANISHED_PASSES = 3;
 const MAX_EXAMPLES = 20;
 
 async function allOrgs(): Promise<string[]> {
@@ -86,7 +89,7 @@ async function tryInsertLock(holder: string, startedAt: string): Promise<boolean
   return Number((r as any)?.affectedRows) === 1;
 }
 
-/** Take the DB lock and snapshot the completed report ids. Breaks a > 2 h old lock once. */
+/** Take the DB lock and snapshot the completed report ids. Breaks a lock with no heartbeat for 30 min once. */
 export async function acquireRebuildLock(holder: string): Promise<{ startedAt: string; completedIds: Set<string> }> {
   let startedAt = new Date().toISOString();
   let got = await tryInsertLock(holder, startedAt);
@@ -100,14 +103,14 @@ export async function acquireRebuildLock(holder: string): Promise<{ startedAt: s
   return { startedAt, completedIds: await completedIds() };
 }
 
-export async function releaseRebuildLock(holder: string): Promise<void> {
-  await db.execute('DELETE FROM canonical_rebuild_lock WHERE id = 1 AND holder = ?', [holder]);
+/** Heartbeat: a running rebuild keeps its lock fresh so it is never judged stale. */
+export async function touchRebuildLock(holder: string): Promise<void> {
+  await db.execute('UPDATE canonical_rebuild_lock SET started_at = ? WHERE id = 1 AND holder = ?',
+    [new Date().toISOString(), holder]);
 }
 
-function batches(ids: number[]): number[][] {
-  const out: number[][] = [];
-  for (let i = 0; i < ids.length; i += CANONICAL_BATCH) out.push(ids.slice(i, i + CANONICAL_BATCH));
-  return out;
+export async function releaseRebuildLock(holder: string): Promise<void> {
+  await db.execute('DELETE FROM canonical_rebuild_lock WHERE id = 1 AND holder = ?', [holder]);
 }
 
 async function rebuildOrg(org: string, opts: RebuildOptions): Promise<CanonicalRebuildOrgResult> {
@@ -116,18 +119,18 @@ async function rebuildOrg(org: string, opts: RebuildOptions): Promise<CanonicalR
     // Picks outside the transaction: the GROUP BY never holds locks (Decision 4).
     const commitIds = [...(await expectedCommitPicks(org)).values()];
     const jiraIds = [...(await expectedJiraPicks(org)).values()];
-    await db.transaction(async (tx) => {
+    await withLockRetry(() => db.transaction(async (tx) => {
       // Lock order: always canonical_builds first, same as upkeep, or the two deadlock.
       await lockBuild(tx, org);
       await tx.execute('DELETE FROM commit_canonical WHERE org = ?', [org]);
       await tx.execute('DELETE FROM jira_canonical WHERE org = ?', [org]);
-      for (const b of batches(commitIds)) { await insertCommitsByIds(tx, org, b); opts.onBatch?.(org, 'commit'); }
-      for (const b of batches(jiraIds)) { await insertJiraByIds(tx, org, b); opts.onBatch?.(org, 'jira'); }
+      for (const b of chunks(commitIds)) { await insertCommitsByIds(tx, org, b); opts.onBatch?.(org, 'commit'); }
+      for (const b of chunks(jiraIds)) { await insertJiraByIds(tx, org, b); opts.onBatch?.(org, 'jira'); }
       await recordCanonicalBuild(tx, {
         org, builtAt: new Date().toISOString(), durationMs: Date.now() - t0,
         commitRows: commitIds.length, jiraRows: jiraIds.length,
       });
-    });
+    }));
     return { org, ok: true, commitRows: commitIds.length, jiraRows: jiraIds.length, durationMs: Date.now() - t0 };
   } catch (e: any) {
     return { org, ok: false, commitRows: 0, jiraRows: 0, durationMs: Date.now() - t0, error: e?.message ?? String(e) };
@@ -137,12 +140,12 @@ async function rebuildOrg(org: string, opts: RebuildOptions): Promise<CanonicalR
 async function refreshReport(reportId: string, org: string): Promise<void> {
   const [c] = await db.execute<any>('SELECT DISTINCT commit_sha AS k FROM commit_analyses WHERE report_id = ?', [reportId]);
   const [j] = await db.execute<any>('SELECT DISTINCT issue_key AS k FROM jira_issues WHERE report_id = ?', [reportId]);
-  await db.transaction(async (tx) => {
+  await withLockRetry(() => db.transaction(async (tx) => {
     // Lock order: always canonical_builds first (see lockBuild).
     await lockBuild(tx, org);
     await refreshCommitKeys(tx, org, c.map((r: any) => String(r.k)));
     await refreshJiraKeys(tx, org, j.map((r: any) => String(r.k)));
-  });
+  }));
 }
 
 /** Rebuild every org. Assumes `holder` holds the lock; always releases it. */
@@ -159,6 +162,7 @@ export async function runRebuild(
     for (const org of orgs) {
       usedIds.set(org, await completedIds(org));
       results.set(org, await rebuildOrg(org, opts));
+      await touchRebuildLock(holder);
       await opts.onProgress?.(org, ++done, orgs.length);
     }
 
@@ -168,15 +172,29 @@ export async function runRebuild(
     for (const r of late) {
       const id = String(r.id), org = String(r.org);
       if (snapshot.completedIds.has(id) || !built.has(org)) continue;
-      await refreshReport(id, org);
+      // One failed catch-up marks its org failed; it must not lose the other orgs' results.
+      try {
+        await refreshReport(id, org);
+      } catch (e: any) {
+        const prev = results.get(org);
+        results.set(org, {
+          org, ok: false, commitRows: prev?.commitRows ?? 0, jiraRows: prev?.jiraRows ?? 0,
+          durationMs: prev?.durationMs ?? 0, error: `catch-up of report ${id} failed: ${e?.message ?? e}`,
+        });
+      }
     }
 
-    // An org whose snapshot/pick-time reports vanished mid-rebuild is rebuilt once more.
-    const present = await completedIds();
-    for (const org of orgs) {
-      const used = usedIds.get(org)!;
-      const missing = [...used].some((id) => !present.has(id));
-      if (missing) results.set(org, await rebuildOrg(org, opts));
+    // An org whose pick-time reports vanished mid-rebuild is rebuilt again, up to a cap, since
+    // the re-run has the same pick-then-insert window.
+    let pending = orgs;
+    for (let pass = 0; pass < MAX_VANISHED_PASSES && pending.length; pass++) {
+      const present = await completedIds();
+      pending = pending.filter((org) => [...usedIds.get(org)!].some((id) => !present.has(id)));
+      for (const org of pending) {
+        usedIds.set(org, await completedIds(org));
+        results.set(org, await rebuildOrg(org, opts));
+        await touchRebuildLock(holder);
+      }
     }
     return orgs.map((o) => results.get(o)!);
   } finally {

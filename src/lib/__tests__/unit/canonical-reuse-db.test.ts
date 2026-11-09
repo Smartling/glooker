@@ -90,3 +90,21 @@ it('falls back to the LLM when the reuse lookup throws', async () => {
   expect(analyzeCommit).toHaveBeenCalledTimes(1);
   spy.mockRestore(); warn.mockRestore();
 });
+
+it('batch lookup returns only analysed copies of the org', async () => {
+  const m = await reuse.findReusableAnalyses('acme', ['aaa', 'bbb', 'zzz']);
+  expect([...m.keys()]).toEqual(['aaa']);
+  expect(m.get('aaa').complexity).toBe(7);
+});
+
+it('uses a prefetched map without querying per commit', async () => {
+  const prefetched = await reuse.findReusableAnalyses('acme', ['aaa', 'bbb']);
+  const spy = jest.spyOn(db, 'execute');
+  const hit = await reuse.analyzeWithReuse('acme', commitFor('aaa'), true, prefetched);
+  const miss = await reuse.analyzeWithReuse('acme', commitFor('bbb'), true, prefetched);
+  expect(spy).not.toHaveBeenCalled();
+  expect(hit.reused).toBe(true);
+  expect(miss.reused).toBe(false);
+  expect(analyzeCommit).toHaveBeenCalledTimes(1);
+  spy.mockRestore();
+});

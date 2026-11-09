@@ -134,3 +134,24 @@ it('clears check results when a rebuild starts', async () => {
   await flush();
   expect(screen.queryByText('Examples: sha1, sha2')).toBeNull();
 });
+
+it('explains a lock held elsewhere instead of showing local progress', async () => {
+  status = { builds: [build], lock: { holder: 'cli-123', startedAt: '2026-11-09T10:00:00.000Z' }, progress: idle };
+  render(<CanonicalCard />);
+  expect(await screen.findByText(/A rebuild started elsewhere holds the lock \(cli-123/)).toBeTruthy();
+  expect(screen.queryByText(/Rebuilding…/)).toBeNull();
+  expect((screen.getByText('Rebuild') as HTMLButtonElement).disabled).toBe(true);
+  const calls = fetchMock.mock.calls.length;
+  await act(async () => { jest.advanceTimersByTime(2000); });
+  expect(fetchMock.mock.calls.length).toBe(calls);
+  await act(async () => { jest.advanceTimersByTime(15000); });
+  expect(fetchMock.mock.calls.length).toBeGreaterThan(calls);
+});
+
+it('shows a readable error when Check returns a non-JSON error page', async () => {
+  render(<CanonicalCard />);
+  await flush();
+  fetchMock.mockImplementationOnce(async () => ({ ok: false, status: 502, json: async () => { throw new SyntaxError('Unexpected token <'); } }));
+  fireEvent.click(screen.getByText('Check'));
+  expect(await screen.findByText('Check failed')).toBeTruthy();
+});

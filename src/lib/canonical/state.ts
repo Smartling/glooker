@@ -56,8 +56,9 @@ export async function recordCanonicalBuild(tx: DB, b: CanonicalBuild): Promise<v
  * deleteReportWithUpkeep), the rebuild (rebuildOrg) and its late-report catch-up (refreshReport)
  * all make this the FIRST statement of their transaction, before touching commit_canonical or
  * jira_canonical; taking it in any other order deadlocks against the others. Being first also
- * matters under MySQL REPEATABLE READ: the read view is created at the first consistent read, so
- * later SELECTs see everything committed before the lock was granted. On an unbuilt org the row is
+ * matters under MySQL REPEATABLE READ: this locking read does not itself create the read view;
+ * the first plain (non-locking) SELECT after it does, so that snapshot already includes
+ * everything committed before the lock was granted. On an unbuilt org the row is
  * missing and only a gap lock is taken. Returns whether the org is built.
  */
 export async function lockBuild(tx: any, org: string | null): Promise<boolean> {

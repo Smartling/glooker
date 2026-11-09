@@ -21,7 +21,7 @@ const JIRA_SRC =
   'issue_key, id, report_id, github_login, project_key, issue_type, summary, description, status, ' +
   'labels, story_points, original_estimate_seconds, issue_url, created_at, resolved_at';
 
-function chunks<T>(xs: T[]): T[][] {
+export function chunks<T>(xs: T[]): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < xs.length; i += CANONICAL_BATCH) out.push(xs.slice(i, i + CANONICAL_BATCH));
   return out;

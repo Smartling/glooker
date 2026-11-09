@@ -1,7 +1,7 @@
 import { warmRangeCache } from './report/range';
 import { completeReport } from './canonical/upkeep';
 import { isCanonicalBuilt } from './canonical/state';
-import { analyzeWithReuse } from './canonical/reuse';
+import { analyzeWithReuse, findReusableAnalyses } from './canonical/reuse';
 import { upsertPrActivity, recordPrCoverage, reportCoverageSlice } from './pr-activity/store';
 import pLimit from 'p-limit';
 import db from './db/index';
@@ -442,6 +442,13 @@ export async function runReport(
           log(`@${member.login} unmerged-commits flow failed: ${err instanceof Error ? err.message : String(err)}`);
         }
 
+        // Reusable analyses for this member's pending commits, in one batched lookup. A failed
+        // prefetch leaves it undefined and analyzeWithReuse falls back to per-commit lookups.
+        const reusable = reuseEnabled
+          ? await findReusableAnalyses(org, thisMemCommits.filter((c) => !existingShas.has(c.sha)).map((c) => c.sha))
+              .catch((e) => { log(`reuse prefetch failed for @${member.login}: ${e?.message ?? e}`); return undefined; })
+          : undefined;
+
         // Queue LLM for commits not already analyzed
         let pendingCount = 0;
         for (const commit of thisMemCommits) {
@@ -452,7 +459,7 @@ export async function runReport(
           const p = limit(async () => {
             if (shouldStop(reportId)) return;
             try {
-              const { analysis: result, reused } = await analyzeWithReuse(org, commit, reuseEnabled);
+              const { analysis: result, reused } = await analyzeWithReuse(org, commit, reuseEnabled, reusable);
               if (reused) reusedCount++; else llmCalls++;
               analyses.set(commit.sha, result);
               const totalAnalyzed = analyses.size;
