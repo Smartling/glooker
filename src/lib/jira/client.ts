@@ -1,3 +1,14 @@
+/**
+ * Jira timestamp ('2026-10-01T12:34:56.000-0400') → UTC 'YYYY-MM-DD HH:MM:SS' for a DATETIME/
+ * TIMESTAMP column. MySQL rejects an offset without a colon, and the runner's INSERT IGNORE turned
+ * that rejection into a silent '0000-00-00 00:00:00'. Unparseable input becomes null.
+ */
+export function toDbDateTime(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? null : new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
+}
+
 export interface JiraUser {
   accountId: string;
   displayName: string;

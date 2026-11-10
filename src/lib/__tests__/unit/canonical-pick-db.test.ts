@@ -116,3 +116,15 @@ it('batches keys beyond CANONICAL_BATCH', async () => {
   expect(Number(rows[0].c)).toBe(1201);
   expect(pick.CANONICAL_BATCH).toBe(500);
 });
+
+it('copies a zero datetime as NULL and keeps a valid one', async () => {
+  await db.execute(
+    `INSERT INTO jira_issues (report_id, github_login, project_key, issue_key, created_at, resolved_at)
+     VALUES ('r1', 'u', 'J', 'J-ZERO', '0000-00-00 00:00:00', '2026-10-02 08:00:00')`,
+  );
+  const tx = { execute: db.execute.bind(db) };
+  await pick.refreshJiraKeys(tx, 'acme', ['J-ZERO']);
+  const [rows] = await db.execute(`SELECT created_at, resolved_at FROM jira_canonical WHERE org = 'acme' AND issue_key = 'J-ZERO'`);
+  expect(rows[0].created_at).toBeNull();
+  expect(String(rows[0].resolved_at)).toBe('2026-10-02 08:00:00');
+});

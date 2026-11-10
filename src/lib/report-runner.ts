@@ -11,6 +11,7 @@ import { aggregate, computeImpactScore } from './aggregator';
 import { updateProgress, addLog } from './progress-store';
 import { getJiraClient } from './jira';
 import { resolveJiraUser } from './jira';
+import { toDbDateTime } from './jira/client';
 import { getAppConfig } from './app-config/service';
 
 import { UNMERGED_LOOKBACK_DAYS } from './report/unmerged-window';
@@ -624,7 +625,7 @@ export async function runReport(
                   issue.summary, issue.description, issue.status,
                   JSON.stringify(issue.labels), issue.storyPoints,
                   issue.originalEstimateSeconds, issue.issueUrl,
-                  issue.createdAt, issue.resolvedAt,
+                  toDbDateTime(issue.createdAt), toDbDateTime(issue.resolvedAt),
                 ],
               );
             }

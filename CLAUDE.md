@@ -77,6 +77,7 @@ Glooker is a Next.js 15 web app that generates developer impact reports for a Gi
 - A changed analysis prompt does not apply to commits whose analysis is reused from `commit_canonical` — only newly analysed commits pick it up.
 - Prompt template files have Jest snapshot tests that assert exact text — after editing any file in `prompts/`, run `npm test -- -u` to update snapshots (or `npm test -- --testPathPattern="analyzer" -u` for a specific service). Review the snapshot diff to confirm the change is intentional.
 - Jira Cloud removed `/rest/api/3/search` in 2025 — use `/rest/api/3/search/jql` with `nextPageToken` pagination (not `startAt`)
+- **Jira timestamps must go through `toDbDateTime()` (`jira/client.ts`) before a MySQL write.** Jira sends `2026-10-01T12:34:56.000-0400`; MySQL rejects an offset without a colon, and the runner's `INSERT IGNORE` turned that into a silent `0000-00-00 00:00:00`, so every `jira_issues.created_at`/`resolved_at` written before the fix is zero on MySQL (unrecoverable without re-fetching). The canonical copy maps any pre-1970 timestamp to NULL so strict MySQL accepts it.
 - Jira Cloud API v3 returns descriptions as ADF (Atlassian Document Format) JSON, not plain text — `extractAdfText()` in `jira/client.ts` handles this
 - Jira Cloud instances with hidden email visibility will cause auto-discovery to fail silently — users must edit mappings manually in Settings
 - The `jira_issues` table has nullable LLM columns (`complexity`, `type`, `impact_summary`) for future use — no LLM analysis runs on Jira items yet

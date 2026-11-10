@@ -9,8 +9,13 @@ const COMMIT_COLS =
   'commit_sha, analysis_id, report_id, github_login, repo, committed_at, lines_added, lines_removed, ' +
   'complexity, type, ai_co_authored, ai_tool_name, maybe_ai, pr_number, pr_title, risk_level, ' +
   'commit_message, impact_summary';
+// A zero datetime ('0000-00-00 00:00:00', written by INSERT IGNORE from unparseable input) is
+// rejected by strict MySQL on a plain INSERT, so the copy maps anything before 1970 to NULL. Readers
+// filter on the date ranges, so NULL and the zero date are both outside every window.
+const validTs = (col: string) => `CASE WHEN ${col} > '1970-01-01 00:00:00' THEN ${col} END`;
+
 const COMMIT_SRC =
-  'commit_sha, id, report_id, github_login, repo, committed_at, lines_added, lines_removed, ' +
+  `commit_sha, id, report_id, github_login, repo, ${validTs('committed_at')}, lines_added, lines_removed, ` +
   'complexity, type, ai_co_authored, ai_tool_name, maybe_ai, pr_number, pr_title, risk_level, ' +
   'commit_message, impact_summary';
 
@@ -19,7 +24,7 @@ const JIRA_COLS =
   'labels, story_points, original_estimate_seconds, issue_url, created_at, resolved_at';
 const JIRA_SRC =
   'issue_key, id, report_id, github_login, project_key, issue_type, summary, description, status, ' +
-  'labels, story_points, original_estimate_seconds, issue_url, created_at, resolved_at';
+  `labels, story_points, original_estimate_seconds, issue_url, ${validTs('created_at')}, ${validTs('resolved_at')}`;
 
 export function chunks<T>(xs: T[]): T[][] {
   const out: T[][] = [];
