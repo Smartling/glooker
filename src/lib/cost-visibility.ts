@@ -90,6 +90,20 @@ export async function buildCostVisibility(org: string, requester: Requester): Pr
     return { canSeeCost: () => false, canSeeAnyCost: false };
   }
 
+  // Validate that the requester's login is mapped in this org. resolveRequester
+  // without an org parameter performs a global lookup that can return a login
+  // from a different organization; the authorization boundary is org-scoped, so
+  // a login resolved elsewhere must not pass the self-login or shared-team
+  // visibility checks here. Fail closed: no mapping in this org means no cost
+  // visibility, even when the same email is mapped in another org.
+  const [mappingRows] = await db.execute(
+    `SELECT 1 FROM user_mappings WHERE LOWER(github_login) = LOWER(?) AND org = ? LIMIT 1`,
+    [requester.githubLogin, org],
+  ) as [any[], any];
+  if (mappingRows.length === 0) {
+    return { canSeeCost: () => false, canSeeAnyCost: false };
+  }
+
   // One flat query (was 1 + N-per-team via listTeams) — this runs on the hot
   // read paths for exactly the non-admin population the feature serves.
   const [rows] = await db.execute(
