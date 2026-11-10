@@ -60,9 +60,9 @@ export function _clearOrgCache(): void {
 }
 
 /**
- * True when `org` may be used. An unconfigured ALLOWED_ORGS permits anything,
- * preserving existing single-org deployments — env-validation.ts warns about
- * that state rather than this silently hard-failing an upgrade.
+ * True when `org` may be used. An unconfigured ALLOWED_ORGS rejects everything,
+ * requiring explicit configuration before any org-scoped route will serve.
+ * env-validation.ts warns about the unconfigured state at startup.
  */
 export function isOrgAllowed(org: string): boolean {
   if (typeof org !== 'string' || !org.trim()) return false;
@@ -71,7 +71,7 @@ export function isOrgAllowed(org: string): boolean {
   if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(org.trim())) return false;
 
   const allowed = allowedOrgs();
-  if (allowed.size === 0) return true;
+  if (allowed.size === 0) return false;
   return allowed.has(org.trim().toLowerCase());
 }
 

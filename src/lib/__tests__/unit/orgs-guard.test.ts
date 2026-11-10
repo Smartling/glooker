@@ -16,7 +16,8 @@ afterAll(() => {
 });
 
 describe('isOrgAllowed — shape validation (applies with or without an allowlist)', () => {
-  it('accepts plausible GitHub org names', () => {
+  it('accepts plausible GitHub org names when they are in the allowlist', () => {
+    process.env.ALLOWED_ORGS = 'smartling,Acme-Corp,a,x1-2-3';
     for (const o of ['smartling', 'Acme-Corp', 'a', 'x1-2-3']) {
       expect(isOrgAllowed(o)).toBe(true);
     }
@@ -42,9 +43,10 @@ describe('isOrgAllowed — shape validation (applies with or without an allowlis
 });
 
 describe('ALLOWED_ORGS enforcement', () => {
-  it('permits anything well-shaped when unset (preserves existing single-org installs)', () => {
+  it('rejects everything when unset (secure by default)', () => {
     expect(allowedOrgs().size).toBe(0);
-    expect(isOrgAllowed('any-org')).toBe(true);
+    expect(isOrgAllowed('any-org')).toBe(false);
+    expect(isOrgAllowed('smartling')).toBe(false);
   });
 
   it('restricts to the configured set when set', () => {
@@ -87,6 +89,7 @@ describe('requireAllowedOrg — route helper', () => {
   });
 
   it('returns the trimmed org on success so callers get a narrowed string', () => {
+    process.env.ALLOWED_ORGS = 'smartling';
     const r = requireAllowedOrg('  smartling  ');
     expect(r).toEqual({ ok: true, org: 'smartling' });
   });
@@ -94,6 +97,7 @@ describe('requireAllowedOrg — route helper', () => {
 
 describe('assertAllowedOrg — service helper', () => {
   it('returns the org when permitted', () => {
+    process.env.ALLOWED_ORGS = 'smartling';
     expect(assertAllowedOrg('smartling')).toBe('smartling');
   });
 
@@ -105,6 +109,172 @@ describe('assertAllowedOrg — service helper', () => {
     } catch (err) {
       expect(err).toBeInstanceOf(OrgNotAllowedError);
       expect((err as Error).message).not.toContain('victim-inc');
+    }
+  });
+});
+
+describe('Security: Pentest finding mitigation — empty allowlist bypass', () => {
+  // The vulnerability: when ALLOWED_ORGS was unset/empty, isOrgAllowed() returned
+  // true for any syntactically valid org name. This allowed authenticated users to:
+  // 1. Aim the server's GitHub PAT at arbitrary orgs via /api/developers?org=X&source=github
+  // 2. Read any org's data from the database via org-scoped queries
+  // The fix: empty allowlist now rejects everything (secure by default).
+
+  it('rejects all orgs when ALLOWED_ORGS is unset (CVE mitigation)', () => {
+    delete process.env.ALLOWED_ORGS;
+    _clearOrgCache();
+    
+    // These would have been accepted before the fix
+    expect(isOrgAllowed('attacker-org')).toBe(false);
+    expect(isOrgAllowed('victim-org')).toBe(false);
+    expect(isOrgAllowed('any-valid-org-name')).toBe(false);
+  });
+
+  it('rejects all orgs when ALLOWED_ORGS is empty string', () => {
+    process.env.ALLOWED_ORGS = '';
+    _clearOrgCache();
+    
+    expect(isOrgAllowed('attacker-org')).toBe(false);
+    expect(isOrgAllowed('victim-org')).toBe(false);
+  });
+
+  it('rejects all orgs when ALLOWED_ORGS is whitespace only', () => {
+    process.env.ALLOWED_ORGS = '   ';
+    _clearOrgCache();
+    
+    expect(isOrgAllowed('attacker-org')).toBe(false);
+    expect(isOrgAllowed('victim-org')).toBe(false);
+  });
+
+  it('rejects all orgs when ALLOWED_ORGS contains only delimiters', () => {
+    process.env.ALLOWED_ORGS = ',,,';
+    _clearOrgCache();
+    
+    expect(isOrgAllowed('attacker-org')).toBe(false);
+    expect(isOrgAllowed('victim-org')).toBe(false);
+  });
+
+  it('rejects all orgs when ALLOWED_ORGS is whitespace and delimiters', () => {
+    process.env.ALLOWED_ORGS = ' , , , ';
+    _clearOrgCache();
+    
+    expect(isOrgAllowed('attacker-org')).toBe(false);
+    expect(isOrgAllowed('victim-org')).toBe(false);
+  });
+
+  it('requireAllowedOrg returns 404 for any org when allowlist is empty', () => {
+    delete process.env.ALLOWED_ORGS;
+    _clearOrgCache();
+    
+    const result = requireAllowedOrg('attacker-org');
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.res.status).toBe(404);
+    }
+  });
+
+  it('assertAllowedOrg throws for any org when allowlist is empty', () => {
+    delete process.env.ALLOWED_ORGS;
+    _clearOrgCache();
+    
+    expect(() => assertAllowedOrg('attacker-org')).toThrow(OrgNotAllowedError);
+    expect(() => assertAllowedOrg('victim-org')).toThrow(OrgNotAllowedError);
+  });
+
+  it('only allows explicitly configured orgs (no implicit allow-all)', () => {
+    process.env.ALLOWED_ORGS = 'my-org,trusted-org';
+    _clearOrgCache();
+    
+    // Allowed orgs work
+    expect(isOrgAllowed('my-org')).toBe(true);
+    expect(isOrgAllowed('trusted-org')).toBe(true);
+    
+    // Everything else is rejected
+    expect(isOrgAllowed('attacker-org')).toBe(false);
+    expect(isOrgAllowed('victim-org')).toBe(false);
+    expect(isOrgAllowed('another-org')).toBe(false);
+  });
+});
+
+describe('Security: Cross-tenant isolation enforcement', () => {
+  // The vulnerability allowed authenticated users to access data from any org
+  // in the database by supplying a different org parameter. The fix ensures
+  // only explicitly allowed orgs can be accessed.
+
+  it('prevents cross-tenant data access by rejecting non-allowlisted orgs', () => {
+    process.env.ALLOWED_ORGS = 'tenant-a';
+    _clearOrgCache();
+    
+    // Tenant A can access their own data
+    expect(isOrgAllowed('tenant-a')).toBe(true);
+    
+    // Tenant A cannot access tenant B's data
+    expect(isOrgAllowed('tenant-b')).toBe(false);
+    expect(isOrgAllowed('tenant-c')).toBe(false);
+  });
+
+  it('multi-tenant deployments must explicitly list all allowed orgs', () => {
+    process.env.ALLOWED_ORGS = 'tenant-a,tenant-b,tenant-c';
+    _clearOrgCache();
+    
+    // All explicitly configured tenants are allowed
+    expect(isOrgAllowed('tenant-a')).toBe(true);
+    expect(isOrgAllowed('tenant-b')).toBe(true);
+    expect(isOrgAllowed('tenant-c')).toBe(true);
+    
+    // Unlisted tenants are rejected
+    expect(isOrgAllowed('tenant-d')).toBe(false);
+    expect(isOrgAllowed('unauthorized-org')).toBe(false);
+  });
+
+  it('requireAllowedOrg returns 404 for cross-tenant access attempts', () => {
+    process.env.ALLOWED_ORGS = 'tenant-a';
+    _clearOrgCache();
+    
+    const result = requireAllowedOrg('tenant-b');
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.res.status).toBe(404);
+    }
+  });
+});
+
+describe('Security: GitHub PAT proxy protection', () => {
+  // The vulnerability allowed authenticated users to aim the server's GitHub PAT
+  // at arbitrary organizations via routes like /api/developers?org=X&source=github.
+  // The fix ensures the PAT can only be used for explicitly allowed orgs.
+
+  it('prevents aiming server GitHub PAT at arbitrary orgs when allowlist is empty', () => {
+    delete process.env.ALLOWED_ORGS;
+    _clearOrgCache();
+    
+    // Before the fix, these would have been allowed
+    expect(isOrgAllowed('attacker-target-org')).toBe(false);
+    expect(isOrgAllowed('victim-private-org')).toBe(false);
+  });
+
+  it('restricts GitHub PAT usage to explicitly configured orgs only', () => {
+    process.env.ALLOWED_ORGS = 'my-company';
+    _clearOrgCache();
+    
+    // Server PAT can be used for configured org
+    expect(isOrgAllowed('my-company')).toBe(true);
+    
+    // Server PAT cannot be aimed at other orgs
+    expect(isOrgAllowed('competitor-org')).toBe(false);
+    expect(isOrgAllowed('random-public-org')).toBe(false);
+    expect(isOrgAllowed('attacker-controlled-org')).toBe(false);
+  });
+
+  it('requireAllowedOrg blocks unauthorized GitHub API proxy attempts', () => {
+    process.env.ALLOWED_ORGS = 'my-company';
+    _clearOrgCache();
+    
+    // Simulates /api/developers?org=attacker-org&source=github
+    const result = requireAllowedOrg('attacker-org');
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.res.status).toBe(404);
     }
   });
 });
