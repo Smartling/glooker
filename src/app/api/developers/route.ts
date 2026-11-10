@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { listDevelopers, listDevelopersFromGitHub } from '@/lib/developers/service';
 import { withRequestLog } from '@/lib/logger';
-import { requireAllowedOrg } from '@/lib/orgs/guard';
+import { requireAllowedOrg, requireOrgMembership } from '@/lib/orgs/guard';
 
 async function getHandler(req: NextRequest) {
   const orgParam = req.nextUrl.searchParams.get('org');
@@ -11,6 +11,9 @@ async function getHandler(req: NextRequest) {
   const orgCheck = requireAllowedOrg(orgParam);
   if (!orgCheck.ok) return orgCheck.res;
   const org = orgCheck.org;
+
+  const membershipDenied = await requireOrgMembership(req.headers, org);
+  if (membershipDenied) return membershipDenied;
 
   if (source === 'github') {
     try {

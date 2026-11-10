@@ -2,11 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { listTeams, createTeam, TeamDuplicateError } from '@/lib/teams/service';
 import { requireAdmin } from '@/lib/auth';
 import { withRequestLog } from '@/lib/logger';
-import { requireAllowedOrg } from '@/lib/orgs/guard';
+import { requireAllowedOrg, requireOrgMembership } from '@/lib/orgs/guard';
 
 async function getHandler(req: NextRequest) {
   const orgCheck = requireAllowedOrg(req.nextUrl.searchParams.get('org'));
   if (!orgCheck.ok) return orgCheck.res;
+
+  const membershipDenied = await requireOrgMembership(req.headers, orgCheck.org);
+  if (membershipDenied) return membershipDenied;
 
   return NextResponse.json(await listTeams(orgCheck.org));
 }

@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server';
+import { extractUser, isAuthEnabled } from '@/lib/auth';
+import db from '@/lib/db';
 
 /**
  * Validation for the caller-supplied `org` parameter.
@@ -104,4 +106,94 @@ export function requireAllowedOrg(org: string | null | undefined): OrgCheck {
 export function assertAllowedOrg(org: string): string {
   if (!isOrgAllowed(org)) throw new OrgNotAllowedError(org);
   return org.trim();
+}
+
+/**
+ * Service-layer org membership check for MCP tools and chat agents.
+ *
+ * Throws OrgNotAllowedError when the requester does not belong to the org.
+ * When auth is disabled or the requester is an admin, this check is bypassed.
+ * When no requester is provided, access is denied (fail closed).
+ *
+ * Takes the same `Requester` shape produced by `resolveRequester()`
+ * (`@/lib/cost-visibility`) — `githubLogin`, not an email — because that is
+ * what every caller (MCP tools, chat agent) actually has in hand. Membership
+ * is therefore resolved against `user_mappings.github_login`, matching the
+ * column `resolveRequester` itself populates that field from.
+ */
+export async function assertOrgMembership(
+  org: string,
+  requester?: { githubLogin: string | null; isAdmin?: boolean; authDisabled?: boolean } | null,
+): Promise<void> {
+  // No requester: deny access (fail closed)
+  if (!requester) {
+    throw new OrgNotAllowedError(org);
+  }
+
+  // Auth disabled or admin: bypass membership check
+  if (requester.authDisabled || requester.isAdmin) {
+    return;
+  }
+
+  // No resolved login (e.g. authenticated user with no user_mappings row):
+  // nothing to match against, deny.
+  if (!requester.githubLogin) {
+    throw new OrgNotAllowedError(org);
+  }
+
+  // Check if the user has a mapping for this org
+  const [rows] = await db.execute(
+    `SELECT 1 FROM user_mappings WHERE github_login = ? AND org = ? LIMIT 1`,
+    [requester.githubLogin, org],
+  ) as [any[], any];
+
+  if (rows.length === 0) {
+    throw new OrgNotAllowedError(org);
+  }
+}
+
+/**
+ * Verify that the authenticated caller belongs to the requested organization.
+ *
+ * Organization membership is determined by the presence of a user_mappings row
+ * for the caller's email and the requested org. This prevents authenticated
+ * users from accessing arbitrary organizations' data.
+ *
+ * When auth is disabled, this check is bypassed (same as requireAdmin).
+ * Admins bypass this check (they have access to all orgs).
+ *
+ * Returns null when authorized, or a 404 response when denied (404 rather than
+ * 403 to avoid confirming whether an org exists on this deployment).
+ */
+export async function requireOrgMembership(
+  headers: Headers,
+  org: string,
+): Promise<NextResponse | null> {
+  // Auth disabled: no membership check (same as requireAdmin returning null)
+  if (!isAuthEnabled()) return null;
+
+  const user = await extractUser(headers);
+  if (!user) {
+    // No authenticated user: deny access
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
+
+  // Admin bypass: admins can access all orgs
+  const adminGroup = process.env.AUTH_ADMIN_GROUP;
+  if (adminGroup && user.groups.includes(adminGroup)) {
+    return null;
+  }
+
+  // Check if the user has a mapping for this org
+  const [rows] = await db.execute(
+    `SELECT 1 FROM user_mappings WHERE jira_email = ? AND org = ? LIMIT 1`,
+    [user.email, org],
+  ) as [any[], any];
+
+  if (rows.length === 0) {
+    // User does not belong to this org
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
+
+  return null;
 }

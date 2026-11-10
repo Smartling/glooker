@@ -3,11 +3,14 @@ import { listJiraProjects, createJiraProject, JiraProjectDuplicateError } from '
 import { JiraProjectError } from '@/lib/jira-projects/types';
 import { requireAdmin } from '@/lib/auth';
 import { withRequestLog } from '@/lib/logger';
-import { requireAllowedOrg } from '@/lib/orgs/guard';
+import { requireAllowedOrg, requireOrgMembership } from '@/lib/orgs/guard';
 
 async function getHandler(req: NextRequest) {
   const orgCheck = requireAllowedOrg(req.nextUrl.searchParams.get('org'));
   if (!orgCheck.ok) return orgCheck.res;
+
+  const membershipDenied = await requireOrgMembership(req.headers, orgCheck.org);
+  if (membershipDenied) return membershipDenied;
 
   // Pure read — no seeding here. Settings → Projects reloads this list right
   // after a DELETE; migrating on every read would resurrect the last project

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getUntrackedWork } from '@/lib/projects/untracked';
 import { withRequestLog } from '@/lib/logger';
-import { requireAllowedOrg } from '@/lib/orgs/guard';
+import { requireAllowedOrg, requireOrgMembership } from '@/lib/orgs/guard';
 import { internalError } from '@/lib/api-error';
 
 async function getHandler(req: NextRequest) {
@@ -11,6 +11,9 @@ async function getHandler(req: NextRequest) {
   const orgCheck = requireAllowedOrg(orgParam);
   if (!orgCheck.ok) return orgCheck.res;
   const org = orgCheck.org;
+
+  const membershipDenied = await requireOrgMembership(req.headers, org);
+  if (membershipDenied) return membershipDenied;
 
   try {
     const result = await getUntrackedWork(org, refresh);
