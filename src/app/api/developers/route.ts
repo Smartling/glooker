@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { listDevelopers, listDevelopersFromGitHub } from '@/lib/developers/service';
 import { withRequestLog } from '@/lib/logger';
-import { requireAllowedOrg } from '@/lib/orgs/guard';
+import { requireAllowedOrg, requireUserOrg } from '@/lib/orgs/guard';
 
 async function getHandler(req: NextRequest) {
   const orgParam = req.nextUrl.searchParams.get('org');
@@ -11,6 +11,10 @@ async function getHandler(req: NextRequest) {
   const orgCheck = requireAllowedOrg(orgParam);
   if (!orgCheck.ok) return orgCheck.res;
   const org = orgCheck.org;
+
+  // Verify the authenticated user is authorized to access this org
+  const userOrgCheck = await requireUserOrg(req.headers, org);
+  if (!userOrgCheck.ok) return userOrgCheck.res;
 
   if (source === 'github') {
     try {
