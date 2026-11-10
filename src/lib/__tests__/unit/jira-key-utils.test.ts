@@ -1,4 +1,4 @@
-import { extractJiraKeys, findFirstJiraKey } from '@/lib/jira-key-utils';
+import { extractJiraKeys, findFirstJiraKey, extractProjectKey } from '@/lib/jira-key-utils';
 
 describe('extractJiraKeys', () => {
   it('extracts standard dash-separated keys', () => {
@@ -63,5 +63,23 @@ describe('findFirstJiraKey', () => {
 
   it('returns null for false positives', () => {
     expect(findFirstJiraKey('fix node 20')).toBeNull();
+  });
+});
+
+describe('extractProjectKey', () => {
+  it('extracts project key from standard issue key', () => {
+    expect(extractProjectKey('GLOOK-123')).toBe('GLOOK');
+  });
+
+  it('extracts project key with underscores', () => {
+    expect(extractProjectKey('SPS_2-456')).toBe('SPS_2');
+  });
+
+  it('extracts single-letter project key', () => {
+    expect(extractProjectKey('A-1')).toBe('A');
+  });
+
+  it('extracts long project key', () => {
+    expect(extractProjectKey('VERYLONGPROJECT-999')).toBe('VERYLONGPROJECT');
   });
 });

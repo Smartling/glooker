@@ -39,6 +39,18 @@ export async function listJiraProjects(org: string): Promise<JiraProject[]> {
   return rows.map(toProject);
 }
 
+/**
+ * Check if a project key is configured for the given org.
+ * Used to enforce project-scope authorization on dynamic issue routes.
+ */
+export async function isProjectConfigured(org: string, projectKey: string): Promise<boolean> {
+  const [rows] = await db.execute(
+    `SELECT 1 FROM jira_projects WHERE org = ? AND project_key = ? LIMIT 1`,
+    [org, projectKey.trim().toUpperCase()],
+  ) as [any[], any];
+  return rows.length > 0;
+}
+
 export async function createJiraProject(org: string, input: unknown): Promise<JiraProject> {
   const v = validateJiraProject(input);
   const id = randomUUID();

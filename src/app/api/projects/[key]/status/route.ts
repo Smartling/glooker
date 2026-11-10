@@ -2,12 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getJiraClient } from '@/lib/jira/client';
 import { requireAdmin } from '@/lib/auth';
 import { withRequestLog } from '@/lib/logger';
-import { isValidIssueKey } from '@/lib/jira-key-utils';
+import { isValidIssueKey, extractProjectKey } from '@/lib/jira-key-utils';
+import { requireAllowedOrg } from '@/lib/orgs/guard';
+import { isProjectConfigured } from '@/lib/jira-projects/service';
 import { internalError } from '@/lib/api-error';
 
 // GET: fetch available transitions for an epic
 async function getHandler(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ key: string }> },
 ) {
   const { key } = await params;
@@ -16,9 +18,22 @@ async function getHandler(
   if (!isValidIssueKey(key)) {
     return NextResponse.json({ error: 'Invalid Jira issue key' }, { status: 400 });
   }
+
+  const orgParam = req.nextUrl.searchParams.get('org');
+  const orgCheck = requireAllowedOrg(orgParam);
+  if (!orgCheck.ok) return orgCheck.res;
+  const org = orgCheck.org;
+
   const client = getJiraClient();
   if (!client) {
     return NextResponse.json({ error: 'Jira is not configured' }, { status: 404 });
+  }
+
+  // Enforce project-scope authorization: reject issues from projects not
+  // configured for this org, preventing bypass of the /api/projects boundary.
+  const projectKey = extractProjectKey(key);
+  if (!(await isProjectConfigured(org, projectKey))) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
   try {
@@ -48,15 +63,26 @@ async function patchHandler(
     return NextResponse.json({ error: 'Invalid Jira issue key' }, { status: 400 });
   }
   const body = await req.json();
-  const { transitionId } = body;
+  const { transitionId, org } = body;
 
   if (!transitionId) {
     return NextResponse.json({ error: 'transitionId is required' }, { status: 400 });
   }
 
+  const orgCheck = requireAllowedOrg(org);
+  if (!orgCheck.ok) return orgCheck.res;
+  const orgValue = orgCheck.org;
+
   const client = getJiraClient();
   if (!client) {
     return NextResponse.json({ error: 'Jira is not configured' }, { status: 404 });
+  }
+
+  // Enforce project-scope authorization: reject issues from projects not
+  // configured for this org, preventing bypass of the /api/projects boundary.
+  const projectKey = extractProjectKey(key);
+  if (!(await isProjectConfigured(orgValue, projectKey))) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
   try {
