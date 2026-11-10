@@ -3,6 +3,7 @@ import db from '@/lib/db';
 import { computeImpactScore } from '@/lib/impact-score';
 import { canonicalCommitIdsSql, completedReportWindows, measuredDaysInWindow, unionDayCount, windowOverlaps } from './timeline';
 import { RANGE_DAYS, type ReportRangeKey } from './range-options';
+import { getCanonicalBuild } from '@/lib/canonical/state';
 
 export * from './range-options';
 
@@ -98,11 +99,16 @@ export async function getRangeDeveloperStats(org: string, window: RangeWindow): 
   // The key carries the exact report set, so a newly completed or deleted report is a new key and
   // a cached result is never stale for report-scoped data. Only an out-of-band pr_activity load
   // (backfill/import) can lag, and that by at most RANGE_CACHE_TTL_MS.
-  const key = createHash('sha1').update(JSON.stringify([org, window.since, window.until, measuredDays, ids])).digest('hex');
+  // The org's canonical built_at is part of the key, so a Rebuild (even from another process)
+  // produces new keys instead of serving stale figures.
+  const build = await getCanonicalBuild(org);
+  const key = createHash('sha1')
+    .update(JSON.stringify([org, window.since, window.until, measuredDays, ids, build?.builtAt ?? 'fallback']))
+    .digest('hex');
   const now = Date.now();
   const hit = rangeCache.get(key);
   if (hit && hit.expires > now) return hit.rows;
-  const rows = computeRangeDeveloperStats(window, ids, measuredDays, org);
+  const rows = computeRangeDeveloperStats(window, ids, measuredDays, org, build !== null);
   rangeCache.set(key, { rows, expires: now + RANGE_CACHE_TTL_MS });
   rows.catch(() => { if (rangeCache.get(key)?.rows === rows) rangeCache.delete(key); });
   while (rangeCache.size > RANGE_CACHE_MAX) rangeCache.delete(rangeCache.keys().next().value!);
@@ -136,7 +142,7 @@ export async function warmRangeCache(reportId: string): Promise<void> {
 }
 
 async function computeRangeDeveloperStats(
-  window: RangeWindow, ids: string[], measuredDays: number, org: string,
+  window: RangeWindow, ids: string[], measuredDays: number, org: string, built: boolean,
 ): Promise<RangeDeveloperRow[]> {
   const sinceMs = dayMs(window.since);
   const untilMs = dayMs(window.until);
@@ -154,7 +160,11 @@ async function computeRangeDeveloperStats(
     if (!prev || at >= prev.at) people.set(d.github_login, { name: d.github_name || '', avatar: d.avatar_url || '', at });
   }
 
-  const [commitRows] = await db.execute(
+  const [commitRows] = built ? await db.execute(
+    `SELECT github_login, repo, lines_added, lines_removed, complexity, type, ai_co_authored, maybe_ai, pr_number
+     FROM commit_canonical WHERE org = ? AND committed_at >= ? AND committed_at < ?`,
+    [org, window.since, window.until],
+  ) as [any[], any] : await db.execute(
     `SELECT /*+ JOIN_FIXED_ORDER() */ ca.github_login, ca.repo, ca.lines_added, ca.lines_removed, ca.complexity, ca.type,
             ca.ai_co_authored, ca.maybe_ai, ca.pr_number
      FROM (${canonicalCommitIdsSql(ids.length)}) one
@@ -163,7 +173,10 @@ async function computeRangeDeveloperStats(
     [...ids, window.since, window.until],
   ) as [any[], any];
 
-  const [jiraRows] = await db.execute(
+  const [jiraRows] = built ? await db.execute(
+    `SELECT github_login, story_points FROM jira_canonical WHERE org = ? AND resolved_at >= ? AND resolved_at < ?`,
+    [org, window.since, window.until],
+  ) as [any[], any] : await db.execute(
     `SELECT /*+ JOIN_FIXED_ORDER() */ ji.github_login, ji.story_points
      FROM (${canonicalJiraIdsSql(ids.length)}) one
      JOIN jira_issues ji ON ji.id = one.id
@@ -263,6 +276,19 @@ async function computeRangeDeveloperStats(
 export async function getRangeCommits(org: string, login: string, window: RangeWindow): Promise<any[]> {
   const { ids } = await rangeReports(org, window);
   if (ids.length === 0) return [];
+  if (await getCanonicalBuild(org)) {
+    const [rows] = await db.execute(
+      `SELECT commit_sha, repo, commit_message, pr_number, pr_title,
+              type, complexity, risk_level, impact_summary,
+              lines_added, lines_removed, committed_at,
+              ai_co_authored, ai_tool_name, maybe_ai
+       FROM commit_canonical
+       WHERE org = ? AND github_login = ? AND committed_at >= ? AND committed_at < ?
+       ORDER BY committed_at DESC`,
+      [org, login, window.since, window.until],
+    ) as [any[], any];
+    return rows;
+  }
   const [rows] = await db.execute(
     `SELECT /*+ JOIN_FIXED_ORDER() */ ca.commit_sha, ca.repo, ca.commit_message, ca.pr_number, ca.pr_title,
             ca.type, ca.complexity, ca.risk_level, ca.impact_summary,
@@ -281,7 +307,15 @@ export async function getRangeCommits(org: string, login: string, window: RangeW
 export async function getRangeJiraIssues(org: string, login: string | undefined, window: RangeWindow): Promise<any[]> {
   const { ids } = await rangeReports(org, window);
   if (ids.length === 0) return [];
-  const [rows] = await db.execute(
+  const [rows] = await getCanonicalBuild(org) ? await db.execute(
+    `SELECT issue_key, project_key, issue_type, summary, description,
+            status, labels, story_points, original_estimate_seconds,
+            issue_url, created_at, resolved_at
+     FROM jira_canonical
+     WHERE org = ? AND resolved_at >= ? AND resolved_at < ?${login ? ' AND github_login = ?' : ''}
+     ORDER BY resolved_at DESC`,
+    login ? [org, window.since, window.until, login] : [org, window.since, window.until],
+  ) as [any[], any] : await db.execute(
     `SELECT /*+ JOIN_FIXED_ORDER() */ ji.issue_key, ji.project_key, ji.issue_type, ji.summary, ji.description,
             ji.status, ji.labels, ji.story_points, ji.original_estimate_seconds,
             ji.issue_url, ji.created_at, ji.resolved_at

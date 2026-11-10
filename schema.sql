@@ -339,6 +339,67 @@ CREATE TABLE IF NOT EXISTS pr_activity_coverage (
   PRIMARY KEY (org, github_login, since_date, until_date)
 );
 
+-- Canonical de-duplicated commits/Jira (one row per org + commit_sha / issue_key).
+CREATE TABLE IF NOT EXISTS commit_canonical (
+  org            VARCHAR(255) NOT NULL,
+  commit_sha     VARCHAR(40)  NOT NULL,
+  analysis_id    INT          NOT NULL,
+  report_id      VARCHAR(36)  NOT NULL,
+  github_login   VARCHAR(255) NOT NULL,
+  repo           VARCHAR(255) NOT NULL,
+  committed_at   TIMESTAMP    NULL,
+  lines_added    INT          NOT NULL DEFAULT 0,
+  lines_removed  INT          NOT NULL DEFAULT 0,
+  complexity     TINYINT      NULL,
+  type           ENUM('feature','bug','refactor','infra','docs','test','other') NULL,
+  ai_co_authored TINYINT(1)   NOT NULL DEFAULT 0,
+  ai_tool_name   VARCHAR(50)  NULL,
+  maybe_ai       TINYINT(1)   NOT NULL DEFAULT 0,
+  pr_number      INT          NULL,
+  pr_title       VARCHAR(500) NULL,
+  risk_level     ENUM('low','medium','high') NULL,
+  commit_message TEXT         NULL,
+  impact_summary TEXT         NULL,
+  PRIMARY KEY (org, commit_sha),
+  KEY idx_commit_canonical_org_committed (org, committed_at),
+  KEY idx_commit_canonical_org_login (org, github_login, committed_at),
+  KEY idx_commit_canonical_report (report_id)
+);
+CREATE TABLE IF NOT EXISTS jira_canonical (
+  org                       VARCHAR(255) NOT NULL,
+  issue_key                 VARCHAR(50)  NOT NULL,
+  issue_id                  INT          NOT NULL,
+  report_id                 VARCHAR(36)  NOT NULL,
+  github_login              VARCHAR(255) NOT NULL,
+  project_key               VARCHAR(50)  NOT NULL,
+  issue_type                VARCHAR(100) NULL,
+  summary                   VARCHAR(500) NULL,
+  description               TEXT         NULL,
+  status                    VARCHAR(100) NULL,
+  labels                    TEXT         NULL,
+  story_points              DECIMAL(6,2) NULL,
+  original_estimate_seconds INT          NULL,
+  issue_url                 VARCHAR(500) NULL,
+  created_at                TIMESTAMP    NULL,
+  resolved_at               TIMESTAMP    NULL,
+  PRIMARY KEY (org, issue_key),
+  KEY idx_jira_canonical_org_resolved (org, resolved_at),
+  KEY idx_jira_canonical_org_login (org, github_login, resolved_at),
+  KEY idx_jira_canonical_report (report_id)
+);
+CREATE TABLE IF NOT EXISTS canonical_builds (
+  org         VARCHAR(255) NOT NULL PRIMARY KEY,
+  built_at    VARCHAR(32)  NOT NULL,
+  duration_ms INT          NOT NULL,
+  commit_rows INT          NOT NULL,
+  jira_rows   INT          NOT NULL
+);
+CREATE TABLE IF NOT EXISTS canonical_rebuild_lock (
+  id         INT         NOT NULL PRIMARY KEY,
+  started_at VARCHAR(32) NOT NULL,
+  holder     VARCHAR(64) NOT NULL
+);
+
 CREATE INDEX idx_devstats_login ON developer_stats(github_login);
 CREATE INDEX idx_reports_org_status_created ON reports(org, status, created_at);
 CREATE INDEX idx_ca_login_report ON commit_analyses(github_login, report_id, commit_sha, complexity);

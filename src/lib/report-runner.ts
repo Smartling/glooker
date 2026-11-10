@@ -1,13 +1,17 @@
 import { warmRangeCache } from './report/range';
+import { completeReport } from './canonical/upkeep';
+import { isCanonicalBuilt } from './canonical/state';
+import { analyzeWithReuse, findReusableAnalyses } from './canonical/reuse';
 import { upsertPrActivity, recordPrCoverage, reportCoverageSlice } from './pr-activity/store';
 import pLimit from 'p-limit';
 import db from './db/index';
 import { getGitHubProvider, getCommitDetail, type CommitData, type OpenPrInfo } from './github';
-import { analyzeCommit, type CommitAnalysis } from './analyzer';
+import type { CommitAnalysis } from './analyzer';
 import { aggregate, computeImpactScore } from './aggregator';
 import { updateProgress, addLog } from './progress-store';
 import { getJiraClient } from './jira';
 import { resolveJiraUser } from './jira';
+import { toDbDateTime } from './jira/client';
 import { getAppConfig } from './app-config/service';
 
 import { UNMERGED_LOOKBACK_DAYS } from './report/unmerged-window';
@@ -110,6 +114,10 @@ export async function runReport(
     const pendingLLM: Promise<void>[] = [];
     const limit            = pLimit(CONCURRENCY);
     let llmErrors          = 0;
+    let reusedCount        = 0;
+    let llmCalls           = 0;
+    // GLOOK-63: once the org's canonical tables exist, an earlier report's LLM verdict is reused.
+    const reuseEnabled = await isCanonicalBuilt(org);
     let processedMembers   = 0;
     let activeMemberCount  = 0;
 
@@ -435,6 +443,13 @@ export async function runReport(
           log(`@${member.login} unmerged-commits flow failed: ${err instanceof Error ? err.message : String(err)}`);
         }
 
+        // Reusable analyses for this member's pending commits, in one batched lookup. A failed
+        // prefetch leaves it undefined and analyzeWithReuse falls back to per-commit lookups.
+        const reusable = reuseEnabled
+          ? await findReusableAnalyses(org, thisMemCommits.filter((c) => !existingShas.has(c.sha)).map((c) => c.sha))
+              .catch((e) => { log(`reuse prefetch failed for @${member.login}: ${e?.message ?? e}`); return undefined; })
+          : undefined;
+
         // Queue LLM for commits not already analyzed
         let pendingCount = 0;
         for (const commit of thisMemCommits) {
@@ -445,7 +460,8 @@ export async function runReport(
           const p = limit(async () => {
             if (shouldStop(reportId)) return;
             try {
-              const result = await analyzeCommit(commit);
+              const { analysis: result, reused } = await analyzeWithReuse(org, commit, reuseEnabled, reusable);
+              if (reused) reusedCount++; else llmCalls++;
               analyses.set(commit.sha, result);
               const totalAnalyzed = analyses.size;
               if (totalAnalyzed <= 3 || totalAnalyzed % 25 === 0) {
@@ -512,6 +528,7 @@ export async function runReport(
 
     // Wait for remaining LLM work
     await Promise.all(pendingLLM);
+    log(`Reused ${reusedCount.toLocaleString('en-US')} analyses, ${llmCalls.toLocaleString('en-US')} new LLM calls`);
 
     // GLOOK-13: evaluate integrity AFTER the gather loop is drained but BEFORE
     // we spend more time on Jira / report aggregation. On 'failed' we still
@@ -608,7 +625,7 @@ export async function runReport(
                   issue.summary, issue.description, issue.status,
                   JSON.stringify(issue.labels), issue.storyPoints,
                   issue.originalEstimateSeconds, issue.issueUrl,
-                  issue.createdAt, issue.resolvedAt,
+                  toDbDateTime(issue.createdAt), toDbDateTime(issue.resolvedAt),
                 ],
               );
             }
@@ -749,10 +766,7 @@ export async function runReport(
     };
 
     // 4. Mark complete
-    await db.execute(
-      `UPDATE reports SET status = 'completed', run_metadata = ?, completed_at = NOW() WHERE id = ?`,
-      [JSON.stringify(runMetadata), reportId],
-    );
+    await completeReport(reportId, JSON.stringify(runMetadata));
     log(`Report complete: ${stats.length} developers`);
     updateProgress(reportId, { status: 'completed', step: 'Done', totalDevelopers: membersWithCommits, completedDevelopers: membersWithCommits });
     // GLOOK-63: pre-compute the 90-day and 12-month views so the first viewer doesn't wait.

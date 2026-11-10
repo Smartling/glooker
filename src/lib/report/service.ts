@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import db from '@/lib/db';
+import { deleteReportWithUpkeep } from '@/lib/canonical/upkeep';
 import { rangeWindow, getRangeDeveloperStats, type ReportRange, type RangeMeta } from './range';
 import { runReport, requestStop } from '@/lib/report-runner';
 import { initProgress, updateProgress, getProgress } from '@/lib/progress-store';
@@ -165,13 +166,9 @@ export async function getReport(id: string, range: ReportRange = 'current') {
 }
 
 export async function deleteReport(id: string): Promise<void> {
-  // ON DELETE CASCADE handles developer_stats and commit_analyses
-  const [result] = await db.execute(
-    `DELETE FROM reports WHERE id = ?`,
-    [id],
-  ) as [any, any];
-
-  if (result.affectedRows === 0) {
+  // ON DELETE CASCADE removes developer_stats, commit_analyses and jira_issues; upkeep re-picks canonical keys.
+  const affected = await deleteReportWithUpkeep(id);
+  if (affected === 0) {
     throw new ReportNotFoundError(id);
   }
 }

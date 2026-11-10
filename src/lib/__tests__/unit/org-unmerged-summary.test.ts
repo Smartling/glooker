@@ -3,6 +3,7 @@ jest.mock('@/lib/db/index', () => ({
   __esModule: true,
   default: { execute: jest.fn() },
 }));
+jest.mock('@/lib/canonical/state', () => ({ isCanonicalBuilt: jest.fn().mockResolvedValue(false), getCanonicalBuild: jest.fn().mockResolvedValue(null) }));
 jest.mock('@/lib/report-runner', () => ({ runReport: jest.fn().mockResolvedValue(undefined), requestStop: jest.fn() }));
 jest.mock('@/lib/progress-store', () => ({ initProgress: jest.fn(), updateProgress: jest.fn(), getProgress: jest.fn() }));
 

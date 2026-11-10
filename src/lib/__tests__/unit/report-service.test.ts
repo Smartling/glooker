@@ -1,5 +1,5 @@
 jest.mock('@octokit/rest', () => ({ Octokit: jest.fn().mockImplementation(() => ({})) }));
-jest.mock('@/lib/db/index', () => ({ __esModule: true, default: { execute: jest.fn() } }));
+jest.mock('@/lib/db/index', () => ({ __esModule: true, default: { execute: jest.fn(), transaction: jest.fn((fn: any) => fn(require('@/lib/db/index').default)) } }));
 jest.mock('@/lib/report-runner', () => ({ runReport: jest.fn().mockResolvedValue(undefined), requestStop: jest.fn() }));
 jest.mock('@/lib/progress-store', () => ({ initProgress: jest.fn(), updateProgress: jest.fn(), getProgress: jest.fn() }));
 jest.mock('uuid', () => ({ v4: jest.fn().mockReturnValue('mock-report-id') }));
@@ -147,6 +147,7 @@ describe('getReport', () => {
 
 describe('deleteReport', () => {
   it('succeeds when affectedRows > 0', async () => {
+    mockDbExecute.mockResolvedValueOnce([[], null]); // org lookup
     mockDbExecute.mockResolvedValue([{ affectedRows: 1 }, null]);
 
     await expect(deleteReport('r1')).resolves.toBeUndefined();
@@ -157,6 +158,7 @@ describe('deleteReport', () => {
   });
 
   it('throws ReportNotFoundError when affectedRows = 0', async () => {
+    mockDbExecute.mockResolvedValueOnce([[], null]); // org lookup
     mockDbExecute.mockResolvedValue([{ affectedRows: 0 }, null]);
 
     await expect(deleteReport('missing-id')).rejects.toThrow(ReportNotFoundError);

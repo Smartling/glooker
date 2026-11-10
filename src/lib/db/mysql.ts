@@ -196,6 +196,70 @@ CREATE TABLE IF NOT EXISTS cc_model_usage (
   FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE
 )`;
 
+// Canonical de-duplicated commits/Jira + build marker + rebuild lock (also in schema.sql and sqlite.ts).
+// No FK to reports, no charset pin (see mysql-schema-fk-charset.test.ts).
+const CANONICAL_SCHEMAS: string[] = [
+  `CREATE TABLE IF NOT EXISTS commit_canonical (
+  org            VARCHAR(255) NOT NULL,
+  commit_sha     VARCHAR(40)  NOT NULL,
+  analysis_id    INT          NOT NULL,
+  report_id      VARCHAR(36)  NOT NULL,
+  github_login   VARCHAR(255) NOT NULL,
+  repo           VARCHAR(255) NOT NULL,
+  committed_at   TIMESTAMP    NULL,
+  lines_added    INT          NOT NULL DEFAULT 0,
+  lines_removed  INT          NOT NULL DEFAULT 0,
+  complexity     TINYINT      NULL,
+  type           ENUM('feature','bug','refactor','infra','docs','test','other') NULL,
+  ai_co_authored TINYINT(1)   NOT NULL DEFAULT 0,
+  ai_tool_name   VARCHAR(50)  NULL,
+  maybe_ai       TINYINT(1)   NOT NULL DEFAULT 0,
+  pr_number      INT          NULL,
+  pr_title       VARCHAR(500) NULL,
+  risk_level     ENUM('low','medium','high') NULL,
+  commit_message TEXT         NULL,
+  impact_summary TEXT         NULL,
+  PRIMARY KEY (org, commit_sha),
+  KEY idx_commit_canonical_org_committed (org, committed_at),
+  KEY idx_commit_canonical_org_login (org, github_login, committed_at),
+  KEY idx_commit_canonical_report (report_id)
+)`,
+  `CREATE TABLE IF NOT EXISTS jira_canonical (
+  org                       VARCHAR(255) NOT NULL,
+  issue_key                 VARCHAR(50)  NOT NULL,
+  issue_id                  INT          NOT NULL,
+  report_id                 VARCHAR(36)  NOT NULL,
+  github_login              VARCHAR(255) NOT NULL,
+  project_key               VARCHAR(50)  NOT NULL,
+  issue_type                VARCHAR(100) NULL,
+  summary                   VARCHAR(500) NULL,
+  description               TEXT         NULL,
+  status                    VARCHAR(100) NULL,
+  labels                    TEXT         NULL,
+  story_points              DECIMAL(6,2) NULL,
+  original_estimate_seconds INT          NULL,
+  issue_url                 VARCHAR(500) NULL,
+  created_at                TIMESTAMP    NULL,
+  resolved_at               TIMESTAMP    NULL,
+  PRIMARY KEY (org, issue_key),
+  KEY idx_jira_canonical_org_resolved (org, resolved_at),
+  KEY idx_jira_canonical_org_login (org, github_login, resolved_at),
+  KEY idx_jira_canonical_report (report_id)
+)`,
+  `CREATE TABLE IF NOT EXISTS canonical_builds (
+  org         VARCHAR(255) NOT NULL PRIMARY KEY,
+  built_at    VARCHAR(32)  NOT NULL,
+  duration_ms INT          NOT NULL,
+  commit_rows INT          NOT NULL,
+  jira_rows   INT          NOT NULL
+)`,
+  `CREATE TABLE IF NOT EXISTS canonical_rebuild_lock (
+  id         INT         NOT NULL PRIMARY KEY,
+  started_at VARCHAR(32) NOT NULL,
+  holder     VARCHAR(64) NOT NULL
+)`,
+];
+
 // GLOOK-63: PR activity + coverage ledger (also in schema.sql and sqlite.ts). No FK to reports, and
 // no charset pin (see mysql-schema-fk-charset.test.ts).
 const PR_ACTIVITY_SCHEMAS: string[] = [
@@ -375,6 +439,11 @@ export function createMySQLDB(): DB {
   for (const ddl of PR_ACTIVITY_SCHEMAS) {
     await pool.execute(ddl).catch((err) => {
       console.error('[db/mysql] Failed to create a pr_activity table:', err);
+    });
+  }
+  for (const ddl of CANONICAL_SCHEMAS) {
+    await pool.execute(ddl).catch((err) => {
+      console.error('[db/mysql] Failed to create a canonical table:', err);
     });
   }
   await pool.execute('DROP TABLE IF EXISTS unmerged_work').catch((err) => {

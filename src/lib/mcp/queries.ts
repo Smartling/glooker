@@ -1,5 +1,6 @@
 import db from '@/lib/db';
 import { resolveReportId } from './resolve';
+import { isCanonicalBuilt } from '@/lib/canonical/state';
 import { bucketByPeriod } from './dedup';
 import { canonicalCommitIdsSql } from '@/lib/report/timeline';
 import { buildCostVisibility, stripDevCost, gateModelRowsByLogin, type Requester, type CostVisibility } from '@/lib/cost-visibility';
@@ -121,9 +122,12 @@ export async function queryCommits(args: {
 
   const conditions: string[] = [];
   const params: any[] = [];
+  let built = false;
   if (crossReport) {
-    // The org scope lives in the canonical-copy subquery below; its `?` comes first.
-    params.push(await reportOrg(r.id));
+    // The org scope lives in the canonical-copy subquery (or ca.org = ? when built); its `?` comes first.
+    const org = await reportOrg(r.id);
+    built = org != null && await isCanonicalBuilt(org);
+    params.push(org);
   } else {
     conditions.push('ca.report_id = ?');
     params.push(r.id);
@@ -147,7 +151,14 @@ export async function queryCommits(args: {
   const cols = `ca.commit_sha, ca.repo, ca.github_login, ca.pr_number, ca.commit_message,
               ca.type, ca.complexity, ca.risk_level, ca.lines_added, ca.lines_removed,
               ca.ai_co_authored, ca.maybe_ai, ca.committed_at`;
-  const sql = crossReport
+  // GLOOK-63: built orgs read commit_canonical (already one row per sha, completed reports only).
+  const sql = crossReport && built
+    ? `SELECT ${cols}
+       FROM commit_canonical ca
+       WHERE ca.org = ? AND ${where}
+       ORDER BY ca.committed_at DESC
+       LIMIT ?`
+    : crossReport
     ? `SELECT ${cols}
        FROM commit_analyses ca
        JOIN (${canonicalCommitIdsSql({ subquery: `SELECT id FROM reports WHERE org = ? AND status = 'completed'` })}) one

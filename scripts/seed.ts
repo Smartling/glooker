@@ -51,6 +51,9 @@ async function main() {
   const { seedVulnerabilities } = await import('./seed-vulnerabilities');
   await seedVulnerabilities(db);
 
+  const { rebuildCanonical } = await import('../src/lib/canonical/rebuild');
+  for (const r of await rebuildCanonical()) console.log(`  canonical ${r.org}: ${r.ok ? `${r.commitRows} commits, ${r.jiraRows} issues` : `FAILED ${r.error}`}`);
+
   console.log('\nDone! Run `npm run dev:mock` to start the app with mock providers.');
 }
 

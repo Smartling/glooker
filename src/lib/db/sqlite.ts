@@ -394,6 +394,69 @@ CREATE TABLE IF NOT EXISTS pr_activity_coverage (
   PRIMARY KEY (org, github_login, since_date, until_date)
 );
 
+CREATE TABLE IF NOT EXISTS commit_canonical (
+  org            TEXT NOT NULL,
+  commit_sha     TEXT NOT NULL,
+  analysis_id    INTEGER NOT NULL,
+  report_id      TEXT NOT NULL,
+  github_login   TEXT NOT NULL,
+  repo           TEXT NOT NULL,
+  committed_at   TEXT,
+  lines_added    INTEGER NOT NULL DEFAULT 0,
+  lines_removed  INTEGER NOT NULL DEFAULT 0,
+  complexity     INTEGER,
+  type           TEXT,
+  ai_co_authored INTEGER NOT NULL DEFAULT 0,
+  ai_tool_name   TEXT,
+  maybe_ai       INTEGER NOT NULL DEFAULT 0,
+  pr_number      INTEGER,
+  pr_title       TEXT,
+  risk_level     TEXT,
+  commit_message TEXT,
+  impact_summary TEXT,
+  PRIMARY KEY (org, commit_sha)
+);
+CREATE INDEX IF NOT EXISTS idx_commit_canonical_org_committed ON commit_canonical(org, committed_at);
+CREATE INDEX IF NOT EXISTS idx_commit_canonical_org_login ON commit_canonical(org, github_login, committed_at);
+CREATE INDEX IF NOT EXISTS idx_commit_canonical_report ON commit_canonical(report_id);
+
+CREATE TABLE IF NOT EXISTS jira_canonical (
+  org                       TEXT NOT NULL,
+  issue_key                 TEXT NOT NULL,
+  issue_id                  INTEGER NOT NULL,
+  report_id                 TEXT NOT NULL,
+  github_login              TEXT NOT NULL,
+  project_key               TEXT NOT NULL,
+  issue_type                TEXT,
+  summary                   TEXT,
+  description               TEXT,
+  status                    TEXT,
+  labels                    TEXT,
+  story_points              REAL,
+  original_estimate_seconds INTEGER,
+  issue_url                 TEXT,
+  created_at                TEXT,
+  resolved_at               TEXT,
+  PRIMARY KEY (org, issue_key)
+);
+CREATE INDEX IF NOT EXISTS idx_jira_canonical_org_resolved ON jira_canonical(org, resolved_at);
+CREATE INDEX IF NOT EXISTS idx_jira_canonical_org_login ON jira_canonical(org, github_login, resolved_at);
+CREATE INDEX IF NOT EXISTS idx_jira_canonical_report ON jira_canonical(report_id);
+
+CREATE TABLE IF NOT EXISTS canonical_builds (
+  org         TEXT NOT NULL PRIMARY KEY,
+  built_at    TEXT NOT NULL,
+  duration_ms INTEGER NOT NULL,
+  commit_rows INTEGER NOT NULL,
+  jira_rows   INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS canonical_rebuild_lock (
+  id         INTEGER NOT NULL PRIMARY KEY,
+  started_at TEXT NOT NULL,
+  holder     TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_devstats_login ON developer_stats(github_login);
 CREATE INDEX IF NOT EXISTS idx_reports_org_status_created ON reports(org, status, created_at);
 CREATE INDEX IF NOT EXISTS idx_ca_login_report ON commit_analyses(github_login, report_id, commit_sha, complexity);
@@ -454,6 +517,7 @@ export function createSQLiteDB(): DB {
   // GLOOK-43 Wave A / A1: completeness-guard recovery column (see sync.ts writePhase).
   try { db.exec('ALTER TABLE vulnerability_alerts ADD COLUMN withheld_since TEXT'); } catch (_) {}
 
+  let txQueue: Promise<void> = Promise.resolve();
   const dbApi: DB = {
     execute: <T = any>(sql: string, params?: any[]): Promise<[T[], any]> => {
       const translated = translateSQL(sql);
@@ -491,17 +555,24 @@ export function createSQLiteDB(): DB {
       }
     },
     transaction: async <T>(fn: (tx: DB) => Promise<T>): Promise<T> => {
-      // better-sqlite3 is synchronous and serializes queries; using async fn
-      // here is safe because the underlying handle is single-threaded.
-      db.exec('BEGIN');
-      try {
-        const result = await fn(dbApi);
-        db.exec('COMMIT');
-        return result;
-      } catch (err) {
-        try { db.exec('ROLLBACK'); } catch (_) {}
-        throw err;
-      }
+      // One handle, async fn: two overlapping transactions would hit "cannot start a transaction
+      // within a transaction", so they queue behind each other (GLOOK-63: a canonical rebuild
+      // and a report completion). Never call transaction() from inside fn — it would wait on
+      // itself. Plain execute() calls from elsewhere still run inside whichever transaction is
+      // open; that is inherent to sharing one handle.
+      const run = txQueue.then(async () => {
+        db.exec('BEGIN');
+        try {
+          const result = await fn(dbApi);
+          db.exec('COMMIT');
+          return result;
+        } catch (err) {
+          try { db.exec('ROLLBACK'); } catch (_) {}
+          throw err;
+        }
+      });
+      txQueue = run.then(() => undefined, () => undefined);
+      return run;
     },
   };
   return dbApi;
@@ -582,6 +653,11 @@ export function translateSQL(sql: string): string {
     // guard below makes the omission loud rather than silently wrong.
     return c;
   });
+
+  // MySQL locking read: SQLite has no row locks (a write transaction is already exclusive).
+  // Only a TRAILING `FOR UPDATE` is stripped; one mid-statement (e.g. before a UNION or in a
+  // subquery) is left as is and SQLite will reject it. Keep locking reads at the end.
+  s = s.replace(/\s+FOR\s+UPDATE\s*;?\s*$/i, '');
 
   // Guard against the passthrough default. translateSQL is a whitelist rewriter:
   // anything unmatched previously reached better-sqlite3 verbatim and failed at

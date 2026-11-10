@@ -1,5 +1,6 @@
 jest.mock('@octokit/rest', () => ({ Octokit: jest.fn() }));
 jest.mock('@/lib/db/index', () => ({ __esModule: true, default: { execute: jest.fn() } }));
+jest.mock('@/lib/canonical/state', () => ({ isCanonicalBuilt: jest.fn().mockResolvedValue(false), getCanonicalBuild: jest.fn().mockResolvedValue(null) }));
 
 import { queryCommits, queryJiraIssues, queryDeveloperStats, listReports, getEpicSummaries, getMetricTimeseries, TIMESERIES_ROW_CAP } from '@/lib/mcp/queries';
 import db from '@/lib/db/index';
