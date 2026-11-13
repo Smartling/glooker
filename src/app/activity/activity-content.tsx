@@ -56,7 +56,7 @@ export default function ActivityContent() {
 
   if (loading) return null;
   if (!isAdmin) {
-    return <main className="max-w-3xl mx-auto px-4 py-16 text-center text-gray-400">Activity calendars are available to admins only.</main>;
+    return <main className="max-w-3xl mx-auto px-4 py-16 text-center text-gray-400">Contributions are available to admins only.</main>;
   }
 
   const selectClass = 'bg-gray-800 border border-gray-700 rounded-md px-2 py-1 text-sm text-gray-200';
@@ -64,7 +64,7 @@ export default function ActivityContent() {
     <main className="max-w-[1100px] mx-auto px-4 py-6 space-y-5">
       <header className="flex flex-wrap items-end gap-3">
         <div className="mr-auto">
-          <h1 className="text-lg font-semibold text-gray-100">Activity calendars</h1>
+          <h1 className="text-lg font-semibold text-gray-100">Contributions</h1>
           <p className="text-xs text-gray-500">Last 12 months, one row per engineer. Shades use one scale for the whole team.</p>
         </div>
         {orgs && orgs.length > 1 && (
