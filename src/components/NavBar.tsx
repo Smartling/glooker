@@ -55,23 +55,29 @@ export default function NavBar() {
 
       {/* Primary nav */}
       <div className="flex items-center gap-0.5 flex-1 min-w-0">
-        <Link href="/" className={navItemClass(isHomeActive)}>
+        <Link href="/" title="Start a report and see recent runs" className={navItemClass(isHomeActive)}>
           Home
         </Link>
 
         {teamUrl ? (
-          <Link href={teamUrl} className={navItemClass(isTeamActive)} onMouseEnter={() => latestReport && preload(`/api/report/${latestReport.id}`, fetcher)}>
-            Team Summary <span className="text-gray-600 text-[10px] ml-1">{latestReport?.date}</span>
+          <Link href={teamUrl} title="Ranked developers for the latest report" className={navItemClass(isTeamActive)} onMouseEnter={() => latestReport && preload(`/api/report/${latestReport.id}`, fetcher)}>
+            Leaderboard <span className="text-gray-600 text-[10px] ml-1">{latestReport?.date}</span>
           </Link>
         ) : (
           <span className={navItemClass(false, true)}>
-            Team Summary
+            Leaderboard
           </span>
         )}
 
+        {(!authEnabled || user) && (
+          <Link href="/activity" title="12-month daily activity of your team's members" className={navItemClass(pathname.startsWith('/activity'))}>
+            Contributions
+          </Link>
+        )}
+
         {orgUrl ? (
-          <Link href={orgUrl} className={navItemClass(isOrgActive)} onMouseEnter={() => latestReport && preload(`/api/report/${latestReport.id}/org`, fetcher)}>
-            Org Summary <span className="text-gray-600 text-[10px] ml-1">{latestReport?.date}</span>
+          <Link href={orgUrl} title="Org-wide trends and summaries" className={navItemClass(isOrgActive)} onMouseEnter={() => latestReport && preload(`/api/report/${latestReport.id}/org`, fetcher)}>
+            Org Summary
           </Link>
         ) : (
           <span className={navItemClass(false, true)}>
@@ -79,14 +85,8 @@ export default function NavBar() {
           </span>
         )}
 
-        {projectsEnabled && (
-          <Link href="/projects" className={navItemClass(pathname.startsWith('/projects'))}>
-            Projects
-          </Link>
-        )}
-
         {vulnerabilitiesEnabled && (
-          <Link href="/vulnerabilities" className={navItemClass(pathname.startsWith('/vulnerabilities'))}>
+          <Link href="/vulnerabilities" title="Critical and high Dependabot alerts against their SLAs" className={navItemClass(pathname.startsWith('/vulnerabilities'))}>
             Security
             {config?.vulnerabilityFreshness?.lastSuccessfulAt && (
               <span className={`text-[10px] ml-1 ${config.vulnerabilityFreshness.stale ? 'text-amber-400' : 'text-gray-600'}`}>
@@ -96,21 +96,26 @@ export default function NavBar() {
           </Link>
         )}
 
-        <Link href="/reports" className={navItemClass(pathname.startsWith('/reports'))}>
-          Reports
-        </Link>
+        {projectsEnabled && (
+          <Link href="/projects" title="Jira project boards" className={navItemClass(pathname.startsWith('/projects'))}>
+            Projects
+          </Link>
+        )}
       </div>
 
       {/* Right side */}
       <div className="flex items-center gap-2 shrink-0">
-        <Link href="/settings" className={`p-2 rounded-md transition-colors ${pathname.startsWith('/settings') ? 'text-accent-light bg-accent/10' : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800/50'}`}>
+        <Link href="/reports" title="Run, schedule and browse reports" className={navItemClass(pathname.startsWith('/reports'))}>
+          Reports
+        </Link>
+        <Link href="/settings" title="Settings" className={`p-2 rounded-md transition-colors ${pathname.startsWith('/settings') ? 'text-accent-light bg-accent/10' : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800/50'}`}>
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
           </svg>
         </Link>
         {authEnabled && user && (
-          <Link href="/profile" className={`flex items-center pl-1 pr-2.5 py-1 rounded-full transition-colors ${pathname.startsWith('/profile') ? 'bg-accent/10' : 'hover:bg-gray-800/50'}`}>
+          <Link href="/profile" title="Your profile" className={`flex items-center pl-1 pr-2.5 py-1 rounded-full transition-colors ${pathname.startsWith('/profile') ? 'bg-accent/10' : 'hover:bg-gray-800/50'}`}>
             {user.avatarUrl ? (
               <img src={user.avatarUrl} alt="" className="w-7 h-7 rounded-full border border-gray-700" />
             ) : (
