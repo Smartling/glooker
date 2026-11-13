@@ -10,6 +10,7 @@ import MemberLabel from './member-label';
 
 interface Team { id: string; name: string; color: string; members?: string[] }
 type CalendarResponse = CalendarResult & { team: Team; error?: string };
+type VisibleTeams = { scope: 'all' | 'own' | 'none'; reason?: 'unmapped' | 'no_team'; teams: Team[] };
 
 const fetchJson = async (url: string) => {
   const res = await fetch(url);
@@ -23,13 +24,15 @@ const fmt = (n: number) => (Number.isInteger(n) ? n.toLocaleString() : n.toFixed
 export default function ActivityContent() {
   const router = useRouter();
   const params = useSearchParams();
-  const { enabled: authEnabled, user, loading } = useAuth();
-  const isAdmin = !authEnabled || user?.role === 'admin';
+  const { loading } = useAuth();
 
-  const { data: orgs } = useSWR<Array<{ login: string }>>(isAdmin ? '/api/orgs' : null);
+  const { data: orgs } = useSWR<Array<{ login: string }>>('/api/orgs');
   const org = params.get('org') ?? orgs?.[0]?.login ?? null;
-  const { data: teams } = useSWR<Team[]>(isAdmin && org ? `/api/teams?org=${encodeURIComponent(org)}` : null);
-  const teamId = params.get('team') ?? teams?.[0]?.id ?? null;
+  // Admins get every team; anyone else only the teams they belong to (enforced by the API too).
+  const { data: visible } = useSWR<VisibleTeams>(org ? `/api/activity-calendar/teams?org=${encodeURIComponent(org)}` : null, fetchJson);
+  const teams = visible?.teams;
+  const requested = params.get('team');
+  const teamId = teams?.some((t) => t.id === requested) ? requested : teams?.[0]?.id ?? null;
   const metric = (params.get('metric') ?? 'commits') as CalendarMetric;
 
   const setParam = (key: string, value: string) => {
@@ -41,7 +44,7 @@ export default function ActivityContent() {
 
   // Put the defaults in the URL so the view can be shared as-is.
   useEffect(() => {
-    if (org && teamId && (!params.get('org') || !params.get('team'))) {
+    if (org && teamId && (params.get('org') !== org || params.get('team') !== teamId)) {
       const next = new URLSearchParams(params.toString());
       next.set('org', org);
       next.set('team', teamId);
@@ -49,14 +52,20 @@ export default function ActivityContent() {
     }
   }, [org, teamId, params, router]);
 
-  const key = isAdmin && org && teamId
+  const key = org && teamId
     ? `/api/activity-calendar?org=${encodeURIComponent(org)}&team=${encodeURIComponent(teamId)}&metric=${metric}`
     : null;
   const { data, error, isLoading } = useSWR<CalendarResponse>(key, fetchJson);
 
   if (loading) return null;
-  if (!isAdmin) {
-    return <main className="max-w-3xl mx-auto px-4 py-16 text-center text-gray-400">Contributions are available to admins only.</main>;
+  if (visible?.scope === 'none') {
+    return (
+      <main className="max-w-3xl mx-auto px-4 py-16 text-center text-gray-400">
+        {visible.reason === 'unmapped'
+          ? 'Your sign-in is not linked to a GitHub login yet, so we cannot tell which team is yours. Ask an admin to add your mapping in Settings.'
+          : 'You are not on a team yet. Ask an admin to add you to one in Settings → Teams.'}
+      </main>
+    );
   }
 
   const selectClass = 'bg-gray-800 border border-gray-700 rounded-md px-2 py-1 text-sm text-gray-200';
@@ -65,22 +74,24 @@ export default function ActivityContent() {
       <header className="flex flex-wrap items-end gap-3">
         <div className="mr-auto">
           <h1 className="text-lg font-semibold text-gray-100">Contributions</h1>
-          <p className="text-xs text-gray-500">Last 12 months, one row per engineer. Shades use one scale for the whole team.</p>
+          <p className="text-xs text-gray-500">
+            {data?.team && teams && teams.length <= 1 ? `${data.team.name} · ` : ''}Last 12 months, one row per engineer. Shades use one scale for the whole team.
+          </p>
         </div>
         {orgs && orgs.length > 1 && (
           <select id="activity-org" aria-label="Organization" className={selectClass} value={org ?? ''} onChange={(e) => setParam('org', e.target.value)}>
             {orgs.map((o) => <option key={o.login} value={o.login}>{o.login}</option>)}
           </select>
         )}
-        <select id="activity-team" aria-label="Team" className={selectClass} value={teamId ?? ''} onChange={(e) => setParam('team', e.target.value)}>
-          {(teams ?? []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-        </select>
+        {teams && teams.length > 1 && <select id="activity-team" aria-label="Team" className={selectClass} value={teamId ?? ''} onChange={(e) => setParam('team', e.target.value)}>
+          {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+        </select>}
         <select id="activity-metric" aria-label="Measure" className={selectClass} value={metric} onChange={(e) => setParam('metric', e.target.value)}>
           {METRICS.map((m) => <option key={m} value={m}>{METRIC_LABELS[m]}</option>)}
         </select>
       </header>
 
-      {teams && teams.length === 0 && <p className="text-sm text-gray-400">No teams yet. Create one in Settings → Teams.</p>}
+      {visible?.scope === 'all' && teams?.length === 0 && <p className="text-sm text-gray-400">No teams yet. Create one in Settings → Teams.</p>}
       {error && (
         <p className="text-sm text-amber-400">
           {error.message === 'not_built'

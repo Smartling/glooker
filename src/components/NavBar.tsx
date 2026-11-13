@@ -23,7 +23,6 @@ export default function NavBar() {
   // projectsEnabled is in both the admin and the public config; the JQL itself is admin-only.
   const projectsEnabled = Boolean(config?.jira?.enabled && config?.jira?.projectsEnabled);
   const vulnerabilitiesEnabled = Boolean(config?.vulnerabilities?.enabled);
-  const isAdmin = !authEnabled || user?.role === 'admin';
 
   const isReportPage = pathname.match(/^\/report\/[^/]+\//);
   const isDevDetail = pathname.match(/^\/report\/[^/]+\/dev\//);
@@ -70,8 +69,8 @@ export default function NavBar() {
           </span>
         )}
 
-        {isAdmin && (
-          <Link href="/activity" title="12-month daily activity per team member (admins)" className={navItemClass(pathname.startsWith('/activity'))}>
+        {(!authEnabled || user) && (
+          <Link href="/activity" title="12-month daily activity of your team's members" className={navItemClass(pathname.startsWith('/activity'))}>
             Contributions
           </Link>
         )}
