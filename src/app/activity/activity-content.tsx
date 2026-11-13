@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/app/auth-context';
 import { METRICS, METRIC_LABELS, type CalendarMetric, type CalendarResult } from '@/lib/activity-calendar/metrics';
 import CalendarGrid from './calendar-grid';
+import MemberLabel from './member-label';
 
 interface Team { id: string; name: string; color: string; members?: string[] }
 type CalendarResponse = CalendarResult & { team: Team; error?: string };
@@ -96,11 +97,7 @@ export default function ActivityContent() {
             {data.rows.map((row, i) => (
               <div key={row.login} className="contents">
                 <div className={`flex items-center gap-2 min-w-0 ${i === 0 ? 'pt-3' : ''}`}>
-                  <img src={`https://github.com/${row.login}.png?size=40`} alt="" className="w-6 h-6 rounded-full border border-gray-700" />
-                  <div className="min-w-0">
-                    <span className="block text-sm text-gray-200 truncate">{row.login}</span>
-                    <span className="block text-[11px] text-gray-500 tabular-nums">{fmt(row.total)} {METRIC_LABELS[metric].toLowerCase()}</span>
-                  </div>
+                  <MemberLabel row={row} totalLabel={`${fmt(row.total)} ${METRIC_LABELS[metric].toLowerCase()}`} />
                 </div>
                 <CalendarGrid
                   start={data.start} end={data.end} days={row.days} thresholds={data.thresholds}

@@ -80,6 +80,12 @@ export default function NavBar() {
           </span>
         )}
 
+        {isAdmin && (
+          <Link href="/activity" className={navItemClass(pathname.startsWith('/activity'))}>
+            Activity
+          </Link>
+        )}
+
         {projectsEnabled && (
           <Link href="/projects" className={navItemClass(pathname.startsWith('/projects'))}>
             Projects
@@ -100,12 +106,6 @@ export default function NavBar() {
         <Link href="/reports" className={navItemClass(pathname.startsWith('/reports'))}>
           Reports
         </Link>
-
-        {isAdmin && (
-          <Link href="/activity" className={navItemClass(pathname.startsWith('/activity'))}>
-            Activity
-          </Link>
-        )}
       </div>
 
       {/* Right side */}

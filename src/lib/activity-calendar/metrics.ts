@@ -14,7 +14,13 @@ export const METRIC_LABELS: Record<CalendarMetric, string> = {
 
 export const CALENDAR_DAYS = 365;
 
-export interface CalendarRow { login: string; total: number; days: Record<string, number> }
+export interface CalendarRow {
+  login: string;
+  name: string;            // display name from the latest report, '' if unknown
+  avatarUrl: string;       // developer_stats.avatar_url (avatars.githubusercontent.com, allowed by the CSP), '' if unknown
+  total: number;
+  days: Record<string, number>;
+}
 export interface CalendarResult {
   metric: CalendarMetric;
   start: string;           // first day shown, inclusive (UTC)

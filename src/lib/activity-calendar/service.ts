@@ -41,9 +41,27 @@ export async function getTeamCalendar(
   const endDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const startDate = new Date(endDate.getTime() - (CALENDAR_DAYS - 1) * 86_400_000);
   const start = isoDay(startDate);
-  const rows = new Map<string, CalendarRow>(logins.map((login) => [login, { login, total: 0, days: {} }]));
+  const rows = new Map<string, CalendarRow>(logins.map((login) => [login, { login, name: '', avatarUrl: '', total: 0, days: {} }]));
 
   if (logins.length) {
+    // Name and avatar from the member's latest report in this org. The avatar must be the stored
+    // avatars.githubusercontent.com URL: github.com/<login>.png redirects off-host and the CSP blocks it.
+    const [people] = await db.execute<any>(
+      `SELECT ds.github_login, ds.github_name, ds.avatar_url, r.created_at
+       FROM developer_stats ds JOIN reports r ON r.id = ds.report_id
+       WHERE r.org = ? AND ds.github_login IN (${logins.map(() => '?').join(',')})`,
+      [org, ...logins],
+    );
+    const latest = new Map<string, number>();
+    for (const p of people) {
+      const row = rows.get(String(p.github_login));
+      const at = new Date(p.created_at).getTime() || 0;
+      if (!row || at < (latest.get(row.login) ?? -1)) continue;
+      latest.set(row.login, at);
+      row.name = p.github_name || '';
+      row.avatarUrl = p.avatar_url || '';
+    }
+
     const [found] = await db.execute<any>(
       QUERIES[metric](logins.map(() => '?').join(',')),
       [org, ...logins, `${start} 00:00:00`],

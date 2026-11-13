@@ -37,6 +37,15 @@ beforeAll(async () => {
   await issue('P-2', 'bob', '2026-11-05 12:00:00', null);
   await issue('P-3', 'bob', null, 8);
 
+  await db.execute("INSERT INTO reports (id, org, period_days, status, created_at) VALUES ('old', 'acme', 14, 'completed', '2026-01-01 00:00:00')");
+  await db.execute("INSERT INTO reports (id, org, period_days, status, created_at) VALUES ('new', 'acme', 14, 'completed', '2026-11-01 00:00:00')");
+  await db.execute("INSERT INTO reports (id, org, period_days, status, created_at) VALUES ('oth', 'other', 14, 'completed', '2026-11-09 00:00:00')");
+  const dev = (report: string, login: string, name: string, avatar: string) => db.execute(
+    'INSERT INTO developer_stats (report_id, github_login, github_name, avatar_url) VALUES (?, ?, ?, ?)', [report, login, name, avatar]);
+  await dev('new', 'ann', 'Ann Lee', 'https://avatars.githubusercontent.com/u/1?v=new');
+  await dev('old', 'ann', 'Ann Old', 'https://avatars.githubusercontent.com/u/1?v=old');
+  await dev('oth', 'ann', 'Other Org', 'https://avatars.githubusercontent.com/u/1?v=other');
+
   const pr = (login: string, kind: string, n: number, at: string) => db.execute(
     `INSERT INTO pr_activity (org, github_login, kind, repo, pr_number, merged_at) VALUES ('acme', ?, ?, 'repo', ?, ?)`,
     [login, kind, n, at]);
@@ -57,8 +66,8 @@ it('counts commits per UTC day for team members only, inside the 365-day window,
   expect(r.start).toBe('2025-11-11');
   expect(r.end).toBe('2026-11-10');
   expect(r.rows.map((x) => x.login)).toEqual(['ann', 'bob', 'cat']);
-  expect(r.rows[0]).toEqual({ login: 'ann', total: 3, days: { '2026-11-01': 2, '2026-10-02': 1 } });
-  expect(r.rows[2]).toEqual({ login: 'cat', total: 0, days: {} });
+  expect(r.rows[0]).toMatchObject({ login: 'ann', total: 3, days: { '2026-11-01': 2, '2026-10-02': 1 } });
+  expect(r.rows[2]).toEqual({ login: 'cat', name: '', avatarUrl: '', total: 0, days: {} });
 });
 
 it('sums lines changed', async () => {
@@ -85,4 +94,12 @@ it('returns an empty calendar for a team without members', async () => {
   const r = await svc.getTeamCalendar('acme', [], 'commits', NOW);
   expect(r.rows).toEqual([]);
   expect(r.thresholds).toEqual([]);
+});
+
+it("takes name and stored avatar from the member's latest report in this org", async () => {
+  const r = await svc.getTeamCalendar('acme', ['ann', 'bob'], 'commits', NOW);
+  expect(r.rows.find((x) => x.login === 'ann')).toMatchObject({
+    name: 'Ann Lee', avatarUrl: 'https://avatars.githubusercontent.com/u/1?v=new',
+  });
+  expect(r.rows.find((x) => x.login === 'bob')).toMatchObject({ name: '', avatarUrl: '' });
 });
