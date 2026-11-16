@@ -196,7 +196,7 @@ export const MCP_TOOLS: McpTool[] = [
   },
   {
     name: 'get_project_details',
-    description: 'Full drill-down (Jiras, PRs, commits) for a single clustered project by name.',
+    description: 'Drill-down (Jiras, PRs, commits) for a single clustered project by name. estimated_commits/estimated_prs are the full totals; the commits and prs lists hold at most 20 each (commits_truncated/prs_truncated say when more exist).',
     inputSchema: { type: 'object', properties: {
       project_name: { type: 'string', description: 'Exact project name from get_project_insights' },
       ...REPORT_ID,
