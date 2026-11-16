@@ -173,7 +173,7 @@ function ReportCard({
           </div>
           <div className="flex items-center gap-4">
             <Link href={`/report/${r.id}/team`} className="text-xs text-accent-light hover:text-accent-lighter transition-colors font-medium">
-              Team Summary &rarr;
+              Leaderboard &rarr;
             </Link>
             <Link href={`/report/${r.id}/org`} className="text-xs text-accent-light hover:text-accent-lighter transition-colors font-medium">
               Org Summary &rarr;
