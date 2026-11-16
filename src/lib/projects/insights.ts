@@ -5,7 +5,11 @@ import { renderInflightBlock } from '@/lib/team-pulse/render';
 import type { TeamProjectInflightPr, TeamProjectInflightBranch } from '@/lib/team-pulse/data';
 
 // 4: estimated_commits/prs are real totals (were capped at the 20-item drawer lists).
-const INSIGHTS_CACHE_VERSION = 4;
+// 5: PRs keyed by repo + number (a PR number repeats across repos); "Other" excludes every PR a project credited.
+const INSIGHTS_CACHE_VERSION = 5;
+
+/** A PR number is only unique within its repo. */
+const prKey = (c: { repo: string; pr_number?: number | null; pr?: number }) => `${c.repo}#${c.pr_number ?? c.pr}`;
 
 /**
  * GLOOK-54: how long to wait before spending another salted regeneration on a
@@ -138,6 +142,8 @@ export async function getProjectInsights(reportId?: string) {
   const commitBySha = new Map<string, any>(
     allCommitRows.map((c: any) => [c.commit_sha?.slice(0, 7), c]),
   );
+  // Keyed by bare number because that is what the LLM returns in pr_numbers; a number shared by
+  // PRs in two repos therefore credits both to the project (the PRs stay distinct below).
   const commitsByPr = new Map<number, any[]>();
   for (const c of allCommitRows) {
     if (!c.pr_number) continue;
@@ -147,13 +153,13 @@ export async function getProjectInsights(reportId?: string) {
   }
   // For linked_commits/prs badges: count commits whose message contains each Jira key.
   // Use /g flag to capture all keys in a single message (e.g. "Fix BRZ-190 and BRZ-191").
-  const commitsByJiraKey = new Map<string, { commits: number; prs: Set<number> }>();
+  const commitsByJiraKey = new Map<string, { commits: number; prs: Set<string> }>();
   for (const c of allCommitRows) {
     const keys = (c.msg as string)?.match(/[A-Z]+-\d+/g) ?? [];
     for (const key of keys) {
-      const entry = commitsByJiraKey.get(key) ?? { commits: 0, prs: new Set<number>() };
+      const entry = commitsByJiraKey.get(key) ?? { commits: 0, prs: new Set<string>() };
       entry.commits++;
-      if (c.pr_number) entry.prs.add(c.pr_number);
+      if (c.pr_number) entry.prs.add(prKey(c));
       commitsByJiraKey.set(key, entry);
     }
   }
@@ -167,16 +173,16 @@ export async function getProjectInsights(reportId?: string) {
     `${c.commit_sha?.slice(0,7)}|${c.pr_number ?? ''}|${c.repo}|${c.github_login}|${(c.msg || '').replace(/\|/g, ' ')}|+${c.lines_added ?? 0}/-${c.lines_removed ?? 0}`
   ).join('\n');
 
-  const prSummaryMap = new Map<number, any>();
+  const prSummaryMap = new Map<string, any>();
   for (const c of allCommitRows) {
     if (!c.pr_number) continue;
-    const ex = prSummaryMap.get(c.pr_number);
+    const ex = prSummaryMap.get(prKey(c));
     if (ex) {
       ex.commits++;
       ex.added += Number(c.lines_added ?? 0);
       ex.removed += Number(c.lines_removed ?? 0);
     } else {
-      prSummaryMap.set(c.pr_number, {
+      prSummaryMap.set(prKey(c), {
         pr: c.pr_number, repo: c.repo, login: c.github_login,
         commits: 1, added: Number(c.lines_added ?? 0), removed: Number(c.lines_removed ?? 0),
         msg: (c.msg || '').split('\n')[0].slice(0, 80).replace(/\|/g, ' '),
@@ -445,6 +451,8 @@ ${noJiraData}${inflightBlock}`;
       };
     };
 
+    // Every PR any project credited (via pr_numbers OR a commit sha), so "Other" never repeats one.
+    const attributedPrKeys = new Set<string>();
     const enrichedProjects = (parsed.projects || []).map((p: any) => {
       const llmPrNums = new Set<number>((p.pr_numbers ?? []).map(Number));
       const llmShas = new Set<string>(p.commit_shas ?? []);
@@ -467,22 +475,23 @@ ${noJiraData}${inflightBlock}`;
         .slice(0, 20);
 
       // Derive distinct PRs from attributed commits
-      const prMap = new Map<number, { pr: number; repo: string; login: string; msg: string; commits: number; added: number; removed: number }>();
+      const prMap = new Map<string, { pr: number; repo: string; login: string; msg: string; commits: number; added: number; removed: number }>();
       for (const c of projCommitMap.values()) {
         if (!c.pr_number) continue;
-        const ex = prMap.get(c.pr_number);
+        const ex = prMap.get(prKey(c));
         if (ex) {
           ex.commits++;
           ex.added += Number(c.lines_added ?? 0);
           ex.removed += Number(c.lines_removed ?? 0);
         } else {
-          prMap.set(c.pr_number, {
+          prMap.set(prKey(c), {
             pr: c.pr_number, repo: c.repo, login: c.github_login,
             msg: (c.msg as string)?.split('\n')[0]?.slice(0, 80) ?? '',
             commits: 1, added: Number(c.lines_added ?? 0), removed: Number(c.lines_removed ?? 0),
           });
         }
       }
+      for (const k of prMap.keys()) attributedPrKeys.add(k);
       const projPrs = [...prMap.values()]
         .sort((a, b) => (b.added + b.removed) - (a.added + a.removed))
         .slice(0, 20);
@@ -508,6 +517,9 @@ ${noJiraData}${inflightBlock}`;
         // below): counting those made every large project read exactly 20.
         estimated_commits: projCommitMap.size,
         estimated_prs: prMap.size,
+        // The drawer lists below are capped at 20; these say whether more exist (MCP readers can't see the counts' meaning otherwise).
+        commits_truncated: projCommitMap.size > projCommits.length,
+        prs_truncated: prMap.size > projPrs.length,
         jira_details: Array.isArray(p.jira_keys) ? p.jira_keys.map(enrichKey) : [],
         groups: enrichedGroups,
         commits: enrichedCommits,
@@ -517,14 +529,13 @@ ${noJiraData}${inflightBlock}`;
 
     // Compute "Other" — jiras/PRs not attributed to any project
     const attributedJiraKeys = new Set<string>(enrichedProjects.flatMap((p: any) => p.jira_keys ?? []));
-    const attributedPrNums = new Set<number>(enrichedProjects.flatMap((p: any) => (p.pr_numbers ?? []).map(Number)));
 
     const otherJiraDetails = jiraRows
       .filter((r: any) => !attributedJiraKeys.has(r.issue_key))
       .map((r: any) => enrichKey(r.issue_key));
 
     const otherPrs = [...prSummaryMap.values()]
-      .filter(p => !attributedPrNums.has(p.pr))
+      .filter(p => !attributedPrKeys.has(prKey(p)))
       .sort((a, b) => (b.added + b.removed) - (a.added + a.removed));
 
     const otherTotals = { jiras: otherJiraDetails.length, prs: otherPrs.length };

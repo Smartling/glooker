@@ -282,7 +282,10 @@ function ProjectsBody({
                 {/* Tabs */}
                 <div className="flex gap-0 mb-3 border-b border-white/[0.07]">
                   {(['jiras', 'prs', 'commits'] as const).map(tab => {
-                    const count = tab === 'jiras' ? (p.jira_details?.length ?? 0) : tab === 'prs' ? (p.prs?.length ?? 0) : (p.commits?.length ?? 0);
+                    // PR/commit lists are capped at 20 server-side; the badge shows the real total.
+                    const count = tab === 'jiras' ? (p.jira_details?.length ?? 0)
+                      : tab === 'prs' ? Math.max(p.estimated_prs ?? 0, p.prs?.length ?? 0)
+                      : Math.max(p.estimated_commits ?? 0, p.commits?.length ?? 0);
                     if (count === 0) return null;
                     return (
                       <button
@@ -342,7 +345,7 @@ function ProjectsBody({
                   return (
                     <div>
                       {visible.map((pr: PrDetail) => (
-                        <div key={pr.pr} className="flex items-center gap-2 py-1.5 border-b border-white/[0.03] last:border-0">
+                        <div key={`${pr.repo}#${pr.pr}`} className="flex items-center gap-2 py-1.5 border-b border-white/[0.03] last:border-0">
                           <span className="font-mono text-cyan-400 text-[9.5px] w-10 shrink-0">#{pr.pr}</span>
                           <span className="text-gray-400 text-[10.5px] flex-1 truncate">{pr.msg}</span>
                           <div className="flex items-center gap-1.5 shrink-0 text-[9px]">
@@ -357,6 +360,9 @@ function ProjectsBody({
                         <button onClick={e => { e.stopPropagation(); toggleShowAll(showAllKey); }} className="text-[9px] text-accent/60 hover:text-accent pt-1 transition-colors">
                           {all ? '▲ show fewer' : `+ ${prs.length - 12} more PRs`}
                         </button>
+                      )}
+                      {(p.estimated_prs ?? 0) > prs.length && (
+                        <p className="text-[9px] text-gray-600 pt-1">Showing the {prs.length} largest of {p.estimated_prs} PRs.</p>
                       )}
                     </div>
                   );
@@ -386,6 +392,9 @@ function ProjectsBody({
                         <button onClick={e => { e.stopPropagation(); toggleShowAll(showAllKey); }} className="text-[9px] text-accent/60 hover:text-accent pt-1 transition-colors">
                           {all ? '▲ show fewer' : `+ ${commits.length - 12} more commits`}
                         </button>
+                      )}
+                      {(p.estimated_commits ?? 0) > commits.length && (
+                        <p className="text-[9px] text-gray-600 pt-1">Showing the {commits.length} most recent of {p.estimated_commits} commits.</p>
                       )}
                     </div>
                   );
@@ -514,7 +523,7 @@ function ProjectsBody({
                   return (
                     <div>
                       {visible.map((pr: PrDetail) => (
-                        <div key={pr.pr} className="flex items-center gap-2 py-1.5 border-b border-white/[0.03] last:border-0">
+                        <div key={`${pr.repo}#${pr.pr}`} className="flex items-center gap-2 py-1.5 border-b border-white/[0.03] last:border-0">
                           <span className="font-mono text-cyan-400 text-[9.5px] w-10 shrink-0">#{pr.pr}</span>
                           <span className="text-gray-400 text-[10.5px] flex-1 truncate">{pr.msg}</span>
                           <div className="flex items-center gap-1.5 shrink-0 text-[9px]">
