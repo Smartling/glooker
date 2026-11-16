@@ -91,7 +91,7 @@ describe('MCP tool registry', () => {
         .mockResolvedValueOnce([[{ id: 'r1', org: 'acme', period_days: 30, created_at: 'x' }], null]) // report lookup
         .mockResolvedValueOnce([[{ cnt: 3 }], null])                                                   // jira count
         .mockResolvedValueOnce([[{ commits: 1, prs: 1 }], null])                                       // totals
-        .mockResolvedValueOnce([[{ highlights_json: JSON.stringify({ _v: 3, projects: [{ name: 'Alpha' }, { name: 'Beta' }], untracked_work: [], otherTotals: {}, otherDetails: {} }) }], null]); // cache hit
+        .mockResolvedValueOnce([[{ highlights_json: JSON.stringify({ _v: 4, projects: [{ name: 'Alpha' }, { name: 'Beta' }], untracked_work: [], otherTotals: {}, otherDetails: {} }) }], null]); // cache hit
       const out = await callTool('get_project_details', { project_name: 'Nope', report_id: 'r1' });
       expect(out).toEqual({ error: 'project not found', available: ['Alpha', 'Beta'] });
     });

@@ -4,7 +4,8 @@ import { parseModelJson, ModelJsonError, stripJsonFences } from '@/lib/llm-json'
 import { renderInflightBlock } from '@/lib/team-pulse/render';
 import type { TeamProjectInflightPr, TeamProjectInflightBranch } from '@/lib/team-pulse/data';
 
-const INSIGHTS_CACHE_VERSION = 3;
+// 4: estimated_commits/prs are real totals (were capped at the 20-item drawer lists).
+const INSIGHTS_CACHE_VERSION = 4;
 
 /**
  * GLOOK-54: how long to wait before spending another salted regeneration on a
@@ -503,9 +504,10 @@ ${noJiraData}${inflightBlock}`;
         ...p,
         jira_count: Array.isArray(p.jira_keys) ? p.jira_keys.length : 0,
         // Keep estimated_commits/prs for backward compat with ProjectsCard bar/sort logic.
-        // Derived from the attributed arrays rather than LLM estimation.
-        estimated_commits: projCommits.length,
-        estimated_prs: projPrs.length,
+        // Real totals from the attributed sets, NOT the 20-item drawer lists (`commits`/`prs`
+        // below): counting those made every large project read exactly 20.
+        estimated_commits: projCommitMap.size,
+        estimated_prs: prMap.size,
         jira_details: Array.isArray(p.jira_keys) ? p.jira_keys.map(enrichKey) : [],
         groups: enrichedGroups,
         commits: enrichedCommits,
