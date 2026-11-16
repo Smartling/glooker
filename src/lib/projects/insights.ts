@@ -5,8 +5,10 @@ import { renderInflightBlock } from '@/lib/team-pulse/render';
 import type { TeamProjectInflightPr, TeamProjectInflightBranch } from '@/lib/team-pulse/data';
 
 // 4: estimated_commits/prs are real totals (were capped at the 20-item drawer lists).
-// 5: PRs keyed by repo + number (a PR number repeats across repos); "Other" excludes every PR a project credited.
-const INSIGHTS_CACHE_VERSION = 5;
+// 7: PRs keyed by repo + number (a PR number repeats across repos) and the LLM returns `pr_ids` as "repo#number";
+//    "Other" excludes every PR a project credited.
+// (5 and 6 were only ever generated locally while the prompt change was in progress.)
+const INSIGHTS_CACHE_VERSION = 7;
 
 /** A PR number is only unique within its repo. */
 const prKey = (c: { repo: string; pr_number?: number | null; pr?: number }) => `${c.repo}#${c.pr_number ?? c.pr}`;
@@ -142,14 +144,17 @@ export async function getProjectInsights(reportId?: string) {
   const commitBySha = new Map<string, any>(
     allCommitRows.map((c: any) => [c.commit_sha?.slice(0, 7), c]),
   );
-  // Keyed by bare number because that is what the LLM returns in pr_numbers; a number shared by
-  // PRs in two repos therefore credits both to the project (the PRs stay distinct below).
+  // By "repo#number" (what the LLM returns in `pr_ids`), and by bare number for a response in the old
+  // `pr_numbers` shape, where a number shared by PRs in two repos can only credit both.
+  const commitsByPrKey = new Map<string, any[]>();
   const commitsByPr = new Map<number, any[]>();
   for (const c of allCommitRows) {
     if (!c.pr_number) continue;
-    const arr = commitsByPr.get(c.pr_number) ?? [];
-    arr.push(c);
-    commitsByPr.set(c.pr_number, arr);
+    for (const [m, k] of [[commitsByPrKey, prKey(c)], [commitsByPr, c.pr_number]] as const) {
+      const arr = (m as Map<any, any[]>).get(k) ?? [];
+      arr.push(c);
+      (m as Map<any, any[]>).set(k, arr);
+    }
   }
   // For linked_commits/prs badges: count commits whose message contains each Jira key.
   // Use /g flag to capture all keys in a single message (e.g. "Fix BRZ-190 and BRZ-191").
@@ -190,7 +195,7 @@ export async function getProjectInsights(reportId?: string) {
     }
   }
   const prData = [...prSummaryMap.values()]
-    .map(p => `${p.pr}|${p.repo}|${p.login}|${p.commits}c|+${p.added}/-${p.removed}|${p.msg}`)
+    .map(p => `${prKey(p)}|${p.login}|${p.commits}c|+${p.added}/-${p.removed}|${p.msg}`)
     .join('\n');
 
   const noJiraData = allCommitRows
@@ -230,7 +235,7 @@ export async function getProjectInsights(reportId?: string) {
 You will receive:
 1. Jira issues: key|project_key|type|developer|summary
 2. All commits: sha|pr_number|repo|developer|message|+add/-remove  (commit messages often contain Jira keys — use this to link commits to issues)
-3. PR summaries: pr_number|repo|developer|commit_count|+add/-remove|first_message
+3. PR summaries: pr_id|developer|commit_count|+add/-remove|first_message  (pr_id is "repo#number"; the same number can exist in several repos)
 4. Untracked work (commits with no PR): repo|developer|message
 
 Your task:
@@ -238,12 +243,12 @@ Your task:
 2. For each project ENUMERATE exactly what you are attributing to it:
    - jira_keys: all Jira keys from JIRA ISSUES that belong to this cluster
    - groups: group those jira_keys into 2-4 named epic themes
-   - pr_numbers: all PR numbers from PR SUMMARIES that belong to this cluster
+   - pr_ids: all pr_ids ("repo#number", copied exactly) from PR SUMMARIES that belong to this cluster
    - commit_shas: any commit SHAs (7-char prefix) from UNTRACKED WORK that belong to this cluster
 3. Write a one-sentence summary of what the project achieves.
 4. Identify up to 5 significant GitHub efforts with NO Jira tickets (from untracked work).
 
-IMPORTANT: Each Jira key and each PR number must appear in exactly ONE project. No duplicates.
+IMPORTANT: Each Jira key and each pr_id must appear in exactly ONE project. No duplicates.
 
 Return JSON:
 {
@@ -254,7 +259,7 @@ Return JSON:
       "summary": "One sentence about what this project achieves",
       "jira_keys": ["PROJ-123", "PROJ-456"],
       "groups": [{ "name": "Epic theme name", "jira_keys": ["PROJ-123"] }],
-      "pr_numbers": [101, 102, 103],
+      "pr_ids": ["org/repo-a#101", "org/repo-b#101"],
       "commit_shas": ["abc1234", "def5678"]
     }
   ],
@@ -265,8 +270,8 @@ Return JSON:
 
 Rules:
 - Cluster by feature, not by Jira project key prefix
-- Each Jira key and each PR number appears in exactly ONE project
-- jira_keys: only keys from JIRA ISSUES; pr_numbers: only numbers from PR SUMMARIES; commit_shas: only 7-char SHAs from UNTRACKED WORK
+- Each Jira key and each pr_id appears in exactly ONE project
+- jira_keys: only keys from JIRA ISSUES; pr_ids: only pr_ids from PR SUMMARIES; commit_shas: only 7-char SHAs from UNTRACKED WORK
 - Keep summaries under 20 words
 - Return ONLY raw JSON`;
 
@@ -451,10 +456,11 @@ ${noJiraData}${inflightBlock}`;
       };
     };
 
-    // Every PR any project credited (via pr_numbers OR a commit sha), so "Other" never repeats one.
+    // Every PR any project credited (via pr_ids, pr_numbers or a commit sha), so "Other" never repeats one.
     const attributedPrKeys = new Set<string>();
     const enrichedProjects = (parsed.projects || []).map((p: any) => {
-      const llmPrNums = new Set<number>((p.pr_numbers ?? []).map(Number));
+      const llmPrKeys = new Set<string>((p.pr_ids ?? []).map(String));
+      const llmPrNums = new Set<number>((p.pr_numbers ?? []).map(Number)); // old response shape
       const llmShas = new Set<string>(p.commit_shas ?? []);
 
       // Gather all commits: by SHA (bare commits) + by PR number.
@@ -465,10 +471,11 @@ ${noJiraData}${inflightBlock}`;
         const c = commitBySha.get(sha);
         if (c) projCommitMap.set(c.commit_sha, c);
       }
+      for (const k of llmPrKeys) {
+        for (const c of commitsByPrKey.get(k) ?? []) projCommitMap.set(c.commit_sha, c);
+      }
       for (const prNum of llmPrNums) {
-        for (const c of commitsByPr.get(prNum) ?? []) {
-          projCommitMap.set(c.commit_sha, c);
-        }
+        for (const c of commitsByPr.get(prNum) ?? []) projCommitMap.set(c.commit_sha, c);
       }
       const projCommits = [...projCommitMap.values()]
         .sort((a, b) => new Date(b.committed_at).getTime() - new Date(a.committed_at).getTime())

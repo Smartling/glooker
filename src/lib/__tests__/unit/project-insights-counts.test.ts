@@ -66,7 +66,7 @@ it('counts every attributed commit and PR, and caps only the drawer lists at 20'
     choices: [{
       finish_reason: 'stop',
       message: { content: JSON.stringify({
-        projects: [{ name: 'Big proj', summary: 's', jira_keys: ['AAA-1'], pr_numbers: Array.from({ length: 25 }, (_, i) => i + 1), commit_shas: [] }],
+        projects: [{ name: 'Big proj', summary: 's', jira_keys: ['AAA-1'], pr_ids: Array.from({ length: 25 }, (_, i) => `r#${i + 1}`), commit_shas: [] }],
         untracked_work: [],
       }) },
     }],
@@ -82,14 +82,14 @@ it('counts every attributed commit and PR, and caps only the drawer lists at 20'
 
 const llmReturns = (project: object) => mockCreate.mockResolvedValue({
   choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({
-    projects: [{ name: 'P', summary: 's', jira_keys: ['AAA-1'], pr_numbers: [], commit_shas: [], ...project }],
+    projects: [{ name: 'P', summary: 's', jira_keys: ['AAA-1'], pr_ids: [], commit_shas: [], ...project }],
     untracked_work: [],
   }) } }],
 });
 
 it('counts only attributed commits: a PR number with no commits adds nothing, a bare commit adds no PR', async () => {
   COMMITS = [commit('abc0001', 7), commit('bare001', null)];
-  llmReturns({ pr_numbers: [7, 999], commit_shas: ['bare001'] });
+  llmReturns({ pr_ids: ['r#7', 'r#999'], commit_shas: ['bare001'] });
   const p = ((await getProjectInsights()) as any).projects[0];
   expect(p.estimated_commits).toBe(2);
   expect(p.estimated_prs).toBe(1);
@@ -97,12 +97,36 @@ it('counts only attributed commits: a PR number with no commits adds nothing, a 
   expect(p.prs_truncated).toBe(false);
 });
 
-it('keeps PRs with the same number in different repos apart', async () => {
+it('credits only the repo the LLM named when a PR number exists in two repos', async () => {
   COMMITS = [commit('aaa0001', 123, 'org/a'), commit('bbb0001', 123, 'org/b')];
-  llmReturns({ pr_numbers: [123] });
+  llmReturns({ pr_ids: ['org/a#123'] });
+  const r: any = await getProjectInsights();
+  expect(r.projects[0].estimated_prs).toBe(1);
+  expect(r.projects[0].prs.map((x: any) => x.repo)).toEqual(['org/a']);
+  expect(r.projects[0].pr_ids).toEqual(['org/a#123']); // the LLM's ids survive next to the PR details
+  expect(r.otherDetails.prs.map((x: any) => x.repo)).toEqual(['org/b']);
+});
+
+it('keeps both PRs apart when both are named', async () => {
+  COMMITS = [commit('aaa0001', 123, 'org/a'), commit('bbb0001', 123, 'org/b')];
+  llmReturns({ pr_ids: ['org/a#123', 'org/b#123'] });
   const p = ((await getProjectInsights()) as any).projects[0];
   expect(p.estimated_prs).toBe(2);
-  expect(p.prs.map((x: any) => x.repo).sort()).toEqual(['org/a', 'org/b']);
+});
+
+it('still reads the old bare pr_numbers shape', async () => {
+  COMMITS = [commit('abc0001', 7)];
+  llmReturns({ pr_ids: undefined, pr_numbers: [7] });
+  const p = ((await getProjectInsights()) as any).projects[0];
+  expect(p.estimated_prs).toBe(1);
+});
+
+it('sends the LLM repo-qualified PR ids', async () => {
+  COMMITS = [commit('aaa0001', 123, 'org/a')];
+  llmReturns({});
+  await getProjectInsights();
+  const user = mockCreate.mock.calls[0][0].messages.find((m: any) => m.role === 'user').content;
+  expect(user).toMatch(/^org\/a#123\|alice\|1c\|/m);
 });
 
 it('leaves a PR out of "Other" when a project reached it only through a commit sha', async () => {
@@ -115,7 +139,7 @@ it('leaves a PR out of "Other" when a project reached it only through a commit s
 });
 
 it('flags the drawer lists as truncated when there are more than 20', async () => {
-  llmReturns({ pr_numbers: Array.from({ length: 25 }, (_, i) => i + 1) });
+  llmReturns({ pr_ids: Array.from({ length: 25 }, (_, i) => `r#${i + 1}`) });
   const p = ((await getProjectInsights()) as any).projects[0];
   expect(p.commits_truncated).toBe(true);
   expect(p.prs_truncated).toBe(true);
