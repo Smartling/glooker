@@ -23,7 +23,7 @@ const PAGES: Array<{ path: string; expectText: RegExp }> = [
   // Not the "What's New" card (built from the checkout's own git history — empty in
   // CI's shallow clone) nor Highlights (needs two comparable reports). The nav's
   // summary link carries the seeded latest report's date, fetched client-side.
-  { path: '/', expectText: /Team Summary \w{3} \d+/ }, // nav link to the seeded report
+  { path: '/', expectText: /Leaderboard \w{3} \d+/ }, // nav link to the seeded report
   { path: '/reports', expectText: /mock-org · \d+ days/ }, // seeded report cards
   { path: '/reports?tab=syncs', expectText: /mock-org · Dependabot critical \+ high/ }, // seeded sync runs
   { path: '/settings', expectText: /Commit Analyzer/ }, // per-service LLM table from /api

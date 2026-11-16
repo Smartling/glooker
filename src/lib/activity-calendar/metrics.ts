@@ -9,10 +9,14 @@ export const METRIC_LABELS: Record<CalendarMetric, string> = {
   jira: 'Jira issues resolved',
   story_points: 'Story points',
   prs: 'PRs merged',
-  reviews: 'PR reviews',
+  reviews: 'PRs reviewed', // dated by the PR's merge day: pr_activity has no review timestamp
 };
 
 export const CALENDAR_DAYS = 365;
+
+/** URL value → metric, falling back to commits for anything unknown. */
+export const parseMetric = (v: string | null): CalendarMetric =>
+  (METRICS as readonly string[]).includes(v ?? '') ? (v as CalendarMetric) : 'commits';
 
 export interface CalendarRow {
   login: string;

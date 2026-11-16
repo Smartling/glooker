@@ -29,6 +29,8 @@ beforeAll(async () => {
   await commit('b1', 'bob', '2026-11-03 10:00:00', 1);
   await commit('x1', 'ann', '2026-11-01 10:00:00', 1, 'other'); // other org
   await commit('z1', 'zed', '2026-11-01 10:00:00', 1);          // not on the team
+  await commit('f1', 'ann', '2026-11-11 00:00:00', 7);          // after the last day shown
+  await commit('j1', 'JoeDev', '2026-11-04 10:00:00', 1);       // stored in a different case than the team
 
   const issue = (key: string, login: string, resolved: string | null, sp: number | null) => db.execute(
     `INSERT INTO jira_canonical (org, issue_key, issue_id, report_id, github_login, project_key, story_points, resolved_at)
@@ -44,6 +46,7 @@ beforeAll(async () => {
     'INSERT INTO developer_stats (report_id, github_login, github_name, avatar_url) VALUES (?, ?, ?, ?)', [report, login, name, avatar]);
   await dev('new', 'ann', 'Ann Lee', 'https://avatars.githubusercontent.com/u/1?v=new');
   await dev('old', 'ann', 'Ann Old', 'https://avatars.githubusercontent.com/u/1?v=old');
+  await dev('new', 'JOEDEV', 'Joe Dev', 'https://avatars.githubusercontent.com/u/2');
   await dev('oth', 'ann', 'Other Org', 'https://avatars.githubusercontent.com/u/1?v=other');
 
   const pr = (login: string, kind: string, n: number, at: string) => db.execute(
@@ -52,6 +55,7 @@ beforeAll(async () => {
   await pr('ann', 'authored', 1, '2026-11-02T10:00:00.000Z');
   await pr('ann', 'reviewed', 2, '2026-11-02T11:00:00.000Z');
   await pr('bob', 'reviewed', 1, '2026-11-02T12:00:00.000Z');
+  await pr('ann', 'authored', 3, '2026-11-11T01:00:00.000Z');  // after the last day shown
 });
 afterAll(() => {
   if (priorSqlitePath === undefined) delete process.env.SQLITE_PATH;
@@ -102,4 +106,20 @@ it("takes name and stored avatar from the member's latest report in this org", a
     name: 'Ann Lee', avatarUrl: 'https://avatars.githubusercontent.com/u/1?v=new',
   });
   expect(r.rows.find((x) => x.login === 'bob')).toMatchObject({ name: '', avatarUrl: '' });
+});
+
+it('ignores activity after the last day shown, so the total matches the grid', async () => {
+  const commits = await svc.getTeamCalendar('acme', ['ann'], 'commits', NOW);
+  expect(commits.rows[0].days['2026-11-11']).toBeUndefined();
+  expect(commits.rows[0].total).toBe(3);
+  const prs = await svc.getTeamCalendar('acme', ['ann'], 'prs', NOW);
+  expect(prs.rows[0].total).toBe(1);
+});
+
+it('matches logins case-insensitively and keeps the login as the team stores it', async () => {
+  const r = await svc.getTeamCalendar('acme', ['joedev'], 'commits', NOW);
+  expect(r.rows).toEqual([{
+    login: 'joedev', name: 'Joe Dev', avatarUrl: 'https://avatars.githubusercontent.com/u/2',
+    total: 1, days: { '2026-11-04': 1 },
+  }]);
 });

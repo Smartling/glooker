@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import useSWR from 'swr';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/app/auth-context';
-import { METRICS, METRIC_LABELS, type CalendarMetric, type CalendarResult } from '@/lib/activity-calendar/metrics';
+import { METRICS, METRIC_LABELS, parseMetric, type CalendarMetric, type CalendarResult } from '@/lib/activity-calendar/metrics';
 import CalendarGrid from './calendar-grid';
 import MemberLabel from './member-label';
 
@@ -33,7 +33,7 @@ export default function ActivityContent() {
   const teams = visible?.teams;
   const requested = params.get('team');
   const teamId = teams?.some((t) => t.id === requested) ? requested : teams?.[0]?.id ?? null;
-  const metric = (params.get('metric') ?? 'commits') as CalendarMetric;
+  const metric = parseMetric(params.get('metric'));
 
   const setParam = (key: string, value: string) => {
     const next = new URLSearchParams(params.toString());
@@ -53,7 +53,7 @@ export default function ActivityContent() {
   }, [org, teamId, params, router]);
 
   const key = org && teamId
-    ? `/api/activity-calendar?org=${encodeURIComponent(org)}&team=${encodeURIComponent(teamId)}&metric=${metric}`
+    ? `/api/activity-calendar?org=${encodeURIComponent(org)}&team=${encodeURIComponent(teamId)}&metric=${encodeURIComponent(metric)}`
     : null;
   const { data, error, isLoading } = useSWR<CalendarResponse>(key, fetchJson);
 
@@ -90,6 +90,7 @@ export default function ActivityContent() {
           {METRICS.map((m) => <option key={m} value={m}>{METRIC_LABELS[m]}</option>)}
         </select>
       </header>
+      {metric === 'reviews' && <p className="text-xs text-gray-500 -mt-4 mb-4">Each review is placed on the day its PR merged.</p>}
 
       {visible?.scope === 'all' && teams?.length === 0 && <p className="text-sm text-gray-400">No teams yet. Create one in Settings → Teams.</p>}
       {error && (
